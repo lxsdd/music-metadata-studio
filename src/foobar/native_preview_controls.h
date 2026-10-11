@@ -231,6 +231,30 @@ inline bool apply_native_preview_resize(
     return EndDeferWindowPos(defer) != FALSE;
 }
 
+// Content-aware FIRST-OPEN column fitting. Samples at most 96 displayed
+// names, not the user's full foobar library. Never call for a track change or
+// overwrite a custom profile layout. Returns logical 96-DPI units.
+inline int fit_initial_track_title_column(HWND list,
+    const std::vector<std::wstring>& labels,int dpi) {
+    if(!list || dpi<96) return 265;
+    RECT area{};
+    if(!GetClientRect(list,&area)) return 265;
+    const int available=(std::max)(MulDiv(165,dpi,96),
+        area.right-area.left-MulDiv(225,dpi,96));
+    int desired=ListView_GetStringWidthW(list,L"Track")+MulDiv(34,dpi,96);
+    const std::size_t max_samples=(std::min)(labels.size(),std::size_t(96));
+    for(std::size_t i=0;i<max_samples;++i) {
+        const auto& label=labels[i];
+        if(label.empty()) continue;
+        const int measured=ListView_GetStringWidthW(list,label.c_str());
+        if(measured>0) desired=(std::max)(desired,measured+MulDiv(30,dpi,96));
+    }
+    const int min_px=MulDiv(165,dpi,96);
+    const int max_px=(std::max)(min_px,(std::min)(available,MulDiv(600,dpi,96)));
+    const int actual=(std::clamp)(desired,min_px,max_px);
+    return (std::max)(48,MulDiv(actual,96,dpi));
+}
+
 inline bool align_label_to_input(HWND dialog, int label_id, int input_id) {
     const HWND label = GetDlgItem(dialog, label_id);
     const HWND input = GetDlgItem(dialog, input_id);
