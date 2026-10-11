@@ -2988,7 +2988,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 strategy="CUE release title + artist";
             }
             const std::wstring status=std::wstring(L"Searching MusicBrainz (read-only): ")+
-                from_utf8(strategy)+" ["+
+                from_utf8(strategy)+L" ["+
                 std::to_wstring(state->search_attempt_index+1)+L"/"+
                 std::to_wstring(strategy_count)+L"]...";
             SetDlgItemTextW(dialog,IDC_BATCH_HINT,status.c_str());
