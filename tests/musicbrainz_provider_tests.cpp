@@ -43,6 +43,34 @@ int main() {
     rejects([]{(void)make_search_path(SearchKind::Release,"","");},
             "empty search title rejected");
 
+    const auto klf=recording_search_plan(
+        "What Time Is Love (Original Version)","The KLF");
+    check(klf.core_title=="What Time Is Love" && klf.attempts.size()==4 &&
+          klf.attempts[0].label.starts_with("Main title + artist") &&
+          klf.attempts[0].path==make_search_path(
+              SearchKind::Recording,"What Time Is Love","The KLF") &&
+          klf.attempts[2].path==make_search_path(
+              SearchKind::Recording,"What Time Is Love",""),
+          "KLF regression: main title+artist before manually broader search");
+    check(search_title_core("Track (Unknown Remixer Club Dub)")==
+              "Track (Unknown Remixer Club Dub)" &&
+          search_title_core("Track (Extended Mix)")=="Track",
+          "unknown remix preserved, generic version only stripped for search");
+    const auto by_isrc=recording_search_plan("Track (Radio Edit)","Artist","usrc17607839");
+    check(by_isrc.attempts.size()==5 &&
+          by_isrc.attempts[0].label=="Exact ISRC identifier" &&
+          by_isrc.attempts[0].path.find("isrc%3AUSRC17607839")!=std::string::npos,
+          "valid ISRC prioritized ahead of title-only fallback");
+    check(!valid_search_isrc("../bad-1234") &&
+          recording_search_plan("Track","Artist","../bad-1234").attempts.size()==2,
+          "invalid ISRC never submitted; query count bounded");
+    check(recording_identity_label("What Time Is Love (Original Version)","The KLF",
+          "What Time Is Love?","The KLF")=="Version review" &&
+          recording_identity_label("What Time Is Love (Original Version)","The KLF",
+          "What Time Is Love?","Other Artist")=="Artist differs" &&
+          recording_identity_label("What Time Is Love?","The KLF",
+          "What Time Is Love?","The KLF")=="Title+artist",
+          "artist/version conflicts cannot be treated as an approved identity");
     const std::string recording_json=R"MB({
        "created":"2026-10-09","recording-count":2,
        "recordings":[
