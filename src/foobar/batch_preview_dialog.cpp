@@ -2850,7 +2850,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             SetDlgItemTextW(dialog,IDC_BATCH_HINT,status.c_str());
             RedrawWindow(dialog,nullptr,nullptr,RDW_INVALIDATE|RDW_UPDATENOW);
             const auto reply=fetch_musicbrainz_json_readonly(path);
-            const auto result=parse_search(reply,kind);
+            const auto result=djmeta::online::musicbrainz::parse_search(reply,kind);
             verify_snapshot(entry);
             verify_rules_snapshot(state->captured_rules);
             if (cue_mode && read_cue_raw_on_demand(
