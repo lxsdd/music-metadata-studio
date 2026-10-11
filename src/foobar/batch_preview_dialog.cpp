@@ -2249,6 +2249,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
     if (!state) return FALSE;
 
     if (message == WM_NCDESTROY) {
+        if (state->help_tooltips && IsWindow(state->help_tooltips)) {
+            DestroyWindow(state->help_tooltips);
+            state->help_tooltips=nullptr;
+        }
         if (state->modeless_registered) {
             modeless_dialog_manager::g_remove(dialog);
             state->modeless_registered=false;
@@ -2855,6 +2859,21 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 inventory.encoding == djmeta::CueTextEncoding::UnsupportedUtf16)
                 throw std::invalid_argument(
                     "CUE syntax or encoding is not qualified for read-only inventory.");
+            // Inspect CUE is deliberate read-only work. Offer its real album
+            // TITLE as the next release search term without contacting MB.
+            if (inventory.status == djmeta::CueSyntaxStatus::Parsed) {
+                try {
+                    const auto album=unique_cue_album_value(inventory,"TITLE");
+                    if (!album.empty()) {
+                        state->auto_search_text=from_utf8(album);
+                        state->auto_search_track=state->selected_track_index;
+                        SetDlgItemTextW(dialog,IDC_METADATA_MB_QUERY,
+                                        state->auto_search_text.c_str());
+                    }
+                } catch (const std::exception&) {
+                    // An ambiguous CUE title requires manual search text.
+                }
+            }
             std::vector<djmeta::online::FieldReviewRow> fields;
             const auto add_field = [&](const std::string& label,
                                        const djmeta::CueMetadataField& field,
