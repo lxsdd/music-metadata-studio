@@ -114,7 +114,7 @@ int main() {
     check(tip!=nullptr,"native tooltip window can be created");
     static wchar_t hover_text[]=L"Refresh reloads captured tracks; no files change.";
     TOOLINFOW tip_info{};
-    tip_info.cbSize=sizeof(tip_info);
+    tip_info.cbSize=TTTOOLINFOW_V2_SIZE;
     tip_info.hwnd=dialog;
     tip_info.uFlags=TTF_SUBCLASS|TTF_IDISHWND;
     tip_info.uId=reinterpret_cast<UINT_PTR>(refresh);
