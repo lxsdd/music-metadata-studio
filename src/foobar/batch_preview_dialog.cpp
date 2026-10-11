@@ -121,6 +121,7 @@ struct PreviewState {
     bool updating_track_selection = false;
     bool updating_musicbrainz_selection = false;
     bool musicbrainz_browse_columns_active = false;
+    bool native_grid_candidate_mode = false; // still tracks layout on File locations
     bool existing_tags_view = false; // raw captured physical tags, never proposals
     std::vector<std::pair<std::wstring,std::wstring>> existing_tag_rows;
     std::size_t selected_track_index = 0;
@@ -1200,11 +1201,11 @@ void update_master_table(PreviewState& state) {
 
 void show_preview_page(HWND dialog, PreviewState& state,
                        bool metadata, bool candidate = false) {
-    if (metadata && state.show_metadata && state.show_candidate!=candidate &&
+    if (metadata && state.native_grid_candidate_mode!=candidate &&
         state.metadata_track_list && state.metadata_list) {
         // Capture the outgoing grid ONCE at the actual previous display DPI.
         // Review and online search never reuse each other's column widths.
-        if (state.show_candidate) {
+        if (state.native_grid_candidate_mode) {
             capture_review_grid_controls(state.metadata_track_list,
                 state.candidate_track_grid,state.active_dpi);
             capture_review_grid_controls(state.metadata_list,
@@ -1225,6 +1226,7 @@ void show_preview_page(HWND dialog, PreviewState& state,
             apply_review_grid_controls(state.metadata_list,
                 state.candidate_detail_grid,state.active_dpi);
         }
+        state.native_grid_candidate_mode=candidate;
     }
     state.show_metadata = metadata;
     state.show_candidate = candidate;
@@ -2816,7 +2818,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 !state->metadata_list || !state->list) return FALSE;
             capture_column_layout(*state);
             store_batch_table_layout(state->layout);
-            if (state->show_candidate) {
+            if (state->native_grid_candidate_mode) {
                 capture_review_grid_controls(state->metadata_track_list,
                     state->candidate_track_grid,current_dpi(state->metadata_track_list));
                 capture_review_grid_controls(state->metadata_list,
@@ -2842,7 +2844,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         if (new_dpi >= 96 && new_dpi <= 768 && state->active_dpi != new_dpi) {
             // Capture at the *previous* DPI before applying a new scale.
             // Preserve hidden logical widths and current user resizing.
-            if (state->show_candidate) {
+            if (state->native_grid_candidate_mode) {
                 capture_review_grid_controls(state->metadata_track_list,
                     state->candidate_track_grid,state->active_dpi);
                 capture_review_grid_controls(state->metadata_list,
@@ -2862,10 +2864,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             dimensions->bottom - dimensions->top,
             SWP_NOZORDER | SWP_NOACTIVATE);
         apply_review_grid_controls(state->metadata_track_list,
-            state->show_candidate?state->candidate_track_grid:state->track_grid,
+            state->native_grid_candidate_mode?state->candidate_track_grid:state->track_grid,
             state->active_dpi);
         apply_review_grid_controls(state->metadata_list,
-            state->show_candidate?state->candidate_detail_grid:state->detail_grid,
+            state->native_grid_candidate_mode?state->candidate_detail_grid:state->detail_grid,
             state->active_dpi);
         align_native_preview_form(dialog);
         return TRUE;
