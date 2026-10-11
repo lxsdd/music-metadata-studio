@@ -304,6 +304,126 @@ inline std::string make_search_path(SearchKind kind,
         ? "/ws/2/recording?query=" : "/ws/2/release?query=") +
         encode_url_query(query)+"&fmt=json&limit=8";
 }
+
+struct RecordingSearchAttempt {
+    std::string label; // Explicit, human-readable provenance of one HTTPS request.
+    std::string path;
+};
+struct RecordingSearchPlan {
+    std::string full_title;
+    std::string core_title;
+    std::string artist;
+    std::vector<RecordingSearchAttempt> attempts;
+};
+
+// Exact recording/mix identity and search recall are separate questions.
+// Remove a *known trailing* parenthetical version ONLY for discovery, never
+// for metadata replacement or match approval. Unknown parentheticals stay.
+inline std::string search_title_core(std::string_view full) {
+    std::string trimmed(full);
+    const auto end=trimmed.find_last_not_of(" \t");
+    if(end==std::string::npos) return {};
+    trimmed.resize(end+1);
+    if(trimmed.size()<4 || trimmed.back()!=')') return trimmed;
+    const auto pos=trimmed.find_last_of('(');
+    if(pos==std::string::npos || pos==0) return trimmed;
+    std::string qualifier=trimmed.substr(pos+1,trimmed.size()-pos-2);
+    for(char& c:qualifier) if(c>='A'&&c<='Z') c=static_cast<char>(c+('a'-'A'));
+    static constexpr std::string_view generic[]={
+        "original version","original mix","original","album version",
+        "album mix","radio edit","radio version","radio mix",
+        "extended version","extended mix","extended","club mix",
+        "single version","single mix","instrumental","edit",
+        "remastered","remaster","remastered version"
+    };
+    bool known=false;
+    for(auto key:generic) if(qualifier==key) {known=true;break;}
+    if(!known) return trimmed;
+    std::string core=trimmed.substr(0,pos);
+    const auto last=core.find_last_not_of(" \t");
+    if(last==std::string::npos) return trimmed;
+    core.resize(last+1);
+    return core;
+}
+
+inline bool valid_search_isrc(std::string_view value) {
+    if(value.size()!=12) return false;
+    for(std::size_t i=0;i<value.size();++i) {
+        const char c=value[i];
+        const bool letter=(c>='A'&&c<='Z')||(c>='a'&&c<='z');
+        const bool digit=(c>='0'&&c<='9');
+        if((i<2 && !letter) || (i>=2 && i<5 && !letter && !digit) ||
+           (i>=5 && !digit)) return false;
+    }
+    return true;
+}
+
+inline RecordingSearchPlan recording_search_plan(
+    std::string_view full_title, std::string_view artist,
+    std::string_view isrc = {}) {
+    RecordingSearchPlan p;
+    p.full_title=std::string(full_title);
+    p.core_title=search_title_core(full_title);
+    p.artist=std::string(artist);
+    const auto add=[&](std::string label,std::string path) {
+        for(const auto& a:p.attempts) if(a.path==path) return;
+        p.attempts.push_back({std::move(label),std::move(path)});
+    };
+    if(valid_search_isrc(isrc)) {
+        std::string code(isrc);
+        for(char& ch:code) if(ch>='a'&&ch<='z') ch=static_cast<char>(ch-32);
+        add("Exact ISRC identifier", "/ws/2/recording?query="+
+            encode_url_query("isrc:"+code)+"&fmt=json&limit=8");
+    }
+    if(!p.artist.empty()) {
+        add(p.full_title==p.core_title ?
+            "Original title + artist" : "Main title + artist (version kept for review)",
+            make_search_path(SearchKind::Recording,p.core_title,p.artist));
+        if(p.core_title!=p.full_title)
+            add("Full title + artist",make_search_path(
+                SearchKind::Recording,p.full_title,p.artist));
+    }
+    add(p.full_title==p.core_title ? "Title only" :
+        "Main title only (version kept for review)",
+        make_search_path(SearchKind::Recording,p.core_title,""));
+    if(p.core_title!=p.full_title)
+        add("Full title only",make_search_path(
+            SearchKind::Recording,p.full_title,""));
+    return p;
+}
+
+inline std::string comparable_search_key(std::string_view v) {
+    std::string s;
+    bool separator=false;
+    for(unsigned char c:v) {
+        if((c>='A'&&c<='Z')||(c>='a'&&c<='z')||(c>='0'&&c<='9')||c>=128) {
+            if(separator && !s.empty()) s.push_back(' ');
+            separator=false;
+            s.push_back(static_cast<char>(
+                c>='A'&&c<='Z'?c+('a'-'A'):c));
+        } else separator=true;
+    }
+    return s;
+}
+
+// Descriptive alignment, NOT automatic confidence or permission to import.
+inline std::string recording_identity_label(std::string_view source_title,
+    std::string_view source_artist, std::string_view candidate_title,
+    std::string_view candidate_artist) {
+    const auto artist=comparable_search_key(source_artist);
+    const auto matched_artist=comparable_search_key(candidate_artist);
+    if(!artist.empty() && artist!=matched_artist)
+        return "Artist differs";
+    const auto full=comparable_search_key(source_title);
+    const auto match=comparable_search_key(candidate_title);
+    if(full==match && !full.empty()) return "Title+artist";
+    const auto core=comparable_search_key(search_title_core(source_title));
+    const auto candidate_core=comparable_search_key(search_title_core(candidate_title));
+    if(!core.empty() && core==candidate_core)
+        return "Version review";
+    return "Identity review";
+}
+
 inline std::string make_release_lookup_path(std::string_view mbid) {
     if (!valid_mbid(mbid))
         throw std::invalid_argument("Invalid MusicBrainz release identity");
