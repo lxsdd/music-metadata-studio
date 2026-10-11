@@ -115,6 +115,9 @@ struct PreviewState {
     bool candidate_sort_descending = false;
     djmeta::ReviewGridLayout<4> track_grid;
     djmeta::ReviewGridLayout<5> detail_grid;
+    djmeta::ReviewGridLayout<4> candidate_track_grid;
+    djmeta::ReviewGridLayout<5> candidate_detail_grid;
+    bool candidate_online_track_columns_active=false;
     bool updating_track_selection = false;
     bool updating_musicbrainz_selection = false;
     bool musicbrainz_browse_columns_active = false;
@@ -874,19 +877,22 @@ void update_musicbrainz_browse_headers(PreviewState& state) {
         column.pszText=const_cast<LPWSTR>(names[i]);
         ListView_SetColumn(state.metadata_list,i,&column);
     }
-    if (!browse && state.musicbrainz_browse_columns_active) {
-        apply_review_grid_controls(state.metadata_list,state.detail_grid,
-                                   state.active_dpi);
-    }
-    state.musicbrainz_browse_columns_active=browse;
-    if (browse) {
-        RECT bounds{};
-        GetClientRect(state.metadata_list,&bounds);
-        const int width=bounds.right-bounds.left-8;
-        const int proportions[]={30,19,16,14,21};
-        for(int i=0;i<5;++i)
-            ListView_SetColumnWidth(state.metadata_list,i,
-                (std::max)(52,width*proportions[i]/100));
+    // Widths are a user setting, not a property of the selected track.
+    // Apply only when changing between review and candidate modes; never
+    // when a list is repainted, resorted, or another track is selected.
+    if (browse != state.musicbrainz_browse_columns_active) {
+        if (!browse && state.musicbrainz_browse_columns_active) {
+            capture_review_grid_controls(state.metadata_list,
+                state.candidate_detail_grid,state.active_dpi);
+        }
+        if (browse)
+            apply_review_grid_controls(state.metadata_list,
+                state.candidate_detail_grid,state.active_dpi);
+        else
+            apply_review_grid_controls(state.metadata_list,
+                state.show_candidate?state.candidate_detail_grid:state.detail_grid,
+                state.active_dpi);
+        state.musicbrainz_browse_columns_active=browse;
     }
 }
 
@@ -905,20 +911,20 @@ void update_metadata_table(PreviewState& state) {
             column.pszText=const_cast<LPWSTR>(candidate_headers[i]);
             ListView_SetColumn(state.metadata_track_list,i+1,&column);
         }
-        if (state.musicbrainz_live_view) {
-            // One local source, number of online hits, blocked identities.
-            // The old fourth narrow column truncated "Unmatched" to
-            // "Unma..." even with ample space in the maximized window.
-            ListView_SetColumnWidth(state.metadata_track_list,0,
-                (std::max)(138,MulDiv(180,state.active_dpi,96)));
-            ListView_SetColumnWidth(state.metadata_track_list,1,
-                (std::max)(50,MulDiv(60,state.active_dpi,96)));
-            ListView_SetColumnWidth(state.metadata_track_list,2,
-                (std::max)(80,MulDiv(92,state.active_dpi,96)));
+        // A new track cannot reset a user-resized column. The online
+        // track grid is initialized only when entering candidate mode.
+        const bool browse_track=state.musicbrainz_live_view &&
+            state.candidate_source_index==state.selected_track_index;
+        if (browse_track && !state.candidate_online_track_columns_active) {
+            capture_review_grid_controls(state.metadata_track_list,
+                state.candidate_track_grid,state.active_dpi);
             ListView_SetColumnWidth(state.metadata_track_list,3,0);
-        } else {
-            apply_review_grid_controls(state.metadata_track_list,state.track_grid,
-                                       state.active_dpi);
+            state.candidate_online_track_columns_active=true;
+        } else if (!browse_track && state.candidate_online_track_columns_active) {
+            // The fourth column is only meaningless during online browsing.
+            ListView_SetColumnWidth(state.metadata_track_list,3,
+                MulDiv(state.candidate_track_grid.widths[3],state.active_dpi,96));
+            state.candidate_online_track_columns_active=false;
         }
         const bool selected_valid = state.selected_track_index < state.entries.size();
         const bool physical = selected_valid &&
@@ -1168,6 +1174,32 @@ void update_master_table(PreviewState& state) {
 
 void show_preview_page(HWND dialog, PreviewState& state,
                        bool metadata, bool candidate = false) {
+    if (metadata && state.show_metadata && state.show_candidate!=candidate &&
+        state.metadata_track_list && state.metadata_list) {
+        // Capture the outgoing grid ONCE at the actual previous display DPI.
+        // Review and online search never reuse each other's column widths.
+        if (state.show_candidate) {
+            capture_review_grid_controls(state.metadata_track_list,
+                state.candidate_track_grid,state.active_dpi);
+            capture_review_grid_controls(state.metadata_list,
+                state.candidate_detail_grid,state.active_dpi);
+            state.candidate_online_track_columns_active=false;
+            state.musicbrainz_browse_columns_active=false;
+            apply_review_grid_controls(state.metadata_track_list,state.track_grid,
+                                       state.active_dpi);
+            apply_review_grid_controls(state.metadata_list,state.detail_grid,
+                                       state.active_dpi);
+        } else {
+            capture_review_grid_controls(state.metadata_track_list,
+                state.track_grid,state.active_dpi);
+            capture_review_grid_controls(state.metadata_list,
+                state.detail_grid,state.active_dpi);
+            apply_review_grid_controls(state.metadata_track_list,
+                state.candidate_track_grid,state.active_dpi);
+            apply_review_grid_controls(state.metadata_list,
+                state.candidate_detail_grid,state.active_dpi);
+        }
+    }
     state.show_metadata = metadata;
     state.show_candidate = candidate;
     SetDlgItemTextW(dialog, IDC_BATCH_GUIDE, candidate
@@ -2228,6 +2260,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         add_column(state->metadata_list, 3, L"Safety", 57);
         add_column(state->metadata_list, 4, L"Decision", 68);
         state->detail_grid = load_detail_grid_layout();
+        state->candidate_track_grid = load_candidate_track_grid_layout();
+        state->candidate_detail_grid = load_candidate_detail_grid_layout();
         apply_review_grid_controls(state->metadata_list, state->detail_grid,
                                    current_dpi(state->metadata_list));
         for (const wchar_t* focus : {L"Music proposals", L"Extended proposals",
@@ -2735,13 +2769,21 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 !state->metadata_list || !state->list) return FALSE;
             capture_column_layout(*state);
             store_batch_table_layout(state->layout);
-            capture_review_grid_controls(state->metadata_track_list, state->track_grid,
-                                         current_dpi(state->metadata_track_list));
-            if (!state->musicbrainz_browse_columns_active)
-                capture_review_grid_controls(state->metadata_list, state->detail_grid,
-                                             current_dpi(state->metadata_list));
+            if (state->show_candidate) {
+                capture_review_grid_controls(state->metadata_track_list,
+                    state->candidate_track_grid,current_dpi(state->metadata_track_list));
+                capture_review_grid_controls(state->metadata_list,
+                    state->candidate_detail_grid,current_dpi(state->metadata_list));
+            } else if (state->show_metadata) {
+                capture_review_grid_controls(state->metadata_track_list,
+                    state->track_grid,current_dpi(state->metadata_track_list));
+                capture_review_grid_controls(state->metadata_list,
+                    state->detail_grid,current_dpi(state->metadata_list));
+            }
             store_track_grid_layout(state->track_grid);
             store_detail_grid_layout(state->detail_grid);
+            store_candidate_track_grid_layout(state->candidate_track_grid);
+            store_candidate_detail_grid_layout(state->candidate_detail_grid);
         } catch (const std::exception&) {
             // Invalid profile display state is non-critical; retain defaults.
         }
@@ -2753,12 +2795,17 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         if (new_dpi >= 96 && new_dpi <= 768 && state->active_dpi != new_dpi) {
             // Capture at the *previous* DPI before applying a new scale.
             // Preserve hidden logical widths and current user resizing.
-            if (!state->musicbrainz_live_view)
+            if (state->show_candidate) {
                 capture_review_grid_controls(state->metadata_track_list,
-                                             state->track_grid, state->active_dpi);
-            if (!state->musicbrainz_browse_columns_active)
+                    state->candidate_track_grid,state->active_dpi);
                 capture_review_grid_controls(state->metadata_list,
-                                             state->detail_grid, state->active_dpi);
+                    state->candidate_detail_grid,state->active_dpi);
+            } else if (state->show_metadata) {
+                capture_review_grid_controls(state->metadata_track_list,
+                    state->track_grid,state->active_dpi);
+                capture_review_grid_controls(state->metadata_list,
+                    state->detail_grid,state->active_dpi);
+            }
             state->active_dpi = new_dpi;
         }
         const auto* dimensions = reinterpret_cast<const RECT*>(lp);
@@ -2768,9 +2815,11 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             dimensions->bottom - dimensions->top,
             SWP_NOZORDER | SWP_NOACTIVATE);
         apply_review_grid_controls(state->metadata_track_list,
-                                   state->track_grid, state->active_dpi);
+            state->show_candidate?state->candidate_track_grid:state->track_grid,
+            state->active_dpi);
         apply_review_grid_controls(state->metadata_list,
-                                   state->detail_grid, state->active_dpi);
+            state->show_candidate?state->candidate_detail_grid:state->detail_grid,
+            state->active_dpi);
         align_native_preview_form(dialog);
         return TRUE;
     }
