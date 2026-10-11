@@ -2067,7 +2067,7 @@ void install_workspace_tooltips(PreviewState& state) {
         const HWND child=GetDlgItem(dialog,item.id);
         if (!child) continue; // Optional page control absent on older hosts.
         TOOLINFOW tool{};
-        tool.cbSize=sizeof(tool);
+        tool.cbSize=TTTOOLINFOW_V2_SIZE;
         tool.uFlags=TTF_IDISHWND|TTF_SUBCLASS;
         tool.hwnd=dialog;
         tool.uId=reinterpret_cast<UINT_PTR>(child);
