@@ -382,7 +382,7 @@ inline bool align_native_search_field(HWND dialog) {
     const int actionHeight=action.bottom-action.top;
     // Keep the native EDIT text's upper inset close to its actual text height.
     // At 100-200% Windows scaling avoid an unreasonably tall input frame.
-    const int height=(std::min)(actionHeight,(std::max)(metrics.tmHeight+6,15));
+    const int height=(std::min)(actionHeight,(std::max)(static_cast<int>(metrics.tmHeight)+6,15));
     const int targetY=(action.top+action.bottom+4-height)/2;
     MapWindowPoints(HWND_DESKTOP,dialog,reinterpret_cast<POINT*>(&field),2);
     POINT top{0,targetY};
