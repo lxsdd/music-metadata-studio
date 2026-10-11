@@ -2299,7 +2299,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             return TRUE;
         }
         if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&
-            (header->code == NM_DBLCLK || header->code == LVN_ITEMACTIVATE)) {
+            header->code == LVN_ITEMACTIVATE) {
             const auto* clicked = reinterpret_cast<const NMITEMACTIVATE*>(lp);
             if (!clicked || clicked->iItem < 0 ||
                 static_cast<std::size_t>(clicked->iItem) >= state->track_view_order.size())
