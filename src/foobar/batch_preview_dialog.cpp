@@ -1220,8 +1220,11 @@ void show_preview_page(HWND dialog, PreviewState& state,
         candidate ? SW_SHOW : SW_HIDE);
     layout_musicbrainz_detail_pane(state);
     update_musicbrainz_browse_headers(state);
-    const wchar_t* headers[2] = { candidate ? L"Source" : L"Safety",
-                                   candidate ? L"Status" : L"Decision" };
+    const wchar_t* headers[2] = {
+        candidate || state.existing_tags_view ? L"Source" : L"Safety",
+        candidate ? L"Status" : state.existing_tags_view
+            ? L"Write status" : L"Decision"
+    };
     for (int i = 0; i < 2; ++i) {
         LVCOLUMNW col{};
         col.mask = LVCF_TEXT;
@@ -1229,9 +1232,12 @@ void show_preview_page(HWND dialog, PreviewState& state,
         ListView_SetColumn(state.metadata_list, i + 3, &col);
     }
     const wchar_t* track_headers[3] = {
-        candidate ? (state.musicbrainz_live_view?L"Hits":L"Tags") : L"Music",
-        candidate ? (state.musicbrainz_live_view?L"Blocked":L"Diffs") : L"Other",
-        candidate ? (state.musicbrainz_live_view?L"":L"Block") : L"Review"
+        candidate ? (state.musicbrainz_live_view?L"Hits":L"Tags") :
+            state.existing_tags_view?L"Tags":L"Music",
+        candidate ? (state.musicbrainz_live_view?L"Blocked":L"Diffs") :
+            state.existing_tags_view?L"":L"Other",
+        candidate ? (state.musicbrainz_live_view?L"":L"Block") :
+            state.existing_tags_view?L"":L"Review"
     };
     for (int i = 0; i < 3; ++i) {
         LVCOLUMNW col{};
