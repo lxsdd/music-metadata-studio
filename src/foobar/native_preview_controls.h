@@ -240,13 +240,15 @@ inline int fit_initial_track_title_column(HWND list,
     RECT area{};
     if(!GetClientRect(list,&area)) return 265;
     const int available=(std::max)(MulDiv(165,dpi,96),
-        area.right-area.left-MulDiv(225,dpi,96));
-    int desired=ListView_GetStringWidthW(list,L"Track")+MulDiv(34,dpi,96);
+        static_cast<int>(area.right-area.left)-MulDiv(225,dpi,96));
+    int desired=static_cast<int>(SendMessageW(list,LVM_GETSTRINGWIDTHW,0,
+        reinterpret_cast<LPARAM>(L"Track")))+MulDiv(34,dpi,96);
     const std::size_t max_samples=(std::min)(labels.size(),std::size_t(96));
     for(std::size_t i=0;i<max_samples;++i) {
         const auto& label=labels[i];
         if(label.empty()) continue;
-        const int measured=ListView_GetStringWidthW(list,label.c_str());
+        const int measured=static_cast<int>(SendMessageW(list,LVM_GETSTRINGWIDTHW,0,
+            reinterpret_cast<LPARAM>(label.c_str())));
         if(measured>0) desired=(std::max)(desired,measured+MulDiv(30,dpi,96));
     }
     const int min_px=MulDiv(165,dpi,96);
