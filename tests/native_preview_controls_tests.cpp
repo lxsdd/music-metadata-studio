@@ -466,6 +466,27 @@ int main() {
     djmeta_foobar::capture_review_grid_controls(track_list, track_layout, 96);
     check(track_layout.widths[0] == 190 && track_layout.widths[2] == hidden_width,
           "real resizing persists visible width but retains hidden width");
+    const auto measured=djmeta_foobar::fit_initial_track_title_column(
+        track_list,{L"Short.mp3",L"The KLF - What Time Is Love (Original Version).mp3"},96);
+    check(measured>=165 && measured<=600,
+          "first-open native font measurement is bounded");
+    // Owner-data re-selection must preserve widths independently for Review
+    // and MusicBrainz. Mode changes apply persisted widths, never defaults.
+    auto online_grid=djmeta::default_review_grid_layout<4>({280,75,90,85});
+    djmeta_foobar::apply_review_grid_controls(track_list,online_grid,96);
+    ListView_SetColumnWidth(track_list,0,342);
+    ListView_SetItemCountEx(track_list,2,LVSICF_NOINVALIDATEALL|LVSICF_NOSCROLL);
+    check(ListView_GetColumnWidth(track_list,0)==342,
+          "switching owner-data track does not reset custom online column width");
+    djmeta_foobar::capture_review_grid_controls(track_list,online_grid,96);
+    check(online_grid.widths[0]==342 && track_layout.widths[0]==190,
+          "candidate and review track widths are separately remembered");
+    djmeta_foobar::apply_review_grid_controls(track_list,track_layout,96);
+    check(ListView_GetColumnWidth(track_list,0)==190,
+          "returning to review restores its prior custom width");
+    djmeta_foobar::apply_review_grid_controls(track_list,online_grid,96);
+    check(ListView_GetColumnWidth(track_list,0)==342,
+          "reopening search restores the previously customized online width");
     auto detail_layout = djmeta::default_review_grid_layout<5>({80, 105, 105, 60, 75});
     detail_layout.order = {4, 0, 1, 3, 2};
     HWND detail_list = GetDlgItem(dialog, IDC_METADATA_LIST);
