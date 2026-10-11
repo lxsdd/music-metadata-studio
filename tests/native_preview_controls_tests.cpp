@@ -73,7 +73,7 @@ bool centers_match(HWND dialog, int label_id, int control_id) {
 
 int main() {
     INITCOMMONCONTROLSEX controls{sizeof(controls),
-                                  ICC_LISTVIEW_CLASSES | ICC_TAB_CLASSES};
+                                  ICC_LISTVIEW_CLASSES | ICC_TAB_CLASSES | ICC_BAR_CLASSES};
     check(InitCommonControlsEx(&controls) != FALSE,
           "native listview and tabs initialization");
     HWND dialog = CreateDialogParamW(GetModuleHandleW(nullptr),
@@ -92,8 +92,36 @@ int main() {
           GetWindow(dialog,GW_OWNER)==nullptr,
           "workspace has independent taskbar/Alt-Tab identity and no forced owner");
     HWND refresh=GetDlgItem(dialog,IDC_BATCH_REFRESH);
-    check(refresh!=nullptr && IsWindowEnabled(refresh),
-          "explicit snapshot-refresh command exists in production resources");
+    HWND help=GetDlgItem(dialog,IDC_BATCH_HELP);
+    HWND guide=GetDlgItem(dialog,IDC_BATCH_GUIDE);
+    check(refresh!=nullptr && IsWindowEnabled(refresh) && help && guide,
+          "production resource offers Refresh, Help and stage guidance");
+    wchar_t caption[96]{};
+    GetWindowTextW(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH),caption,96);
+    check(std::wcscmp(caption,L"Search MusicBrainz")==0,
+          "search button names its online source");
+    GetWindowTextW(GetDlgItem(dialog,IDC_METADATA_MB_LOAD_RELEASE),caption,96);
+    check(std::wcscmp(caption,L"Inspect release tracks")==0,
+          "release action is clearly read-only inspection");
+    RECT guide_rect{},search_rect{};
+    check(GetWindowRect(guide,&guide_rect) &&
+          GetWindowRect(GetDlgItem(dialog,IDC_METADATA_MB_QUERY),&search_rect) &&
+          guide_rect.bottom<=search_rect.top,
+          "stage guidance sits above search controls");
+    HWND tip=CreateWindowExW(WS_EX_TOPMOST,TOOLTIPS_CLASSW,nullptr,
+          WS_POPUP|TTS_ALWAYSTIP|TTS_NOPREFIX,CW_USEDEFAULT,CW_USEDEFAULT,
+          CW_USEDEFAULT,CW_USEDEFAULT,dialog,nullptr,GetModuleHandleW(nullptr),nullptr);
+    check(tip!=nullptr,"native tooltip window can be created");
+    static wchar_t hover_text[]=L"Refresh reloads captured tracks; no files change.";
+    TOOLINFOW tip_info{};
+    tip_info.cbSize=sizeof(tip_info);
+    tip_info.hwnd=dialog;
+    tip_info.uFlags=TTF_SUBCLASS|TTF_IDISHWND;
+    tip_info.uId=reinterpret_cast<UINT_PTR>(refresh);
+    tip_info.lpszText=hover_text;
+    check(SendMessageW(tip,TTM_ADDTOOLW,0,reinterpret_cast<LPARAM>(&tip_info))!=FALSE,
+          "native Refresh button supports hover explanation");
+    DestroyWindow(tip);
     RECT refresh_rect{}, hint_rect{}, footer_rect{};
     check(GetWindowRect(refresh,&refresh_rect) &&
           GetWindowRect(GetDlgItem(dialog,IDC_BATCH_HINT),&hint_rect) &&
@@ -638,8 +666,10 @@ int main() {
                           &scope_info)!=FALSE,
           "actual production toolbar and scope input rectangles readable");
     const auto center=[](const RECT& r){return (r.top+r.bottom)/2;};
-    check(center(aligned_query)==center(aligned_search)+2,
-          "search edit text is optically aligned two pixels below themed button frame");
+    check(std::abs(center(aligned_query)-center(aligned_search)-2)<=1 &&
+          aligned_query.bottom-aligned_query.top <
+              aligned_search.bottom-aligned_search.top,
+          "font-sized search EDIT aligns optically without a tall top-biased text box");
     RECT scope_item=scope_info.rcItem;
     MapWindowPoints(GetDlgItem(dialog,IDC_METADATA_REVIEW_SCOPE),
                     HWND_DESKTOP,reinterpret_cast<POINT*>(&scope_item),2);
