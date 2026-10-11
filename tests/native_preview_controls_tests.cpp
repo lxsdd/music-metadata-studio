@@ -239,17 +239,21 @@ int main() {
         }
     }
     check(djmeta_foobar::may_activate_musicbrainz_release(
-        LVN_ITEMACTIVATE,true,true,false,true),
+        NM_DBLCLK,true,true,false,true) &&
+          djmeta_foobar::may_activate_musicbrainz_release(
+        LVN_KEYDOWN,true,true,false,true,VK_RETURN),
         "double-click or Enter can load a verified MusicBrainz release");
     check(!djmeta_foobar::may_activate_musicbrainz_release(
-        LVN_ITEMACTIVATE,true,false,false,true) &&
+        NM_DBLCLK,true,false,false,true) &&
           !djmeta_foobar::may_activate_musicbrainz_release(
-        LVN_ITEMACTIVATE,true,true,true,true) &&
+        NM_DBLCLK,true,true,true,true) &&
           !djmeta_foobar::may_activate_musicbrainz_release(
-        LVN_ITEMACTIVATE,true,true,false,false) &&
+        NM_DBLCLK,true,true,false,false) &&
           !djmeta_foobar::may_activate_musicbrainz_release(
-        NM_DBLCLK,true,true,false,true),
-        "release activation refuses recording, loaded, stale and duplicate events");
+        LVN_ITEMACTIVATE,true,true,false,true) &&
+          !djmeta_foobar::may_activate_musicbrainz_release(
+        LVN_KEYDOWN,true,true,false,true,VK_SPACE),
+        "release activation refuses recording, loaded, stale and double-delivered events");
     HWND cue_inspect = GetDlgItem(dialog, IDC_METADATA_INSPECT_CUE);
     check(cue_inspect != nullptr,
           "production read-only CUE inspect button exists in real dialog resource");
