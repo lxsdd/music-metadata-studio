@@ -60,6 +60,9 @@ struct PreviewEntry {
 
 struct PreviewState {
     HWND dialog = nullptr;
+    HWND help_tooltips = nullptr; // Native tooltip HWND lives/dies with dialog.
+    std::wstring auto_search_text;
+    std::size_t auto_search_track = (std::numeric_limits<std::size_t>::max)();
     bool modeless_registered = false;
     bool stale = false;
     bool checking_snapshot = false;
@@ -374,6 +377,32 @@ std::string unique_metadata_value(const djmeta::MetadataDocument& doc,
     if (matches>1)
         throw std::invalid_argument("Ambiguous local title or artist field.");
     return result;
+}
+
+// Search text is suggested from the SELECTED track's existing metadata.
+ // Never start a network request during selection, tab switching or refresh.
+void prefill_musicbrainz_query(PreviewState& state, bool force = false) {
+    if (!state.dialog || state.selected_track_index >= state.entries.size()) return;
+    const auto& entry = state.entries[state.selected_track_index];
+    if (is_external_cue_locator(entry.input.source_path)) return; // CUE needs Inspect CUE.
+    std::string title;
+    try {
+        const auto info = entry.handle->get_info_ref();
+        const auto original = metadata_from_file_info(info->info());
+        title = unique_metadata_value(original, "TITLE");
+        if (title.empty()) title = unique_metadata_value(original, "ALBUM");
+    } catch (const std::exception&) {
+        return; // Ambiguous or malformed metadata: leave manual search available.
+    }
+    if (title.empty()) return;
+    const auto suggested = from_utf8(title);
+    const auto current = read_control(state.dialog, IDC_METADATA_MB_QUERY);
+    if (!force && !current.empty() && current != state.auto_search_text)
+        return; // User's manually edited query always wins on routine repaint.
+    state.auto_search_text = suggested;
+    state.auto_search_track = state.selected_track_index;
+    if (current != suggested)
+        SetDlgItemTextW(state.dialog,IDC_METADATA_MB_QUERY,suggested.c_str());
 }
 
 std::string unique_cue_album_value(const djmeta::CueMetadataInventory& cue,
@@ -1086,6 +1115,12 @@ void show_preview_page(HWND dialog, PreviewState& state,
                        bool metadata, bool candidate = false) {
     state.show_metadata = metadata;
     state.show_candidate = candidate;
+    SetDlgItemTextW(dialog, IDC_BATCH_GUIDE, candidate
+        ? L"1. Select a track. Double-click it to search, or edit the title and click Search. Compare hits on the right."
+        : metadata
+        ? L"2. Review normalization proposals. Accept/Reject only changes the preview, never the music files."
+        : L"3. Preview file names and folders. Paths remain unverified; no files are moved or renamed.");
+    if (candidate) prefill_musicbrainz_query(state);
     ShowWindow(GetDlgItem(dialog, IDC_METADATA_IMPORT_CANDIDATE),
         candidate ? SW_SHOW : SW_HIDE);
     ShowWindow(GetDlgItem(dialog, IDC_METADATA_INSPECT_CUE),
@@ -1910,11 +1945,13 @@ bool same_workspace_selection(const PreviewState& state,
 
 void refresh_workspace_snapshot(PreviewState& state) {
     if (MessageBoxW(state.dialog,
-            L"Rebuild the original selection from current foobar metadata?\\n\\n"
-            L"This discards every pending field decision, MusicBrainz result, "
-            L"candidate comparison and routing preview. It does not import "
-            L"a different playlist selection. No files will be changed.",
-            L"Refresh Music Metadata Studio",MB_ICONQUESTION|MB_YESNO|MB_DEFBUTTON2)
+            L"Reload the tracks already open in Music Metadata Studio?\n\n"
+            L"All preview decisions, MusicBrainz hits, pasted comparisons and "
+            L"file-location plans will be discarded.\n\n"
+            L"To work on different tracks, close Studio and open it again "
+            L"from their foobar context menu.\n\n"
+            L"No music files or tags will be changed.",
+            L"Refresh preview only",MB_ICONQUESTION|MB_YESNO|MB_DEFBUTTON2)
         != IDYES) return;
     state.refreshing=true;
     try {
@@ -1949,6 +1986,9 @@ void refresh_workspace_snapshot(PreviewState& state) {
         state.musicbrainz_detail_groups.clear();
         state.musicbrainz_original_title.clear();
         state.musicbrainz_original_artist.clear();
+        state.auto_search_text.clear();
+        state.auto_search_track=(std::numeric_limits<std::size_t>::max)();
+        SetDlgItemTextW(state.dialog,IDC_METADATA_MB_QUERY,L"");
         state.musicbrainz_live_view=false;
         state.musicbrainz_release_loaded=false;
         state.cue_inspection_mode=false;
@@ -1962,6 +2002,7 @@ void refresh_workspace_snapshot(PreviewState& state) {
         state.metadata_view_order.clear();
         state.view_order.clear();
         state.stale=false;
+        prefill_musicbrainz_query(state,true);
         for (int id : {IDC_METADATA_ACCEPT, IDC_METADATA_REJECT,
                        IDC_METADATA_RESET, IDC_METADATA_USE_VALUE,
                        IDC_BATCH_APPLY_SELECTED, IDC_BATCH_APPLY_ALL})
@@ -2003,7 +2044,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             !state->metadata_filter || !state->metadata_track_filter ||
             !state->metadata_scope || !state->tabs)
             throw std::runtime_error("Required native dialog controls missing.");
-        for (const wchar_t* name : {L"Metadata changes", L"File locations", L"Candidate comparison"}) {
+        for (const wchar_t* name : {L"1. Find & compare", L"2. Review proposals",
+                                    L"3. Plan file locations"}) {
             TCITEMW tab{};
             tab.mask = TCIF_TEXT;
             tab.pszText = const_cast<wchar_t*>(name);
@@ -2107,7 +2149,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         update_table(*state);
         update_master_table(*state);
         update_metadata_table(*state);
-        show_preview_page(dialog, *state, true);
+        show_preview_page(dialog, *state, true, true);
+        prefill_musicbrainz_query(*state,true);
         align_native_preview_form(dialog);
         capture_resize_layout(*state);
         restore_batch_dialog_window_size(*state);
@@ -2169,7 +2212,32 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         if (header && header->idFrom == IDC_BATCH_TABS &&
             header->code == TCN_SELCHANGE) {
             const int selected_tab = TabCtrl_GetCurSel(state->tabs);
-            show_preview_page(dialog, *state, selected_tab != 1, selected_tab == 2);
+            show_preview_page(dialog, *state, selected_tab != 2, selected_tab == 0);
+            return TRUE;
+        }
+        if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&
+            (header->code == NM_DBLCLK || header->code == LVN_ITEMACTIVATE)) {
+            const auto* clicked = reinterpret_cast<const NMITEMACTIVATE*>(lp);
+            if (!clicked || clicked->iItem < 0 ||
+                static_cast<std::size_t>(clicked->iItem) >= state->track_view_order.size())
+                return TRUE;
+            state->selected_track_index =
+                state->track_view_order[static_cast<std::size_t>(clicked->iItem)];
+            const bool already_searching = state->show_candidate;
+            TabCtrl_SetCurSel(state->tabs,0);
+            show_preview_page(dialog,*state,true,true);
+            prefill_musicbrainz_query(*state,true);
+            if (already_searching) {
+                // Double-click on Search tab is a deliberate explicit online action.
+                // Reuse the button path with all existing source/rules/rate-limit gates.
+                SendMessageW(dialog,WM_COMMAND,
+                    MAKEWPARAM(IDC_METADATA_MB_SEARCH,BN_CLICKED),
+                    reinterpret_cast<LPARAM>(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH)));
+            } else {
+                // On other tabs, first open search without unexpected network I/O.
+                SetFocus(GetDlgItem(dialog,IDC_METADATA_MB_QUERY));
+                SendDlgItemMessageW(dialog,IDC_METADATA_MB_QUERY,EM_SETSEL,0,-1);
+            }
             return TRUE;
         }
         if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&
@@ -2218,6 +2286,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             if (const auto track = native_selected_track_change(
                     *changed, state->track_view_order, state->updating_track_selection)) {
                 state->selected_track_index = *track;
+                prefill_musicbrainz_query(*state,true);
                 update_metadata_table(*state);
             }
             return TRUE;
@@ -2587,6 +2656,9 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 local_artist=unique_metadata_value(local,"ARTIST");
             }
             const auto entered=to_utf8(read_control(dialog,IDC_METADATA_MB_QUERY));
+            const bool suggested_query = entered.empty() ||
+                (state->auto_search_track == state->selected_track_index &&
+                 entered == to_utf8(state->auto_search_text));
             const std::string term=entered.empty()?local_title:entered;
             if (term.empty())
                 throw std::invalid_argument(
@@ -2596,7 +2668,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             // A manually typed query is an explicit broader search:
             // do not silently append an unrelated local artist constraint.
             const auto path=djmeta::online::musicbrainz::make_search_path(
-                kind,term,entered.empty()?local_artist:std::string{});
+                kind,term,suggested_query?local_artist:std::string{});
             SetDlgItemTextW(dialog,IDC_BATCH_HINT,
                 L"Contacting official MusicBrainz HTTPS API (read-only)...");
             RedrawWindow(dialog,nullptr,nullptr,RDW_INVALIDATE|RDW_UPDATENOW);
