@@ -25,5 +25,10 @@ djmeta::ReviewGridLayout<4> load_track_grid_layout();
 djmeta::ReviewGridLayout<5> load_detail_grid_layout();
 void store_track_grid_layout(const djmeta::ReviewGridLayout<4>& layout);
 void store_detail_grid_layout(const djmeta::ReviewGridLayout<5>& layout);
+// Browser layouts never borrow local rule-review widths or reset on track changes.
+djmeta::ReviewGridLayout<4> load_candidate_track_grid_layout();
+djmeta::ReviewGridLayout<5> load_candidate_detail_grid_layout();
+void store_candidate_track_grid_layout(const djmeta::ReviewGridLayout<4>& layout);
+void store_candidate_detail_grid_layout(const djmeta::ReviewGridLayout<5>& layout);
 
 } // namespace djmeta_foobar
