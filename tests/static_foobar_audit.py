@@ -129,6 +129,18 @@ menu_settings = (foobar / "menu_settings.cpp").read_text(encoding="utf-8")
 menu_preferences = (foobar / "menu_preferences.cpp").read_text(encoding="utf-8")
 prepare_dialog = (foobar / "prepare_dialog.cpp").read_text(encoding="utf-8")
 batch_table_dialog = (foobar / "batch_preview_dialog.cpp").read_text(encoding="utf-8")
+
+for token in (
+    "prefill_musicbrainz_query(", "state->auto_search_track",
+    "suggested_query?local_artist", "IDC_BATCH_GUIDE", "IDC_BATCH_HELP",
+    "install_workspace_tooltips(", "TOOLTIPS_CLASSW", "TTM_ADDTOOLW",
+    "show_workspace_help(", "NM_DBLCLK",
+    "MAKEWPARAM(IDC_METADATA_MB_SEARCH,BN_CLICKED)",
+    'L"Reload the tracks already open in Music Metadata Studio?\\n\\n"',
+):
+    if token not in batch_table_dialog:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: guided search, help or refresh text missing " + token)
+
 # Modeless must be a genuine owned-lifetime foobar workspace. Reject a cosmetic
 # minimize flag on a blocking modal dialog, stranded state or unpaired manager.
 for token in ("CreateDialogParamW(", "modeless_dialog_manager::g_add(dialog)",
