@@ -2645,6 +2645,16 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                     }
                     return TRUE; // never show stale normalization rule details
                 }
+                if (state->existing_tags_view) {
+                    if (row < state->existing_tag_rows.size()) {
+                        const auto& original=state->existing_tag_rows[row];
+                        const std::wstring label=original.first+L": "+
+                            original.second+L"\nOriginal physical tag. "+
+                            L"MusicBrainz absence never deletes this field.";
+                        lstrcpynW(tip->pszText,label.c_str(),tip->cchTextMax);
+                    }
+                    return TRUE; // never leak an unrelated proposal tooltip
+                }
                 if (row < state->metadata_view_order.size()) {
                     const auto index = state->metadata_view_order[row];
                     if (index < state->focused_metadata_rows.size()) {
