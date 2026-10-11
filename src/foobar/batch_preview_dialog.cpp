@@ -2843,7 +2843,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 path=make_search_path(kind,term,suggested_query?local_artist:std::string{});
                 strategy="CUE release title + artist";
             }
-            const auto status=L"Searching MusicBrainz (read-only): "+
+            const std::wstring status=std::wstring(L"Searching MusicBrainz (read-only): ")+
                 from_utf8(strategy)+" ["+
                 std::to_wstring(state->search_attempt_index+1)+L"/"+
                 std::to_wstring(strategy_count)+L"]...";
