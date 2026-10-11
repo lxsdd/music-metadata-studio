@@ -134,7 +134,7 @@ for token in (
     "prefill_musicbrainz_query(", "state->auto_search_track",
     "suggested_query?local_artist", "IDC_BATCH_GUIDE", "IDC_BATCH_HELP",
     "install_workspace_tooltips(", "TOOLTIPS_CLASSW", "TTM_ADDTOOLW",
-    "show_workspace_help(", "NM_DBLCLK",
+    "show_workspace_help(", "header->code == LVN_ITEMACTIVATE",
     "MAKEWPARAM(IDC_METADATA_MB_SEARCH,BN_CLICKED)",
     'L"Reload the tracks already open in Music Metadata Studio?\\n\\n"',
 ):
