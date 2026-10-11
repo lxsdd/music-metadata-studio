@@ -258,7 +258,7 @@ for ui_file in ("preview.cpp", "routing_preview.cpp", "prepare_dialog.cpp",
 # comparison revalidates physical source and rules; it must never reach
 # the normalizer approval handler or perform a provider network request.
 for label, token in (
-    ("candidate comparison tab", 'L"Candidate comparison"'),
+    ("guided read-only search tab", 'L"1. Find & compare"'),
     ("on-demand CUE button", "IDC_METADATA_INSPECT_CUE"),
     ("read-only host CUE reader", "read_cue_raw_on_demand(entry.handle, entry.input.source_path)"),
     ("raw CUE parser", "djmeta::inspect_cue_metadata(raw.raw_text, raw.carrier)"),
