@@ -270,9 +270,13 @@ inline bool align_label_to_input(HWND dialog, int label_id, int input_id) {
 // double-click and keyboard activation. Never allow it to trigger network
 // access on an unrelated tab, physical-recording hit or loaded track list.
 inline bool may_activate_musicbrainz_release(UINT notification,
-    bool live, bool release_search, bool release_loaded, bool source_matches) {
-    return notification==LVN_ITEMACTIVATE && live && release_search &&
-           !release_loaded && source_matches;
+    bool live, bool release_search, bool release_loaded, bool source_matches,
+    unsigned key = 0) {
+    // LVN_ITEMACTIVATE is not consistently emitted for owner-data ListViews.
+    // Use exactly one mouse event OR an explicit Return key notification.
+    return (notification==NM_DBLCLK ||
+            (notification==LVN_KEYDOWN && key==VK_RETURN)) &&
+           live && release_search && !release_loaded && source_matches;
 }
 
 inline bool align_native_action_row(HWND dialog, int input_id,
