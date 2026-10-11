@@ -118,6 +118,8 @@ struct PreviewState {
     bool updating_track_selection = false;
     bool updating_musicbrainz_selection = false;
     bool musicbrainz_browse_columns_active = false;
+    bool existing_tags_view = false; // raw captured physical tags, never proposals
+    std::vector<std::pair<std::wstring,std::wstring>> existing_tag_rows;
     std::size_t selected_track_index = 0;
     std::size_t focused_track_index = (std::numeric_limits<std::size_t>::max)();
     djmeta::MetadataFocus metadata_focus = djmeta::MetadataFocus::Music;
@@ -740,6 +742,14 @@ std::wstring metadata_cell_text(PreviewState& state,
         if (candidate_index >= state.candidate_rows.size()) return {};
         return candidate_cell_text(state.candidate_rows[candidate_index], column);
     }
+    if (state.existing_tags_view) {
+        if (row >= state.existing_tag_rows.size()) return {};
+        if (column==0) return state.existing_tag_rows[row].first;
+        if (column==1) return state.existing_tag_rows[row].second;
+        if (column==3) return L"Original file";
+        if (column==4) return L"Read-only";
+        return {};
+    }
     if (row >= state.metadata_view_order.size()) return {};
     const auto index = state.metadata_view_order[row];
     if (index >= state.focused_metadata_rows.size()) return {};
@@ -847,6 +857,10 @@ void update_musicbrainz_browse_headers(PreviewState& state) {
     const bool browse=state.show_candidate && state.musicbrainz_live_view &&
         state.candidate_source_index==state.selected_track_index;
     const wchar_t* names[5]={L"Field",L"Original",L"Proposed",L"Source",L"Status"};
+    if (state.existing_tags_view && !state.show_candidate) {
+        names[0]=L"Tag field"; names[1]=L"All original values";
+        names[2]=L""; names[3]=L"Source"; names[4]=L"Write status";
+    }
     if (browse) {
         names[0]=state.musicbrainz_release_loaded?L"Album / Track":L"Recording / Release";
         names[1]=state.musicbrainz_release_loaded?L"Current":L"Artist";
@@ -1026,6 +1040,34 @@ void update_metadata_table(PreviewState& state) {
         SetDlgItemTextW(state.dialog, IDC_BATCH_HINT, hint.c_str());
         return;
     }
+    // A separate inventory mode is not a proposal and can never be accepted.
+    if (state.existing_tags_view) {
+        state.existing_tag_rows.clear();
+        if (state.selected_track_index < state.entries.size()) {
+            const auto& entry=state.entries[state.selected_track_index];
+            verify_snapshot(entry);
+            if (entry.input.physical_source_qualified &&
+                entry.handle->get_subsong_index()==0) {
+                const auto current=entry.handle->get_info_ref();
+                const auto doc=metadata_from_file_info(current->info());
+                if (doc.fields.size()>10000)
+                    throw std::runtime_error("Physical metadata inventory too large.");
+                for (const auto& field:doc.fields) {
+                    state.existing_tag_rows.emplace_back(
+                        from_utf8(field.name),show_field_values(field.values));
+                }
+            }
+        }
+        ListView_SetItemCountEx(state.metadata_list,
+            static_cast<int>(state.existing_tag_rows.size()),
+            LVSICF_NOINVALIDATEALL|LVSICF_NOSCROLL);
+        SetDlgItemTextW(state.dialog,IDC_BATCH_HINT,
+            L"All original physical tag fields and multivalues are displayed. "
+            L"Unchanged tags are included; the inventory is read-only. "
+            L"Virtual CUE subtracks are intentionally excluded.");
+        InvalidateRect(state.metadata_list,nullptr,FALSE);
+        return;
+    }
     // Preserve source-local proposal identity rather than virtual row position.
     std::set<std::size_t> selected_proposals;
     if (state.metadata_list &&
@@ -1183,7 +1225,8 @@ void show_preview_page(HWND dialog, PreviewState& state,
                    IDC_METADATA_RESET, IDC_METADATA_MANUAL_INPUT,
                    IDC_METADATA_USE_VALUE})
         ShowWindow(GetDlgItem(dialog,id),
-                   metadata && !candidate ? SW_SHOW : SW_HIDE);
+                   metadata && !candidate && !state.existing_tags_view
+                       ? SW_SHOW : SW_HIDE);
     ShowWindow(GetDlgItem(dialog, IDC_METADATA_TRACK_FILTER_LABEL),
         metadata && !candidate ? SW_SHOW : SW_HIDE);
     ShowWindow(GetDlgItem(dialog, IDC_METADATA_FILTER_LABEL),
@@ -1582,6 +1625,9 @@ void apply_review_action(HWND dialog, PreviewState& state,
     // The selected identity always refers to analysis.proposals; neither
     // a sorted UI row nor a filtered field name is an edit target.
     std::set<std::pair<std::size_t, std::size_t>> targets;
+    if (state.existing_tags_view)
+        throw std::invalid_argument(
+            "Original tag inventory is read-only. Select a proposal view first.");
     if (scope == 0) {
         for (const auto proposal_row :
                 selected_native_view_ids(state.metadata_list, state.metadata_view_order)) {
@@ -2184,7 +2230,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         state->detail_grid = load_detail_grid_layout();
         apply_review_grid_controls(state->metadata_list, state->detail_grid,
                                    current_dpi(state->metadata_list));
-        for (const wchar_t* focus : {L"Music tags", L"Extended tags", L"All fields"})
+        for (const wchar_t* focus : {L"Music proposals", L"Extended proposals",
+                                      L"All proposals", L"All current tags (read-only)"})
             SendDlgItemMessageW(dialog, IDC_METADATA_FILTER, CB_ADDSTRING,
                 0, reinterpret_cast<LPARAM>(focus));
         SendDlgItemMessageW(dialog, IDC_METADATA_FILTER, CB_SETCURSEL, 0, 0);
@@ -3106,10 +3153,11 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         if (native_command == PreviewCommand::FocusFilterChanged) {
             const auto choice = SendDlgItemMessageW(
                 dialog, IDC_METADATA_FILTER, CB_GETCURSEL, 0, 0);
+            state->existing_tags_view = choice == 3;
             state->metadata_focus = choice == 1 ? djmeta::MetadataFocus::Extended :
                 choice == 2 ? djmeta::MetadataFocus::All :
                 djmeta::MetadataFocus::Music;
-            update_metadata_table(*state);
+            show_preview_page(dialog,*state,true,false);
             return TRUE;
         }
         if (id == 41300u) {
