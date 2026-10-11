@@ -2021,6 +2021,84 @@ void refresh_workspace_snapshot(PreviewState& state) {
     state.refreshing=false;
 }
 
+// Native context help, using HWND-owned tooltip storage and static immutable
+// descriptions. No extra settings files, background requests or UI framework.
+void install_workspace_tooltips(PreviewState& state) {
+    const HWND dialog=state.dialog;
+    const HWND tips=CreateWindowExW(WS_EX_TOPMOST,TOOLTIPS_CLASSW,nullptr,
+        WS_POPUP|TTS_ALWAYSTIP|TTS_NOPREFIX,
+        CW_USEDEFAULT,CW_USEDEFAULT,CW_USEDEFAULT,CW_USEDEFAULT,
+        dialog,nullptr,core_api::get_my_instance(),nullptr);
+    if (!tips) throw std::runtime_error("Cannot initialize native tooltips.");
+    state.help_tooltips=tips;
+    SendMessageW(tips,TTM_SETMAXTIPWIDTH,0,MulDiv(430,current_dpi(dialog),96));
+    struct HelpText { int id; const wchar_t* text; };
+    static constexpr HelpText texts[] = {
+        {IDC_BATCH_TABS,L"1. Search online and compare. 2. Review local rule-based suggestions. 3. Preview file locations. These previews do not write files."},
+        {IDC_BATCH_GUIDE,L"Follow the steps from left to right. A MusicBrainz match is evidence, not an approved tag edit."},
+        {IDC_METADATA_TRACK_LIST,L"Select one original file. Double-click on this tab to start a MusicBrainz search; on other tabs, double-click opens Search without accessing the network."},
+        {IDC_METADATA_MB_QUERY,L"Pre-filled from TITLE (or ALBUM) of the selected file. You may edit it for a broader search. Nothing is sent until Search is clicked."},
+        {IDC_METADATA_MB_SEARCH,L"Look up the selected recording using MusicBrainz HTTPS (free). This is a deliberate network request and does not change tags."},
+        {IDC_METADATA_MB_LOAD_RELEASE,L"Only for a verified MusicBrainz release and a qualified CUE. Read its track list without changing files."},
+        {IDC_METADATA_INSPECT_CUE,L"Read the source CUE and show its album/track fields. Embedded and external CUE are never written here."},
+        {IDC_METADATA_IMPORT_CANDIDATE,L"Compare structured provider evidence copied to the clipboard. No provider is contacted and nothing is applied."},
+        {IDC_METADATA_LIST,L"Select a search hit (or rule change). The detail pane shows its original/proposed values and review status."},
+        {IDC_METADATA_MB_DETAILS,L"Field-by-field evidence for the selected online candidate. REVIEW is not a tag-write authorization."},
+        {IDC_METADATA_FILTER,L"Limit the local normalization review to music, extended or all tags."},
+        {IDC_METADATA_TRACK_FILTER,L"Filter original tracks by whether they have rule proposals. This never removes files."},
+        {IDC_METADATA_REVIEW_SCOPE,L"Choose whether to review selected change rows, selected tracks or all tracks. Review decisions are preview-only."},
+        {IDC_METADATA_ACCEPT,L"Mark chosen rule proposals as accepted in memory. No music file is written."},
+        {IDC_METADATA_REJECT,L"Reject chosen local rule proposals in memory, without changing source files."},
+        {IDC_METADATA_RESET,L"Restore pending decisions for selected local proposals, preview only."},
+        {IDC_METADATA_MANUAL_INPUT,L"Enter a replacement value for exactly one selected local rule proposal."},
+        {IDC_METADATA_USE_VALUE,L"Use the manually entered value for one selected proposal in the read-only preview."},
+        {IDC_METADATA_VISIBLE_WHITESPACE,L"Display tabs, spaces and other invisible characters visibly; original tags remain unchanged."},
+        {IDC_BATCH_LIST,L"Proposed source-to-target rows. Destination paths have not passed the final foobar File Operations safety checks."},
+        {IDC_BATCH_PROFILE_PICKER,L"Select an existing foobar routing template or enter a custom display name; no file operation is performed."},
+        {IDC_BATCH_DESTINATION,L"Destination root for the preview only. No folder is created."},
+        {IDC_BATCH_PATTERN,L"foobar Title Formatting pattern for preview file names only. Actual paths are not yet validated."},
+        {IDC_BATCH_APPLY_SELECTED,L"Recalculate proposed locations for selected rows in memory, without copying or moving files."},
+        {IDC_BATCH_APPLY_ALL,L"Recalculate proposed locations for every row in memory. Nothing is written."},
+        {IDC_BATCH_REFRESH,L"Reload the original selection after a confirmation. Discards pending decisions, search hits and routing previews. Does not import a different selection."},
+        {IDC_BATCH_HELP,L"Open the three-stage walkthrough and explain what each tab can and cannot do."},
+        {IDCANCEL,L"Close the workspace without writing tags, CUE data or music files."}
+    };
+    for (const auto& item : texts) {
+        const HWND child=GetDlgItem(dialog,item.id);
+        if (!child) continue; // Optional page control absent on older hosts.
+        TOOLINFOW tool{};
+        tool.cbSize=sizeof(tool);
+        tool.uFlags=TTF_IDISHWND|TTF_SUBCLASS;
+        tool.hwnd=dialog;
+        tool.uId=reinterpret_cast<UINT_PTR>(child);
+        tool.lpszText=const_cast<LPWSTR>(item.text);
+        if (!SendMessageW(tips,TTM_ADDTOOLW,0,reinterpret_cast<LPARAM>(&tool)))
+            throw std::runtime_error("Native tooltip registration failed.");
+    }
+}
+
+void show_workspace_help(HWND dialog) {
+    MessageBoxW(dialog,
+        L"1. Find & compare\n"
+        L"Select a track on the left. Its TITLE is already in the search box. "
+        L"Click Search MusicBrainz, or double-click a track on the search tab. "
+        L"Select a result to compare original and suggested fields below. "
+        L"For a CUE, click Inspect CUE first; release tracklists require an exact CUE.\n\n"
+        L"2. Review proposals\n"
+        L"See the separate normalization suggestions generated by the local "
+        L"rule engine. Accept, Reject and Use value only change the preview. "
+        L"Online hits are NOT automatically imported as tag edits.\n\n"
+        L"3. Plan file locations\n"
+        L"Choose a routing profile, destination and naming expression, then "
+        L"preview the proposed paths. Neither moves nor renames are enabled.\n\n"
+        L"Hover over buttons or fields for details. Refresh snapshot discards "
+        L"pending work and reloads the SAME selected tracks. Close Studio and "
+        L"open it again in foobar to work on a different selection.\n\n"
+        L"ALL THREE TABS ARE READ-ONLY: audio files, CUE, tags and timestamps "
+        L"are never changed by these actions.",
+        L"How to use Music Metadata Studio",MB_OK|MB_ICONINFORMATION);
+}
+
 INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
     if (message == WM_INITDIALOG) {
         auto* state = reinterpret_cast<PreviewState*>(lp);
@@ -2146,6 +2224,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                         from_utf8(state->current_choice.titleformat_expression).c_str());
         state->dialog = dialog;
         state->active_dpi = current_dpi(dialog);
+        install_workspace_tooltips(*state);
         update_table(*state);
         update_master_table(*state);
         update_metadata_table(*state);
@@ -2603,6 +2682,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             refresh_workspace_snapshot(*state);
             return TRUE;
         }
+        if (id == IDC_BATCH_HELP && HIWORD(wp) == BN_CLICKED) {
+            show_workspace_help(dialog);
+            return TRUE;
+        }
         const bool consequential = native_command == PreviewCommand::Accept ||
             native_command == PreviewCommand::Reject ||
             native_command == PreviewCommand::Reset ||
@@ -2991,7 +3074,7 @@ void show_batch_preview_dialog(
         }
         INITCOMMONCONTROLSEX controls = {};
         controls.dwSize = sizeof(controls);
-        controls.dwICC = ICC_LISTVIEW_CLASSES | ICC_TAB_CLASSES;
+        controls.dwICC = ICC_LISTVIEW_CLASSES | ICC_TAB_CLASSES | ICC_BAR_CLASSES;
         if (!InitCommonControlsEx(&controls))
             throw std::runtime_error("Unable to initialize the native list view.");
 
