@@ -62,6 +62,10 @@ struct PreviewState {
     HWND dialog = nullptr;
     HWND help_tooltips = nullptr; // Native tooltip HWND lives/dies with dialog.
     std::wstring auto_search_text;
+    djmeta::online::musicbrainz::RecordingSearchPlan search_plan;
+    std::string search_plan_identity;
+    std::size_t search_attempt_index = 0;
+    std::wstring search_attempt_notice;
     std::size_t auto_search_track = (std::numeric_limits<std::size_t>::max)();
     bool modeless_registered = false;
     bool stale = false;
@@ -435,7 +439,8 @@ MusicBrainzBrowseRows musicbrainz_search_rows(
         summary.field=hit.title;
         summary.original_values={hit.artist};
         if (!hit.release_date.empty()) summary.candidate.values={hit.release_date};
-        summary.candidate.field="CANDIDATE";
+        summary.candidate.field=musicbrainz::recording_identity_label(
+            local_title,local_artist,hit.title,hit.artist);
         summary.candidate.provider="musicbrainz";
         summary.candidate.source_id=hit.mbid;
         summary.candidate.scope=hit.kind==musicbrainz::SearchKind::Release
@@ -466,6 +471,13 @@ MusicBrainzBrowseRows musicbrainz_search_rows(
         add(hit.kind==musicbrainz::SearchKind::Release ? "ALBUM" : "TITLE",
             local_title,hit.title);
         add("ARTIST",local_artist,hit.artist);
+        if(hit.kind==musicbrainz::SearchKind::Recording) {
+            add("IDENTITY (read-only)", "",
+                musicbrainz::recording_identity_label(
+                    local_title,local_artist,hit.title,hit.artist));
+            add("MUSICBRAINZ RANK (not certainty)", "",
+                std::to_string(hit.search_score));
+        }
         if (hit.kind==musicbrainz::SearchKind::Release)
             add("EDITION DATE","",hit.release_date);
         result.detail.push_back(std::move(detail));
@@ -686,8 +698,7 @@ std::wstring candidate_cell_text(const djmeta::online::FieldReviewRow& item,
         case 3: return L"MusicBrainz API";
         case 4: {
             if (item.reason.starts_with("musicbrainz_live_candidate_rank_"))
-                return L"MB rank " + from_utf8(item.reason.substr(
-                    std::string("musicbrainz_live_candidate_rank_").size()));
+                return from_utf8(item.candidate.field);
             return item.state==djmeta::online::FieldReviewState::Blocked
                 ? L"Unmatched" : L"Review";
         }
@@ -841,7 +852,7 @@ void update_musicbrainz_browse_headers(PreviewState& state) {
         names[1]=state.musicbrainz_release_loaded?L"Current":L"Artist";
         names[2]=state.musicbrainz_release_loaded?L"Suggested":L"Date";
         names[3]=L"Source";
-        names[4]=state.musicbrainz_release_loaded?L"Match":L"MB rank";
+        names[4]=state.musicbrainz_release_loaded?L"Match":L"Identity check";
     }
     for(int i=0;i<5;++i) {
         LVCOLUMNW column{};
@@ -858,7 +869,7 @@ void update_musicbrainz_browse_headers(PreviewState& state) {
         RECT bounds{};
         GetClientRect(state.metadata_list,&bounds);
         const int width=bounds.right-bounds.left-8;
-        const int proportions[]={33,21,19,15,12};
+        const int proportions[]={30,19,16,14,21};
         for(int i=0;i<5;++i)
             ListView_SetColumnWidth(state.metadata_list,i,
                 (std::max)(52,width*proportions[i]/100));
@@ -991,8 +1002,10 @@ void update_metadata_table(PreviewState& state) {
             ? (state.musicbrainz_release_loaded
                 ? L"MusicBrainz release details + tentative CUE assignment, read-only. "
                   L"Unmatched tracks are blocked. No tags were written."
-                : L"Official MusicBrainz online candidates, read-only. Select a release row "
-                  L"then Load MB release for tracklist. No files were changed.")
+                : state.search_attempt_notice.empty()
+                    ? L"Select a candidate for its field-by-field identity evidence. "
+                      L"MB search rank is not match certainty; no files changed."
+                    : state.search_attempt_notice)
             : state.cue_inspection_mode &&
               state.candidate_source_index == state.selected_track_index
             ? L"Source CUE metadata displayed read-only. To compare a clipboard candidate, "
@@ -1987,6 +2000,10 @@ void refresh_workspace_snapshot(PreviewState& state) {
         state.musicbrainz_original_title.clear();
         state.musicbrainz_original_artist.clear();
         state.auto_search_text.clear();
+        state.search_plan= {};
+        state.search_plan_identity.clear();
+        state.search_attempt_index=0;
+        state.search_attempt_notice.clear();
         state.auto_search_track=(std::numeric_limits<std::size_t>::max)();
         SetDlgItemTextW(state.dialog,IDC_METADATA_MB_QUERY,L"");
         state.musicbrainz_live_view=false;
@@ -2717,7 +2734,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                   (state->musicbrainz_live_view &&
                    state->musicbrainz_kind==
                      djmeta::online::musicbrainz::SearchKind::Release)));
-            std::string local_title, local_artist, cue_before;
+            std::string local_title, local_artist, local_isrc, cue_before;
             const auto kind=cue_mode
                 ? djmeta::online::musicbrainz::SearchKind::Release
                 : djmeta::online::musicbrainz::SearchKind::Recording;
@@ -2741,6 +2758,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 const auto local=metadata_from_file_info(info->info());
                 local_title=unique_metadata_value(local,"TITLE");
                 local_artist=unique_metadata_value(local,"ARTIST");
+                try {local_isrc=unique_metadata_value(local,"ISRC");}
+                catch (const std::invalid_argument&) {} // ambiguous ISRC is excluded
             }
             const auto entered=to_utf8(read_control(dialog,IDC_METADATA_MB_QUERY));
             const bool suggested_query = entered.empty() ||
@@ -2750,17 +2769,51 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             if (term.empty())
                 throw std::invalid_argument(
                     "No TITLE is available. Enter a title/album in the search field.");
-            // No path, artist artwork, file hash, full CUE or binary audio
-            // ever leaves the host. Only title and optional credited artist.
-            // A manually typed query is an explicit broader search:
-            // do not silently append an unrelated local artist constraint.
-            const auto path=djmeta::online::musicbrainz::make_search_path(
-                kind,term,suggested_query?local_artist:std::string{});
-            SetDlgItemTextW(dialog,IDC_BATCH_HINT,
-                L"Contacting official MusicBrainz HTTPS API (read-only)...");
+            // One explicit request per activation; never silently loop through
+            // an unbounded provider search or block foobar on multiple retries.
+            // A zero-result next click broadens to the next visible strategy.
+            // For CUE we search the qualified release, not a virtual subtrack.
+            using namespace djmeta::online::musicbrainz;
+            std::string path;
+            std::string strategy;
+            std::size_t strategy_count=1;
+            if (kind==SearchKind::Recording) {
+                const auto plan=recording_search_plan(
+                    term,suggested_query?local_artist:std::string{},
+                    suggested_query?local_isrc:std::string{});
+                const auto identity=entry.input.source_path+"|"+
+                    std::to_string(state->selected_track_index)+"|"+
+                    term+"|"+(suggested_query?local_artist:"")+"|"+
+                    (suggested_query?local_isrc:"");
+                if(identity!=state->search_plan_identity) {
+                    state->search_attempt_index=0;
+                    state->search_plan_identity=identity;
+                } else if (state->musicbrainz_live_view &&
+                           state->musicbrainz_results.empty() &&
+                           state->search_attempt_index+1<plan.attempts.size()) {
+                    ++state->search_attempt_index;
+                } else if (!state->musicbrainz_results.empty()) {
+                    state->search_attempt_index=0; // explicit fresh search
+                }
+                state->search_plan=plan;
+                const auto& attempt=plan.attempts.at(state->search_attempt_index);
+                path=attempt.path;
+                strategy=attempt.label;
+                strategy_count=plan.attempts.size();
+            } else {
+                state->search_plan_identity.clear();
+                state->search_attempt_index=0;
+                path=make_search_path(kind,term,suggested_query?local_artist:std::string{});
+                strategy="CUE release title + artist";
+            }
+            const auto status=L"Searching MusicBrainz (read-only): "+
+                from_utf8(strategy)+" ["+
+                std::to_wstring(state->search_attempt_index+1)+L"/"+
+                std::to_wstring(strategy_count)+L"]...";
+            SetDlgItemTextW(dialog,IDC_BATCH_HINT,status.c_str());
             RedrawWindow(dialog,nullptr,nullptr,RDW_INVALIDATE|RDW_UPDATENOW);
             const auto reply=fetch_musicbrainz_json_readonly(path);
-            const auto result=djmeta::online::musicbrainz::parse_search(reply,kind);
+            const auto result=parse_search(reply,kind);
             verify_snapshot(entry);
             verify_rules_snapshot(state->captured_rules);
             if (cue_mode && read_cue_raw_on_demand(
@@ -2781,11 +2834,18 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             state->updating_musicbrainz_selection=false;
             state->cue_inspection_mode=false;
             state->cue_candidate_comparison_mode=false;
+            state->search_attempt_notice=
+                L"MusicBrainz query "+std::to_wstring(state->search_attempt_index+1)+
+                L"/"+std::to_wstring(strategy_count)+L" - "+
+                from_utf8(strategy)+L": "+
+                std::to_wstring(result.candidates.size())+
+                L" result(s). "+
+                (result.candidates.empty() && state->search_attempt_index+1<strategy_count
+                    ? L"Click Search again to try the next, broader strategy."
+                    : result.candidates.empty()
+                    ? L"No more search variants. Edit the title to retry."
+                    : L"Compare recording, artist and version. None is approved for writing.");
             update_metadata_table(*state);
-            if (result.candidates.empty())
-                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
-                    L"No MusicBrainz candidates found. Try a more specific title. "
-                    L"No metadata or files changed.");
             return TRUE;
         }
         if (id == IDC_METADATA_MB_LOAD_RELEASE && HIWORD(wp)==BN_CLICKED) {
