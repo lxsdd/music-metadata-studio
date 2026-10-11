@@ -47,7 +47,7 @@ Any mismatch requires a fresh analysis.
 
 ## Distribution authority
 
-The canonical schema and default rules live in `lxsdd/dj-metadata-normalizer`.
+The canonical schema and defaults belong to **Music Metadata Studio**, currently hosted at `lxsdd/dj-metadata-normalizer` pending the GitHub admin rename to `lxsdd/music-metadata-studio`.
 
 DJ Library must call the shared engine/native ABI instead of translating the rules into C#.
 

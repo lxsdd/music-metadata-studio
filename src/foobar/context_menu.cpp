@@ -12,7 +12,7 @@ namespace {
 contextmenu_group_popup_factory g_context_group(
     guids::context_group,
     contextmenu_groups::root,
-    "DJ Metadata Normalizer",
+    "Music Metadata Studio",
     0);
 
 class normalizer_context_menu : public contextmenu_item_simple {
@@ -87,7 +87,7 @@ public:
                     popup_message::g_show(
                         "Unable to load all metadata. "
                         "Nothing was changed.",
-                        "DJ Metadata Normalizer");
+                        "Music Metadata Studio");
                     return;
                 }
                 if (index == 0) show_normalization_preview(retained);

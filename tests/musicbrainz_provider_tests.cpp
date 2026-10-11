@@ -1,0 +1,169 @@
+#include "djmeta/musicbrainz_provider.h"
+#include "djmeta/cue_online_bridge.h"
+
+#include <cstdlib>
+#include <iostream>
+#include <stdexcept>
+#include <string>
+
+namespace {
+void check(bool yes, const char* msg) {
+    if (!yes) { std::cerr << "FAIL: " << msg << "\n"; std::exit(1); }
+}
+template<typename Function> void rejects(Function fn,const char* why) {
+    bool rejected=false;
+    try { fn(); } catch(const std::invalid_argument&) { rejected=true; }
+    check(rejected,why);
+}
+constexpr const char* first="11111111-1111-1111-1111-111111111111";
+constexpr const char* second="22222222-2222-2222-2222-222222222222";
+}
+int main() {
+    using namespace djmeta;
+    using namespace djmeta::online;
+    using namespace djmeta::online::musicbrainz;
+    const auto request=make_search_path(SearchKind::Recording,
+        "Björk: It's \"Alive\" & 東京", "Artist / Guest");
+    check(request.starts_with("/ws/2/recording?query=") &&
+          request.find("fmt=json&limit=8") != std::string::npos &&
+          request.find("Björk") == std::string::npos &&
+          request.find("%22") != std::string::npos &&
+          request.find("%26") != std::string::npos &&
+          request.find("%E6%9D%B1%E4%BA%AC") != std::string::npos,
+          "recording search encoded, Lucene quoted, bounded and UTF-8");
+    check(make_search_path(SearchKind::Release,"Album","").find("/ws/2/release?")==0,
+          "release search without unknown artist is permitted");
+    check(make_release_lookup_path(first)==std::string("/ws/2/release/")+first+
+          "?inc=recordings%2Bartist-credits%2Bisrcs&fmt=json",
+          "release lookup only uses MBID to prevent URL injection");
+    rejects([]{(void)make_release_lookup_path("../ws/2/recording");},
+            "invalid MBIDs never become URL paths");
+    rejects([]{(void)make_search_path(SearchKind::Release,"Album\nOther","");},
+            "CRLF injection in search rejected");
+    rejects([]{(void)make_search_path(SearchKind::Release,"","");},
+            "empty search title rejected");
+
+    const auto klf=recording_search_plan(
+        "What Time Is Love (Original Version)","The KLF");
+    check(klf.core_title=="What Time Is Love" && klf.attempts.size()==4 &&
+          klf.attempts[0].label.starts_with("Main title + artist") &&
+          klf.attempts[0].path==make_search_path(
+              SearchKind::Recording,"What Time Is Love","The KLF") &&
+          klf.attempts[2].path==make_search_path(
+              SearchKind::Recording,"What Time Is Love",""),
+          "KLF regression: main title+artist before manually broader search");
+    check(search_title_core("Track (Unknown Remixer Club Dub)")==
+              "Track (Unknown Remixer Club Dub)" &&
+          search_title_core("Track (Extended Mix)")=="Track",
+          "unknown remix preserved, generic version only stripped for search");
+    const auto by_isrc=recording_search_plan("Track (Radio Edit)","Artist","usrc17607839");
+    check(by_isrc.attempts.size()==5 &&
+          by_isrc.attempts[0].label=="Exact ISRC identifier" &&
+          by_isrc.attempts[0].path.find("isrc%3AUSRC17607839")!=std::string::npos,
+          "valid ISRC prioritized ahead of title-only fallback");
+    check(!valid_search_isrc("../bad-1234") &&
+          recording_search_plan("Track","Artist","../bad-1234").attempts.size()==2,
+          "invalid ISRC never submitted; query count bounded");
+    check(recording_identity_label("What Time Is Love (Original Version)","The KLF",
+          "What Time Is Love?","The KLF")=="Version review" &&
+          recording_identity_label("What Time Is Love (Original Version)","The KLF",
+          "What Time Is Love?","Other Artist")=="Artist differs" &&
+          recording_identity_label("What Time Is Love?","The KLF",
+          "What Time Is Love?","The KLF")=="Title+artist",
+          "artist/version conflicts cannot be treated as an approved identity");
+    const std::string recording_json=R"MB({
+       "created":"2026-10-09","recording-count":2,
+       "recordings":[
+         {"id":"11111111-1111-1111-1111-111111111111",
+          "title":"Bj\u00f6rk & \u6771\u4eac",
+          "score":99,"length":215540,
+          "artist-credit":[{"name":"Alpha","joinphrase":" feat. "},{"name":"Beta"}],
+          "releases":[{"id":"ignored"}]},
+         {"id":"22222222-2222-2222-2222-222222222222",
+          "title":"Track (Radio Edit)",
+          "score":55,"length":200000,
+          "artist-credit":[{"name":"Other Artist"}]},
+         {"id":"invalid/redirect","title":"Bad","artist-credit":[{"name":"X"}]}
+       ]
+    })MB";
+    const auto found=parse_search(recording_json,SearchKind::Recording);
+    check(found.candidates.size()==2 &&
+          found.candidates[0].mbid==first &&
+          found.candidates[0].title=="Björk & 東京" &&
+          found.candidates[0].artist=="Alpha feat. Beta" &&
+          found.candidates[0].duration_ms==215540 &&
+          found.candidates[0].search_score==99 &&
+          found.candidates[1].search_score==55,
+          "official recording response preserves Unicode, artist roles, duration, score");
+    check(parse_search(R"({"releases":[]})",SearchKind::Release).candidates.empty(),
+          "empty permitted source response never fabricates a hit");
+    const auto release_search=std::string(R"MB({
+        "releases":[{"id":"11111111-1111-1111-1111-111111111111",
+        "title":"Album Edition","date":"2001-06-15","score":91,
+        "artist-credit":[{"name":"Example Artist"}]}]
+    })MB");
+    const auto releases=parse_search(release_search,SearchKind::Release);
+    check(releases.candidates.size()==1&&
+          releases.candidates[0].kind==SearchKind::Release&&
+          releases.candidates[0].release_date=="2001-06-15",
+          "release search retains explicit release-edition date");
+
+    const auto edition_json=std::string(R"MB({
+      "id":"11111111-1111-1111-1111-111111111111",
+      "title":"Album Edition", "date":"2001-06-15",
+      "artist-credit":[{"name":"Example Artist"}],
+      "media":[
+       {"position":1,"tracks":[
+         {"position":1,"title":"First (Extended Mix)","length":420000,
+          "artist-credit":[{"name":"Example Artist"}],
+          "recording":{"id":"22222222-2222-2222-2222-222222222222",
+             "title":"First (Extended Mix)",
+             "isrcs":["GBABC2600001"],
+             "artist-credit":[{"name":"Example Artist"}]}},
+         {"position":2,"title":"Second","length":301000,
+          "recording":{"id":"22222222-2222-2222-2222-222222222222",
+             "title":"Second","artist-credit":[{"name":"Example Artist"}]}}]},
+       {"position":2,"tracks":[
+         {"position":1,"title":"Third","length":240000,
+          "recording":{"id":"22222222-2222-2222-2222-222222222222",
+             "title":"Third","artist-credit":[{"name":"Guest Artist"}]}}]}
+      ]
+    })MB");
+    const auto edition=parse_release_lookup(edition_json,first);
+    check(edition.provider=="musicbrainz"&&edition.edition_id==first &&
+          edition.fields.size()==3 &&
+          edition.fields[2].date_meaning==DateMeaning::EditionRelease &&
+          edition.tracks.size()==3 &&
+          edition.tracks[0].recording.isrc=="GBABC2600001" &&
+          edition.tracks[1].disc_number==1 && edition.tracks[1].track_number==2 &&
+          edition.tracks[2].disc_number==2 && edition.tracks[2].track_number==1,
+          "release lookup preserves exact edition, recording, date/disc/track scope");
+
+    rejects([&]{(void)parse_release_lookup(edition_json,second);},
+            "mismatched edition ID is a blocker");
+    rejects([]{(void)JsonParser("{\"x\":1,\"x\":2}").parse();},
+            "ambiguous duplicate JSON keys rejected");
+    rejects([]{(void)JsonParser("\"\\uD800\"").parse();},
+            "unpaired surrogate rejected");
+    rejects([]{(void)JsonParser("{\"recordings\":[1,]}").parse();},
+            "trailing comma rejected");
+    rejects([]{(void)parse_search(
+        R"({"releases":[{"id":"evil/traversal","title":"T","artist-credit":[{"name":"A"}]}]})",
+        SearchKind::Recording);},
+        "wrong official resource schema rejected");
+    rejects([]{(void)JsonParser(std::string(2u*1024u*1024u+1,'x')).parse();},
+            "oversized JSON response rejected");
+    const auto cue=inspect_cue_metadata(
+        "TITLE \"Album Edition\"\nPERFORMER \"Example Artist\"\n"
+        "FILE \"disc.flac\" WAVE\nTRACK 01 AUDIO\nTITLE \"First (Extended Mix)\"\n"
+        "PERFORMER \"Example Artist\"\nTRACK 02 AUDIO\nTITLE Second\n"
+        "TRACK 03 AUDIO\nTITLE Third\nPERFORMER \"Guest Artist\"\n",
+        CueCarrierKind::ExternalText);
+    const auto local=prepare_cue_release_lookup(cue);
+    check(local.eligible,"qualified synthetic CUE release");
+    const auto assigned=align_release(local.tracks,edition);
+    check(assigned.matched==3 && assigned.unmatched==0,
+          "real provider release edition feeds existing whole-CUE matching engine");
+
+    std::cout << "PASS: official MusicBrainz query encoding, bounded JSON, artist roles and release alignment\n";
+}

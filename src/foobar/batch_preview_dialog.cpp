@@ -1,9 +1,12 @@
 #include "stdafx.h"
 
 #include <SDK/coreDarkMode.h>
+#include <SDK/modeless_dialog.h>
 
 #include "batch_preview_dialog.h"
 #include "host_file_probe.h"
+#include "cue_readonly_source.h"
+#include "musicbrainz_http.h"
 #include "batch_table_settings.h"
 #include "legacy_routing_profiles.h"
 #include "native_preview_controls.h"
@@ -16,6 +19,10 @@
 
 #include "djmeta/batch_preview.h"
 #include "djmeta/metadata_diff.h"
+#include "djmeta/online_intake.h"
+#include "djmeta/cue_manual_preview.h"
+#include "djmeta/musicbrainz_provider.h"
+#include "djmeta/cue_online_bridge.h"
 #include "djmeta/physical_selection.h"
 #include "djmeta/review_decisions.h"
 #include "djmeta/track_review.h"
@@ -27,6 +34,8 @@
 
 #include <algorithm>
 #include <limits>
+#include <memory>
+#include <optional>
 #include <map>
 #include <set>
 #include <stdexcept>
@@ -49,24 +58,28 @@ struct PreviewEntry {
     std::string raw_target_probe_detail; // never represents foobar's final FileOps destination
 };
 
-struct ResizableControl {
-    HWND window = nullptr;
-    RECT original{};
-    bool stretch_width = false;
-    bool stretch_height = false;
-    bool shift_down = false;
-    bool shift_right = false;
-};
-
 struct PreviewState {
     HWND dialog = nullptr;
+    HWND help_tooltips = nullptr; // Native tooltip HWND lives/dies with dialog.
+    std::wstring auto_search_text;
+    djmeta::online::musicbrainz::RecordingSearchPlan search_plan;
+    std::string search_plan_identity;
+    std::size_t search_attempt_index = 0;
+    std::wstring search_attempt_notice;
+    std::size_t auto_search_track = (std::numeric_limits<std::size_t>::max)();
+    bool modeless_registered = false;
+    bool stale = false;
+    bool checking_snapshot = false;
+    bool refreshing = false;
     int initial_client_width = 0;
     int initial_client_height = 0;
     int active_dpi = 96;
     int initial_list_bottom = 0;
     int initial_window_width = 0;
     int initial_window_height = 0;
-    std::vector<ResizableControl> resize_controls;
+    int initial_window_left = 0;
+    int initial_window_top = 0;
+    std::vector<NativePreviewResizeChild> resize_controls;
     std::vector<PreviewEntry> entries;
     djmeta::BatchPreviewTable table;
     RoutePreviewChoice current_choice;
@@ -76,15 +89,41 @@ struct PreviewState {
     HWND list = nullptr;
     HWND metadata_list = nullptr;
     HWND metadata_track_list = nullptr;
+    HWND musicbrainz_details = nullptr;
+    HWND musicbrainz_details_label = nullptr;
     HWND metadata_filter = nullptr;
     HWND metadata_track_filter = nullptr;
     HWND metadata_scope = nullptr;
     HWND tabs = nullptr;
     bool show_metadata = true;
+    bool show_candidate = false; // third tab, never a write path
+    bool cue_inspection_mode = false; // exact CUE source view, no online proposal
+    bool cue_candidate_comparison_mode = false; // evidence-only CUE field diff
+    bool musicbrainz_live_view = false; // only set from successful official HTTPS
+    bool musicbrainz_release_loaded = false;
+    djmeta::online::musicbrainz::SearchKind musicbrainz_kind =
+        djmeta::online::musicbrainz::SearchKind::Recording;
+    std::vector<djmeta::online::musicbrainz::SearchCandidate> musicbrainz_results;
+    std::vector<std::vector<djmeta::online::FieldReviewRow>> musicbrainz_detail_groups;
+    std::string musicbrainz_original_title;
+    std::string musicbrainz_original_artist;
     bool show_whitespace = false;
+    std::size_t candidate_source_index = (std::numeric_limits<std::size_t>::max)();
+    std::vector<djmeta::online::FieldReviewRow> candidate_rows;
+    std::vector<std::size_t> candidate_view_order; // independent of normalization rows
+    int candidate_sort_column = 0;
+    bool candidate_sort_descending = false;
     djmeta::ReviewGridLayout<4> track_grid;
     djmeta::ReviewGridLayout<5> detail_grid;
+    djmeta::ReviewGridLayout<4> candidate_track_grid;
+    djmeta::ReviewGridLayout<5> candidate_detail_grid;
+    bool candidate_online_track_columns_active=false;
     bool updating_track_selection = false;
+    bool updating_musicbrainz_selection = false;
+    bool musicbrainz_browse_columns_active = false;
+    bool native_grid_candidate_mode = false; // still tracks layout on File locations
+    bool existing_tags_view = false; // raw captured physical tags, never proposals
+    std::vector<std::pair<std::wstring,std::wstring>> existing_tag_rows;
     std::size_t selected_track_index = 0;
     std::size_t focused_track_index = (std::numeric_limits<std::size_t>::max)();
     djmeta::MetadataFocus metadata_focus = djmeta::MetadataFocus::Music;
@@ -102,6 +141,25 @@ struct PreviewState {
     // Visible ListView item index -> underlying input row identity.
     std::vector<std::size_t> view_order;
 };
+
+// Owned only by foobar's main UI thread. g_pending_state protects the rare
+// CreateDialogParamW failure before WM_INITDIALOG takes ownership.
+HWND g_workspace = nullptr;
+PreviewState* g_pending_state = nullptr;
+
+// External CUE files may appear as top-level physical handles in foobar. They
+// are not audio-file tag targets. Never trust subsong == 0 alone here.
+bool is_external_cue_locator(std::string_view path) {
+    if (path.size() < 4) return false;
+    auto tail = path.substr(path.size() - 4);
+    const char last[] = {'.', 'c', 'u', 'e'};
+    for (std::size_t i = 0; i < 4; ++i) {
+        const char c = tail[i] >= 'A' && tail[i] <= 'Z'
+            ? static_cast<char>(tail[i] - 'A' + 'a') : tail[i];
+        if (c != last[i]) return false;
+    }
+    return true;
+}
 
 std::wstring from_utf8(std::string_view text) {
     if (text.empty()) return {};
@@ -131,6 +189,33 @@ std::string to_utf8(std::wstring_view text) {
         text.data(), size, out.data(), bytes, nullptr, nullptr) != bytes)
         throw std::runtime_error("Unicode conversion failed.");
     return out;
+}
+
+std::string read_manual_clipboard_text(HWND dialog) {
+    if (!OpenClipboard(dialog))
+        throw std::runtime_error("Cannot open clipboard.");
+    struct CloseClipboardGuard {
+        ~CloseClipboardGuard() { CloseClipboard(); }
+    } closer;
+    HANDLE value = GetClipboardData(CF_UNICODETEXT);
+    if (!value)
+        throw std::invalid_argument(
+            "Copy a plain-text candidate first. Clipboard has no Unicode text.");
+    const SIZE_T bytes = GlobalSize(value);
+    if (!bytes || bytes > 131074 || bytes % sizeof(wchar_t) != 0)
+        throw std::invalid_argument("Clipboard candidate exceeds size limit.");
+    const wchar_t* text = static_cast<const wchar_t*>(GlobalLock(value));
+    if (!text) throw std::runtime_error("Cannot read clipboard text.");
+    const std::size_t max_chars = bytes / sizeof(wchar_t);
+    std::size_t length = 0;
+    while (length < max_chars && text[length] != L'\0') ++length;
+    if (length == max_chars) {
+        GlobalUnlock(value);
+        throw std::invalid_argument("Clipboard text is not null-terminated.");
+    }
+    std::wstring captured(text, length);
+    GlobalUnlock(value);
+    return to_utf8(captured);
 }
 
 std::wstring read_control(HWND window, int id) {
@@ -287,11 +372,284 @@ std::string readable_track_name(const std::string& path) {
     return split == std::string::npos ? displayed : displayed.substr(split+1);
 }
 
+// No MusicBrainz request may contain a local path, file hash or audio bytes.
+// These values come solely from explicitly selected metadata or the text the
+// user typed in the short native search field. Duplicates are ambiguous.
+std::string unique_metadata_value(const djmeta::MetadataDocument& doc,
+                                  std::string_view wanted) {
+    std::string result;
+    std::size_t matches=0;
+    for (const auto& field:doc.fields)
+        if (djmeta::online::ascii_upper_field(field.name)==wanted) {
+            matches += field.values.size();
+            if (field.values.size()==1) result=field.values[0];
+        }
+    if (matches>1)
+        throw std::invalid_argument("Ambiguous local title or artist field.");
+    return result;
+}
+
+// Search text is suggested from the SELECTED track's existing metadata.
+ // Never start a network request during selection, tab switching or refresh.
+void prefill_musicbrainz_query(PreviewState& state, bool force = false) {
+    if (!state.dialog || state.selected_track_index >= state.entries.size()) return;
+    const auto& entry = state.entries[state.selected_track_index];
+    if (is_external_cue_locator(entry.input.source_path)) return; // CUE needs Inspect CUE.
+    std::string title;
+    try {
+        const auto info = entry.handle->get_info_ref();
+        const auto original = metadata_from_file_info(info->info());
+        title = unique_metadata_value(original, "TITLE");
+        if (title.empty()) title = unique_metadata_value(original, "ALBUM");
+    } catch (const std::exception&) {
+        return; // Ambiguous or malformed metadata: leave manual search available.
+    }
+    if (title.empty()) return;
+    const auto suggested = from_utf8(title);
+    const auto current = read_control(state.dialog, IDC_METADATA_MB_QUERY);
+    if (!force && !current.empty() && current != state.auto_search_text)
+        return; // User's manually edited query always wins on routine repaint.
+    state.auto_search_text = suggested;
+    state.auto_search_track = state.selected_track_index;
+    if (current != suggested)
+        SetDlgItemTextW(state.dialog,IDC_METADATA_MB_QUERY,suggested.c_str());
+}
+
+std::string unique_cue_album_value(const djmeta::CueMetadataInventory& cue,
+                                   std::string_view name) {
+    std::string value;
+    std::size_t count=0;
+    for (const auto& field:cue.globals)
+        if (field.name==name) {
+            value=field.value;
+            ++count;
+        }
+    if (count>1)
+        throw std::invalid_argument("Ambiguous CUE album title or artist.");
+    return value;
+}
+
+// One MusicBrainz candidate == one visible master row. Field-level
+// differences are retained only in the secondary, selected-candidate pane.
+struct MusicBrainzBrowseRows {
+    std::vector<djmeta::online::FieldReviewRow> summary;
+    std::vector<std::vector<djmeta::online::FieldReviewRow>> detail;
+};
+MusicBrainzBrowseRows musicbrainz_search_rows(
+    const djmeta::online::musicbrainz::SearchResult& found,
+    const std::string& local_title, const std::string& local_artist,
+    const djmeta::MetadataDocument& original_tags) {
+    using namespace djmeta::online;
+    MusicBrainzBrowseRows result;
+    for (const auto& hit : found.candidates) {
+        FieldReviewRow summary;
+        summary.field=hit.title;
+        summary.original_values={hit.artist};
+        if (!hit.release_date.empty()) summary.candidate.values={hit.release_date};
+        summary.candidate.field=musicbrainz::recording_identity_label(
+            local_title,local_artist,hit.title,hit.artist);
+        summary.candidate.provider="musicbrainz";
+        summary.candidate.source_id=hit.mbid;
+        summary.candidate.scope=hit.kind==musicbrainz::SearchKind::Release
+            ? EvidenceScope::Edition:EvidenceScope::Recording;
+        summary.reason="musicbrainz_live_candidate_rank_"+std::to_string(hit.search_score);
+        summary.state=FieldReviewState::NeedsReview;
+        result.summary.push_back(std::move(summary));
+        std::vector<FieldReviewRow> detail;
+        const auto add=[&](const std::string& field,
+                           const std::string& original,
+                           const std::string& proposed) {
+            if (proposed.empty()) return;
+            FieldReviewRow row;
+            row.field=field;
+            if (!original.empty()) row.original_values={original};
+            row.candidate.field=field;
+            row.candidate.provider="musicbrainz";
+            row.candidate.source_id=hit.mbid;
+            row.candidate.scope=hit.kind==musicbrainz::SearchKind::Release
+                ? EvidenceScope::Edition:EvidenceScope::Recording;
+            row.candidate.values={proposed};
+            row.state=(!original.empty() &&
+                       comparable(original)==comparable(proposed))
+                ? FieldReviewState::Unchanged : FieldReviewState::NeedsReview;
+            row.reason="musicbrainz_live_candidate_detail";
+            detail.push_back(std::move(row));
+        };
+        add(hit.kind==musicbrainz::SearchKind::Release ? "ALBUM" : "TITLE",
+            local_title,hit.title);
+        add("ARTIST",local_artist,hit.artist);
+        if(hit.kind==musicbrainz::SearchKind::Recording) {
+            add("IDENTITY (read-only)", "",
+                musicbrainz::recording_identity_label(
+                    local_title,local_artist,hit.title,hit.artist));
+            add("MUSICBRAINZ RANK (not certainty)", "",
+                std::to_string(hit.search_score));
+        }
+        if (hit.kind==musicbrainz::SearchKind::Release)
+            add("EDITION DATE","",hit.release_date);
+        // Show all original source fields, including custom/multivalued ones
+        // that the online provider DID NOT supply. An absent MB value is
+        // never a suggestion to delete or clear the original physical tag.
+        for (const auto& field : original_tags.fields) {
+            if(detail.size()>=50) break;
+            bool supplied=false;
+            for(const auto& row:detail)
+                if(musicbrainz::comparable_search_key(row.field)==
+                   musicbrainz::comparable_search_key(field.name)) {
+                    supplied=true;break;
+                }
+            if(supplied) continue;
+            FieldReviewRow retained;
+            retained.field=field.name;
+            retained.original_values=field.values;
+            retained.candidate.field=field.name;
+            retained.candidate.provider="musicbrainz";
+            retained.candidate.source_id=hit.mbid;
+            retained.reason="musicbrainz_local_only_no_provider_value";
+            retained.state=FieldReviewState::Unchanged;
+            detail.push_back(std::move(retained));
+        }
+        result.detail.push_back(std::move(detail));
+    }
+    return result;
+}
+
+// Only a selected, verified MusicBrainz release MBID is allowed to feed this
+// advisory tracklist comparison. The Hungarian assignment never writes CUE.
+std::vector<djmeta::online::FieldReviewRow> musicbrainz_cue_release_rows(
+    const djmeta::CueMetadataInventory& cue,
+    const djmeta::online::ReleaseEdition& edition) {
+    using namespace djmeta::online;
+    if (cue.status != djmeta::CueSyntaxStatus::Parsed)
+        throw std::invalid_argument("Unqualified CUE cannot be matched to a release.");
+    std::vector<FieldReviewRow> output;
+    const auto review_to_row=[&](const CueCandidateFieldReview& input,
+                                 const std::string& prefix) {
+        FieldReviewRow row;
+        row.field=prefix+(input.cue_field.empty()
+            ? input.candidate.field : input.cue_field);
+        row.candidate=input.candidate;
+        row.original_values=input.original_values;
+        row.state=input.state;
+        row.reason="musicbrainz_live_release_"+input.reason+
+            (input.original_inherited?"_inherited":"");
+        return row;
+    };
+    for (const auto& field:edition.fields) {
+        const auto reviewed=review_cue_candidate_fields(cue,std::nullopt,{field});
+        for(const auto& item:reviewed)
+            output.push_back(review_to_row(item,"Album / "));
+    }
+    const auto local=prepare_cue_release_lookup(cue);
+    ReleaseAlignment alignment;
+    if (local.eligible)
+        alignment=align_release(local.tracks,edition);
+    // Each remote track is displayed even if local identity is missing:
+    // never invent a position-to-CUE assignment from the tracklist alone.
+    for (std::size_t i=0;i<edition.tracks.size();++i) {
+        if (output.size()>1000)
+            throw std::invalid_argument("MusicBrainz preview row limit exceeded.");
+        const auto& remote=edition.tracks[i];
+        std::optional<std::size_t> local_ordinal;
+        for (const auto& link:alignment.tracks) {
+            if (link.edition_track_index==i &&
+                link.decision!=MatchDecision::Rejected) {
+                local_ordinal=link.source_index;
+                break;
+            }
+        }
+        for (const std::string name:{"TITLE","ARTIST"}) {
+            const auto& value=name=="TITLE"
+                ? remote.recording.title : remote.recording.primary_artist;
+            FieldEvidence field{name,{value},"musicbrainz",
+                remote.source_track_id.empty()?edition.edition_id:remote.source_track_id,
+                EvidenceScope::Recording,DateMeaning::NotDate};
+            FieldReviewRow row;
+            row.field="Disc "+std::to_string(remote.disc_number)+
+                " / Track "+std::to_string(remote.track_number)+
+                " / "+name;
+            row.candidate=field;
+            if (local_ordinal) {
+                const auto review=review_cue_candidate_fields(
+                    cue,*local_ordinal,{field});
+                row.original_values=review.front().original_values;
+                row.state=review.front().state;
+                row.reason="musicbrainz_live_release_track_match_review_"+
+                           review.front().reason;
+            } else {
+                row.state=FieldReviewState::Blocked;
+                row.reason="musicbrainz_live_release_unmatched_no_safe_track_identity";
+            }
+            output.push_back(std::move(row));
+        }
+    }
+    return output;
+}
+
+MusicBrainzBrowseRows group_musicbrainz_release_rows(
+    const std::vector<djmeta::online::FieldReviewRow>& flat) {
+    using namespace djmeta::online;
+    MusicBrainzBrowseRows out;
+    for (const auto& row:flat) {
+        // Album and each Disc/Track are one summary item, irrespective
+        // of how many individual fields that item exposes. The existing
+        // separate detail rows remain intact after user selection.
+        const auto at=row.field.rfind(" / ");
+        const std::string name=at==std::string::npos
+            ? row.field:row.field.substr(0,at);
+        if (out.summary.empty() || out.summary.back().field!=name) {
+            FieldReviewRow summary;
+            summary.field=name;
+            summary.candidate.provider="musicbrainz";
+            summary.candidate.source_id=row.candidate.source_id;
+            summary.candidate.field="RELEASE TRACK";
+            summary.state=row.state;
+            summary.reason="musicbrainz_live_release_group";
+            out.summary.push_back(std::move(summary));
+            out.detail.emplace_back();
+        }
+        auto& summary=out.summary.back();
+        if (row.field.ends_with(" / TITLE") ||
+            row.field.ends_with(" / ALBUM") ||
+            (summary.candidate.values.empty() &&
+             row.field.ends_with(" / PERFORMER"))) {
+            summary.original_values=row.original_values;
+            summary.candidate.values=row.candidate.values;
+        }
+        if (row.state==FieldReviewState::Blocked)
+            summary.state=FieldReviewState::Blocked;
+        else if (row.state==FieldReviewState::NeedsReview &&
+                 summary.state!=FieldReviewState::Blocked)
+            summary.state=FieldReviewState::NeedsReview;
+        out.detail.back().push_back(row);
+    }
+    return out;
+}
+
 std::wstring track_master_cell(PreviewState& state, std::size_t row, int col) {
     if (row >= state.track_view_order.size()) return {};
     const auto index = state.track_view_order[row];
     if (index >= state.track_summaries.size()) return {};
     const auto& track = state.track_summaries[index];
+    if (state.show_candidate && col != 0) {
+        if (state.candidate_source_index != index) return L"—";
+        const auto& rows = state.candidate_rows;
+        if (col == 1) return std::to_wstring(rows.size());
+        if (state.musicbrainz_live_view) {
+            if (col == 3) return L""; // no meaningless third online summary
+            return std::to_wstring(static_cast<std::size_t>(std::count_if(
+                rows.begin(),rows.end(),[](const auto& item) {
+                    return item.state==djmeta::online::FieldReviewState::Blocked;
+                })));
+        }
+        if (state.cue_inspection_mode) return L"0";
+        const auto kind = col == 2 ? djmeta::online::FieldReviewState::NeedsReview
+                                   : djmeta::online::FieldReviewState::Blocked;
+        return std::to_wstring(static_cast<std::size_t>(std::count_if(
+            rows.begin(), rows.end(), [kind](const auto& row) {
+                return row.state == kind;
+            })));
+    }
     switch(col) {
         case 0: return track.source_index < state.source_labels.size()
             ? from_utf8(readable_track_name(state.source_labels[track.source_index]))
@@ -342,8 +700,83 @@ void refresh_review_summaries(PreviewState& state) {
     }
 }
 
+std::wstring show_field_values(const std::vector<std::string>& values) {
+    if (values.empty()) return L"(missing)";
+    std::wstring result;
+    for (const auto& value : values) {
+        if (!result.empty()) result += L" | ";
+        try {
+            result += from_utf8(value);
+        } catch (const std::exception&) {
+            result += L"(invalid UTF-8 in existing tag)";
+        }
+    }
+    return result;
+}
+
+std::wstring candidate_cell_text(const djmeta::online::FieldReviewRow& item,
+                                 int column) {
+    const bool cue_inventory = item.reason == "cue_inventory_read_only" ||
+                               item.reason == "cue_inventory_unqualified";
+    if (item.reason.starts_with("musicbrainz_live_candidate_rank_") ||
+        item.reason == "musicbrainz_live_release_group") {
+        switch(column) {
+        case 0: return from_utf8(item.field);
+        case 1: return show_field_values(item.original_values);
+        case 2: return show_field_values(item.candidate.values);
+        case 3: return L"MusicBrainz API";
+        case 4: {
+            if (item.reason.starts_with("musicbrainz_live_candidate_rank_"))
+                return from_utf8(item.candidate.field);
+            return item.state==djmeta::online::FieldReviewState::Blocked
+                ? L"Unmatched" : L"Review";
+        }
+        default: return {};
+        }
+    }
+    if (cue_inventory) {
+        switch (column) {
+        case 0: return from_utf8(item.field);
+        case 1: return show_field_values(item.original_values);
+        case 2: return L""; // no online proposal exists; don't suggest approval
+        case 3: return from_utf8(item.candidate.provider);
+        case 4: return item.reason == "cue_inventory_unqualified"
+            ? L"Unqualified" : L"Read-only";
+        default: return {};
+        }
+    }
+    switch (column) {
+    case 0: return from_utf8(item.field);
+    case 1: return show_field_values(item.original_values);
+    case 2: return show_field_values(item.candidate.values);
+    case 3: return item.reason.starts_with("musicbrainz_live_")
+        ? L"MusicBrainz API" : L"Pasted: " + from_utf8(item.candidate.provider);
+    case 4:
+        return item.state == djmeta::online::FieldReviewState::Unchanged
+            ? L"No change" :
+            item.state == djmeta::online::FieldReviewState::NeedsReview
+            ? L"Review" : L"Blocked";
+    default: return {};
+    }
+}
+
 std::wstring metadata_cell_text(PreviewState& state,
                                 std::size_t row, int column) {
+    if (state.show_candidate) {
+        if (state.candidate_source_index != state.selected_track_index ||
+            row >= state.candidate_view_order.size()) return {};
+        const auto candidate_index = state.candidate_view_order[row];
+        if (candidate_index >= state.candidate_rows.size()) return {};
+        return candidate_cell_text(state.candidate_rows[candidate_index], column);
+    }
+    if (state.existing_tags_view) {
+        if (row >= state.existing_tag_rows.size()) return {};
+        if (column==0) return state.existing_tag_rows[row].first;
+        if (column==1) return state.existing_tag_rows[row].second;
+        if (column==3) return L"Original file";
+        if (column==4) return L"Read-only";
+        return {};
+    }
     if (row >= state.metadata_view_order.size()) return {};
     const auto index = state.metadata_view_order[row];
     if (index >= state.focused_metadata_rows.size()) return {};
@@ -365,7 +798,309 @@ std::wstring metadata_cell_text(PreviewState& state,
     }
 }
 
+void layout_musicbrainz_detail_pane(PreviewState& state) {
+    if (!state.dialog || !state.metadata_list ||
+        !state.musicbrainz_details || !state.musicbrainz_details_label ||
+        state.resize_controls.empty()) return;
+    const NativePreviewResizeChild *left=nullptr, *right=nullptr;
+    for (const auto& child:state.resize_controls) {
+        if (child.window==state.metadata_track_list) left=&child;
+        if (child.window==state.metadata_list) right=&child;
+    }
+    if (!left || !right) return;
+    RECT client{};
+    GetClientRect(state.dialog,&client);
+    const auto split=review_split_geometry(left->original,right->original,
+        client.right-state.initial_client_width,
+        client.bottom-state.initial_client_height);
+    const auto frame=split.detail;
+    const int width=frame.right-frame.left;
+    const int height=frame.bottom-frame.top;
+    const bool active=state.show_candidate && state.musicbrainz_live_view &&
+        state.candidate_source_index==state.selected_track_index;
+    if (!active) {
+        SetWindowPos(state.metadata_list,nullptr,frame.left,frame.top,
+            (std::max)(8,width),(std::max)(8,height),
+            SWP_NOZORDER|SWP_NOACTIVATE);
+        ShowWindow(state.musicbrainz_details,SW_HIDE);
+        ShowWindow(state.musicbrainz_details_label,SW_HIDE);
+        return;
+    }
+    // Reserve a real caption line and vertical breathing room between the
+    // browser and the nested table. The old +2/+17 geometry was overlapping
+    // native ListView borders/fonts (visible at 100%-200% scaling).
+    const auto regions=musicbrainz_pane_bounds(frame,state.active_dpi);
+    const auto place=[&](HDWP& hdwp,HWND window,const RECT& bounds) {
+        hdwp=DeferWindowPos(hdwp,window,nullptr,
+            bounds.left,bounds.top,
+            (std::max<int>)(8,bounds.right-bounds.left),
+            (std::max<int>)(8,bounds.bottom-bounds.top),
+            SWP_NOZORDER|SWP_NOACTIVATE|SWP_NOCOPYBITS);
+        return hdwp!=nullptr;
+    };
+    HDWP defer=BeginDeferWindowPos(3);
+    if (!defer) return;
+    if (!place(defer,state.metadata_list,regions.hits)) return;
+    if (!place(defer,state.musicbrainz_details_label,regions.caption)) return;
+    if (!place(defer,state.musicbrainz_details,regions.details)) return;
+    EndDeferWindowPos(defer);
+    ShowWindow(state.musicbrainz_details_label,SW_SHOW);
+    ShowWindow(state.musicbrainz_details,SW_SHOW);
+    // Lower details table uses the same responsive width as the result list.
+    const int widths[]={28,23,32,17};
+    for (int i=0;i<4;++i)
+        ListView_SetColumnWidth(state.musicbrainz_details,i,
+            (std::max)(44,(width-8)*widths[i]/100));
+}
+
+void refresh_musicbrainz_detail_rows(PreviewState& state) {
+    if (!state.musicbrainz_details) return;
+    ListView_DeleteAllItems(state.musicbrainz_details);
+    if (!state.show_candidate || !state.musicbrainz_live_view ||
+        state.candidate_source_index!=state.selected_track_index) return;
+    const int selected=ListView_GetNextItem(state.metadata_list,-1,LVNI_SELECTED);
+    if (selected<0 ||
+        static_cast<std::size_t>(selected)>=state.candidate_view_order.size()) return;
+    const std::size_t index=state.candidate_view_order[static_cast<std::size_t>(selected)];
+    if (index>=state.musicbrainz_detail_groups.size()) return;
+    const auto& detail=state.musicbrainz_detail_groups[index];
+    for (std::size_t i=0;i<detail.size()&&i<50;++i) {
+        const auto& row=detail[i];
+        const auto field=from_utf8(row.field);
+        const auto original=show_field_values(row.original_values);
+        const auto proposed=row.reason=="musicbrainz_local_only_no_provider_value"
+            ? L"(not supplied)" : show_field_values(row.candidate.values);
+        const std::wstring status=row.reason==
+            "musicbrainz_local_only_no_provider_value" ? L"Keep original" :
+            row.state==
+            djmeta::online::FieldReviewState::Blocked ? L"Blocked"
+            : row.state==djmeta::online::FieldReviewState::Unchanged
+            ? L"No change" : L"Review";
+        if (!insert_native_preview_detail_row(state.musicbrainz_details,
+              static_cast<int>(i),field,original,proposed,status))
+            throw std::runtime_error("Native candidate detail columns could not be populated.");
+    }
+}
+
+void update_musicbrainz_browse_headers(PreviewState& state) {
+    if (!state.metadata_list) return;
+    const bool browse=state.show_candidate && state.musicbrainz_live_view &&
+        state.candidate_source_index==state.selected_track_index;
+    const wchar_t* names[5]={L"Field",L"Original",L"Proposed",L"Source",L"Status"};
+    if (state.existing_tags_view && !state.show_candidate) {
+        names[0]=L"Tag field"; names[1]=L"All original values";
+        names[2]=L""; names[3]=L"Source"; names[4]=L"Write status";
+    }
+    if (browse) {
+        names[0]=state.musicbrainz_release_loaded?L"Album / Track":L"Recording / Release";
+        names[1]=state.musicbrainz_release_loaded?L"Current":L"Artist";
+        names[2]=state.musicbrainz_release_loaded?L"Suggested":L"Date";
+        names[3]=L"Source";
+        names[4]=state.musicbrainz_release_loaded?L"Match":L"Identity check";
+    }
+    for(int i=0;i<5;++i) {
+        LVCOLUMNW column{};
+        column.mask=LVCF_TEXT;
+        column.pszText=const_cast<LPWSTR>(names[i]);
+        ListView_SetColumn(state.metadata_list,i,&column);
+    }
+    // Widths are a user setting, not a property of the selected track.
+    // Apply only when changing between review and candidate modes; never
+    // when a list is repainted, resorted, or another track is selected.
+    if (browse != state.musicbrainz_browse_columns_active) {
+        if (!browse && state.musicbrainz_browse_columns_active) {
+            capture_review_grid_controls(state.metadata_list,
+                state.candidate_detail_grid,state.active_dpi);
+        }
+        if (browse)
+            apply_review_grid_controls(state.metadata_list,
+                state.candidate_detail_grid,state.active_dpi);
+        else
+            apply_review_grid_controls(state.metadata_list,
+                state.show_candidate?state.candidate_detail_grid:state.detail_grid,
+                state.active_dpi);
+        state.musicbrainz_browse_columns_active=browse;
+    }
+}
+
 void update_metadata_table(PreviewState& state) {
+    if (state.show_candidate) {
+        // Candidate counts describe result identities, not field-change rows.
+        // Update headers when entering live search, not just on tab switch.
+        const wchar_t* candidate_headers[3]={
+            state.musicbrainz_live_view?L"Hits":L"Tags",
+            state.musicbrainz_live_view?L"Blocked":L"Diffs",
+            state.musicbrainz_live_view?L"":L"Block"
+        };
+        for (int i=0;i<3;++i) {
+            LVCOLUMNW column{};
+            column.mask=LVCF_TEXT;
+            column.pszText=const_cast<LPWSTR>(candidate_headers[i]);
+            ListView_SetColumn(state.metadata_track_list,i+1,&column);
+        }
+        // A new track cannot reset a user-resized column. The online
+        // track grid is initialized only when entering candidate mode.
+        const bool browse_track=state.musicbrainz_live_view &&
+            state.candidate_source_index==state.selected_track_index;
+        if (browse_track && !state.candidate_online_track_columns_active) {
+            capture_review_grid_controls(state.metadata_track_list,
+                state.candidate_track_grid,state.active_dpi);
+            ListView_SetColumnWidth(state.metadata_track_list,3,0);
+            state.candidate_online_track_columns_active=true;
+        } else if (!browse_track && state.candidate_online_track_columns_active) {
+            // The fourth column is only meaningless during online browsing.
+            ListView_SetColumnWidth(state.metadata_track_list,3,
+                MulDiv(state.candidate_track_grid.widths[3],state.active_dpi,96));
+            state.candidate_online_track_columns_active=false;
+        }
+        const bool selected_valid = state.selected_track_index < state.entries.size();
+        const bool physical = selected_valid &&
+            state.entries[state.selected_track_index].input.physical_source_qualified &&
+            !is_external_cue_locator(
+                state.entries[state.selected_track_index].input.source_path);
+        const bool selected_cue_preview = selected_valid &&
+            state.candidate_source_index == state.selected_track_index &&
+            (state.cue_inspection_mode || state.cue_candidate_comparison_mode);
+        EnableWindow(GetDlgItem(state.dialog, IDC_METADATA_IMPORT_CANDIDATE),
+                     (physical || selected_cue_preview) ? TRUE : FALSE);
+        const bool cue_readable = selected_valid &&
+            (is_external_cue_locator(
+                state.entries[state.selected_track_index].input.source_path) ||
+             (physical && state.entries[state.selected_track_index].handle->get_subsong_index() == 0));
+        EnableWindow(GetDlgItem(state.dialog, IDC_METADATA_INSPECT_CUE),
+                     cue_readable ? TRUE : FALSE);
+        EnableWindow(GetDlgItem(state.dialog, IDC_METADATA_MB_SEARCH),
+                     (physical || cue_readable) ? TRUE : FALSE);
+        const bool can_load_release = state.musicbrainz_live_view &&
+            !state.musicbrainz_release_loaded &&
+            state.candidate_source_index == state.selected_track_index &&
+            state.musicbrainz_kind ==
+                djmeta::online::musicbrainz::SearchKind::Release &&
+            !state.musicbrainz_results.empty();
+        EnableWindow(GetDlgItem(state.dialog, IDC_METADATA_MB_LOAD_RELEASE),
+                     can_load_release ? TRUE : FALSE);
+        // Preserve the candidate, not its old sorted view row.
+        std::string selected_browser_id;
+        const int selected_before=ListView_GetNextItem(
+            state.metadata_list,-1,LVNI_SELECTED);
+        if (selected_before>=0 &&
+            static_cast<std::size_t>(selected_before)<state.candidate_view_order.size()) {
+            const auto old_index=state.candidate_view_order[
+                static_cast<std::size_t>(selected_before)];
+            if (old_index<state.candidate_rows.size()) {
+                const auto& old=state.candidate_rows[old_index];
+                selected_browser_id=old.candidate.source_id+"|"+old.field;
+            }
+        }
+        state.candidate_view_order.clear();
+        if ((physical || state.cue_inspection_mode ||
+             state.cue_candidate_comparison_mode || state.musicbrainz_live_view) &&
+            state.selected_track_index == state.candidate_source_index) {
+            for (std::size_t i = 0; i < state.candidate_rows.size(); ++i)
+                state.candidate_view_order.push_back(i);
+            const int sort_column = state.candidate_sort_column;
+            std::stable_sort(state.candidate_view_order.begin(),
+                             state.candidate_view_order.end(),
+                [&](std::size_t a, std::size_t b) {
+                    const auto left = candidate_cell_text(state.candidate_rows[a], sort_column);
+                    const auto right = candidate_cell_text(state.candidate_rows[b], sort_column);
+                    return state.candidate_sort_descending ? left > right : left < right;
+                });
+        }
+        ListView_SetItemCountEx(state.metadata_list,
+            static_cast<int>(state.candidate_view_order.size()),
+            LVSICF_NOINVALIDATEALL | LVSICF_NOSCROLL);
+        layout_musicbrainz_detail_pane(state);
+        update_musicbrainz_browse_headers(state);
+        if (state.musicbrainz_live_view &&
+            state.candidate_source_index==state.selected_track_index) {
+            std::size_t target=0;
+            bool found=false;
+            for (std::size_t i=0;i<state.candidate_view_order.size();++i) {
+                const auto& row=state.candidate_rows[state.candidate_view_order[i]];
+                if (!selected_browser_id.empty() &&
+                    row.candidate.source_id+"|"+row.field==selected_browser_id) {
+                    target=i;
+                    found=true;
+                    break;
+                }
+            }
+            const int selected_now=ListView_GetNextItem(
+                state.metadata_list,-1,LVNI_SELECTED);
+            if (!state.candidate_view_order.empty() &&
+                ((found && selected_now!=static_cast<int>(target)) ||
+                 (!found && selected_now<0))) {
+                state.updating_musicbrainz_selection=true;
+                ListView_SetItemState(state.metadata_list,-1,0,LVIS_SELECTED);
+                ListView_SetItemState(state.metadata_list,static_cast<int>(target),
+                    LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);
+                state.updating_musicbrainz_selection=false;
+            }
+            refresh_musicbrainz_detail_rows(state);
+        } else {
+            ListView_DeleteAllItems(state.musicbrainz_details);
+        }
+        InvalidateRect(state.metadata_list, nullptr, FALSE);
+        InvalidateRect(state.metadata_track_list, nullptr, FALSE); // counts may change after import
+        const std::wstring hint = !selected_valid
+            ? L"Select an audio file or CUE to inspect. No files are written."
+            : state.musicbrainz_live_view &&
+              state.candidate_source_index == state.selected_track_index
+            ? (state.musicbrainz_release_loaded
+                ? L"MusicBrainz release details + tentative CUE assignment, read-only. "
+                  L"Unmatched tracks are blocked. No tags were written."
+                : state.search_attempt_notice.empty()
+                    ? L"Select a candidate for its field-by-field identity evidence. "
+                      L"MB search rank is not match certainty; no files changed."
+                    : state.search_attempt_notice)
+            : state.cue_inspection_mode &&
+              state.candidate_source_index == state.selected_track_index
+            ? L"Source CUE metadata displayed read-only. To compare a clipboard candidate, "
+              L"use @scope=edition for album, or @scope=recording and "
+              L"@cue_track_ordinal=N for an exact CUE track. No tags were written."
+            : state.cue_candidate_comparison_mode &&
+              state.candidate_source_index == state.selected_track_index
+            ? L"Manual clipboard evidence (provider unverified). CUE album / track comparison "
+              L"only; Review/Blocked are not write approvals. No files were changed."
+            : !physical
+            ? L"Select Inspect CUE first, then Import clipboard to compare source "
+              L"metadata. Direct virtual-subtrack writes remain blocked."
+            : !state.candidate_view_order.empty()
+            ? L"Pasted evidence (provider unverified). No change / Review / Blocked are "
+              L"comparison statuses, not write approvals. No tags were written."
+            : L"Copy a structured candidate and click Import clipboard. Required: "
+              L"@provider=discogs, @id=release:123 and FIELD=VALUE. No tags are written.";
+        SetDlgItemTextW(state.dialog, IDC_BATCH_HINT, hint.c_str());
+        return;
+    }
+    // A separate inventory mode is not a proposal and can never be accepted.
+    if (state.existing_tags_view) {
+        state.existing_tag_rows.clear();
+        if (state.selected_track_index < state.entries.size()) {
+            const auto& entry=state.entries[state.selected_track_index];
+            verify_snapshot(entry);
+            if (entry.input.physical_source_qualified &&
+                entry.handle->get_subsong_index()==0) {
+                const auto current=entry.handle->get_info_ref();
+                const auto doc=metadata_from_file_info(current->info());
+                if (doc.fields.size()>10000)
+                    throw std::runtime_error("Physical metadata inventory too large.");
+                for (const auto& field:doc.fields) {
+                    state.existing_tag_rows.emplace_back(
+                        from_utf8(field.name),show_field_values(field.values));
+                }
+            }
+        }
+        ListView_SetItemCountEx(state.metadata_list,
+            static_cast<int>(state.existing_tag_rows.size()),
+            LVSICF_NOINVALIDATEALL|LVSICF_NOSCROLL);
+        SetDlgItemTextW(state.dialog,IDC_BATCH_HINT,
+            L"All original physical tag fields and multivalues are displayed. "
+            L"Unchanged tags are included; the inventory is read-only. "
+            L"Virtual CUE subtracks are intentionally excluded.");
+        InvalidateRect(state.metadata_list,nullptr,FALSE);
+        return;
+    }
     // Preserve source-local proposal identity rather than virtual row position.
     std::set<std::size_t> selected_proposals;
     if (state.metadata_list &&
@@ -464,23 +1199,104 @@ void update_master_table(PreviewState& state) {
     InvalidateRect(state.metadata_track_list, nullptr, FALSE);
 }
 
-void show_preview_page(HWND dialog, PreviewState& state, bool metadata) {
+void show_preview_page(HWND dialog, PreviewState& state,
+                       bool metadata, bool candidate = false) {
+    if (metadata && state.native_grid_candidate_mode!=candidate &&
+        state.metadata_track_list && state.metadata_list) {
+        // Capture the outgoing grid ONCE at the actual previous display DPI.
+        // Review and online search never reuse each other's column widths.
+        if (state.native_grid_candidate_mode) {
+            capture_review_grid_controls(state.metadata_track_list,
+                state.candidate_track_grid,state.active_dpi);
+            capture_review_grid_controls(state.metadata_list,
+                state.candidate_detail_grid,state.active_dpi);
+            state.candidate_online_track_columns_active=false;
+            state.musicbrainz_browse_columns_active=false;
+            apply_review_grid_controls(state.metadata_track_list,state.track_grid,
+                                       state.active_dpi);
+            apply_review_grid_controls(state.metadata_list,state.detail_grid,
+                                       state.active_dpi);
+        } else {
+            capture_review_grid_controls(state.metadata_track_list,
+                state.track_grid,state.active_dpi);
+            capture_review_grid_controls(state.metadata_list,
+                state.detail_grid,state.active_dpi);
+            apply_review_grid_controls(state.metadata_track_list,
+                state.candidate_track_grid,state.active_dpi);
+            apply_review_grid_controls(state.metadata_list,
+                state.candidate_detail_grid,state.active_dpi);
+        }
+        state.native_grid_candidate_mode=candidate;
+    }
     state.show_metadata = metadata;
+    state.show_candidate = candidate;
+    SetDlgItemTextW(dialog, IDC_BATCH_GUIDE, candidate
+        ? L"1. Select a track. Double-click it to search, or edit the title and click Search. Compare hits on the right."
+        : metadata
+        ? L"2. Review normalization proposals. Accept/Reject only changes the preview, never the music files."
+        : L"3. Preview file names and folders. Paths remain unverified; no files are moved or renamed.");
+    if (candidate) prefill_musicbrainz_query(state);
+    ShowWindow(GetDlgItem(dialog, IDC_METADATA_IMPORT_CANDIDATE),
+        candidate ? SW_SHOW : SW_HIDE);
+    ShowWindow(GetDlgItem(dialog, IDC_METADATA_INSPECT_CUE),
+        candidate ? SW_SHOW : SW_HIDE);
+    ShowWindow(GetDlgItem(dialog, IDC_METADATA_MB_QUERY),
+        candidate ? SW_SHOW : SW_HIDE);
+    ShowWindow(GetDlgItem(dialog, IDC_METADATA_MB_SEARCH),
+        candidate ? SW_SHOW : SW_HIDE);
+    ShowWindow(GetDlgItem(dialog, IDC_METADATA_MB_LOAD_RELEASE),
+        candidate ? SW_SHOW : SW_HIDE);
+    layout_musicbrainz_detail_pane(state);
+    update_musicbrainz_browse_headers(state);
+    const wchar_t* headers[2] = {
+        candidate || state.existing_tags_view ? L"Source" : L"Safety",
+        candidate ? L"Status" : state.existing_tags_view
+            ? L"Write status" : L"Decision"
+    };
+    for (int i = 0; i < 2; ++i) {
+        LVCOLUMNW col{};
+        col.mask = LVCF_TEXT;
+        col.pszText = const_cast<LPWSTR>(headers[i]);
+        ListView_SetColumn(state.metadata_list, i + 3, &col);
+    }
+    const wchar_t* track_headers[3] = {
+        candidate ? (state.musicbrainz_live_view?L"Hits":L"Tags") :
+            state.existing_tags_view?L"Tags":L"Music",
+        candidate ? (state.musicbrainz_live_view?L"Blocked":L"Diffs") :
+            state.existing_tags_view?L"":L"Other",
+        candidate ? (state.musicbrainz_live_view?L"":L"Block") :
+            state.existing_tags_view?L"":L"Review"
+    };
+    for (int i = 0; i < 3; ++i) {
+        LVCOLUMNW col{};
+        col.mask = LVCF_TEXT;
+        col.pszText = const_cast<LPWSTR>(track_headers[i]);
+        ListView_SetColumn(state.metadata_track_list, i + 1, &col);
+    }
+    InvalidateRect(state.metadata_track_list, nullptr, FALSE);
+    auto sort_view = state.detail_grid;
+    if (candidate) {
+        sort_view.sort_column = state.candidate_sort_column;
+        sort_view.sort_descending = state.candidate_sort_descending;
+    }
+    show_review_grid_sort_arrow(state.metadata_list, sort_view);
     ShowWindow(state.metadata_list, metadata ? SW_SHOW : SW_HIDE);
     ShowWindow(state.metadata_track_list, metadata ? SW_SHOW : SW_HIDE);
-    ShowWindow(state.metadata_filter, metadata ? SW_SHOW : SW_HIDE);
-    ShowWindow(state.metadata_track_filter, metadata ? SW_SHOW : SW_HIDE);
-    ShowWindow(state.metadata_scope, metadata ? SW_SHOW : SW_HIDE);
+    ShowWindow(state.metadata_filter, metadata && !candidate ? SW_SHOW : SW_HIDE);
+    ShowWindow(state.metadata_track_filter, metadata && !candidate ? SW_SHOW : SW_HIDE);
+    ShowWindow(state.metadata_scope, metadata && !candidate ? SW_SHOW : SW_HIDE);
     ShowWindow(GetDlgItem(dialog, IDC_METADATA_VISIBLE_WHITESPACE),
-               metadata ? SW_SHOW : SW_HIDE);
+               metadata && !candidate ? SW_SHOW : SW_HIDE);
     for (int id : {IDC_METADATA_ACCEPT, IDC_METADATA_REJECT,
                    IDC_METADATA_RESET, IDC_METADATA_MANUAL_INPUT,
                    IDC_METADATA_USE_VALUE})
-        ShowWindow(GetDlgItem(dialog,id), metadata ? SW_SHOW : SW_HIDE);
+        ShowWindow(GetDlgItem(dialog,id),
+                   metadata && !candidate && !state.existing_tags_view
+                       ? SW_SHOW : SW_HIDE);
     ShowWindow(GetDlgItem(dialog, IDC_METADATA_TRACK_FILTER_LABEL),
-        metadata ? SW_SHOW : SW_HIDE);
+        metadata && !candidate ? SW_SHOW : SW_HIDE);
     ShowWindow(GetDlgItem(dialog, IDC_METADATA_FILTER_LABEL),
-        metadata ? SW_SHOW : SW_HIDE);
+        metadata && !candidate ? SW_SHOW : SW_HIDE);
     ShowWindow(state.list, metadata ? SW_HIDE : SW_SHOW);
     for (int id : {IDC_BATCH_ROUTE_LABEL,
                    IDC_BATCH_DEST_LABEL, IDC_BATCH_PATTERN_LABEL,
@@ -737,12 +1553,14 @@ void capture_resize_layout(PreviewState& state) {
     state.initial_client_height = client.bottom;
     state.initial_window_width = window_rect.right - window_rect.left;
     state.initial_window_height = window_rect.bottom - window_rect.top;
+    state.initial_window_left = window_rect.left;
+    state.initial_window_top = window_rect.top;
     state.resize_controls.clear();
 
     EnumChildWindows(dialog, [](HWND control, LPARAM state_ptr) -> BOOL {
         auto& current = *reinterpret_cast<PreviewState*>(state_ptr);
         if (GetParent(control) != current.dialog) return TRUE;
-        ResizableControl layout;
+        NativePreviewResizeChild layout;
         layout.window = control;
         GetWindowRect(control, &layout.original);
         MapWindowPoints(HWND_DESKTOP, current.dialog,
@@ -762,7 +1580,11 @@ void capture_resize_layout(PreviewState& state) {
             id != IDC_METADATA_TRACK_LIST &&
             id != IDC_BATCH_TABS &&
             layout.original.top >= current.initial_list_bottom;
-        layout.shift_right = id == IDC_METADATA_USE_VALUE ||
+        if (id == IDC_BATCH_GUIDE) layout.stretch_width=true;
+        layout.shift_right = id == IDC_METADATA_INSPECT_CUE ||
+                             id == IDC_METADATA_MB_LOAD_RELEASE ||
+                             id == IDC_METADATA_IMPORT_CANDIDATE ||
+                             id == IDC_METADATA_USE_VALUE ||
                              id == IDC_BATCH_APPLY_SELECTED ||
                              id == IDC_BATCH_APPLY_ALL || id == IDCANCEL;
         current.resize_controls.push_back(layout);
@@ -774,30 +1596,89 @@ void resize_batch_dialog(PreviewState& state, int width, int height) {
     if (state.resize_controls.empty() || width < 1 || height < 1) return;
     const int dx = width - state.initial_client_width;
     const int dy = height - state.initial_client_height;
-    for (const auto& child : state.resize_controls) {
-        if (!IsWindow(child.window)) continue;
-        const RECT& orig = child.original;
-        const int x = orig.left + (child.shift_right ? dx : 0);
-        const int y = orig.top + (child.shift_down ? dy : 0);
-        const int w = (orig.right - orig.left) + (child.stretch_width ? dx : 0);
-        const int h = (orig.bottom - orig.top) + (child.stretch_height ? dy : 0);
-        SetWindowPos(child.window, nullptr, x, y,
-                     (std::max)(8, w), (std::max)(8, h),
-                     SWP_NOZORDER | SWP_NOACTIVATE);
-    }
+    if (!apply_native_preview_resize(
+            state.resize_controls, state.metadata_track_list, state.metadata_list,
+            dx, dy)) return;
+    align_native_preview_form(state.dialog);
+    layout_musicbrainz_detail_pane(state);
+    if (state.musicbrainz_live_view)
+        update_musicbrainz_browse_headers(state);
+    // Repaint moved siblings as a single region. Do not force synchronous
+    // painting for every WM_SIZE while the user is dragging the border.
+    RedrawWindow(state.dialog, nullptr, nullptr,
+                 RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_ERASE);
+}
 
-    // Use the original production HWND rectangles (not a screenshot's
-    // coordinates) so master and detail each receive half of extra space.
-    const RECT* master = nullptr;
-    const RECT* detail = nullptr;
-    for (const auto& child : state.resize_controls) {
-        if (child.window == state.metadata_track_list) master = &child.original;
-        if (child.window == state.metadata_list) detail = &child.original;
-    }
-    if (master && detail)
-        apply_review_split_geometry(state.metadata_track_list,
-                                    state.metadata_list, *master, *detail,
-                                    dx, dy);
+void restore_batch_dialog_window_size(PreviewState& state) {
+    if (!state.dialog || state.initial_window_width <= 0) return;
+    const int dpi = (std::max)(96, state.active_dpi);
+    const auto saved_placement=load_batch_preview_window_placement();
+    const auto saved_size=load_batch_preview_window_size();
+    if (!saved_placement && !saved_size) return;
+
+    const int target_width = saved_placement
+        ? MulDiv(saved_placement->width_at_96_dpi,dpi,96)
+        : MulDiv(saved_size->width_at_96_dpi,dpi,96);
+    const int target_height = saved_placement
+        ? MulDiv(saved_placement->height_at_96_dpi,dpi,96)
+        : MulDiv(saved_size->height_at_96_dpi,dpi,96);
+    RECT proposed{};
+    if (!GetWindowRect(state.dialog,&proposed)) return;
+    int left=saved_placement
+        ? MulDiv(saved_placement->left_at_96_dpi,dpi,96) : proposed.left;
+    int top=saved_placement
+        ? MulDiv(saved_placement->top_at_96_dpi,dpi,96) : proposed.top;
+
+    RECT search_rect{left,top,left+target_width,top+target_height};
+    HMONITOR monitor=MonitorFromRect(&search_rect,MONITOR_DEFAULTTONEAREST);
+    MONITORINFO screen{};
+    screen.cbSize=sizeof(screen);
+    if (!monitor || !GetMonitorInfoW(monitor,&screen)) return;
+    const int available_w=screen.rcWork.right-screen.rcWork.left;
+    const int available_h=screen.rcWork.bottom-screen.rcWork.top;
+    if (available_w<state.initial_window_width ||
+        available_h<state.initial_window_height) return;
+    const int width=(std::clamp)(target_width,state.initial_window_width,available_w);
+    const int height=(std::clamp)(target_height,state.initial_window_height,available_h);
+    left=(std::clamp<int>)(left,screen.rcWork.left,screen.rcWork.right-width);
+    top=(std::clamp<int>)(top,screen.rcWork.top,screen.rcWork.bottom-height);
+    // Saved position is the user's last normal (restored) window location.
+    // Clamp after monitor/DPI changes to ensure the caption always stays visible.
+    SetWindowPos(state.dialog,nullptr,left,top,width,height,
+                 SWP_NOZORDER|SWP_NOACTIVATE);
+    if (saved_placement && saved_placement->maximized)
+        ShowWindow(state.dialog,SW_MAXIMIZE);
+}
+
+void save_batch_dialog_window_size(const PreviewState& state) {
+    if (!state.dialog || state.initial_window_width<=0 ||
+        state.initial_window_height<=0) return;
+    WINDOWPLACEMENT placement{};
+    placement.length=sizeof(placement);
+    if (!GetWindowPlacement(state.dialog,&placement))
+        return;
+    // For maximized dialogs rcNormalPosition holds the restored rectangle.
+    // A normal window uses its actual desktop rect for correct screen position.
+    RECT bounds=placement.rcNormalPosition;
+    const bool iconic=IsIconic(state.dialog)!=FALSE;
+    const bool maximized=IsZoomed(state.dialog)!=FALSE ||
+        (iconic && (placement.flags & WPF_RESTORETOMAXIMIZED) != 0);
+    if (!maximized && !iconic && !GetWindowRect(state.dialog,&bounds)) return;
+    const int width=bounds.right-bounds.left;
+    const int height=bounds.bottom-bounds.top;
+    if (width<=0 || height<=0) return;
+    const int dpi=(std::max)(96,state.active_dpi);
+    djmeta::PreviewWindowPlacement saved{
+        MulDiv(bounds.left,96,dpi), MulDiv(bounds.top,96,dpi),
+        MulDiv(width,96,dpi), MulDiv(height,96,dpi), maximized};
+    if (!djmeta::valid_preview_window_placement(saved)) return;
+    if (!load_batch_preview_window_placement() && !maximized &&
+        bounds.left==state.initial_window_left &&
+        bounds.top==state.initial_window_top &&
+        width==state.initial_window_width &&
+        height==state.initial_window_height &&
+        !load_batch_preview_window_size()) return;
+    store_batch_preview_window_placement(saved);
 }
 
 void apply_review_action(HWND dialog, PreviewState& state,
@@ -810,6 +1691,9 @@ void apply_review_action(HWND dialog, PreviewState& state,
     // The selected identity always refers to analysis.proposals; neither
     // a sorted UI row nor a filtered field name is an edit target.
     std::set<std::pair<std::size_t, std::size_t>> targets;
+    if (state.existing_tags_view)
+        throw std::invalid_argument(
+            "Original tag inventory is read-only. Select a proposal view first.");
     if (scope == 0) {
         for (const auto proposal_row :
                 selected_native_view_ids(state.metadata_list, state.metadata_view_order)) {
@@ -1128,23 +2012,257 @@ std::vector<PreviewEntry> capture_preview(
     return entries;
 }
 
+// Revalidation is synchronous and read-only. We never replace an open set of
+// field decisions merely because foobar selection, playlist or tags changed.
+void mark_stale_workspace(PreviewState& state) {
+    if (state.stale) return;
+    state.stale = true;
+    for (int id : {IDC_METADATA_ACCEPT, IDC_METADATA_REJECT,
+                   IDC_METADATA_RESET, IDC_METADATA_USE_VALUE,
+                   IDC_BATCH_APPLY_SELECTED, IDC_BATCH_APPLY_ALL,
+                   IDC_METADATA_MB_SEARCH, IDC_METADATA_MB_LOAD_RELEASE,
+                   IDC_METADATA_INSPECT_CUE, IDC_METADATA_IMPORT_CANDIDATE})
+        EnableWindow(GetDlgItem(state.dialog,id), FALSE);
+    SetWindowTextW(state.dialog,L"Music Metadata Studio - STALE snapshot (Read-only)");
+    SetDlgItemTextW(state.dialog,IDC_BATCH_HINT,
+        L"Source metadata, file identity or rules changed. Results are stale. "
+        L"Refresh snapshot to discard old decisions; no files were changed.");
+}
+
+void revalidate_workspace(PreviewState& state, bool full_source_check = false) {
+    if (state.stale || state.checking_snapshot || state.refreshing) return;
+    state.checking_snapshot = true;
+    bool fresh = true;
+    try {
+        verify_rules_snapshot(state.captured_rules);
+        for (std::size_t i = 0; i < state.entries.size(); ++i) {
+            const auto& entry = state.entries[i];
+            verify_snapshot(entry);
+            // Focus/restore checks the selected disk source; explicit actions
+            // verify the entire batch. Avoid a multi-thousand-file OS scan
+            // merely because foobar playback or playlist focus changed.
+            if ((!full_source_check && i != state.selected_track_index) ||
+                entry.observed_source_guard.empty()) continue;
+            const auto latest = probe_host_file_readonly(entry.input.source_path);
+            if (latest.state != HostFileState::ExistingFile ||
+                latest.host_physical_key != entry.observed_physical_key ||
+                latest.source_guard != entry.observed_source_guard) {
+                throw std::runtime_error("A physical source changed on disk.");
+            }
+        }
+        verify_rules_snapshot(state.captured_rules);
+    } catch (...) {
+        fresh = false;
+    }
+    state.checking_snapshot = false;
+    if (!fresh) mark_stale_workspace(state);
+}
+
+bool same_workspace_selection(const PreviewState& state,
+                              const metadb_handle_list& handles) {
+    if (handles.get_count() != state.entries.size()) return false;
+    for (t_size i=0;i<handles.get_count();++i) {
+        const auto& old = state.entries[static_cast<std::size_t>(i)].handle;
+        if (std::string(old->get_path()) != std::string(handles[i]->get_path()) ||
+            old->get_subsong_index() != handles[i]->get_subsong_index())
+            return false;
+    }
+    return true;
+}
+
+void refresh_workspace_snapshot(PreviewState& state) {
+    if (MessageBoxW(state.dialog,
+            L"Reload the tracks already open in Music Metadata Studio?\n\n"
+            L"All preview decisions, MusicBrainz hits, pasted comparisons and "
+            L"file-location plans will be discarded.\n\n"
+            L"To work on different tracks, close Studio and open it again "
+            L"from their foobar context menu.\n\n"
+            L"No music files or tags will be changed.",
+            L"Refresh preview only",MB_ICONQUESTION|MB_YESNO|MB_DEFBUTTON2)
+        != IDYES) return;
+    state.refreshing=true;
+    try {
+        const RoutePreviewChoice choice=read_choice(state.dialog);
+        metadb_handle_list handles;
+        for (const auto& entry: state.entries) handles.add_item(entry.handle);
+        // Build the replacement fully before touching the displayed snapshot.
+        PreviewState next;
+        next.current_choice=choice;
+        next.entries=capture_preview(handles,choice,next.analyses,next.captured_rules);
+        next.metadata_rows=djmeta::describe_metadata_diffs(next.analyses);
+        for (const auto& analysis: next.analyses)
+            next.review_decisions.emplace_back(analysis.proposals.size());
+        for (const auto& entry: next.entries) {
+            next.source_labels.push_back(entry.input.source_path);
+            next.cached_track_names.push_back(from_utf8(
+                readable_track_name(entry.input.source_path)));
+        }
+        refresh_review_summaries(next);
+        state.entries.swap(next.entries);
+        state.analyses.swap(next.analyses);
+        state.metadata_rows.swap(next.metadata_rows);
+        state.review_decisions.swap(next.review_decisions);
+        state.track_summaries.swap(next.track_summaries);
+        state.source_labels.swap(next.source_labels);
+        state.cached_track_names.swap(next.cached_track_names);
+        state.captured_rules=std::move(next.captured_rules);
+        state.current_choice=std::move(next.current_choice);
+        state.candidate_rows.clear();
+        state.candidate_view_order.clear();
+        state.musicbrainz_results.clear();
+        state.musicbrainz_detail_groups.clear();
+        state.musicbrainz_original_title.clear();
+        state.musicbrainz_original_artist.clear();
+        state.auto_search_text.clear();
+        state.search_plan= {};
+        state.search_plan_identity.clear();
+        state.search_attempt_index=0;
+        state.search_attempt_notice.clear();
+        state.auto_search_track=(std::numeric_limits<std::size_t>::max)();
+        SetDlgItemTextW(state.dialog,IDC_METADATA_MB_QUERY,L"");
+        state.musicbrainz_live_view=false;
+        state.musicbrainz_release_loaded=false;
+        state.cue_inspection_mode=false;
+        state.cue_candidate_comparison_mode=false;
+        state.candidate_source_index=(std::numeric_limits<std::size_t>::max)();
+        state.selected_track_index=0;
+        state.focused_track_index=(std::numeric_limits<std::size_t>::max)();
+        state.track_discovery=djmeta::TrackDiscovery::All;
+        state.focused_metadata_rows.clear();
+        state.track_view_order.clear();
+        state.metadata_view_order.clear();
+        state.view_order.clear();
+        state.stale=false;
+        prefill_musicbrainz_query(state,true);
+        for (int id : {IDC_METADATA_ACCEPT, IDC_METADATA_REJECT,
+                       IDC_METADATA_RESET, IDC_METADATA_USE_VALUE,
+                       IDC_BATCH_APPLY_SELECTED, IDC_BATCH_APPLY_ALL})
+            EnableWindow(GetDlgItem(state.dialog,id), TRUE);
+        SetWindowTextW(state.dialog,L"Music Metadata Studio - Prepare Tracks (Read-only)");
+        update_table(state);
+        update_master_table(state);
+        show_preview_page(state.dialog,state,state.show_metadata,state.show_candidate);
+        SetDlgItemTextW(state.dialog,IDC_BATCH_HINT,
+            L"Snapshot refreshed. Previous candidate results and decisions discarded. "
+            L"Read-only: nothing was written.");
+    } catch (...) {
+        state.refreshing=false;
+        throw;
+    }
+    state.refreshing=false;
+}
+
+// Native context help, using HWND-owned tooltip storage and static immutable
+// descriptions. No extra settings files, background requests or UI framework.
+void install_workspace_tooltips(PreviewState& state) {
+    const HWND dialog=state.dialog;
+    const HWND tips=CreateWindowExW(0,TOOLTIPS_CLASSW,nullptr,
+        WS_POPUP|TTS_NOPREFIX,
+        CW_USEDEFAULT,CW_USEDEFAULT,CW_USEDEFAULT,CW_USEDEFAULT,
+        dialog,nullptr,core_api::get_my_instance(),nullptr);
+    if (!tips) throw std::runtime_error("Cannot initialize native tooltips.");
+    state.help_tooltips=tips;
+    SendMessageW(tips,TTM_SETMAXTIPWIDTH,0,MulDiv(340,current_dpi(dialog),96));
+    SendMessageW(tips,TTM_SETDELAYTIME,TTDT_INITIAL,600);
+    SendMessageW(tips,TTM_SETDELAYTIME,TTDT_RESHOW,200);
+    SendMessageW(tips,TTM_SETDELAYTIME,TTDT_AUTOPOP,5200);
+    struct HelpText { int id; const wchar_t* text; };
+    static constexpr HelpText texts[] = {
+        {IDC_BATCH_TABS,L"1. Search online and compare. 2. Review local rule-based suggestions. 3. Preview file locations. These previews do not write files."},
+        {IDC_BATCH_GUIDE,L"Follow the steps from left to right. A MusicBrainz match is evidence, not an approved tag edit."},
+        {IDC_METADATA_TRACK_LIST,L"Choose a track. Double-click in Find to search online; double-click in Review to switch to Find."},
+        {IDC_METADATA_MB_QUERY,L"From TITLE/ALBUM. Search starts with artist + normalized title; after zero results, click Search again to broaden."},
+        {IDC_METADATA_MB_SEARCH,L"Look up the selected recording using MusicBrainz HTTPS (free). This is a deliberate network request and does not change tags."},
+        {IDC_METADATA_MB_LOAD_RELEASE,L"Only for a verified MusicBrainz release and a qualified CUE. Read its track list without changing files."},
+        {IDC_METADATA_INSPECT_CUE,L"Read the source CUE and show its album/track fields. Embedded and external CUE are never written here."},
+        {IDC_METADATA_IMPORT_CANDIDATE,L"Compare structured provider evidence copied to the clipboard. No provider is contacted and nothing is applied."},
+        {IDC_METADATA_LIST,L"Select a candidate or proposed change to inspect its source and status."},
+        {IDC_METADATA_MB_DETAILS,L"Field-by-field evidence for the selected online candidate. REVIEW is not a tag-write authorization."},
+        {IDC_METADATA_FILTER,L"Limit the local normalization review to music, extended or all tags."},
+        {IDC_METADATA_TRACK_FILTER,L"Filter original tracks by whether they have rule proposals. This never removes files."},
+        {IDC_METADATA_REVIEW_SCOPE,L"Choose whether to review selected change rows, selected tracks or all tracks. Review decisions are preview-only."},
+        {IDC_METADATA_ACCEPT,L"Mark chosen rule proposals as accepted in memory. No music file is written."},
+        {IDC_METADATA_REJECT,L"Reject chosen local rule proposals in memory, without changing source files."},
+        {IDC_METADATA_RESET,L"Restore pending decisions for selected local proposals, preview only."},
+        {IDC_METADATA_MANUAL_INPUT,L"Enter a replacement value for exactly one selected local rule proposal."},
+        {IDC_METADATA_USE_VALUE,L"Use the manually entered value for one selected proposal in the read-only preview."},
+        {IDC_METADATA_VISIBLE_WHITESPACE,L"Display tabs, spaces and other invisible characters visibly; original tags remain unchanged."},
+        {IDC_BATCH_LIST,L"Proposed source-to-target rows. Destination paths have not passed the final foobar File Operations safety checks."},
+        {IDC_BATCH_PROFILE_PICKER,L"Select an existing foobar routing template or enter a custom display name; no file operation is performed."},
+        {IDC_BATCH_DESTINATION,L"Destination root for the preview only. No folder is created."},
+        {IDC_BATCH_PATTERN,L"foobar Title Formatting pattern for preview file names only. Actual paths are not yet validated."},
+        {IDC_BATCH_APPLY_SELECTED,L"Recalculate proposed locations for selected rows in memory, without copying or moving files."},
+        {IDC_BATCH_APPLY_ALL,L"Recalculate proposed locations for every row in memory. Nothing is written."},
+        {IDC_BATCH_REFRESH,L"Reload the original selection after a confirmation. Discards pending decisions, search hits and routing previews. Does not import a different selection."},
+        {IDC_BATCH_HELP,L"Open the three-stage walkthrough and explain what each tab can and cannot do."},
+        {IDCANCEL,L"Close the workspace without writing tags, CUE data or music files."}
+    };
+    for (const auto& item : texts) {
+        // Tables have native row-specific infotips. Registering another
+        // whole-table tracking tooltip caused 'stuck' explanatory overlays.
+        if (item.id==IDC_METADATA_TRACK_LIST || item.id==IDC_METADATA_LIST ||
+            item.id==IDC_BATCH_LIST || item.id==IDC_METADATA_MB_DETAILS)
+            continue;
+        const HWND child=GetDlgItem(dialog,item.id);
+        if (!child) continue; // Optional page control absent on older hosts.
+        TOOLINFOW tool{};
+        tool.cbSize=TTTOOLINFOW_V2_SIZE;
+        tool.uFlags=TTF_IDISHWND|TTF_SUBCLASS;
+        tool.hwnd=dialog;
+        tool.uId=reinterpret_cast<UINT_PTR>(child);
+        tool.lpszText=const_cast<LPWSTR>(item.text);
+        if (!SendMessageW(tips,TTM_ADDTOOLW,0,reinterpret_cast<LPARAM>(&tool)))
+            throw std::runtime_error("Native tooltip registration failed.");
+    }
+}
+
+void show_workspace_help(HWND dialog) {
+    MessageBoxW(dialog,
+        L"1. Find & compare\n"
+        L"Select a track on the left. Its TITLE is already in the search box. "
+        L"Click Search MusicBrainz, or double-click a track on the search tab. "
+        L"Select a result to compare original and suggested fields below. "
+        L"For a CUE, click Inspect CUE first; release tracklists require an exact CUE.\n\n"
+        L"2. Review proposals\n"
+        L"See the separate normalization suggestions generated by the local "
+        L"rule engine. Accept, Reject and Use value only change the preview. "
+        L"Online hits are NOT automatically imported as tag edits.\n\n"
+        L"3. Plan file locations\n"
+        L"Choose a routing profile, destination and naming expression, then "
+        L"preview the proposed paths. Neither moves nor renames are enabled.\n\n"
+        L"Hover over buttons or fields for details. Refresh snapshot discards "
+        L"pending work and reloads the SAME selected tracks. Close Studio and "
+        L"open it again in foobar to work on a different selection.\n\n"
+        L"ALL THREE TABS ARE READ-ONLY: audio files, CUE, tags and timestamps "
+        L"are never changed by these actions.",
+        L"How to use Music Metadata Studio",MB_OK|MB_ICONINFORMATION);
+}
+
 INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
     if (message == WM_INITDIALOG) {
         auto* state = reinterpret_cast<PreviewState*>(lp);
+        g_pending_state=nullptr; // WM_NCDESTROY now owns and frees this state.
+        g_workspace=dialog;
+        state->dialog=dialog;
         SetWindowLongPtrW(dialog, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(state));
         try {
         state->dark.AddDialogWithControls(dialog);
         state->list = GetDlgItem(dialog, IDC_BATCH_LIST);
         state->metadata_list = GetDlgItem(dialog, IDC_METADATA_LIST);
+        state->musicbrainz_details = GetDlgItem(dialog, IDC_METADATA_MB_DETAILS);
+        state->musicbrainz_details_label = GetDlgItem(dialog, IDC_METADATA_MB_DETAIL_LABEL);
         state->metadata_track_list = GetDlgItem(dialog, IDC_METADATA_TRACK_LIST);
         state->metadata_filter = GetDlgItem(dialog, IDC_METADATA_FILTER);
         state->metadata_track_filter = GetDlgItem(dialog, IDC_METADATA_TRACK_FILTER);
         state->metadata_scope = GetDlgItem(dialog, IDC_METADATA_REVIEW_SCOPE);
         state->tabs = GetDlgItem(dialog, IDC_BATCH_TABS);
-        if (!state->list || !state->metadata_list || !state->metadata_track_list ||
+        if (!state->list || !state->metadata_list || !state->musicbrainz_details ||
+            !state->musicbrainz_details_label || !state->metadata_track_list ||
             !state->metadata_filter || !state->metadata_track_filter ||
-            !state->metadata_scope || !state->tabs) return FALSE;
-        for (const wchar_t* name : {L"Metadata changes", L"File locations"}) {
+            !state->metadata_scope || !state->tabs)
+            throw std::runtime_error("Required native dialog controls missing.");
+        for (const wchar_t* name : {L"1. Find & compare", L"2. Review proposals",
+                                    L"3. Plan file locations"}) {
             TCITEMW tab{};
             tab.mask = TCIF_TEXT;
             tab.pszText = const_cast<wchar_t*>(name);
@@ -1164,15 +2282,24 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         ListView_SetExtendedListViewStyle(state->metadata_list,
             LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_INFOTIP |
             LVS_EX_HEADERDRAGDROP);
+        ListView_SetExtendedListViewStyle(state->musicbrainz_details,
+            LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_INFOTIP);
+        add_column(state->musicbrainz_details, 0, L"Field", 92);
+        add_column(state->musicbrainz_details, 1, L"Original", 75);
+        add_column(state->musicbrainz_details, 2, L"Suggested", 88);
+        add_column(state->musicbrainz_details, 3, L"Status", 65);
         add_column(state->metadata_list, 0, L"Field", 78);
         add_column(state->metadata_list, 1, L"Original", 95);
         add_column(state->metadata_list, 2, L"Proposed", 95);
         add_column(state->metadata_list, 3, L"Safety", 57);
         add_column(state->metadata_list, 4, L"Decision", 68);
         state->detail_grid = load_detail_grid_layout();
+        state->candidate_track_grid = load_candidate_track_grid_layout();
+        state->candidate_detail_grid = load_candidate_detail_grid_layout();
         apply_review_grid_controls(state->metadata_list, state->detail_grid,
                                    current_dpi(state->metadata_list));
-        for (const wchar_t* focus : {L"Music tags", L"Extended tags", L"All fields"})
+        for (const wchar_t* focus : {L"Music proposals", L"Extended proposals",
+                                      L"All proposals", L"All current tags (read-only)"})
             SendDlgItemMessageW(dialog, IDC_METADATA_FILTER, CB_ADDSTRING,
                 0, reinterpret_cast<LPARAM>(focus));
         SendDlgItemMessageW(dialog, IDC_METADATA_FILTER, CB_SETCURSEL, 0, 0);
@@ -1185,6 +2312,9 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 0, reinterpret_cast<LPARAM>(scope));
         SendDlgItemMessageW(dialog, IDC_METADATA_REVIEW_SCOPE, CB_SETCURSEL, 0, 0);
         SendDlgItemMessageW(dialog, IDC_METADATA_MANUAL_INPUT, EM_LIMITTEXT, 16384, 0);
+        SendDlgItemMessageW(dialog, IDC_METADATA_MB_QUERY, EM_LIMITTEXT, 150, 0);
+        SendDlgItemMessageW(dialog, IDC_METADATA_MB_QUERY, EM_SETCUEBANNER,
+            FALSE, reinterpret_cast<LPARAM>(L"Optional title / album"));
         SendDlgItemMessageW(dialog, IDC_METADATA_VISIBLE_WHITESPACE,
                             BM_SETCHECK, BST_UNCHECKED, 0);
 
@@ -1236,17 +2366,37 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                         from_utf8(state->current_choice.titleformat_expression).c_str());
         state->dialog = dialog;
         state->active_dpi = current_dpi(dialog);
+        install_workspace_tooltips(*state);
         update_table(*state);
         update_master_table(*state);
         update_metadata_table(*state);
-        show_preview_page(dialog, *state, true);
+        show_preview_page(dialog, *state, true, true);
+        prefill_musicbrainz_query(*state,true);
         align_native_preview_form(dialog);
         capture_resize_layout(*state);
+        restore_batch_dialog_window_size(*state);
+        // Fit first-open headers to a bounded sample of real Unicode titles,
+        // only while the profile still uses untouched factory widths.
+        // Never recompute these during selection, sorting or tab navigation.
+        const int native_dpi=current_dpi(state->metadata_track_list);
+        const int ideal_title=fit_initial_track_title_column(
+            state->metadata_track_list,state->cached_track_names,native_dpi);
+        const auto track_defaults=default_track_grid_layout();
+        if (state->track_grid.widths==track_defaults.widths)
+            state->track_grid.widths[0]=ideal_title;
+        if (state->candidate_track_grid.widths==
+                (std::array<int,4>{280,75,90,85}))
+            state->candidate_track_grid.widths[0]=ideal_title;
+        apply_review_grid_controls(state->metadata_track_list,
+            state->show_candidate ? state->candidate_track_grid:state->track_grid,
+            native_dpi);
+        modeless_dialog_manager::g_add(dialog);
+        state->modeless_registered=true;
         return TRUE;
-        } catch (const std::exception&) {
-            MessageBoxW(dialog, L"Unable to initialize the batch preview table.",
-                        L"Prepare Tracks", MB_OK | MB_ICONERROR);
-            EndDialog(dialog, IDCANCEL);
+        } catch (...) {
+            // WM_INITDIALOG returning FALSE does not abort creation. Always
+            // destroy to release HWND and heap state on partial initialization.
+            DestroyWindow(dialog);
             return TRUE;
         }
     }
@@ -1254,6 +2404,36 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
     auto* state = reinterpret_cast<PreviewState*>(
         GetWindowLongPtrW(dialog, GWLP_USERDATA));
     if (!state) return FALSE;
+
+    if (message == WM_NCDESTROY) {
+        if (state->help_tooltips && IsWindow(state->help_tooltips)) {
+            DestroyWindow(state->help_tooltips);
+            state->help_tooltips=nullptr;
+        }
+        if (state->modeless_registered) {
+            modeless_dialog_manager::g_remove(dialog);
+            state->modeless_registered=false;
+        }
+        if (g_workspace == dialog) g_workspace=nullptr;
+        SetWindowLongPtrW(dialog,GWLP_USERDATA,0);
+        delete state;
+        return FALSE;
+    }
+    if (message == WM_CLOSE) {
+        if(state->help_tooltips) SendMessageW(state->help_tooltips,TTM_POP,0,0);
+        DestroyWindow(dialog);
+        return TRUE;
+    }
+    if ((message == WM_MOVE || message == WM_SIZE || message == WM_ENTERSIZEMOVE)
+        && state->help_tooltips)
+        SendMessageW(state->help_tooltips,TTM_POP,0,0);
+    if (message == WM_ACTIVATE && LOWORD(wp)==WA_INACTIVE &&
+        state->help_tooltips)
+        SendMessageW(state->help_tooltips,TTM_POP,0,0);
+    if (message == WM_ACTIVATE && LOWORD(wp)!=WA_INACTIVE) {
+        revalidate_workspace(*state);
+        return FALSE;
+    }
 
     if (message == WM_GETMINMAXINFO && state->initial_window_width > 0) {
         auto* limits = reinterpret_cast<MINMAXINFO*>(lp);
@@ -1266,12 +2446,59 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         align_native_preview_form(dialog);
         return TRUE;
     }
+    if (message == WM_EXITSIZEMOVE) {
+        // Native buttons and hidden tab siblings must not leave paint ghosts
+        // when a user stops dragging the window edge.
+        RedrawWindow(dialog, nullptr, nullptr,
+                     RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+        return TRUE;
+    }
 
     if (message == WM_NOTIFY) {
         const auto* header = reinterpret_cast<const NMHDR*>(lp);
         if (header && header->idFrom == IDC_BATCH_TABS &&
             header->code == TCN_SELCHANGE) {
-            show_preview_page(dialog, *state, TabCtrl_GetCurSel(state->tabs) == 0);
+            if(state->help_tooltips) SendMessageW(state->help_tooltips,TTM_POP,0,0);
+            const int selected_tab = TabCtrl_GetCurSel(state->tabs);
+            show_preview_page(dialog, *state, selected_tab != 2, selected_tab == 0);
+            return TRUE;
+        }
+        if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&
+            (header->code == NM_DBLCLK || header->code == LVN_KEYDOWN)) {
+            // Owner-data ListView reliably emits NM_DBLCLK for mouse and
+            // LVN_KEYDOWN for Return; LVN_ITEMACTIVATE varies by host style.
+            // Do not also process ITEMACTIVATE: one gesture must issue only
+            // one MusicBrainz request.
+            int row=-1;
+            if(header->code==NM_DBLCLK) {
+                const auto* clicked=reinterpret_cast<const NMITEMACTIVATE*>(lp);
+                if(clicked) row=clicked->iItem;
+            } else {
+                const auto* key=reinterpret_cast<const NMLVKEYDOWN*>(lp);
+                if(!key || key->wVKey!=VK_RETURN) return FALSE;
+                row=ListView_GetNextItem(state->metadata_track_list,-1,LVNI_FOCUSED);
+                if(row<0) row=ListView_GetNextItem(
+                    state->metadata_track_list,-1,LVNI_SELECTED);
+            }
+            if (row<0 || static_cast<std::size_t>(row)>=state->track_view_order.size())
+                return TRUE;
+            state->selected_track_index =
+                state->track_view_order[static_cast<std::size_t>(row)];
+            const bool already_searching = state->show_candidate;
+            TabCtrl_SetCurSel(state->tabs,0);
+            show_preview_page(dialog,*state,true,true);
+            prefill_musicbrainz_query(*state,true);
+            if (already_searching) {
+                // Double-click on Search tab is a deliberate explicit online action.
+                // Reuse the button path with all existing source/rules/rate-limit gates.
+                SendMessageW(dialog,WM_COMMAND,
+                    MAKEWPARAM(IDC_METADATA_MB_SEARCH,BN_CLICKED),
+                    reinterpret_cast<LPARAM>(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH)));
+            } else {
+                // On other tabs, first open search without unexpected network I/O.
+                SetFocus(GetDlgItem(dialog,IDC_METADATA_MB_QUERY));
+                SendDlgItemMessageW(dialog,IDC_METADATA_MB_QUERY,EM_SETSEL,0,-1);
+            }
             return TRUE;
         }
         if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&
@@ -1320,6 +2547,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             if (const auto track = native_selected_track_change(
                     *changed, state->track_view_order, state->updating_track_selection)) {
                 state->selected_track_index = *track;
+                prefill_musicbrainz_query(*state,true);
                 update_metadata_table(*state);
             }
             return TRUE;
@@ -1340,11 +2568,93 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             }
             return TRUE;
         }
+        const bool release_activation=header &&
+            header->idFrom==IDC_METADATA_LIST &&
+            (header->code==NM_DBLCLK ||
+             (header->code==LVN_KEYDOWN &&
+              reinterpret_cast<const NMLVKEYDOWN*>(lp)->wVKey==VK_RETURN));
+        if (release_activation &&
+            may_activate_musicbrainz_release(header->code,
+                state->show_candidate && state->musicbrainz_live_view,
+                state->musicbrainz_kind==
+                    djmeta::online::musicbrainz::SearchKind::Release,
+                state->musicbrainz_release_loaded,
+                state->candidate_source_index==state->selected_track_index,
+                header->code==LVN_KEYDOWN?VK_RETURN:0)) {
+            // A native ListView double-click or Enter is equivalent to
+            // explicitly clicking Load MB release. Existing code checks the
+            // selected verified MBID, enforces rate limiting and never writes.
+            SendMessageW(dialog,WM_COMMAND,
+                MAKEWPARAM(IDC_METADATA_MB_LOAD_RELEASE,BN_CLICKED),
+                reinterpret_cast<LPARAM>(GetDlgItem(dialog,
+                                                    IDC_METADATA_MB_LOAD_RELEASE)));
+            return TRUE;
+        }
+        if (header && header->idFrom == IDC_METADATA_LIST &&
+            header->code == LVN_ITEMCHANGED && state->show_candidate &&
+            state->musicbrainz_live_view) {
+            if (!state->updating_musicbrainz_selection) {
+                const auto* changed=reinterpret_cast<const NMLISTVIEW*>(lp);
+                if (changed && (changed->uChanged & LVIF_STATE) &&
+                    ((changed->uNewState & LVIS_SELECTED) !=
+                     (changed->uOldState & LVIS_SELECTED)))
+                    refresh_musicbrainz_detail_rows(*state);
+            }
+            return TRUE;
+        }
         if (header && header->idFrom == IDC_METADATA_LIST &&
             header->code == LVN_GETINFOTIPW) {
             auto* tip = reinterpret_cast<NMLVGETINFOTIPW*>(lp);
             if (tip->iItem >= 0 && tip->pszText && tip->cchTextMax > 0) {
                 const auto row = static_cast<std::size_t>(tip->iItem);
+                if (state->show_candidate) {
+                    if (state->candidate_source_index == state->selected_track_index &&
+                        row < state->candidate_view_order.size()) {
+                        const auto idx = state->candidate_view_order[row];
+                        if (idx < state->candidate_rows.size()) {
+                            const auto& item = state->candidate_rows[idx];
+                            const bool is_cue_inventory =
+                                item.reason == "cue_inventory_read_only" ||
+                                item.reason == "cue_inventory_unqualified";
+                            const bool official_musicbrainz =
+                                item.reason.starts_with("musicbrainz_live_");
+                            const bool browse_result =
+                                item.reason.starts_with("musicbrainz_live_candidate_rank_");
+                            const std::wstring label = browse_result
+                                ? (L"Source: official MusicBrainz HTTPS search"
+                                   L"\nTitle: " + from_utf8(item.field) +
+                                   L"\nArtist: " + show_field_values(item.original_values) +
+                                   L"\nEdition date: " +
+                                       show_field_values(item.candidate.values) +
+                                   L"\nMusicBrainz ID: " +
+                                       from_utf8(item.candidate.source_id) +
+                                   L"\nRank is only API search relevance, NOT match confidence.")
+                                : std::wstring(is_cue_inventory
+                                    ? L"Source: actual local CUE carrier"
+                                    : official_musicbrainz
+                                    ? L"Source: official MusicBrainz HTTPS API (read-only)"
+                                    : L"Source: manual paste, provider unverified") +
+                                L"\nDeclared provider: " + from_utf8(item.candidate.provider) +
+                                L"\nSource ID: " + from_utf8(item.candidate.source_id) +
+                                L"\nField: " + from_utf8(item.field) +
+                                L"\nReason: " + from_utf8(item.reason) +
+                                L"\nOriginal: " + show_field_values(item.original_values) +
+                                L"\nProposal: " + show_field_values(item.candidate.values);
+                            lstrcpynW(tip->pszText, label.c_str(), tip->cchTextMax);
+                        }
+                    }
+                    return TRUE; // never show stale normalization rule details
+                }
+                if (state->existing_tags_view) {
+                    if (row < state->existing_tag_rows.size()) {
+                        const auto& original=state->existing_tag_rows[row];
+                        const std::wstring label=original.first+L": "+
+                            original.second+L"\nOriginal physical tag. "+
+                            L"MusicBrainz absence never deletes this field.";
+                        lstrcpynW(tip->pszText,label.c_str(),tip->cchTextMax);
+                    }
+                    return TRUE; // never leak an unrelated proposal tooltip
+                }
                 if (row < state->metadata_view_order.size()) {
                     const auto index = state->metadata_view_order[row];
                     if (index < state->focused_metadata_rows.size()) {
@@ -1367,14 +2677,28 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             header->code == LVN_COLUMNCLICK) {
             const auto* click = reinterpret_cast<const NMLISTVIEW*>(lp);
             if (click->iSubItem >= 0 && click->iSubItem < 5) {
-                if (click->iSubItem == state->detail_grid.sort_column)
-                    state->detail_grid.sort_descending = !state->detail_grid.sort_descending;
-                else {
-                    state->detail_grid.sort_column = click->iSubItem;
-                    state->detail_grid.sort_descending = false;
+                if (state->show_candidate) {
+                    if (click->iSubItem == state->candidate_sort_column)
+                        state->candidate_sort_descending = !state->candidate_sort_descending;
+                    else {
+                        state->candidate_sort_column = click->iSubItem;
+                        state->candidate_sort_descending = false;
+                    }
+                    update_metadata_table(*state);
+                    auto sort_view = state->detail_grid;
+                    sort_view.sort_column = state->candidate_sort_column;
+                    sort_view.sort_descending = state->candidate_sort_descending;
+                    show_review_grid_sort_arrow(state->metadata_list, sort_view);
+                } else {
+                    if (click->iSubItem == state->detail_grid.sort_column)
+                        state->detail_grid.sort_descending = !state->detail_grid.sort_descending;
+                    else {
+                        state->detail_grid.sort_column = click->iSubItem;
+                        state->detail_grid.sort_descending = false;
+                    }
+                    update_metadata_table(*state);
+                    show_review_grid_sort_arrow(state->metadata_list, state->detail_grid);
                 }
-                update_metadata_table(*state);
-                show_review_grid_sort_arrow(state->metadata_list, state->detail_grid);
             }
             return TRUE;
         }
@@ -1492,17 +2816,33 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         }
     }
     if (message == WM_DESTROY) {
+        try {
+            save_batch_dialog_window_size(*state);
+        } catch (const std::exception&) {
+            // Invalid display state never blocks closing the preview.
+        }
         // UI layout is independent of preview Cancel/Close. Save only display
         // preferences, never route edits, media metadata or file operations.
         try {
+            if (state->initial_client_width <= 0 || !state->metadata_track_list ||
+                !state->metadata_list || !state->list) return FALSE;
             capture_column_layout(*state);
             store_batch_table_layout(state->layout);
-            capture_review_grid_controls(state->metadata_track_list, state->track_grid,
-                                         current_dpi(state->metadata_track_list));
-            capture_review_grid_controls(state->metadata_list, state->detail_grid,
-                                         current_dpi(state->metadata_list));
+            if (state->native_grid_candidate_mode) {
+                capture_review_grid_controls(state->metadata_track_list,
+                    state->candidate_track_grid,current_dpi(state->metadata_track_list));
+                capture_review_grid_controls(state->metadata_list,
+                    state->candidate_detail_grid,current_dpi(state->metadata_list));
+            } else if (state->show_metadata) {
+                capture_review_grid_controls(state->metadata_track_list,
+                    state->track_grid,current_dpi(state->metadata_track_list));
+                capture_review_grid_controls(state->metadata_list,
+                    state->detail_grid,current_dpi(state->metadata_list));
+            }
             store_track_grid_layout(state->track_grid);
             store_detail_grid_layout(state->detail_grid);
+            store_candidate_track_grid_layout(state->candidate_track_grid);
+            store_candidate_detail_grid_layout(state->candidate_detail_grid);
         } catch (const std::exception&) {
             // Invalid profile display state is non-critical; retain defaults.
         }
@@ -1514,10 +2854,17 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         if (new_dpi >= 96 && new_dpi <= 768 && state->active_dpi != new_dpi) {
             // Capture at the *previous* DPI before applying a new scale.
             // Preserve hidden logical widths and current user resizing.
-            capture_review_grid_controls(state->metadata_track_list,
-                                         state->track_grid, state->active_dpi);
-            capture_review_grid_controls(state->metadata_list,
-                                         state->detail_grid, state->active_dpi);
+            if (state->native_grid_candidate_mode) {
+                capture_review_grid_controls(state->metadata_track_list,
+                    state->candidate_track_grid,state->active_dpi);
+                capture_review_grid_controls(state->metadata_list,
+                    state->candidate_detail_grid,state->active_dpi);
+            } else if (state->show_metadata) {
+                capture_review_grid_controls(state->metadata_track_list,
+                    state->track_grid,state->active_dpi);
+                capture_review_grid_controls(state->metadata_list,
+                    state->detail_grid,state->active_dpi);
+            }
             state->active_dpi = new_dpi;
         }
         const auto* dimensions = reinterpret_cast<const RECT*>(lp);
@@ -1527,9 +2874,11 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             dimensions->bottom - dimensions->top,
             SWP_NOZORDER | SWP_NOACTIVATE);
         apply_review_grid_controls(state->metadata_track_list,
-                                   state->track_grid, state->active_dpi);
+            state->native_grid_candidate_mode?state->candidate_track_grid:state->track_grid,
+            state->active_dpi);
         apply_review_grid_controls(state->metadata_list,
-                                   state->detail_grid, state->active_dpi);
+            state->native_grid_candidate_mode?state->candidate_detail_grid:state->detail_grid,
+            state->active_dpi);
         align_native_preview_form(dialog);
         return TRUE;
     }
@@ -1538,6 +2887,348 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
     const int id = LOWORD(wp);
     const auto native_command = native_preview_command(message, wp);
     try {
+        if (id == IDCANCEL) {
+            DestroyWindow(dialog);
+            return TRUE;
+        }
+        if (id == IDC_BATCH_REFRESH && HIWORD(wp) == BN_CLICKED) {
+            refresh_workspace_snapshot(*state);
+            return TRUE;
+        }
+        if (id == IDC_BATCH_HELP && HIWORD(wp) == BN_CLICKED) {
+            show_workspace_help(dialog);
+            return TRUE;
+        }
+        const bool consequential = native_command == PreviewCommand::Accept ||
+            native_command == PreviewCommand::Reject ||
+            native_command == PreviewCommand::Reset ||
+            native_command == PreviewCommand::ManualValue ||
+            (HIWORD(wp) == BN_CLICKED &&
+             (id == IDC_METADATA_MB_SEARCH || id == IDC_METADATA_MB_LOAD_RELEASE ||
+              id == IDC_METADATA_INSPECT_CUE || id == IDC_METADATA_IMPORT_CANDIDATE ||
+              id == IDC_BATCH_APPLY_SELECTED || id == IDC_BATCH_APPLY_ALL));
+        if (consequential) {
+            revalidate_workspace(*state, true);
+            if (state->stale) return TRUE;
+        }
+        if (id == IDC_METADATA_MB_SEARCH && HIWORD(wp) == BN_CLICKED) {
+            if (!state->show_candidate ||
+                state->selected_track_index >= state->entries.size())
+                throw std::invalid_argument("Select a physical audio or CUE source first.");
+            const auto& entry=state->entries[state->selected_track_index];
+            verify_snapshot(entry);
+            verify_rules_snapshot(state->captured_rules);
+
+            const bool cue_mode=is_external_cue_locator(entry.input.source_path) ||
+                (state->candidate_source_index==state->selected_track_index &&
+                 (state->cue_inspection_mode ||
+                  state->cue_candidate_comparison_mode ||
+                  (state->musicbrainz_live_view &&
+                   state->musicbrainz_kind==
+                     djmeta::online::musicbrainz::SearchKind::Release)));
+            std::string local_title, local_artist, local_isrc, cue_before;
+            djmeta::MetadataDocument original_tags;
+            const auto kind=cue_mode
+                ? djmeta::online::musicbrainz::SearchKind::Release
+                : djmeta::online::musicbrainz::SearchKind::Recording;
+            if (cue_mode) {
+                const auto raw=read_cue_raw_on_demand(
+                    entry.handle,entry.input.source_path);
+                const auto inventory=djmeta::inspect_cue_metadata(
+                    raw.raw_text,raw.carrier);
+                if (inventory.status!=djmeta::CueSyntaxStatus::Parsed)
+                    throw std::invalid_argument(
+                        "This CUE must have a qualified track inventory to search.");
+                local_title=unique_cue_album_value(inventory,"TITLE");
+                local_artist=unique_cue_album_value(inventory,"PERFORMER");
+                cue_before=raw.raw_text;
+            } else {
+                if (!entry.input.physical_source_qualified)
+                    throw std::invalid_argument(
+                        "Online search requires a uniquely qualified physical file "
+                        "or a CUE previously selected with Inspect CUE.");
+                const auto info=entry.handle->get_info_ref();
+                original_tags=metadata_from_file_info(info->info());
+                local_title=unique_metadata_value(original_tags,"TITLE");
+                local_artist=unique_metadata_value(original_tags,"ARTIST");
+                try {local_isrc=unique_metadata_value(original_tags,"ISRC");}
+                catch (const std::invalid_argument&) {} // ambiguous ISRC is excluded
+            }
+            const auto entered=to_utf8(read_control(dialog,IDC_METADATA_MB_QUERY));
+            const bool suggested_query = entered.empty() ||
+                (state->auto_search_track == state->selected_track_index &&
+                 entered == to_utf8(state->auto_search_text));
+            const std::string term=entered.empty()?local_title:entered;
+            if (term.empty())
+                throw std::invalid_argument(
+                    "No TITLE is available. Enter a title/album in the search field.");
+            // One explicit request per activation; never silently loop through
+            // an unbounded provider search or block foobar on multiple retries.
+            // A zero-result next click broadens to the next visible strategy.
+            // For CUE we search the qualified release, not a virtual subtrack.
+            using namespace djmeta::online::musicbrainz;
+            std::string path;
+            std::string strategy;
+            std::size_t strategy_count=1;
+            if (kind==SearchKind::Recording) {
+                const auto plan=recording_search_plan(
+                    term,suggested_query?local_artist:std::string{},
+                    suggested_query?local_isrc:std::string{});
+                const auto identity=entry.input.source_path+"|"+
+                    std::to_string(state->selected_track_index)+"|"+
+                    term+"|"+(suggested_query?local_artist:"")+"|"+
+                    (suggested_query?local_isrc:"");
+                if(identity!=state->search_plan_identity) {
+                    state->search_attempt_index=0;
+                    state->search_plan_identity=identity;
+                } else if (state->musicbrainz_live_view &&
+                           state->musicbrainz_results.empty() &&
+                           state->search_attempt_index+1<plan.attempts.size()) {
+                    ++state->search_attempt_index;
+                } else if (!state->musicbrainz_results.empty()) {
+                    state->search_attempt_index=0; // explicit fresh search
+                }
+                state->search_plan=plan;
+                const auto& attempt=plan.attempts.at(state->search_attempt_index);
+                path=attempt.path;
+                strategy=attempt.label;
+                strategy_count=plan.attempts.size();
+            } else {
+                state->search_plan_identity.clear();
+                state->search_attempt_index=0;
+                path=make_search_path(kind,term,suggested_query?local_artist:std::string{});
+                strategy="CUE release title + artist";
+            }
+            const std::wstring status=std::wstring(L"Searching MusicBrainz (read-only): ")+
+                from_utf8(strategy)+L" ["+
+                std::to_wstring(state->search_attempt_index+1)+L"/"+
+                std::to_wstring(strategy_count)+L"]...";
+            SetDlgItemTextW(dialog,IDC_BATCH_HINT,status.c_str());
+            RedrawWindow(dialog,nullptr,nullptr,RDW_INVALIDATE|RDW_UPDATENOW);
+            const auto reply=fetch_musicbrainz_json_readonly(path);
+            const auto result=djmeta::online::musicbrainz::parse_search(reply,kind);
+            verify_snapshot(entry);
+            verify_rules_snapshot(state->captured_rules);
+            if (cue_mode && read_cue_raw_on_demand(
+                entry.handle,entry.input.source_path).raw_text!=cue_before)
+                throw std::runtime_error("CUE changed during online search. Retry.");
+            auto rows=musicbrainz_search_rows(
+                result,local_title,local_artist,original_tags);
+            state->candidate_rows=std::move(rows.summary);
+            state->musicbrainz_detail_groups=std::move(rows.detail);
+            state->musicbrainz_original_title=local_title;
+            state->musicbrainz_original_artist=local_artist;
+            state->candidate_source_index=state->selected_track_index;
+            state->musicbrainz_results=result.candidates;
+            state->musicbrainz_kind=kind;
+            state->musicbrainz_live_view=true;
+            state->musicbrainz_release_loaded=false;
+            state->updating_musicbrainz_selection=true;
+            ListView_SetItemState(state->metadata_list,-1,0,LVIS_SELECTED);
+            state->updating_musicbrainz_selection=false;
+            state->cue_inspection_mode=false;
+            state->cue_candidate_comparison_mode=false;
+            state->search_attempt_notice=
+                L"MusicBrainz query "+std::to_wstring(state->search_attempt_index+1)+
+                L"/"+std::to_wstring(strategy_count)+L" - "+
+                from_utf8(strategy)+L": "+
+                std::to_wstring(result.candidates.size())+
+                L" result(s). "+
+                (result.candidates.empty() && state->search_attempt_index+1<strategy_count
+                    ? L"Click Search again to try the next, broader strategy."
+                    : result.candidates.empty()
+                    ? L"No more search variants. Edit the title to retry."
+                    : L"Compare recording, artist and version. None is approved for writing.");
+            update_metadata_table(*state);
+            return TRUE;
+        }
+        if (id == IDC_METADATA_MB_LOAD_RELEASE && HIWORD(wp)==BN_CLICKED) {
+            if (!state->show_candidate || !state->musicbrainz_live_view ||
+                state->musicbrainz_release_loaded ||
+                state->musicbrainz_kind!=
+                    djmeta::online::musicbrainz::SearchKind::Release ||
+                state->candidate_source_index!=state->selected_track_index ||
+                state->selected_track_index>=state->entries.size())
+                throw std::invalid_argument(
+                    "Search for a MusicBrainz CUE release before loading its tracks.");
+            const int selected=ListView_GetNextItem(
+                state->metadata_list,-1,LVNI_SELECTED);
+            if (selected<0 ||
+                static_cast<std::size_t>(selected)>=state->candidate_view_order.size())
+                throw std::invalid_argument(
+                    "Select one candidate row in the right table first.");
+            const auto rowid=state->candidate_view_order[
+                static_cast<std::size_t>(selected)];
+            if(rowid>=state->candidate_rows.size())
+                throw std::invalid_argument("Candidate selection expired.");
+            const auto mbid=state->candidate_rows[rowid].candidate.source_id;
+            bool found=false;
+            for(const auto& result:state->musicbrainz_results)
+                if (result.kind==djmeta::online::musicbrainz::SearchKind::Release &&
+                    result.mbid==mbid) found=true;
+            if(!found || !djmeta::online::musicbrainz::valid_mbid(mbid))
+                throw std::invalid_argument("Selected release was not verified by this search.");
+
+            const auto& entry=state->entries[state->selected_track_index];
+            verify_snapshot(entry);
+            verify_rules_snapshot(state->captured_rules);
+            const auto raw=read_cue_raw_on_demand(
+                entry.handle,entry.input.source_path);
+            const auto cue=djmeta::inspect_cue_metadata(raw.raw_text,raw.carrier);
+            if (cue.status!=djmeta::CueSyntaxStatus::Parsed)
+                throw std::invalid_argument("Selected CUE track inventory is unqualified.");
+            SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                L"Retrieving the selected MusicBrainz release tracklist (read-only)...");
+            RedrawWindow(dialog,nullptr,nullptr,RDW_INVALIDATE|RDW_UPDATENOW);
+            const auto reply=fetch_musicbrainz_json_readonly(
+                djmeta::online::musicbrainz::make_release_lookup_path(mbid));
+            const auto release=
+                djmeta::online::musicbrainz::parse_release_lookup(reply,mbid);
+            verify_snapshot(entry);
+            verify_rules_snapshot(state->captured_rules);
+            if (read_cue_raw_on_demand(entry.handle,entry.input.source_path).raw_text
+                !=raw.raw_text)
+                throw std::runtime_error("CUE changed during lookup; discard stale results.");
+            auto grouped=group_musicbrainz_release_rows(
+                musicbrainz_cue_release_rows(cue,release));
+            state->candidate_rows=std::move(grouped.summary);
+            state->musicbrainz_detail_groups=std::move(grouped.detail);
+            state->musicbrainz_release_loaded=true;
+            ListView_SetItemState(state->metadata_list,-1,0,LVIS_SELECTED);
+            update_metadata_table(*state);
+            return TRUE;
+        }
+        if (id == IDC_METADATA_INSPECT_CUE && HIWORD(wp) == BN_CLICKED) {
+            if (!state->show_candidate ||
+                state->selected_track_index >= state->entries.size())
+                throw std::invalid_argument("Select one audio/CUE source to inspect.");
+            const auto& entry = state->entries[state->selected_track_index];
+            verify_snapshot(entry);
+            verify_rules_snapshot(state->captured_rules);
+            const auto raw = read_cue_raw_on_demand(entry.handle, entry.input.source_path);
+            const auto inventory =
+                djmeta::inspect_cue_metadata(raw.raw_text, raw.carrier);
+            if (inventory.status == djmeta::CueSyntaxStatus::Invalid ||
+                inventory.encoding == djmeta::CueTextEncoding::Unknown ||
+                inventory.encoding == djmeta::CueTextEncoding::UnsupportedUtf16)
+                throw std::invalid_argument(
+                    "CUE syntax or encoding is not qualified for read-only inventory.");
+            // Inspect CUE is deliberate read-only work. Offer its real album
+            // TITLE as the next release search term without contacting MB.
+            if (inventory.status == djmeta::CueSyntaxStatus::Parsed) {
+                try {
+                    const auto album=unique_cue_album_value(inventory,"TITLE");
+                    if (!album.empty()) {
+                        state->auto_search_text=from_utf8(album);
+                        state->auto_search_track=state->selected_track_index;
+                        SetDlgItemTextW(dialog,IDC_METADATA_MB_QUERY,
+                                        state->auto_search_text.c_str());
+                    }
+                } catch (const std::exception&) {
+                    // An ambiguous CUE title requires manual search text.
+                }
+            }
+            std::vector<djmeta::online::FieldReviewRow> fields;
+            const auto add_field = [&](const std::string& label,
+                                       const djmeta::CueMetadataField& field,
+                                       const std::string& source) {
+                if (fields.size() >= 10000)
+                    throw std::invalid_argument("CUE inventory display exceeds 10,000 rows.");
+                djmeta::online::FieldReviewRow row;
+                row.field = label + field.name;
+                row.original_values.push_back(field.value);
+                row.candidate.provider = source;
+                row.candidate.source_id = "cue-line:" +
+                    std::to_string(field.line_number);
+                row.reason = inventory.status == djmeta::CueSyntaxStatus::Parsed
+                    ? "cue_inventory_read_only" : "cue_inventory_unqualified";
+                fields.push_back(std::move(row));
+            };
+            const auto carrier = raw.carrier == djmeta::CueCarrierKind::ExternalText
+                ? std::string("External CUE") : std::string("Embedded CUE");
+            for (const auto& field : inventory.globals)
+                add_field("Album / ", field, carrier);
+            for (const auto& track : inventory.tracks) {
+                const auto source = carrier + " / FILE #" +
+                    std::to_string(track.file_reference_index + 1) +
+                    " / TRACK " + std::to_string(track.declared_track_number);
+                for (const auto& field : track.local_fields)
+                    add_field("Track " + std::to_string(track.declared_track_number) +
+                              " / ", field, source);
+            }
+            for (std::size_t i = 0; i < inventory.files.size(); ++i) {
+                if (fields.size() >= 10000)
+                    throw std::invalid_argument("CUE inventory display exceeds 10,000 rows.");
+                djmeta::online::FieldReviewRow row;
+                row.field = "FILE #" + std::to_string(i + 1) + " / FILE";
+                row.original_values.push_back(inventory.files[i].filename);
+                row.candidate.provider = carrier + " / structure";
+                row.candidate.source_id = "cue-line:" +
+                    std::to_string(inventory.files[i].line_number);
+                row.reason = "cue_inventory_read_only";
+                fields.push_back(std::move(row));
+            }
+            state->candidate_rows = std::move(fields);
+            state->candidate_source_index = state->selected_track_index;
+            state->cue_inspection_mode = true;
+            state->cue_candidate_comparison_mode = false;
+            state->musicbrainz_live_view = false;
+            state->musicbrainz_results.clear();
+            state->musicbrainz_detail_groups.clear();
+            update_metadata_table(*state);
+            return TRUE;
+        }
+        if (id == IDC_METADATA_IMPORT_CANDIDATE && HIWORD(wp) == BN_CLICKED) {
+            if (!state->show_candidate ||
+                state->selected_track_index >= state->entries.size())
+                throw std::invalid_argument("Select a track before importing a candidate.");
+            const auto& entry = state->entries[state->selected_track_index];
+            verify_snapshot(entry);
+            verify_rules_snapshot(state->captured_rules);
+            const bool compare_cue =
+                (state->cue_inspection_mode || state->cue_candidate_comparison_mode) &&
+                state->candidate_source_index == state->selected_track_index;
+            const auto text = read_manual_clipboard_text(dialog);
+            const auto user_candidate = djmeta::online::parse_manual_candidate(text);
+            std::vector<djmeta::online::FieldReviewRow> rows;
+            if (compare_cue) {
+                // Dedicated CUE reader: exact external bytes or a qualified
+                // physical subsong-0 CUESHEET. A generic virtual file_info
+                // must never become the source or target of a CUE write.
+                const auto raw =
+                    read_cue_raw_on_demand(entry.handle, entry.input.source_path);
+                const auto cue = djmeta::inspect_cue_metadata(raw.raw_text, raw.carrier);
+                rows = djmeta::online::review_manual_cue_candidate(
+                    cue, user_candidate);
+            } else {
+                if (!entry.input.physical_source_qualified ||
+                    is_external_cue_locator(entry.input.source_path))
+                    throw std::invalid_argument(
+                        "Select a qualified physical audio file, or choose "
+                        "Inspect CUE first to compare a CUE.");
+                if (user_candidate.cue_track_ordinal)
+                    throw std::invalid_argument(
+                        "@cue_track_ordinal applies only to CUE comparison.");
+                const auto ref = entry.handle->get_info_ref();
+                const auto original = metadata_from_file_info(ref->info());
+                rows = djmeta::online::review_online_fields(
+                    original, user_candidate.fields);
+            }
+            state->candidate_rows = std::move(rows);
+            state->candidate_source_index = state->selected_track_index;
+            state->cue_inspection_mode = false;
+            state->cue_candidate_comparison_mode = compare_cue;
+            state->musicbrainz_live_view = false;
+            state->musicbrainz_results.clear();
+            state->musicbrainz_detail_groups.clear();
+            update_metadata_table(*state);
+            return TRUE;
+        }
+        // Candidate comparisons are evidence only, not normalization decisions.
+        if (state->show_candidate && (native_command == PreviewCommand::Accept ||
+            native_command == PreviewCommand::Reject ||
+            native_command == PreviewCommand::Reset ||
+            native_command == PreviewCommand::ManualValue)) return TRUE;
         if (native_command == PreviewCommand::VisibleWhitespaceChanged) {
             state->show_whitespace = SendDlgItemMessageW(
                 dialog, IDC_METADATA_VISIBLE_WHITESPACE,
@@ -1572,10 +3263,11 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         if (native_command == PreviewCommand::FocusFilterChanged) {
             const auto choice = SendDlgItemMessageW(
                 dialog, IDC_METADATA_FILTER, CB_GETCURSEL, 0, 0);
+            state->existing_tags_view = choice == 3;
             state->metadata_focus = choice == 1 ? djmeta::MetadataFocus::Extended :
                 choice == 2 ? djmeta::MetadataFocus::All :
                 djmeta::MetadataFocus::Music;
-            update_metadata_table(*state);
+            show_preview_page(dialog,*state,true,false);
             return TRUE;
         }
         if (id == 41300u) {
@@ -1596,10 +3288,6 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             apply_to_rows(dialog, *state, true);
             return TRUE;
         }
-        if (id == IDCANCEL) {
-            EndDialog(dialog, IDCANCEL);
-            return TRUE;
-        }
     } catch (const std::exception& error) {
         const std::wstring message_text = from_utf8(error.what());
         MessageBoxW(dialog, message_text.c_str(), L"Batch Preview",
@@ -1608,6 +3296,16 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
     }
     return FALSE;
 }
+
+class workspace_shutdown : public initquit {
+public:
+    void on_init() override {}
+    void on_quit() override {
+        // No windows, timers or callback targets survive component shutdown.
+        if (g_workspace && IsWindow(g_workspace)) DestroyWindow(g_workspace);
+    }
+};
+initquit_factory_t<workspace_shutdown> g_workspace_shutdown;
 
 } // namespace
 
@@ -1618,40 +3316,62 @@ void show_batch_preview_dialog(
         if (handles.get_count() > static_cast<t_size>((std::numeric_limits<int>::max)()))
             throw std::runtime_error("Too many tracks for the batch preview table.");
 
-        PreviewState state;
-        state.current_choice = initial_choice;
-        state.entries = capture_preview(
-            handles, initial_choice, state.analyses, state.captured_rules);
-        state.metadata_rows = djmeta::describe_metadata_diffs(state.analyses);
-        for (const auto& analysis : state.analyses)
-            state.review_decisions.emplace_back(analysis.proposals.size());
-        refresh_review_summaries(state);
-        for (const auto& item : state.entries) {
-            state.source_labels.push_back(item.input.source_path);
-            state.cached_track_names.push_back(from_utf8(
+        if (g_workspace && IsWindow(g_workspace)) {
+            auto* existing = reinterpret_cast<PreviewState*>(
+                GetWindowLongPtrW(g_workspace,GWLP_USERDATA));
+            const bool same = existing && same_workspace_selection(*existing,handles);
+            if (IsIconic(g_workspace)) ShowWindow(g_workspace,SW_RESTORE);
+            ShowWindow(g_workspace,SW_SHOW);
+            SetForegroundWindow(g_workspace);
+            if (existing && !same) {
+                SetDlgItemTextW(g_workspace,IDC_BATCH_HINT,
+                    L"Different foobar selection: existing snapshot and decisions retained. "
+                    L"Close this workspace, then reopen for the new selection.");
+            } else if (existing) {
+                revalidate_workspace(*existing);
+            }
+            return;
+        }
+
+        auto state=std::make_unique<PreviewState>();
+        state->current_choice = initial_choice;
+        state->entries = capture_preview(
+            handles, initial_choice, state->analyses, state->captured_rules);
+        state->metadata_rows = djmeta::describe_metadata_diffs(state->analyses);
+        for (const auto& analysis : state->analyses)
+            state->review_decisions.emplace_back(analysis.proposals.size());
+        refresh_review_summaries(*state);
+        for (const auto& item : state->entries) {
+            state->source_labels.push_back(item.input.source_path);
+            state->cached_track_names.push_back(from_utf8(
                 readable_track_name(item.input.source_path)));
         }
-        update_table(state);
-        update_metadata_table(state);
-
         INITCOMMONCONTROLSEX controls = {};
         controls.dwSize = sizeof(controls);
-        controls.dwICC = ICC_LISTVIEW_CLASSES;
+        controls.dwICC = ICC_LISTVIEW_CLASSES | ICC_TAB_CLASSES | ICC_BAR_CLASSES;
         if (!InitCommonControlsEx(&controls))
             throw std::runtime_error("Unable to initialize the native list view.");
 
-        const INT_PTR result = DialogBoxParamW(
-            core_api::get_my_instance(),
-            MAKEINTRESOURCEW(IDD_BATCH_PREVIEW),
-            core_api::get_main_window(), batch_dialog_proc,
-            reinterpret_cast<LPARAM>(&state));
-        if (result == -1)
-            throw std::runtime_error("Unable to open the batch preview dialog.");
+        // A standalone top-level HWND has its own taskbar/Alt-Tab entry and
+        // does not stay forcibly above the foobar window as an owned popup.
+        g_pending_state=state.release();
+        HWND created=CreateDialogParamW(
+            core_api::get_my_instance(),MAKEINTRESOURCEW(IDD_BATCH_PREVIEW),
+            nullptr,batch_dialog_proc,reinterpret_cast<LPARAM>(g_pending_state));
+        if (!created) {
+            if (g_pending_state) {
+                delete g_pending_state;
+                g_pending_state=nullptr;
+            }
+            throw std::runtime_error("Unable to create the modeless workspace.");
+        }
+        ShowWindow(created,IsZoomed(created)?SW_SHOWMAXIMIZED:SW_SHOW);
+        UpdateWindow(created);
     } catch (const std::exception& error) {
         std::string message =
             "Unable to prepare the read-only batch preview. Nothing was changed.\n\n";
         message += error.what();
-        popup_message::g_show(message.c_str(), "DJ Metadata Normalizer");
+        popup_message::g_show(message.c_str(), "Music Metadata Studio");
     }
 }
 

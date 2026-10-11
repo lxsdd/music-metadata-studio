@@ -2,7 +2,7 @@
 
 ## Product boundary
 
-DJ Metadata Normalizer is a separate product from Rekordbox MyTag Sync.
+Music Metadata Studio is a separate product from Rekordbox MyTag Sync.
 
 The architecture is deliberately split into four layers:
 

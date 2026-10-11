@@ -2,7 +2,7 @@
 
 ## Product goal
 
-DJ Metadata Normalizer replaces the current multi-step foobar2000 workflow with one explicit, reviewable plan:
+Music Metadata Studio replaces the current multi-step foobar2000 workflow with one explicit, reviewable plan:
 
 1. analyze and normalize metadata;
 2. derive the final filename from the canonical metadata;

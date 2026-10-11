@@ -1,4 +1,4 @@
-# DJ Metadata Normalizer
+# Music Metadata Studio
 
 Shared, deterministic metadata-normalization engine for foobar2000 and DJ Library.
 
@@ -37,3 +37,5 @@ The initial development phase implements only analysis/preview behavior. Real ta
 ## Current phase
 
 Phase 0/1: architecture contract + deterministic preview core. No audio-file or tag writes.
+
+Modeless foobar workspace and its mandatory installed-host gate: [read-only acceptance checklist](docs/MODELESS-WORKSPACE-ACCEPTANCE.md).

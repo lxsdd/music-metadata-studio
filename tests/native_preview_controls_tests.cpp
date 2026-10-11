@@ -61,7 +61,11 @@ bool centers_match(HWND dialog, int label_id, int control_id) {
         return false;
     COMBOBOXINFO info{};
     info.cbSize = sizeof(info);
-    if (GetComboBoxInfo(input, &info)) b = info.rcItem;
+    if (GetComboBoxInfo(input, &info)) {
+        b=info.rcItem;
+        MapWindowPoints(input,HWND_DESKTOP,
+                        reinterpret_cast<POINT*>(&b),2);
+    }
     const int offset = (a.top + a.bottom) - (b.top + b.bottom);
     return offset >= -2 && offset <= 2;
 }
@@ -69,12 +73,79 @@ bool centers_match(HWND dialog, int label_id, int control_id) {
 
 int main() {
     INITCOMMONCONTROLSEX controls{sizeof(controls),
-                                  ICC_LISTVIEW_CLASSES | ICC_TAB_CLASSES};
+                                  ICC_LISTVIEW_CLASSES | ICC_TAB_CLASSES | ICC_BAR_CLASSES};
     check(InitCommonControlsEx(&controls) != FALSE,
           "native listview and tabs initialization");
     HWND dialog = CreateDialogParamW(GetModuleHandleW(nullptr),
         MAKEINTRESOURCEW(IDD_BATCH_PREVIEW), nullptr, test_dialog_proc, 0);
     check(dialog != nullptr, "actual production dialog template instantiation");
+    // Test real RC-derived HWND styles, not a fabricated lookalike dialog.
+    const DWORD workspace_style=static_cast<DWORD>(GetWindowLongPtrW(dialog,GWL_STYLE));
+    const DWORD workspace_exstyle=static_cast<DWORD>(GetWindowLongPtrW(dialog,GWL_EXSTYLE));
+    check((workspace_style & WS_MINIMIZEBOX) != 0 &&
+          (workspace_style & WS_MAXIMIZEBOX) != 0 &&
+          (workspace_style & WS_THICKFRAME) != 0 &&
+          (workspace_style & WS_SYSMENU) != 0 &&
+          (workspace_style & DS_MODALFRAME) == 0,
+          "production workspace is resizable, minimizable and not a modal-frame dialog");
+    check((workspace_exstyle & WS_EX_APPWINDOW) != 0 &&
+          GetWindow(dialog,GW_OWNER)==nullptr,
+          "workspace has independent taskbar/Alt-Tab identity and no forced owner");
+    HWND refresh=GetDlgItem(dialog,IDC_BATCH_REFRESH);
+    HWND help=GetDlgItem(dialog,IDC_BATCH_HELP);
+    HWND guide=GetDlgItem(dialog,IDC_BATCH_GUIDE);
+    check(refresh!=nullptr && IsWindowEnabled(refresh) && help && guide,
+          "production resource offers Refresh, Help and stage guidance");
+    wchar_t caption[96]{};
+    GetWindowTextW(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH),caption,96);
+    check(std::wcscmp(caption,L"Search MusicBrainz")==0,
+          "search button names its online source");
+    GetWindowTextW(GetDlgItem(dialog,IDC_METADATA_MB_LOAD_RELEASE),caption,96);
+    check(std::wcscmp(caption,L"Inspect release tracks")==0,
+          "release action is clearly read-only inspection");
+    RECT guide_rect{},search_rect{};
+    check(GetWindowRect(guide,&guide_rect) &&
+          GetWindowRect(GetDlgItem(dialog,IDC_METADATA_MB_QUERY),&search_rect) &&
+          guide_rect.bottom<=search_rect.top,
+          "stage guidance sits above search controls");
+    HWND tip=CreateWindowExW(WS_EX_TOPMOST,TOOLTIPS_CLASSW,nullptr,
+          WS_POPUP|TTS_ALWAYSTIP|TTS_NOPREFIX,CW_USEDEFAULT,CW_USEDEFAULT,
+          CW_USEDEFAULT,CW_USEDEFAULT,dialog,nullptr,GetModuleHandleW(nullptr),nullptr);
+    check(tip!=nullptr,"native tooltip window can be created");
+    static wchar_t hover_text[]=L"Refresh reloads captured tracks; no files change.";
+    TOOLINFOW tip_info{};
+    tip_info.cbSize=TTTOOLINFOW_V2_SIZE;
+    tip_info.hwnd=dialog;
+    tip_info.uFlags=TTF_SUBCLASS|TTF_IDISHWND;
+    tip_info.uId=reinterpret_cast<UINT_PTR>(refresh);
+    tip_info.lpszText=hover_text;
+    check(SendMessageW(tip,TTM_ADDTOOLW,0,reinterpret_cast<LPARAM>(&tip_info))!=FALSE,
+          "native Refresh button supports hover explanation");
+    DestroyWindow(tip);
+    RECT refresh_rect{}, hint_rect{}, footer_rect{};
+    check(GetWindowRect(refresh,&refresh_rect) &&
+          GetWindowRect(GetDlgItem(dialog,IDC_BATCH_HINT),&hint_rect) &&
+          GetWindowRect(GetDlgItem(dialog,IDC_METADATA_ACCEPT),&footer_rect) &&
+          refresh_rect.bottom < hint_rect.top &&
+          hint_rect.bottom < footer_rect.top,
+          "refresh, two-line status and action row are distinct and non-overlapping");
+    ShowWindow(dialog,SW_SHOWNA);
+    ShowWindow(dialog,SW_MINIMIZE);
+    check(IsIconic(dialog)!=FALSE,"native workspace minimizes independently");
+    ShowWindow(dialog,SW_RESTORE);
+    check(IsIconic(dialog)==FALSE,"native workspace restores from taskbar");
+    ShowWindow(dialog,SW_MAXIMIZE);
+    check(IsZoomed(dialog)!=FALSE,"native workspace maximizes");
+    ShowWindow(dialog,SW_RESTORE);
+    check(IsZoomed(dialog)==FALSE,"native workspace restores maximized state");
+    SetFocus(GetDlgItem(dialog,IDC_METADATA_MB_QUERY));
+    MSG navigation{};
+    navigation.hwnd=GetDlgItem(dialog,IDC_METADATA_MB_QUERY);
+    navigation.message=WM_KEYDOWN;
+    navigation.wParam=VK_TAB;
+    check(IsDialogMessageW(dialog,&navigation)!=FALSE,
+          "Win32 modeless IsDialogMessage consumes Tab for native dialog navigation");
+
 
     HWND combo = GetDlgItem(dialog, IDC_BATCH_PROFILE_PICKER);
     check(combo && !GetDlgItem(dialog, IDC_BATCH_PROFILE_NAME),
@@ -103,6 +174,216 @@ int main() {
     GetWindowTextW(combo, value, 128);
     check(std::wcscmp(value, L"My DJ profile") == 0,
           "custom profile text survives in the actual control");
+
+    HWND mb_query = GetDlgItem(dialog, IDC_METADATA_MB_QUERY);
+    HWND mb_search = GetDlgItem(dialog, IDC_METADATA_MB_SEARCH);
+    HWND mb_load = GetDlgItem(dialog, IDC_METADATA_MB_LOAD_RELEASE);
+    check(mb_query != nullptr && mb_search != nullptr && mb_load != nullptr,
+          "production official MusicBrainz online search/query and release controls exist");
+    RECT mb_query_rect{}, mb_search_rect{}, mb_load_rect{};
+    check(GetWindowRect(mb_query, &mb_query_rect) != FALSE &&
+          GetWindowRect(mb_search, &mb_search_rect) != FALSE &&
+          GetWindowRect(mb_load, &mb_load_rect) != FALSE &&
+          mb_query_rect.right <= mb_search_rect.left &&
+          mb_load_rect.right > mb_load_rect.left,
+          "MusicBrainz search action does not overlay text query");
+
+    HWND online_details=GetDlgItem(dialog,IDC_METADATA_MB_DETAILS);
+    HWND online_detail_label=GetDlgItem(dialog,IDC_METADATA_MB_DETAIL_LABEL);
+    check(online_details && online_detail_label,
+          "new production MusicBrainz nested field pane and label exist");
+    const DWORD detail_style=static_cast<DWORD>(GetWindowLongPtrW(
+        online_details,GWL_STYLE));
+    check((detail_style & LVS_REPORT)==LVS_REPORT &&
+          (detail_style & LVS_OWNERDATA)==0,
+          "selected candidate details have normal independent native ListView rows");
+    for (int i=0;i<4;++i) {
+        LVCOLUMNW column{};
+        column.mask=LVCF_TEXT|LVCF_WIDTH;
+        column.cx=100;
+        std::wstring title=(i==0?L"Field":i==1?L"Original":i==2?L"Suggested":L"Status");
+        column.pszText=title.data();
+        check(static_cast<int>(SendMessageW(online_details,LVM_INSERTCOLUMNW,
+                         i,reinterpret_cast<LPARAM>(&column)))==i,
+              "production online detail column created");
+    }
+    check(djmeta_foobar::insert_native_preview_detail_row(online_details,0,
+        L"ARTIST",L"(missing)",L"Daft Punk",L"Review"),
+        "native online detail renderer writes all subitems");
+    wchar_t detail_value[128]{};
+    const wchar_t* expected[]={L"ARTIST",L"(missing)",L"Daft Punk",L"Review"};
+    for(int i=0;i<4;++i) {
+        detail_value[0]=0;
+        LVITEMW fetched{};
+        fetched.iSubItem=i;
+        fetched.pszText=detail_value;
+        fetched.cchTextMax=128;
+        SendMessageW(online_details,LVM_GETITEMTEXTW,0,
+                     reinterpret_cast<LPARAM>(&fetched));
+        check(std::wcscmp(detail_value,expected[i])==0,
+              "actual native control preserves each of the four online detail cells");
+    }
+    ListView_DeleteAllItems(online_details);
+    for (int dpi : {96,120,144,192}) {
+        for (int height : {310,510,790}) {
+            RECT browser_frame{500,120,1120,120+height};
+            const auto pane=djmeta_foobar::musicbrainz_pane_bounds(browser_frame,dpi);
+            check(pane.hits.top==browser_frame.top &&
+                  pane.hits.bottom<pane.caption.top &&
+                  pane.caption.bottom+3<=pane.details.top &&
+                  pane.details.bottom==browser_frame.bottom &&
+                  pane.details.top<pane.details.bottom &&
+                  pane.caption.left==pane.hits.left &&
+                  pane.details.right==pane.hits.right,
+                  "DPI-aware selected-candidate label never collides with list header");
+        }
+    }
+    check(djmeta_foobar::may_activate_musicbrainz_release(
+        NM_DBLCLK,true,true,false,true) &&
+          djmeta_foobar::may_activate_musicbrainz_release(
+        LVN_KEYDOWN,true,true,false,true,VK_RETURN),
+        "double-click or Enter can load a verified MusicBrainz release");
+    check(!djmeta_foobar::may_activate_musicbrainz_release(
+        NM_DBLCLK,true,false,false,true) &&
+          !djmeta_foobar::may_activate_musicbrainz_release(
+        NM_DBLCLK,true,true,true,true) &&
+          !djmeta_foobar::may_activate_musicbrainz_release(
+        NM_DBLCLK,true,true,false,false) &&
+          !djmeta_foobar::may_activate_musicbrainz_release(
+        LVN_ITEMACTIVATE,true,true,false,true) &&
+          !djmeta_foobar::may_activate_musicbrainz_release(
+        LVN_KEYDOWN,true,true,false,true,VK_SPACE),
+        "release activation refuses recording, loaded, stale and double-delivered events");
+    HWND cue_inspect = GetDlgItem(dialog, IDC_METADATA_INSPECT_CUE);
+    check(cue_inspect != nullptr,
+          "production read-only CUE inspect button exists in real dialog resource");
+    RECT cue_inspect_rect{};
+    check(GetWindowRect(cue_inspect, &cue_inspect_rect) != FALSE &&
+          cue_inspect_rect.right > cue_inspect_rect.left,
+          "read-only CUE inspect button is visible-sized");
+
+    HWND candidate_import = GetDlgItem(dialog, IDC_METADATA_IMPORT_CANDIDATE);
+    check(candidate_import != nullptr,
+          "production candidate comparison clipboard import button exists");
+    RECT candidate_rect{};
+    RECT candidate_client_bounds{};
+    check(GetWindowRect(candidate_import, &candidate_rect) != FALSE &&
+          GetClientRect(dialog, &candidate_client_bounds) != FALSE,
+          "candidate import button geometry readable");
+    const auto visual_center2=[](const RECT& r) { return r.top+r.bottom; };
+    const int baseline=visual_center2(mb_query_rect);
+    const auto close_center=[](int a,int b) {
+        return a>=b ? a-b<=2 : b-a<=2;
+    };
+    check(close_center(baseline,visual_center2(mb_search_rect)) &&
+          close_center(baseline,visual_center2(cue_inspect_rect)) &&
+          close_center(baseline,visual_center2(candidate_rect)),
+          "search input, search, CUE and clipboard controls share one toolbar centerline");
+    MapWindowPoints(HWND_DESKTOP, dialog,
+                    reinterpret_cast<POINT*>(&candidate_rect), 2);
+    check(candidate_rect.left >= 0 &&
+          candidate_rect.right <= candidate_client_bounds.right &&
+          candidate_rect.top >= 0 && candidate_rect.bottom <= candidate_client_bounds.bottom,
+          "candidate import button fits minimum dialog size");
+
+    // Exercise the same atomic resize adapter as the production preview
+    // using its genuine dialog resource.  New toolbar buttons must not
+    // intersect or paint outside the expanded client rect.
+    auto bounds_in_dialog = [&](HWND control) {
+        RECT r{};
+        check(GetWindowRect(control, &r) != FALSE,
+              "real native child bounds are available");
+        MapWindowPoints(HWND_DESKTOP, dialog, reinterpret_cast<POINT*>(&r), 2);
+        return r;
+    };
+    RECT initial_window{};
+    check(GetWindowRect(dialog, &initial_window) != FALSE,
+          "initial production dialog window bounds readable");
+    const int window_width = initial_window.right - initial_window.left;
+    const int window_height = initial_window.bottom - initial_window.top;
+    std::vector<djmeta_foobar::NativePreviewResizeChild> movable;
+    for (const int id : {
+        IDC_METADATA_INSPECT_CUE, IDC_METADATA_IMPORT_CANDIDATE,
+        IDC_METADATA_TRACK_LIST, IDC_METADATA_LIST
+    }) {
+        djmeta_foobar::NativePreviewResizeChild control;
+        control.window = GetDlgItem(dialog, id);
+        check(control.window != nullptr, "resource resize target exists");
+        control.original = bounds_in_dialog(control.window);
+        control.shift_right = id == IDC_METADATA_INSPECT_CUE ||
+                              id == IDC_METADATA_IMPORT_CANDIDATE;
+        movable.push_back(control);
+    }
+    // Windows CI can impose a small virtual desktop. SetWindowPos() can
+    // succeed but clamp the requested size to the OS maximum track size.
+    // Always feed the ACTUAL WM_SIZE client delta to production layout code.
+    RECT initial_client{};
+    GetClientRect(dialog, &initial_client);
+    constexpr int requested_extra_width = 310;
+    constexpr int requested_extra_height = 180;
+    check(SetWindowPos(dialog, nullptr, 0, 0,
+            window_width + requested_extra_width,
+            window_height + requested_extra_height,
+            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE) != FALSE,
+          "native dialog accepts Windows resize request");
+    RECT expanded_client{};
+    GetClientRect(dialog, &expanded_client);
+    const int extra_width = expanded_client.right - initial_client.right;
+    const int extra_height = expanded_client.bottom - initial_client.bottom;
+    check(extra_width >= 0 && extra_height >= 0,
+          "actual resize never unexpectedly reduces the available client area");
+    check(djmeta_foobar::apply_native_preview_resize(movable,
+            GetDlgItem(dialog, IDC_METADATA_TRACK_LIST),
+            GetDlgItem(dialog, IDC_METADATA_LIST),
+            extra_width, extra_height),
+          "shared production atomic resize uses actual Win32 client change");
+    RECT inspect_after = bounds_in_dialog(cue_inspect);
+    RECT import_after = bounds_in_dialog(candidate_import);
+    const bool actions_inside =
+        inspect_after.right + 8 <= import_after.left &&
+        import_after.right <= expanded_client.right &&
+        inspect_after.left > 0 && import_after.top >= 0 &&
+        import_after.bottom <= expanded_client.bottom;
+    if (!actions_inside) {
+        std::cerr << "RESIZE_GEOMETRY: inspect=(" << inspect_after.left << ","
+                  << inspect_after.top << "," << inspect_after.right << ","
+                  << inspect_after.bottom << ") import=(" << import_after.left
+                  << "," << import_after.top << "," << import_after.right
+                  << "," << import_after.bottom << ") client=("
+                  << expanded_client.right << "," << expanded_client.bottom
+                  << ") width_delta=" << extra_width << "\n";
+    }
+    check(actions_inside,
+          "resized buttons stay separate and inside the native client area");
+    check(inspect_after.left == movable[0].original.left + extra_width &&
+          import_after.left == movable[1].original.left + extra_width,
+          "both actions remain aligned to right edge with stable spacing");
+    RECT master_after = bounds_in_dialog(GetDlgItem(dialog, IDC_METADATA_TRACK_LIST));
+    RECT detail_after = bounds_in_dialog(GetDlgItem(dialog, IDC_METADATA_LIST));
+    check(master_after.right < detail_after.left &&
+          detail_after.right <= expanded_client.right &&
+          master_after.bottom == movable[2].original.bottom + extra_height &&
+          detail_after.bottom == movable[3].original.bottom + extra_height,
+          "resized two-pane tables retain separation without child overlay");
+    check(SetWindowPos(dialog, nullptr, 0, 0, window_width, window_height,
+            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE) != FALSE &&
+          djmeta_foobar::apply_native_preview_resize(movable,
+              GetDlgItem(dialog, IDC_METADATA_TRACK_LIST),
+              GetDlgItem(dialog, IDC_METADATA_LIST), 0, 0),
+          "shrinking back to initial native geometry succeeds");
+    const RECT inspect_restored = bounds_in_dialog(cue_inspect);
+    const RECT import_restored = bounds_in_dialog(candidate_import);
+    check(inspect_restored.left == movable[0].original.left &&
+          import_restored.left == movable[1].original.left &&
+          inspect_restored.right + 8 <= import_restored.left,
+          "no cumulative resize drift or overlapping paint region");
+    const DWORD dialog_style = static_cast<DWORD>(
+        GetWindowLongPtrW(dialog, GWL_STYLE));
+    check((dialog_style & WS_CLIPCHILDREN) != 0 &&
+          (dialog_style & WS_CLIPSIBLINGS) != 0 &&
+          (dialog_style & WS_MAXIMIZEBOX) != 0 &&
+          (dialog_style & WS_THICKFRAME) != 0,
+          "resizable production dialog supports native maximize/restore and clean clipping");
 
     HWND review_scope = GetDlgItem(dialog, IDC_METADATA_REVIEW_SCOPE);
     HWND manual = GetDlgItem(dialog, IDC_METADATA_MANUAL_INPUT);
@@ -185,6 +466,27 @@ int main() {
     djmeta_foobar::capture_review_grid_controls(track_list, track_layout, 96);
     check(track_layout.widths[0] == 190 && track_layout.widths[2] == hidden_width,
           "real resizing persists visible width but retains hidden width");
+    const auto measured=djmeta_foobar::fit_initial_track_title_column(
+        track_list,{L"Short.mp3",L"The KLF - What Time Is Love (Original Version).mp3"},96);
+    check(measured>=165 && measured<=600,
+          "first-open native font measurement is bounded");
+    // Owner-data re-selection must preserve widths independently for Review
+    // and MusicBrainz. Mode changes apply persisted widths, never defaults.
+    auto online_grid=djmeta::default_review_grid_layout<4>({280,75,90,85});
+    djmeta_foobar::apply_review_grid_controls(track_list,online_grid,96);
+    ListView_SetColumnWidth(track_list,0,342);
+    ListView_SetItemCountEx(track_list,2,LVSICF_NOINVALIDATEALL|LVSICF_NOSCROLL);
+    check(ListView_GetColumnWidth(track_list,0)==342,
+          "switching owner-data track does not reset custom online column width");
+    djmeta_foobar::capture_review_grid_controls(track_list,online_grid,96);
+    check(online_grid.widths[0]==342 && track_layout.widths[0]==190,
+          "candidate and review track widths are separately remembered");
+    djmeta_foobar::apply_review_grid_controls(track_list,track_layout,96);
+    check(ListView_GetColumnWidth(track_list,0)==190,
+          "returning to review restores its prior custom width");
+    djmeta_foobar::apply_review_grid_controls(track_list,online_grid,96);
+    check(ListView_GetColumnWidth(track_list,0)==342,
+          "reopening search restores the previously customized online width");
     auto detail_layout = djmeta::default_review_grid_layout<5>({80, 105, 105, 60, 75});
     detail_layout.order = {4, 0, 1, 3, 2};
     HWND detail_list = GetDlgItem(dialog, IDC_METADATA_LIST);
@@ -378,6 +680,43 @@ int main() {
     }
 
     djmeta_foobar::align_native_preview_form(dialog);
+    RECT aligned_query{}, aligned_search{}, aligned_review_button{};
+    COMBOBOXINFO scope_info{};
+    scope_info.cbSize=sizeof(scope_info);
+    check(GetWindowRect(mb_query,&aligned_query)!=FALSE &&
+          GetWindowRect(mb_search,&aligned_search)!=FALSE &&
+          GetWindowRect(GetDlgItem(dialog,IDC_METADATA_ACCEPT),
+                        &aligned_review_button)!=FALSE &&
+          GetComboBoxInfo(GetDlgItem(dialog,IDC_METADATA_REVIEW_SCOPE),
+                          &scope_info)!=FALSE,
+          "actual production toolbar and scope input rectangles readable");
+    const auto center=[](const RECT& r){return (r.top+r.bottom)/2;};
+    check(std::abs(center(aligned_query)-center(aligned_search)-2)<=1 &&
+          aligned_query.bottom-aligned_query.top <
+              aligned_search.bottom-aligned_search.top,
+          "font-sized search EDIT aligns optically without a tall top-biased text box");
+    RECT scope_item=scope_info.rcItem;
+    MapWindowPoints(GetDlgItem(dialog,IDC_METADATA_REVIEW_SCOPE),
+                    HWND_DESKTOP,reinterpret_cast<POINT*>(&scope_item),2);
+    const int scope_center=center(scope_item);
+    const int accept_center=center(aligned_review_button);
+    if (scope_center != accept_center)
+        std::cerr << "SCOPE_ALIGNMENT: combo_center=" << scope_center
+                  << " accept_center=" << accept_center
+                  << " combo_top=" << scope_item.top
+                  << " combo_bottom=" << scope_item.bottom
+                  << " action_top=" << aligned_review_button.top
+                  << " action_bottom=" << aligned_review_button.bottom
+                  << " outer_rect=" << GetWindowLongPtrW(
+                        GetDlgItem(dialog,IDC_METADATA_REVIEW_SCOPE),GWL_STYLE)
+                  << "\n";
+    check(scope_center==accept_center,
+          "Select changes combo item aligns with Accept action baseline");
+    djmeta_foobar::align_native_preview_form(dialog);
+    RECT repeated{};
+    GetWindowRect(mb_query,&repeated);
+    check(repeated.top==aligned_query.top,
+          "repeated layout pass does not accumulate input alignment offset");
     const int rows[][2] = {
         {IDC_METADATA_FILTER_LABEL, IDC_METADATA_FILTER},
         {IDC_METADATA_TRACK_FILTER_LABEL, IDC_METADATA_TRACK_FILTER},
@@ -392,8 +731,9 @@ int main() {
           GetDlgItem(dialog, IDC_BATCH_APPLY_SELECTED),
           "preview actions exist in production resource");
 
-    DestroyWindow(dialog);
-    std::cout << "PASS: Win32 reviewed bindings, master/detail resizing and 96-192 DPI column geometry; "
+    check(DestroyWindow(dialog)!=FALSE && !IsWindow(dialog),
+          "modeless HWND shuts down without lingering native controls");
+    std::cout << "PASS: Win32 reviewed bindings, modeless taskbar lifecycle, master/detail resizing and 96-192 DPI column geometry; "
                  "native preview resource, editable profile, "
                  "virtual master/detail controls and shared label alignment\n";
     return 0;

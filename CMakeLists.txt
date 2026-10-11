@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(dj_metadata_normalizer VERSION 0.1.0 LANGUAGES CXX)
+project(music_metadata_studio VERSION 0.1.0 LANGUAGES CXX)
 
 add_library(djmeta_core STATIC
     src/core/normalizer.cpp
@@ -8,6 +8,7 @@ add_library(djmeta_core STATIC
     src/core/write_guard.cpp
     src/core/physical_selection.cpp
     src/core/external_cue.cpp
+    src/core/cue_metadata.cpp
     src/core/cue_association.cpp
     src/core/staging.cpp
     src/core/routing_overrides.cpp
@@ -222,7 +223,123 @@ else()
     target_compile_options(djmeta_review_decisions_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+
+# Provider-independent online metadata candidate engine is read-only and
+# header-only in P0; the test exercises it without network or foobar SDK.
+add_executable(djmeta_online_match_tests tests/online_match_tests.cpp)
+target_include_directories(djmeta_online_match_tests PRIVATE include)
+target_compile_features(djmeta_online_match_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_online_match_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_online_match_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+# Read-only release / edition alignment tests. Independent of foobar and network.
+add_executable(djmeta_online_release_tests tests/online_release_tests.cpp)
+add_executable(djmeta_online_release_fuzz_tests tests/online_release_fuzz.cpp)
+foreach(target IN ITEMS djmeta_online_release_tests djmeta_online_release_fuzz_tests)
+    target_include_directories(${target} PRIVATE include)
+    target_compile_features(${target} PRIVATE cxx_std_20)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 /WX /permissive-)
+    else()
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+endforeach()
+
+# Immutable online field-evidence preview, independent of host/HTTP.
+add_executable(djmeta_online_fields_tests tests/online_fields_tests.cpp)
+target_include_directories(djmeta_online_fields_tests PRIVATE include)
+target_compile_features(djmeta_online_fields_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_online_fields_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_online_fields_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+# Manual candidate intake is a strictly read-only local parser; no foobar SDK or HTTP.
+add_executable(djmeta_online_intake_tests tests/online_intake_tests.cpp)
+target_include_directories(djmeta_online_intake_tests PRIVATE include)
+target_compile_features(djmeta_online_intake_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_online_intake_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_online_intake_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+# Identical read-only semantic inventory for external and embedded text CUE.
+add_executable(djmeta_cue_metadata_tests tests/cue_metadata_tests.cpp)
+target_link_libraries(djmeta_cue_metadata_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_cue_metadata_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_cue_metadata_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_cue_metadata_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+# External/embedded CUE track snapshots feed the source-independent release matcher.
+add_executable(djmeta_cue_online_bridge_tests tests/cue_online_bridge_tests.cpp)
+target_link_libraries(djmeta_cue_online_bridge_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_cue_online_bridge_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_cue_online_bridge_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_cue_online_bridge_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+# Source attributed CUE album and virtual track field-diff preview.
+add_executable(djmeta_cue_online_review_tests tests/cue_online_review_tests.cpp)
+target_link_libraries(djmeta_cue_online_review_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_cue_online_review_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_cue_online_review_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_cue_online_review_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+# DPI-independent persisted Win32 dialog-size schema (core-only C++ test).
+add_executable(djmeta_preview_window_geometry_tests tests/preview_window_geometry_tests.cpp)
+target_include_directories(djmeta_preview_window_geometry_tests PRIVATE include)
+target_compile_features(djmeta_preview_window_geometry_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_preview_window_geometry_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_preview_window_geometry_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+# Native-free CUE clipboard presentation parity, no writer or HTTP dependencies.
+add_executable(djmeta_cue_manual_preview_tests tests/cue_manual_preview_tests.cpp)
+target_link_libraries(djmeta_cue_manual_preview_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_cue_manual_preview_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_cue_manual_preview_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_cue_manual_preview_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+# Official MusicBrainz WS/2 offline fixture parser and request policy, no network I/O.
+add_executable(djmeta_musicbrainz_provider_tests tests/musicbrainz_provider_tests.cpp)
+target_link_libraries(djmeta_musicbrainz_provider_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_musicbrainz_provider_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_musicbrainz_provider_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_musicbrainz_provider_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 enable_testing()
+add_test(NAME djmeta_musicbrainz_provider_tests COMMAND djmeta_musicbrainz_provider_tests)
+add_test(NAME djmeta_cue_manual_preview_tests COMMAND djmeta_cue_manual_preview_tests)
+add_test(NAME djmeta_preview_window_geometry_tests COMMAND djmeta_preview_window_geometry_tests)
+add_test(NAME djmeta_cue_online_review_tests COMMAND djmeta_cue_online_review_tests)
+add_test(NAME djmeta_cue_online_bridge_tests COMMAND djmeta_cue_online_bridge_tests)
+add_test(NAME djmeta_cue_metadata_tests COMMAND djmeta_cue_metadata_tests)
+add_test(NAME djmeta_online_intake_tests COMMAND djmeta_online_intake_tests)
+add_test(NAME djmeta_online_fields_tests COMMAND djmeta_online_fields_tests)
+add_test(NAME djmeta_online_release_tests COMMAND djmeta_online_release_tests)
+add_test(NAME djmeta_online_release_fuzz_tests COMMAND djmeta_online_release_fuzz_tests)
+add_test(NAME djmeta_online_match_tests COMMAND djmeta_online_match_tests)
 add_test(NAME djmeta_write_guard_tests COMMAND djmeta_write_guard_tests)
 add_test(NAME djmeta_physical_selection_tests COMMAND djmeta_physical_selection_tests)
 add_test(NAME djmeta_review_decisions_tests COMMAND djmeta_review_decisions_tests)

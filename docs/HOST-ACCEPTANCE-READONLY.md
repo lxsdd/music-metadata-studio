@@ -22,7 +22,7 @@ unavoidable installed-host gate.
 
 ## One short, safe Windows test
 
-1. Download the successful run's `foo-dj-metadata-normalizer-component`
+1. Download the successful run's `foo-music-metadata-studio-component`
    Actions artifact, extract it, and use `SHA256SUMS.txt` to verify the
    `.fb2k-component` integrity. Install it into foobar2000 2.x via
    Preferences → Components → Install, or an isolated/portable foobar
@@ -41,7 +41,7 @@ unavoidable installed-host gate.
    below use only the disposable copies.
 3. Add the copied MP3 files to a temporary foobar playlist; optionally
    open `sample-a.cue` separately to inspect its virtual track. Invoke
-   the DJ Metadata Normalizer **Prepare Tracks (Preview)** context menu
+   the Music Metadata Studio **Prepare Tracks (Preview)** context menu
    on the MP3 file(s). Switch between Metadata changes and File
    locations. Review the raw target / no-write statuses; optionally
    select one or two File locations rows, right-click and select

@@ -10,7 +10,7 @@ on:
       - 'rules/**'
       - 'scripts/**'
       - 'tests/static_foobar_audit.py'
-      - 'foo_dj_metadata_normalizer.vcxproj'
+      - 'foo_music_metadata_studio.vcxproj'
       - 'VERSION'
       - '.github/workflows/foobar.yml'
   pull_request:
@@ -22,7 +22,7 @@ on:
       - 'rules/**'
       - 'scripts/**'
       - 'tests/static_foobar_audit.py'
-      - 'foo_dj_metadata_normalizer.vcxproj'
+      - 'foo_music_metadata_studio.vcxproj'
       - 'VERSION'
       - '.github/workflows/foobar.yml'
   workflow_dispatch:
@@ -71,8 +71,8 @@ jobs:
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/upload-artifact@v7
         with:
-          name: foo-dj-metadata-normalizer-${{ matrix.platform }}
-          path: out/foobar/${{ matrix.platform }}/Release/foo_dj_metadata_normalizer.dll
+          name: foo-music-metadata-studio-${{ matrix.platform }}
+          path: out/foobar/${{ matrix.platform }}/Release/foo_music_metadata_studio.dll
           if-no-files-found: error
           retention-days: 7
 
@@ -87,26 +87,26 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
-          name: foo-dj-metadata-normalizer-Win32
+          name: foo-music-metadata-studio-Win32
           path: candidate-input/Win32
       - uses: actions/download-artifact@v8
         with:
-          name: foo-dj-metadata-normalizer-x64
+          name: foo-music-metadata-studio-x64
           path: candidate-input/x64
       - name: Package verified combined component
         shell: pwsh
         run: |
           $version = (Get-Content -Raw -LiteralPath VERSION).Trim()
           ./scripts/package-foobar.ps1 `
-            -Win32Dll 'candidate-input/Win32/foo_dj_metadata_normalizer.dll' `
-            -X64Dll 'candidate-input/x64/foo_dj_metadata_normalizer.dll' `
+            -Win32Dll 'candidate-input/Win32/foo_music_metadata_studio.dll' `
+            -X64Dll 'candidate-input/x64/foo_music_metadata_studio.dll' `
             -OutputDirectory 'candidate-output' `
             -Version $version `
             -Commit '${{ github.event.pull_request.head.sha || github.sha }}'
       - name: Upload combined component
         uses: actions/upload-artifact@v7
         with:
-          name: foo-dj-metadata-normalizer-component
+          name: foo-music-metadata-studio-component
           path: |
             candidate-output/*.fb2k-component
             candidate-output/BUILD-MANIFEST.txt

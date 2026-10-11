@@ -37,12 +37,12 @@ found = [token for token in forbidden if token in sources]
 if found:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: write-capable token(s): " + ", ".join(found))
 
-project = (root / "foo_dj_metadata_normalizer.vcxproj").read_text(encoding="utf-8")
+project = (root / "foo_music_metadata_studio.vcxproj").read_text(encoding="utf-8")
 for token in [
     "FOOBAR2000_TARGET_VERSION=81",
     "src\\core\\normalizer.cpp",
     "src\\core\\rule_loader.cpp",
-    "foo_dj_metadata_normalizer",
+    "foo_music_metadata_studio",
 ]:
     if token not in project:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: project contract missing " + token)
@@ -129,10 +129,41 @@ menu_settings = (foobar / "menu_settings.cpp").read_text(encoding="utf-8")
 menu_preferences = (foobar / "menu_preferences.cpp").read_text(encoding="utf-8")
 prepare_dialog = (foobar / "prepare_dialog.cpp").read_text(encoding="utf-8")
 batch_table_dialog = (foobar / "batch_preview_dialog.cpp").read_text(encoding="utf-8")
+
+for token in (
+    "prefill_musicbrainz_query(", "state->auto_search_track",
+    "suggested_query?local_artist", "IDC_BATCH_GUIDE", "IDC_BATCH_HELP",
+    "install_workspace_tooltips(", "TOOLTIPS_CLASSW", "TTM_ADDTOOLW",
+    "show_workspace_help(", "header->code == NM_DBLCLK",
+    "MAKEWPARAM(IDC_METADATA_MB_SEARCH,BN_CLICKED)",
+    "search_attempt_notice", "recording_search_plan(", "TTDT_AUTOPOP",
+    "TTM_POP", "align_native_preview_form(state.dialog)",
+    'L"Reload the tracks already open in Music Metadata Studio?\\n\\n"',
+):
+    if token not in batch_table_dialog:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: guided search, help or refresh text missing " + token)
+
+# Modeless must be a genuine owned-lifetime foobar workspace. Reject a cosmetic
+# minimize flag on a blocking modal dialog, stranded state or unpaired manager.
+for token in ("CreateDialogParamW(", "modeless_dialog_manager::g_add(dialog)",
+              "modeless_dialog_manager::g_remove(dialog)", "WM_NCDESTROY",
+              "DestroyWindow(dialog)", "g_pending_state", "g_workspace",
+              "same_workspace_selection", "revalidate_workspace",
+              "refresh_workspace_snapshot", "initquit_factory_t<workspace_shutdown>",
+              "IDC_BATCH_REFRESH", "observed_source_guard"):
+    if token not in batch_table_dialog:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: modeless/stale lifecycle missing " + token)
+for forbidden in ("DialogBoxParamW(", "EndDialog("):
+    if forbidden in batch_table_dialog:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: blocking modal preview " + forbidden)
+
 layout_storage = (foobar / "batch_table_settings.cpp").read_text(encoding="utf-8")
 route_preview = (foobar / "routing_preview.cpp").read_text(encoding="utf-8")
 legacy_profiles = (foobar / "legacy_routing_profiles.h").read_text(encoding="utf-8")
 resources = (foobar / "component.rc").read_text(encoding="utf-8")
+if "WS_MAXIMIZEBOX" not in resources:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: native batch dialog lost maximizer")
+
 
 for label, source, token in [
     ("default Singles caption", menu_settings, "Prepare: Singles (Preview)"),
@@ -224,6 +255,72 @@ for ui_file in ("preview.cpp", "routing_preview.cpp", "prepare_dialog.cpp",
         if forbidden_ui in text:
             raise SystemExit("STATIC FOOBAR AUDIT FAIL: non-English UI in " +
                              ui_file + ": " + forbidden_ui)
+
+# The third preview tab must be a read-only evidence view. Every clipboard
+# comparison revalidates physical source and rules; it must never reach
+# the normalizer approval handler or perform a provider network request.
+for label, token in (
+    ("guided read-only search tab", 'L"1. Find & compare"'),
+    ("on-demand CUE button", "IDC_METADATA_INSPECT_CUE"),
+    ("read-only host CUE reader", "read_cue_raw_on_demand(entry.handle, entry.input.source_path)"),
+    ("raw CUE parser", "djmeta::inspect_cue_metadata(raw.raw_text, raw.carrier)"),
+    ("cue inventory presentation", "cue_inventory_read_only"),
+    ("clipboard command", "IDC_METADATA_IMPORT_CANDIDATE"),
+    ("bounded manual parser", "djmeta::online::parse_manual_candidate(text)"),
+    ("CUE candidate scope identity", "state->cue_candidate_comparison_mode"),
+    ("CUE candidate manual review", "djmeta::online::review_manual_cue_candidate("),
+    ("MusicBrainz result group detail", "group_musicbrainz_release_rows("),
+    ("MusicBrainz one row per hit", "state->candidate_rows=std::move(rows.summary)"),
+    ("MusicBrainz separate field details", "refresh_musicbrainz_detail_rows(state)"),
+    ("MusicBrainz stable candidate id", "state->candidate_rows[rowid].candidate.source_id"),
+    ("position/mode restored", "load_batch_preview_window_placement()"),
+
+
+    ("user clicked official MusicBrainz search", "id == IDC_METADATA_MB_SEARCH && HIWORD(wp) == BN_CLICKED"),
+    ("official lookup is separate user action", "id == IDC_METADATA_MB_LOAD_RELEASE && HIWORD(wp)==BN_CLICKED"),
+    ("fixed-host reader", "fetch_musicbrainz_json_readonly(path)"),
+    ("official MusicBrainz parser", "djmeta::online::musicbrainz::parse_search(reply,kind)"),
+    ("no stale online match", "CUE changed during online search"),
+    ("source verified only via HTTP reason", 'item.reason.starts_with("musicbrainz_live_")'),
+
+    ("pasted provider source label", 'L"Pasted: " + from_utf8(item.candidate.provider)'),
+    ("unverified provider tooltip", 'L"Source: manual paste, provider unverified"'),
+
+    ("CUE source re-read on import", "const auto cue = djmeta::inspect_cue_metadata(raw.raw_text, raw.carrier)"),
+    ("no virtual fallback", "read_cue_raw_on_demand(entry.handle, entry.input.source_path)"),
+
+    ("field evidence review", "djmeta::online::review_online_fields("),
+    ("pre-import source check", "verify_snapshot(entry)"),
+    ("pre-import rules check", "verify_rules_snapshot(state->captured_rules)"),
+    ("CUE path rejection", "is_external_cue_locator(entry.input.source_path)"),
+    ("candidate dedicated order", "candidate_sort_column"),
+    ("candidate source-specific tooltip", "state->candidate_view_order[row]"),
+    ("physical qualification", "entry.input.physical_source_qualified"),
+    ("candidate guard", "if (state->show_candidate && (native_command == PreviewCommand::Accept"),
+):
+    if token not in batch_table_dialog:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing read-only candidate gate: " + label)
+for token in ("IDC_METADATA_MB_QUERY", "IDC_METADATA_MB_SEARCH", "IDC_METADATA_MB_LOAD_RELEASE"):
+    if token not in resources:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing official MusicBrainz control: " + token)
+# Explicit trusted-host read-only transport is permitted; generic web scraping
+# or transport in core is NOT. Do not overfit the previous offline-only policy.
+online_transport = (foobar / "musicbrainz_http.cpp").read_text(encoding="utf-8")
+for token in ("WinHttpOpen(", "WINHTTP_FLAG_SECURE", 'L"musicbrainz.org"',
+              "WINHTTP_OPTION_REDIRECT_POLICY_NEVER", "GENERIC_WRITE"):
+    if token == "GENERIC_WRITE":
+        if token in online_transport:
+            raise SystemExit("STATIC FOOBAR AUDIT FAIL: MusicBrainz adapter contains a writer")
+    elif token not in online_transport:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: official MusicBrainz network boundary: " + token)
+if "IDC_METADATA_INSPECT_CUE" not in resources:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing read-only CUE inspect control")
+if 'GENERIC_READ' not in sources or 'OPEN_EXISTING' not in sources:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: CUE reader must use existing read-only file")
+if "IDC_METADATA_IMPORT_CANDIDATE" not in resources:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing native clipboard import control")
+if "online_intake.h" not in batch_table_dialog:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: candidate parser not linked to foobar UI")
 
 if "IDC_METADATA_TRACK_LIST" not in resources or "IDC_METADATA_FILTER" not in resources:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: track master/metadata filter missing from production resources")
@@ -321,11 +418,17 @@ for token in ['apply_review_grid_controls(', 'capture_review_grid_controls(',
               'ListView_GetColumnOrderArray', 'ListView_GetColumnWidth']:
     if token not in gui_test:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: review grid real HWND acceptance missing: " + token)
-for token in ('apply_review_split_geometry(', 'GetProcAddress(user32, "GetDpiForWindow")', 'state->active_dpi', 'WM_DPICHANGED'):
+for token in ('apply_native_preview_resize(', 'GetProcAddress(user32, "GetDpiForWindow")', 'state->active_dpi', 'WM_DPICHANGED',
+              'restore_batch_dialog_window_size(*state)', 'save_batch_dialog_window_size(*state)',
+              'WM_EXITSIZEMOVE', 'load_batch_preview_window_size()'):
     if token not in batch_table_dialog:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: production responsive per-monitor layout missing " + token)
-if 'apply_review_split_geometry(' not in gui_test or 'review_split_geometry(' not in gui_test:
+if 'apply_native_preview_resize(' not in gui_test or 'review_split_geometry(' not in gui_test:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: actual resized HWND geometry test absent")
+if 'WS_CLIPCHILDREN' not in resources or 'WS_CLIPSIBLINGS' not in resources:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: resize paint clipping removed")
+if 'BeginDeferWindowPos(' not in native_controls or 'DeferWindowPos(' not in native_controls:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: native atomic resize adapter missing")
 if 'for (int dpi : {96, 120, 144, 192})' not in gui_test:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: DPI runtime column checks absent")
 for token in ("IDC_METADATA_VISIBLE_WHITESPACE", "preview_whitespace_text(",

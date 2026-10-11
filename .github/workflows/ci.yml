@@ -62,7 +62,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: dj-metadata-normalizer-${{ github.workflow }}-${{ github.ref }}
+  group: music-metadata-studio-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:

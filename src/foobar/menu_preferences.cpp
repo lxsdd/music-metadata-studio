@@ -78,7 +78,7 @@ public:
             MAKEINTRESOURCEW(IDD_MENU_PREFERENCES), parent,
             dialog_proc, reinterpret_cast<LPARAM>(this));
         if (!m_window)
-            throw std::runtime_error("Failed to create DJ Metadata Normalizer Preferences");
+            throw std::runtime_error("Failed to create Music Metadata Studio Preferences");
     }
 
     ~MenuPreferencesInstance() {
@@ -117,7 +117,7 @@ public:
             MessageBoxW(m_window,
                 L"All five menu captions must contain 1 to 160 valid characters. "
                 L"No settings were changed.",
-                L"DJ Metadata Normalizer", MB_OK | MB_ICONWARNING);
+                L"Music Metadata Studio", MB_OK | MB_ICONWARNING);
             return;
         }
 
@@ -183,7 +183,7 @@ private:
 
 class MenuPreferencesPage : public preferences_page_v3 {
 public:
-    const char* get_name() override { return "DJ Metadata Normalizer"; }
+    const char* get_name() override { return "Music Metadata Studio"; }
     GUID get_guid() override { return kPreferencesGuid; }
     GUID get_parent_guid() override { return preferences_page::guid_tools; }
     preferences_page_instance::ptr instantiate(
