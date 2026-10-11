@@ -134,8 +134,10 @@ for token in (
     "prefill_musicbrainz_query(", "state->auto_search_track",
     "suggested_query?local_artist", "IDC_BATCH_GUIDE", "IDC_BATCH_HELP",
     "install_workspace_tooltips(", "TOOLTIPS_CLASSW", "TTM_ADDTOOLW",
-    "show_workspace_help(", "header->code == LVN_ITEMACTIVATE",
+    "show_workspace_help(", "header->code == NM_DBLCLK",
     "MAKEWPARAM(IDC_METADATA_MB_SEARCH,BN_CLICKED)",
+    "search_attempt_notice", "recording_search_plan(", "TTDT_AUTOPOP",
+    "TTM_POP", "align_native_preview_form(state.dialog)",
     'L"Reload the tracks already open in Music Metadata Studio?\\n\\n"',
 ):
     if token not in batch_table_dialog:
