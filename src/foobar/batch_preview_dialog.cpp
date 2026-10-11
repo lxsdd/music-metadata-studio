@@ -436,7 +436,8 @@ struct MusicBrainzBrowseRows {
 };
 MusicBrainzBrowseRows musicbrainz_search_rows(
     const djmeta::online::musicbrainz::SearchResult& found,
-    const std::string& local_title, const std::string& local_artist) {
+    const std::string& local_title, const std::string& local_artist,
+    const djmeta::MetadataDocument& original_tags) {
     using namespace djmeta::online;
     MusicBrainzBrowseRows result;
     for (const auto& hit : found.candidates) {
@@ -485,6 +486,28 @@ MusicBrainzBrowseRows musicbrainz_search_rows(
         }
         if (hit.kind==musicbrainz::SearchKind::Release)
             add("EDITION DATE","",hit.release_date);
+        // Show all original source fields, including custom/multivalued ones
+        // that the online provider DID NOT supply. An absent MB value is
+        // never a suggestion to delete or clear the original physical tag.
+        for (const auto& field : original_tags.fields) {
+            if(detail.size()>=50) break;
+            bool supplied=false;
+            for(const auto& row:detail)
+                if(musicbrainz::comparable_search_key(row.field)==
+                   musicbrainz::comparable_search_key(field.name)) {
+                    supplied=true;break;
+                }
+            if(supplied) continue;
+            FieldReviewRow retained;
+            retained.field=field.name;
+            retained.original_values=field.values;
+            retained.candidate.field=field.name;
+            retained.candidate.provider="musicbrainz";
+            retained.candidate.source_id=hit.mbid;
+            retained.reason="musicbrainz_local_only_no_provider_value";
+            retained.state=FieldReviewState::Unchanged;
+            detail.push_back(std::move(retained));
+        }
         result.detail.push_back(std::move(detail));
     }
     return result;
@@ -844,8 +867,11 @@ void refresh_musicbrainz_detail_rows(PreviewState& state) {
         const auto& row=detail[i];
         const auto field=from_utf8(row.field);
         const auto original=show_field_values(row.original_values);
-        const auto proposed=show_field_values(row.candidate.values);
-        const std::wstring status=row.state==
+        const auto proposed=row.reason=="musicbrainz_local_only_no_provider_value"
+            ? L"(not supplied)" : show_field_values(row.candidate.values);
+        const std::wstring status=row.reason==
+            "musicbrainz_local_only_no_provider_value" ? L"Keep original" :
+            row.state==
             djmeta::online::FieldReviewState::Blocked ? L"Blocked"
             : row.state==djmeta::online::FieldReviewState::Unchanged
             ? L"No change" : L"Review";
@@ -2356,9 +2382,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         const auto track_defaults=default_track_grid_layout();
         if (state->track_grid.widths==track_defaults.widths)
             state->track_grid.widths[0]=ideal_title;
-        const auto online_defaults=load_candidate_track_grid_layout();
-        if (state->candidate_track_grid.widths==online_defaults.widths &&
-            state->candidate_track_grid.widths[0]==280)
+        if (state->candidate_track_grid.widths==
+                (std::array<int,4>{280,75,90,85}))
             state->candidate_track_grid.widths[0]=ideal_title;
         apply_review_grid_controls(state->metadata_track_list,
             state->show_candidate ? state->candidate_track_grid:state->track_grid,
@@ -2890,6 +2915,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                    state->musicbrainz_kind==
                      djmeta::online::musicbrainz::SearchKind::Release)));
             std::string local_title, local_artist, local_isrc, cue_before;
+            djmeta::MetadataDocument original_tags;
             const auto kind=cue_mode
                 ? djmeta::online::musicbrainz::SearchKind::Release
                 : djmeta::online::musicbrainz::SearchKind::Recording;
@@ -2910,10 +2936,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                         "Online search requires a uniquely qualified physical file "
                         "or a CUE previously selected with Inspect CUE.");
                 const auto info=entry.handle->get_info_ref();
-                const auto local=metadata_from_file_info(info->info());
-                local_title=unique_metadata_value(local,"TITLE");
-                local_artist=unique_metadata_value(local,"ARTIST");
-                try {local_isrc=unique_metadata_value(local,"ISRC");}
+                original_tags=metadata_from_file_info(info->info());
+                local_title=unique_metadata_value(original_tags,"TITLE");
+                local_artist=unique_metadata_value(original_tags,"ARTIST");
+                try {local_isrc=unique_metadata_value(original_tags,"ISRC");}
                 catch (const std::invalid_argument&) {} // ambiguous ISRC is excluded
             }
             const auto entered=to_utf8(read_control(dialog,IDC_METADATA_MB_QUERY));
@@ -2974,7 +3000,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             if (cue_mode && read_cue_raw_on_demand(
                 entry.handle,entry.input.source_path).raw_text!=cue_before)
                 throw std::runtime_error("CUE changed during online search. Retry.");
-            auto rows=musicbrainz_search_rows(result,local_title,local_artist);
+            auto rows=musicbrainz_search_rows(
+                result,local_title,local_artist,original_tags);
             state->candidate_rows=std::move(rows.summary);
             state->musicbrainz_detail_groups=std::move(rows.detail);
             state->musicbrainz_original_title=local_title;
