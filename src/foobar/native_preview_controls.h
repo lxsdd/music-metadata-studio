@@ -359,6 +359,39 @@ inline bool insert_native_preview_detail_row(HWND list, int index,
     return true;
 }
 
+// Native single-line EDIT fields put text near the TOP of a tall box;
+// moving that tall box cannot align its glyphs with a themed button.
+// Size the field to the actual UI font plus bounded padding first, and
+// center the resulting edit *frame* against its adjacent action.
+inline bool align_native_search_field(HWND dialog) {
+    const HWND edit=GetDlgItem(dialog,IDC_METADATA_MB_QUERY);
+    const HWND button=GetDlgItem(dialog,IDC_METADATA_MB_SEARCH);
+    if (!edit || !button) return false;
+    RECT field{}, action{};
+    if (!GetWindowRect(edit,&field) || !GetWindowRect(button,&action))
+        return false;
+    HDC dc=GetDC(edit);
+    if (!dc) return false;
+    HFONT font=reinterpret_cast<HFONT>(SendMessageW(edit,WM_GETFONT,0,0));
+    HGDIOBJ previous=font?SelectObject(dc,font):nullptr;
+    TEXTMETRICW metrics{};
+    const bool measured=GetTextMetricsW(dc,&metrics)!=FALSE;
+    if (previous) SelectObject(dc,previous);
+    ReleaseDC(edit,dc);
+    if (!measured) return false;
+    const int actionHeight=action.bottom-action.top;
+    // Keep the native EDIT text's upper inset close to its actual text height.
+    // At 100-200% Windows scaling avoid an unreasonably tall input frame.
+    const int height=(std::min)(actionHeight,(std::max)(metrics.tmHeight+6,15));
+    const int targetY=(action.top+action.bottom+4-height)/2;
+    MapWindowPoints(HWND_DESKTOP,dialog,reinterpret_cast<POINT*>(&field),2);
+    POINT top{0,targetY};
+    MapWindowPoints(HWND_DESKTOP,dialog,&top,1);
+    if (field.top==top.y && field.bottom-field.top==height) return true;
+    return SetWindowPos(edit,nullptr,field.left,top.y,
+        field.right-field.left,height,SWP_NOZORDER|SWP_NOACTIVATE)!=FALSE;
+}
+
 inline void align_native_preview_form(HWND dialog) {
     constexpr int rows[][2] = {
         {IDC_METADATA_FILTER_LABEL, IDC_METADATA_FILTER},
@@ -371,8 +404,7 @@ inline void align_native_preview_form(HWND dialog) {
         align_label_to_input(dialog, row[0], row[1]);
     // Theme-dependent text in a standard EDIT normally sits slightly higher
     // than text in a PUSHBUTTON with the same outer frame height.
-    align_native_action_row(dialog, IDC_METADATA_MB_QUERY,
-                            IDC_METADATA_MB_SEARCH, false, 2);
+    align_native_search_field(dialog);
     // The combo RC height includes its dropdown; align *rcItem* with the
     // adjacent action buttons, not the full expanded list rectangle.
     align_native_action_row(dialog, IDC_METADATA_REVIEW_SCOPE,
