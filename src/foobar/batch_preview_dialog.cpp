@@ -1471,6 +1471,7 @@ void capture_resize_layout(PreviewState& state) {
             id != IDC_METADATA_TRACK_LIST &&
             id != IDC_BATCH_TABS &&
             layout.original.top >= current.initial_list_bottom;
+        if (id == IDC_BATCH_GUIDE) layout.stretch_width=true;
         layout.shift_right = id == IDC_METADATA_INSPECT_CUE ||
                              id == IDC_METADATA_MB_LOAD_RELEASE ||
                              id == IDC_METADATA_IMPORT_CANDIDATE ||
@@ -1489,6 +1490,7 @@ void resize_batch_dialog(PreviewState& state, int width, int height) {
     if (!apply_native_preview_resize(
             state.resize_controls, state.metadata_track_list, state.metadata_list,
             dx, dy)) return;
+    align_native_preview_form(state.dialog);
     layout_musicbrainz_detail_pane(state);
     if (state.musicbrainz_live_view)
         update_musicbrainz_browse_headers(state);
@@ -2042,24 +2044,27 @@ void refresh_workspace_snapshot(PreviewState& state) {
 // descriptions. No extra settings files, background requests or UI framework.
 void install_workspace_tooltips(PreviewState& state) {
     const HWND dialog=state.dialog;
-    const HWND tips=CreateWindowExW(WS_EX_TOPMOST,TOOLTIPS_CLASSW,nullptr,
-        WS_POPUP|TTS_ALWAYSTIP|TTS_NOPREFIX,
+    const HWND tips=CreateWindowExW(0,TOOLTIPS_CLASSW,nullptr,
+        WS_POPUP|TTS_NOPREFIX,
         CW_USEDEFAULT,CW_USEDEFAULT,CW_USEDEFAULT,CW_USEDEFAULT,
         dialog,nullptr,core_api::get_my_instance(),nullptr);
     if (!tips) throw std::runtime_error("Cannot initialize native tooltips.");
     state.help_tooltips=tips;
-    SendMessageW(tips,TTM_SETMAXTIPWIDTH,0,MulDiv(430,current_dpi(dialog),96));
+    SendMessageW(tips,TTM_SETMAXTIPWIDTH,0,MulDiv(340,current_dpi(dialog),96));
+    SendMessageW(tips,TTM_SETDELAYTIME,TTDT_INITIAL,600);
+    SendMessageW(tips,TTM_SETDELAYTIME,TTDT_RESHOW,200);
+    SendMessageW(tips,TTM_SETDELAYTIME,TTDT_AUTOPOP,5200);
     struct HelpText { int id; const wchar_t* text; };
     static constexpr HelpText texts[] = {
         {IDC_BATCH_TABS,L"1. Search online and compare. 2. Review local rule-based suggestions. 3. Preview file locations. These previews do not write files."},
         {IDC_BATCH_GUIDE,L"Follow the steps from left to right. A MusicBrainz match is evidence, not an approved tag edit."},
-        {IDC_METADATA_TRACK_LIST,L"Select one original file. Double-click on this tab to start a MusicBrainz search; on other tabs, double-click opens Search without accessing the network."},
-        {IDC_METADATA_MB_QUERY,L"Pre-filled from TITLE (or ALBUM) of the selected file. You may edit it for a broader search. Nothing is sent until Search is clicked."},
+        {IDC_METADATA_TRACK_LIST,L"Choose a track. Double-click in Find to search online; double-click in Review to switch to Find."},
+        {IDC_METADATA_MB_QUERY,L"From TITLE/ALBUM. Search starts with artist + normalized title; after zero results, click Search again to broaden."},
         {IDC_METADATA_MB_SEARCH,L"Look up the selected recording using MusicBrainz HTTPS (free). This is a deliberate network request and does not change tags."},
         {IDC_METADATA_MB_LOAD_RELEASE,L"Only for a verified MusicBrainz release and a qualified CUE. Read its track list without changing files."},
         {IDC_METADATA_INSPECT_CUE,L"Read the source CUE and show its album/track fields. Embedded and external CUE are never written here."},
         {IDC_METADATA_IMPORT_CANDIDATE,L"Compare structured provider evidence copied to the clipboard. No provider is contacted and nothing is applied."},
-        {IDC_METADATA_LIST,L"Select a search hit (or rule change). The detail pane shows its original/proposed values and review status."},
+        {IDC_METADATA_LIST,L"Select a candidate or proposed change to inspect its source and status."},
         {IDC_METADATA_MB_DETAILS,L"Field-by-field evidence for the selected online candidate. REVIEW is not a tag-write authorization."},
         {IDC_METADATA_FILTER,L"Limit the local normalization review to music, extended or all tags."},
         {IDC_METADATA_TRACK_FILTER,L"Filter original tracks by whether they have rule proposals. This never removes files."},
@@ -2081,6 +2086,11 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDCANCEL,L"Close the workspace without writing tags, CUE data or music files."}
     };
     for (const auto& item : texts) {
+        // Tables have native row-specific infotips. Registering another
+        // whole-table tracking tooltip caused 'stuck' explanatory overlays.
+        if (item.id==IDC_METADATA_TRACK_LIST || item.id==IDC_METADATA_LIST ||
+            item.id==IDC_BATCH_LIST || item.id==IDC_METADATA_MB_DETAILS)
+            continue;
         const HWND child=GetDlgItem(dialog,item.id);
         if (!child) continue; // Optional page control absent on older hosts.
         TOOLINFOW tool{};
@@ -2280,9 +2290,16 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         return FALSE;
     }
     if (message == WM_CLOSE) {
+        if(state->help_tooltips) SendMessageW(state->help_tooltips,TTM_POP,0,0);
         DestroyWindow(dialog);
         return TRUE;
     }
+    if ((message == WM_MOVE || message == WM_SIZE || message == WM_ENTERSIZEMOVE)
+        && state->help_tooltips)
+        SendMessageW(state->help_tooltips,TTM_POP,0,0);
+    if (message == WM_ACTIVATE && LOWORD(wp)==WA_INACTIVE &&
+        state->help_tooltips)
+        SendMessageW(state->help_tooltips,TTM_POP,0,0);
     if (message == WM_ACTIVATE && LOWORD(wp)!=WA_INACTIVE) {
         revalidate_workspace(*state);
         return FALSE;
@@ -2311,18 +2328,32 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         const auto* header = reinterpret_cast<const NMHDR*>(lp);
         if (header && header->idFrom == IDC_BATCH_TABS &&
             header->code == TCN_SELCHANGE) {
+            if(state->help_tooltips) SendMessageW(state->help_tooltips,TTM_POP,0,0);
             const int selected_tab = TabCtrl_GetCurSel(state->tabs);
             show_preview_page(dialog, *state, selected_tab != 2, selected_tab == 0);
             return TRUE;
         }
         if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&
-            header->code == LVN_ITEMACTIVATE) {
-            const auto* clicked = reinterpret_cast<const NMITEMACTIVATE*>(lp);
-            if (!clicked || clicked->iItem < 0 ||
-                static_cast<std::size_t>(clicked->iItem) >= state->track_view_order.size())
+            (header->code == NM_DBLCLK || header->code == LVN_KEYDOWN)) {
+            // Owner-data ListView reliably emits NM_DBLCLK for mouse and
+            // LVN_KEYDOWN for Return; LVN_ITEMACTIVATE varies by host style.
+            // Do not also process ITEMACTIVATE: one gesture must issue only
+            // one MusicBrainz request.
+            int row=-1;
+            if(header->code==NM_DBLCLK) {
+                const auto* clicked=reinterpret_cast<const NMITEMACTIVATE*>(lp);
+                if(clicked) row=clicked->iItem;
+            } else {
+                const auto* key=reinterpret_cast<const NMLVKEYDOWN*>(lp);
+                if(!key || key->wVKey!=VK_RETURN) return FALSE;
+                row=ListView_GetNextItem(state->metadata_track_list,-1,LVNI_FOCUSED);
+                if(row<0) row=ListView_GetNextItem(
+                    state->metadata_track_list,-1,LVNI_SELECTED);
+            }
+            if (row<0 || static_cast<std::size_t>(row)>=state->track_view_order.size())
                 return TRUE;
             state->selected_track_index =
-                state->track_view_order[static_cast<std::size_t>(clicked->iItem)];
+                state->track_view_order[static_cast<std::size_t>(row)];
             const bool already_searching = state->show_candidate;
             TabCtrl_SetCurSel(state->tabs,0);
             show_preview_page(dialog,*state,true,true);
@@ -2407,13 +2438,19 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             }
             return TRUE;
         }
-        if (header && header->idFrom == IDC_METADATA_LIST &&
+        const bool release_activation=header &&
+            header->idFrom==IDC_METADATA_LIST &&
+            (header->code==NM_DBLCLK ||
+             (header->code==LVN_KEYDOWN &&
+              reinterpret_cast<const NMLVKEYDOWN*>(lp)->wVKey==VK_RETURN));
+        if (release_activation &&
             may_activate_musicbrainz_release(header->code,
                 state->show_candidate && state->musicbrainz_live_view,
                 state->musicbrainz_kind==
                     djmeta::online::musicbrainz::SearchKind::Release,
                 state->musicbrainz_release_loaded,
-                state->candidate_source_index==state->selected_track_index)) {
+                state->candidate_source_index==state->selected_track_index,
+                header->code==LVN_KEYDOWN?VK_RETURN:0)) {
             // A native ListView double-click or Enter is equivalent to
             // explicitly clicking Load MB release. Existing code checks the
             // selected verified MBID, enforces rate limiting and never writes.
