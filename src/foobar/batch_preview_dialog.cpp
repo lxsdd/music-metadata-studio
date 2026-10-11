@@ -2347,6 +2347,22 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         align_native_preview_form(dialog);
         capture_resize_layout(*state);
         restore_batch_dialog_window_size(*state);
+        // Fit first-open headers to a bounded sample of real Unicode titles,
+        // only while the profile still uses untouched factory widths.
+        // Never recompute these during selection, sorting or tab navigation.
+        const int native_dpi=current_dpi(state->metadata_track_list);
+        const int ideal_title=fit_initial_track_title_column(
+            state->metadata_track_list,state->cached_track_names,native_dpi);
+        const auto track_defaults=default_track_grid_layout();
+        if (state->track_grid.widths==track_defaults.widths)
+            state->track_grid.widths[0]=ideal_title;
+        const auto online_defaults=load_candidate_track_grid_layout();
+        if (state->candidate_track_grid.widths==online_defaults.widths &&
+            state->candidate_track_grid.widths[0]==280)
+            state->candidate_track_grid.widths[0]=ideal_title;
+        apply_review_grid_controls(state->metadata_track_list,
+            state->show_candidate ? state->candidate_track_grid:state->track_grid,
+            native_dpi);
         modeless_dialog_manager::g_add(dialog);
         state->modeless_registered=true;
         return TRUE;
