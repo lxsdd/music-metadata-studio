@@ -87,14 +87,23 @@ inline std::string canonical_url(EntityKind kind,std::uint64_t id) {
 // The /database/search endpoint requires user-provided authorization.
 // The token MUST be passed in a separate native HTTPS request header by
 // the future host adapter, never in this URI, code, logs or git.
+inline std::string validated_term(std::string_view source) {
+    if(source.empty() || source.size()>150 ||
+       !valid_utf8_metadata_text(source))
+        throw std::invalid_argument("Invalid Discogs search text");
+    for(const unsigned char c:source)
+        if(c<0x20 || c==0x7f)
+            throw std::invalid_argument("Control character in Discogs query");
+    return std::string(source);
+}
 inline std::string search_path(std::string_view title,
                                std::string_view artist = {}) {
-    const auto q=musicbrainz::validated_search_term(title);
+    const auto q=validated_term(title);
     std::string result="/database/search?q="+
         musicbrainz::encode_url_query(q)+"&type=release";
     if(!artist.empty())
         result+="&artist="+musicbrainz::encode_url_query(
-            musicbrainz::validated_search_term(artist));
+            validated_term(artist));
     result+="&page=1&per_page=20";
     if(result.size()>2048)
         throw std::invalid_argument("Discogs query too large");
