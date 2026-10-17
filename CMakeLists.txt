@@ -328,7 +328,19 @@ else()
     target_compile_options(djmeta_musicbrainz_provider_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+# Official Discogs catalog offline fixture/parser and auth-gated URL contract.
+# No network, credentials, user collection or filesystem mutation in tests.
+add_executable(djmeta_discogs_provider_tests tests/discogs_provider_tests.cpp)
+target_link_libraries(djmeta_discogs_provider_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_discogs_provider_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_discogs_provider_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_discogs_provider_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 enable_testing()
+add_test(NAME djmeta_discogs_provider_tests COMMAND djmeta_discogs_provider_tests)
 add_test(NAME djmeta_musicbrainz_provider_tests COMMAND djmeta_musicbrainz_provider_tests)
 add_test(NAME djmeta_cue_manual_preview_tests COMMAND djmeta_cue_manual_preview_tests)
 add_test(NAME djmeta_preview_window_geometry_tests COMMAND djmeta_preview_window_geometry_tests)
