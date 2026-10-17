@@ -3,5 +3,5 @@
 #include <vector>
 
 namespace djmeta::online::musicbrainz {
-struct ReleaseSearchPlan {};
+struct ReleaseSearchPlan { std::vector<RecordingSearchAttempt> attempts; };
 }
