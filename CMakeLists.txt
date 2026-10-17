@@ -18,6 +18,7 @@ add_library(djmeta_core STATIC
     src/core/review_decisions.cpp
     src/core/rule_loader.cpp
     src/core/analysis_json.cpp
+    src/core/precision_cue.cpp
 )
 target_include_directories(djmeta_core PUBLIC include)
 target_compile_features(djmeta_core PUBLIC cxx_std_20)
@@ -222,7 +223,17 @@ else()
     target_compile_options(djmeta_review_decisions_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+add_executable(djmeta_precision_cue_tests tests/precision_cue_tests.cpp)
+target_link_libraries(djmeta_precision_cue_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_precision_cue_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_precision_cue_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_precision_cue_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 enable_testing()
+add_test(NAME djmeta_precision_cue_tests COMMAND djmeta_precision_cue_tests)
 add_test(NAME djmeta_write_guard_tests COMMAND djmeta_write_guard_tests)
 add_test(NAME djmeta_physical_selection_tests COMMAND djmeta_physical_selection_tests)
 add_test(NAME djmeta_review_decisions_tests COMMAND djmeta_review_decisions_tests)
