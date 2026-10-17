@@ -1,5 +1,9 @@
 #include "djmeta/precision_cue.h"
 
+// GitHub CI uses Release: keep test assertions enabled on every platform.
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
 #include <cassert>
 #include <cstdint>
 #include <stdexcept>
