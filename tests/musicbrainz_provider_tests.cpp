@@ -141,6 +141,32 @@ int main() {
           edition.tracks[2].disc_number==2 && edition.tracks[2].track_number==1,
           "release lookup preserves exact edition, recording, date/disc/track scope");
 
+    // Official release track IDs are distinct from recording IDs. A recording
+    // may recur on an edition without becoming a duplicate release-track ID.
+    const auto identified_json=std::string(R"MB({
+      "id":"11111111-1111-1111-1111-111111111111",
+      "media":[{"tracks":[
+        {"id":"33333333-3333-3333-3333-333333333333","position":1,
+         "title":"One","artist-credit":[{"name":"Artist"}],
+         "recording":{"id":"22222222-2222-2222-2222-222222222222"}},
+        {"id":"44444444-4444-4444-4444-444444444444","position":2,
+         "title":"Two","artist-credit":[{"name":"Artist"}],
+         "recording":{"id":"22222222-2222-2222-2222-222222222222"}}
+      ]}]
+    })MB");
+    const auto identified=parse_release_lookup(identified_json,first);
+    check(identified.tracks.size()==2 &&
+          identified.tracks[0].source_track_id==
+              "33333333-3333-3333-3333-333333333333" &&
+          identified.tracks[1].source_track_id==
+              "44444444-4444-4444-4444-444444444444",
+          "release track IDs remain distinct despite shared recording MBID");
+    const std::vector<LocalReleaseTrack> repeated_recording={
+        {0,1,1,{"One","Artist"}}, {1,1,2,{"Two","Artist"}}};
+    const auto repeated_alignment=align_release(repeated_recording,identified);
+    check(repeated_alignment.matched==2 && repeated_alignment.unmatched==0,
+          "repeated recording MBID does not invalidate separate release tracks");
+
     rejects([&]{(void)parse_release_lookup(edition_json,second);},
             "mismatched edition ID is a blocker");
     rejects([]{(void)JsonParser("{\"x\":1,\"x\":2}").parse();},
