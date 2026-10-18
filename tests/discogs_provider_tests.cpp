@@ -121,6 +121,13 @@ int main() {
         "tracklist":[{"type_":"track","position":"1","title":"Shared",
             "duration":"1:02:03"}]
     })",777);
+    const auto album_credit=[](const ReleaseEdition& release) {
+        for(const auto& field:release.fields)
+            if(field.field=="ALBUM ARTIST") return field.values;
+        return std::vector<std::string>{};
+    };
+    check(album_credit(collaboration)==std::vector<std::string>{"Artist A & Artist B"},
+          "Discogs joined album artist is a single provenance-preserving tag");
     check(collaboration.tracks.size()==1 &&
           collaboration.tracks[0].recording.primary_artist=="Artist A & Artist B" &&
           collaboration.tracks[0].recording.duration_ms==3723000 &&
@@ -131,6 +138,8 @@ int main() {
             {"name":"Artist A"},{"name":"Artist B"}],
         "tracklist":[{"type_":"track","position":"1","title":"Shared"}]
     })",778);
+    check(album_credit(ambiguous_artist).empty(),
+          "ambiguous multi-artist album credits must not become separate album artist tags");
     check(ambiguous_artist.tracks[0].recording.primary_artist.empty(),
           "unqualified collaboration does not inherit a guessed artist");
     rejects([]{(void)parse_release(R"({
