@@ -32,6 +32,20 @@ struct Candidate {
     RecordingIdentity identity;
 };
 
+// User-tunable display preference for equally substantiated candidates.
+// Provider origin is not evidence of recording identity and cannot turn a
+// rejected/review-only candidate into a suggested match.
+struct ProviderPreferences {
+    std::vector<std::string> preferred_order{"beatport", "discogs", "musicbrainz"};
+};
+
+inline std::size_t preference_index(
+    std::string_view provider, const ProviderPreferences& preferences) {
+    const auto it = std::find(preferences.preferred_order.begin(),
+                              preferences.preferred_order.end(), provider);
+    return static_cast<std::size_t>(it - preferences.preferred_order.begin());
+}
+
 struct CandidateMatch {
     std::string provider;
     std::string provider_track_id;
@@ -215,7 +229,8 @@ inline CandidateMatch compare(const RecordingIdentity& local, const Candidate& r
 
 inline std::vector<CandidateMatch> rank(
     const RecordingIdentity& local,
-    const std::vector<Candidate>& candidates) {
+    const std::vector<Candidate>& candidates,
+    const ProviderPreferences& preferences = {}) {
     std::vector<CandidateMatch> results;
     // Duplicate provider IDs must not silently select the first payload.
     // Identical repeats are harmless; any conflicting recording payload makes
@@ -256,10 +271,15 @@ inline std::vector<CandidateMatch> rank(
         match.conflicts.push_back("provider_identity_conflict");
     }
     std::sort(results.begin(), results.end(),
-        [](const CandidateMatch& a, const CandidateMatch& b) {
+        [&preferences](const CandidateMatch& a, const CandidateMatch& b) {
             if (a.decision != b.decision)
                 return static_cast<int>(a.decision) < static_cast<int>(b.decision);
             if (a.score != b.score) return a.score > b.score;
+            // Presentation tie-break only. The score, safety decision and
+            // complete provenance remain unchanged for every provider.
+            const auto ap = preference_index(a.provider, preferences);
+            const auto bp = preference_index(b.provider, preferences);
+            if (ap != bp) return ap < bp;
             if (a.provider != b.provider) return a.provider < b.provider;
             return a.provider_track_id < b.provider_track_id;
         });
