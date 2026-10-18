@@ -95,6 +95,16 @@ int main() {
           candidate.identity.mix_name=="Extended Mix" &&
           candidate.identity.duration_ms==402500,
           "Beatport version and artist enter shared matching without title flattening");
+    RecordingIdentity decorated_local = candidate.identity;
+    decorated_local.title = "Home (Extended Mix)";
+    decorated_local.mix = MixKind::Unknown;
+    decorated_local.mix_name.clear();
+    check(compare(decorated_local,candidate).decision==MatchDecision::Suggested,
+          "Beatport base title plus version reconciles decorated local DJ TITLE");
+    decorated_local.title = "Home (Radio Edit)";
+    check(compare(decorated_local,candidate).decision==MatchDecision::Rejected,
+          "radio cut cannot reuse long-mix evidence despite identical ISRC");
+
     const auto local=candidate.identity;
     const auto verified=compare(local,candidate);
     check(verified.decision==MatchDecision::Suggested,
