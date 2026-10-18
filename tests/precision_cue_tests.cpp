@@ -75,6 +75,26 @@ void test_frame_classification() {
     assert(djmeta::classify_cue_delta(-1, 100) == Review);
 }
 
+void test_generated_utf8_validation() {
+    auto d = synthetic_disc();
+    d.album_title = std::string("bad ") + char(0xc3) + '(';
+    must_reject([&] { (void)djmeta::make_precision_cue(d); });
+
+    d = synthetic_disc();
+    d.tracks[0].title =
+        std::string("bad ") + char(0xed) + char(0xa0) + char(0x80);
+    must_reject([&] { (void)djmeta::make_precision_cue(d); });
+
+    d = synthetic_disc();
+    d.audio_file_basename = std::string("bad ") + char(0xff) + ".mp3";
+    must_reject([&] { (void)djmeta::make_precision_cue(d); });
+
+    d = synthetic_disc();
+    d.album_title = "München – 東京";
+    const auto cue = djmeta::make_precision_cue(d);
+    assert(cue.external_cue_utf8.find(d.album_title) != std::string::npos);
+}
+
 void test_invalid_input_fail_closed() {
     const auto good = synthetic_disc();
     {
@@ -225,5 +245,6 @@ int main() {
     test_frame_classification();
     test_boundary_audit_multidisc_synthetic();
     test_invalid_input_fail_closed();
+    test_generated_utf8_validation();
     return 0;
 }
