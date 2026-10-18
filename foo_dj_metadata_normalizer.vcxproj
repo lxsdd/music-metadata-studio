@@ -50,7 +50,7 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>shell32.lib;ole32.lib;user32.lib;comctl32.lib;$(FoobarSdkRoot)\foobar2000\shared\shared-$(Platform).lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>winhttp.lib;shell32.lib;ole32.lib;user32.lib;comctl32.lib;$(FoobarSdkRoot)\foobar2000\shared\shared-$(Platform).lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <ResourceCompile>
       <AdditionalIncludeDirectories>$(MSBuildProjectDirectory)\rules;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -58,6 +58,9 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="src\core\normalizer.cpp" />
+    <ClCompile Include="src\core\precision_cue.cpp" />
+    <ClCompile Include="src\core\precision_cue_apple.cpp" />
+    <ClCompile Include="src\core\precision_cue_apple_http_win.cpp" />
     <ClCompile Include="src\core\write_guard.cpp" />
     <ClCompile Include="src\core\physical_selection.cpp" />
     <ClCompile Include="src\core\staging.cpp" />
@@ -70,6 +73,7 @@
     <ClCompile Include="src\core\rule_loader.cpp" />
     <ClCompile Include="src\foobar\component.cpp" />
     <ClCompile Include="src\foobar\context_menu.cpp" />
+    <ClCompile Include="src\foobar\precision_cue_workspace.cpp" />
     <ClCompile Include="src\foobar\metadata_adapter.cpp" />
     <ClCompile Include="src\foobar\host_file_probe.cpp" />
     <ClCompile Include="src\foobar\preview.cpp" />
