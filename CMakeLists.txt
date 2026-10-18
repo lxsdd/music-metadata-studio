@@ -23,6 +23,10 @@ add_library(djmeta_core STATIC
     src/core/precision_cue_assemble.cpp
     src/core/precision_cue_apple.cpp
 )
+if(WIN32)
+    target_sources(djmeta_core PRIVATE src/core/precision_cue_apple_http_win.cpp)
+    target_link_libraries(djmeta_core PRIVATE winhttp)
+endif()
 target_include_directories(djmeta_core PUBLIC include)
 target_compile_features(djmeta_core PUBLIC cxx_std_20)
 set_target_properties(djmeta_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -235,6 +239,19 @@ else()
     target_compile_options(djmeta_precision_cue_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+if(WIN32)
+    # Never contact external providers from CI; these are pure request-policy tests.
+    add_executable(djmeta_precision_cue_apple_http_tests
+        tests/precision_cue_apple_http_tests.cpp)
+    target_link_libraries(djmeta_precision_cue_apple_http_tests PRIVATE djmeta_core)
+    target_compile_features(djmeta_precision_cue_apple_http_tests PRIVATE cxx_std_20)
+    if(MSVC)
+        target_compile_options(djmeta_precision_cue_apple_http_tests PRIVATE /W4 /WX /permissive-)
+    else()
+        target_compile_options(djmeta_precision_cue_apple_http_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+endif()
+
 add_executable(djmeta_precision_cue_apple_tests
     tests/precision_cue_apple_tests.cpp)
 target_link_libraries(djmeta_precision_cue_apple_tests PRIVATE djmeta_core)
@@ -286,6 +303,10 @@ else()
 endif()
 
 enable_testing()
+if(WIN32)
+    add_test(NAME djmeta_precision_cue_apple_http_tests
+             COMMAND djmeta_precision_cue_apple_http_tests)
+endif()
 add_test(NAME djmeta_precision_cue_apple_tests COMMAND djmeta_precision_cue_apple_tests)
 add_test(NAME djmeta_precision_cue_apple_link_tests COMMAND djmeta_precision_cue_apple_link_tests)
 add_test(NAME djmeta_precision_cue_source_consensus_tests COMMAND djmeta_precision_cue_source_consensus_tests)
