@@ -131,8 +131,39 @@ void preflight_fail_closed_matrix() {
 }
 }
 
+
+void commit_revalidation_fail_closed_matrix() {
+    using enum PrecisionCueWriteDecision;
+    PrecisionCueWriteCommitEvidence e;
+    e.preview = approved();
+    e.at_commit = approved();
+    e.source_snapshot_token_preview = 101;
+    e.source_snapshot_token_commit = 101;
+    e.target_snapshot_token_preview = 202;
+    e.target_snapshot_token_commit = 202;
+    assert(revalidate_precision_cue_external_commit(e) == ReadyForExplicitWrite);
+    e.source_snapshot_token_commit = 103;
+    assert(revalidate_precision_cue_external_commit(e) == ReviewRequired);
+    e.source_snapshot_token_commit = 101;
+    e.target_snapshot_token_commit = 203;
+    assert(revalidate_precision_cue_external_commit(e) == ReviewRequired);
+    e.target_snapshot_token_commit = 202;
+    e.target_snapshot_token_preview = 0;
+    assert(revalidate_precision_cue_external_commit(e) == ReviewRequired);
+    e.target_snapshot_token_preview = 202;
+    e.at_commit.target_exists = true;
+    assert(revalidate_precision_cue_external_commit(e) == ReviewRequired);
+    e.at_commit = approved();
+    e.at_commit.explicit_user_approval = false;
+    assert(revalidate_precision_cue_external_commit(e) == ReviewRequired);
+    e.at_commit = approved();
+    e.preview.source_snapshot_current = false;
+    assert(revalidate_precision_cue_external_commit(e) == ReviewRequired);
+}
+
 int main() {
     export_planning_positive_and_negative();
     preflight_fail_closed_matrix();
+    commit_revalidation_fail_closed_matrix();
     return 0;
 }
