@@ -4,6 +4,7 @@
 #include "resource.h"
 
 #include "djmeta/precision_cue.h"
+#include "djmeta/precision_cue_assemble.h"
 #include "djmeta/precision_cue_apple.h"
 #include "djmeta/precision_cue_apple_http.h"
 #include "djmeta/precision_cue_apple_link.h"
@@ -172,11 +173,27 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
             "Selected physical MP3 count differs from provider disc count. "
             "Select all disc MP3s; no partial CUE proposal was produced");
     }
+    std::vector<std::int64_t> totals(count, 0);
+    for (const auto& track : release.tracks) {
+        if (track.disc_number == 0 || track.disc_number > count ||
+            track.duration_ms <= 0 ||
+            track.duration_ms > 86400000LL - totals[track.disc_number - 1])
+            throw std::invalid_argument("Invalid provider disc duration");
+        totals[track.disc_number - 1] += track.duration_ms;
+    }
+    std::vector<djmeta::PrecisionCuePhysicalDisc> physicals;
+    for (const auto& file : state.files)
+        physicals.push_back({file.basename, file.duration_ms});
+    const auto mapping = djmeta::resolve_precision_cue_disc_mapping(totals, physicals);
+    if (mapping.state == djmeta::PrecisionCueMatchState::Ambiguous)
+        throw std::invalid_argument("Ambiguous MP3-to-disc assignment; review required");
+    if (mapping.state == djmeta::PrecisionCueMatchState::Rejected)
+        throw std::invalid_argument("Local MP3s incompatible with provider disc durations");
     std::vector<djmeta::PrecisionCuePlan> plans;
     std::wstring details;
-    bool duration_warning = false;
+    bool duration_warning = mapping.state != djmeta::PrecisionCueMatchState::Selected;
     for (unsigned d = 1; d <= count; ++d) {
-        const LocalFile& physical = state.files[d - 1];
+        const LocalFile& physical = state.files[mapping.physical_index_by_disc[d - 1]];
         djmeta::PrecisionCueDisc disc;
         disc.album_title = release.album_title;
         disc.album_performer = release.album_performer;
@@ -207,10 +224,10 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
     details += L"Provider: Apple / collection " + from_utf8(release.provider_release_id) + L"\r\n";
     if (duration_warning)
         details += L"WARNING: At least one local duration is unknown or requires review.\r\n";
-    details += L"DISC-TO-MP3 ORDER IS PROVISIONAL (sorted by filename).\r\n";
+    details += L"DISC-TO-MP3 MAPPING IS DURATION-INFERRED, NOT VERIFIED.\r\n";
     for (std::size_t i = 0; i < plans.size(); ++i) {
         details += L"\r\n=== DISC " + std::to_wstring(i + 1) +
-                   L" / " + from_utf8(state.files[i].basename) + L" ===\r\n";
+                   L" / " + from_utf8(state.files[mapping.physical_index_by_disc[i]].basename) + L" ===\r\n";
         details += from_utf8(plans[i].external_cue_utf8);
     }
     show_text(state.dialog, details);

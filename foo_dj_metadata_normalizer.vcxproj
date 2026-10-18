@@ -59,6 +59,8 @@
   <ItemGroup>
     <ClCompile Include="src\core\normalizer.cpp" />
     <ClCompile Include="src\core\precision_cue.cpp" />
+    <ClCompile Include="src\core\precision_cue_match.cpp" />
+    <ClCompile Include="src\core\precision_cue_assemble.cpp" />
     <ClCompile Include="src\core\external_cue.cpp" />
     <ClCompile Include="src\core\precision_cue_apple.cpp" />
     <ClCompile Include="src\core\precision_cue_apple_http_win.cpp" />
