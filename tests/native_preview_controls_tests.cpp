@@ -392,6 +392,45 @@ int main() {
           GetDlgItem(dialog, IDC_BATCH_APPLY_SELECTED),
           "preview actions exist in production resource");
 
+    // Precision CUE uses its own native, standalone modeless HWND resource.
+    // Verify the real Windows controls (no synthetic UI mocks), including
+    // read-only CUE output and retained editable Apple URL entry.
+    HWND cue_dialog = CreateDialogParamW(GetModuleHandleW(nullptr),
+        MAKEINTRESOURCEW(IDD_PRECISION_CUE_PREVIEW), nullptr, test_dialog_proc, 0);
+    check(cue_dialog != nullptr, "Precision CUE production dialog instantiation");
+    const DWORD cue_style = static_cast<DWORD>(
+        GetWindowLongPtrW(cue_dialog, GWL_STYLE));
+    check((cue_style & WS_THICKFRAME) && (cue_style & WS_MINIMIZEBOX) &&
+          (cue_style & WS_MAXIMIZEBOX) && (cue_style & WS_SYSMENU),
+          "Precision CUE standalone dialog has normal resize/minimize/close chrome");
+    HWND cue_link = GetDlgItem(cue_dialog, IDC_PRECISION_APPLE_LINK);
+    HWND cue_lookup = GetDlgItem(cue_dialog, IDC_PRECISION_LOOKUP);
+    HWND cue_text = GetDlgItem(cue_dialog, IDC_PRECISION_PREVIEW_TEXT);
+    HWND cue_hint = GetDlgItem(cue_dialog, IDC_PRECISION_SOURCE_HINT);
+    check(cue_link && cue_lookup && cue_text && cue_hint,
+          "Precision CUE has actual Apple link, lookup, status and preview controls");
+    const auto link_style = static_cast<DWORD>(
+        GetWindowLongPtrW(cue_link, GWL_STYLE));
+    const auto preview_style = static_cast<DWORD>(
+        GetWindowLongPtrW(cue_text, GWL_STYLE));
+    check((link_style & ES_READONLY) == 0 &&
+          (preview_style & ES_READONLY) &&
+          (preview_style & ES_MULTILINE) &&
+          (preview_style & WS_VSCROLL),
+          "Apple URL input is editable, proposed CUE output is strictly read-only");
+    check(SetWindowTextW(cue_link,
+          L"https://music.apple.com/de/album/synthetic/123456789") != FALSE,
+          "native Apple URL input accepts standard Apple Music share link");
+    wchar_t cue_link_text[128]{};
+    GetWindowTextW(cue_link, cue_link_text, 128);
+    check(std::wcscmp(cue_link_text,
+          L"https://music.apple.com/de/album/synthetic/123456789") == 0,
+          "native Apple URL input preserves user-edited Unicode text");
+    check((static_cast<DWORD>(GetWindowLongPtrW(cue_lookup, GWL_STYLE)) &
+           WS_DISABLED) == 0,
+          "Lookup action is enabled before an explicitly user-initiated request");
+    DestroyWindow(cue_dialog);
+
     DestroyWindow(dialog);
     std::cout << "PASS: Win32 reviewed bindings, master/detail resizing and 96-192 DPI column geometry; "
                  "native preview resource, editable profile, "
