@@ -140,9 +140,9 @@ int main() {
             {"type_":"heading","title":"Side A"}]
     })",2);}, "nested index and headings cannot masquerade as track rows");
     const auto unsafe_hits=parse_search(R"({"results":[
-        {"type":"release","id":5,"title":"Unsafe\\nName"},
-        {"type":"release","id":6,"title":"Valid","artist":"Bad\\nArtist",
-         "genre":["Good","Bad\\nGenre"]}]})");
+        {"type":"release","id":5,"title":"Unsafe\nName"},
+        {"type":"release","id":6,"title":"Valid","artist":"Bad\nArtist",
+         "genre":["Good","Bad\nGenre"]}]})");
     check(unsafe_hits.hits.size()==1 &&
           unsafe_hits.hits[0].id==6 &&
           unsafe_hits.hits[0].artist.empty() &&
