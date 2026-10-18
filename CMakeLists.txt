@@ -234,6 +234,18 @@ else()
     target_compile_options(djmeta_precision_cue_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+add_executable(djmeta_precision_cue_source_consensus_tests
+    tests/precision_cue_source_consensus_tests.cpp)
+target_link_libraries(djmeta_precision_cue_source_consensus_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_precision_cue_source_consensus_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_precision_cue_source_consensus_tests
+        PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_precision_cue_source_consensus_tests
+        PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 add_executable(djmeta_precision_cue_assemble_tests tests/precision_cue_assemble_tests.cpp)
 target_link_libraries(djmeta_precision_cue_assemble_tests PRIVATE djmeta_core)
 target_compile_features(djmeta_precision_cue_assemble_tests PRIVATE cxx_std_20)
@@ -253,6 +265,7 @@ else()
 endif()
 
 enable_testing()
+add_test(NAME djmeta_precision_cue_source_consensus_tests COMMAND djmeta_precision_cue_source_consensus_tests)
 add_test(NAME djmeta_precision_cue_assemble_tests COMMAND djmeta_precision_cue_assemble_tests)
 add_test(NAME djmeta_precision_cue_match_tests COMMAND djmeta_precision_cue_match_tests)
 add_test(NAME djmeta_precision_cue_tests COMMAND djmeta_precision_cue_tests)
