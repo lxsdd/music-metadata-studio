@@ -230,14 +230,10 @@ inline ReleaseEdition parse_release(std::string_view json,std::uint64_t expected
         std::vector<std::string>{year_field(root)},DateMeaning::EditionRelease);
     add("GENRE",string_array(root,"genres"));
     add("STYLE",string_array(root,"styles"));
-    const auto* artists=root.get("artists");
-    std::vector<std::string> credited;
-    if(artists&&artists->type==musicbrainz::Json::Type::Array)
-        for(const auto& artist:artists->array) {
-            const auto name=string_field(artist,"name");
-            if(catalog_label(name) && credited.size()<64) credited.push_back(name);
-        }
-    add("ALBUM ARTIST",credited);
+    // Preserve a Discogs collaboration as one credited artist. Multiple
+    // names without explicit joins are ambiguous and must not be guessed.
+    const auto album_artist=joined_artist_credit(root);
+    if(!album_artist.empty()) add("ALBUM ARTIST",{album_artist});
     const auto* labels=root.get("labels");
     std::vector<std::string> label_names,catalogues;
     if(labels&&labels->type==musicbrainz::Json::Type::Array)
