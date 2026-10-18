@@ -110,6 +110,49 @@ PrecisionCueDiscMapping resolve_precision_cue_disc_mapping(
     return result;
 }
 
+PrecisionCueDiscMapping validate_precision_cue_partial_disc_mapping(
+    const std::vector<std::int64_t>& provider_disc_durations_ms,
+    const std::vector<PrecisionCuePhysicalDisc>& physical_discs,
+    const std::vector<std::size_t>& chosen_physical_index_by_disc) {
+    PrecisionCueDiscMapping result;
+    const auto baseline = resolve_precision_cue_disc_mapping(
+        provider_disc_durations_ms, physical_discs);
+    if (baseline.state == PrecisionCueMatchState::Rejected) return baseline;
+    const auto count = provider_disc_durations_ms.size();
+    if (chosen_physical_index_by_disc.size() != count) {
+        result.diagnostics.emplace_back("PARTIAL_DISC_MAPPING_COUNT_INVALID");
+        return result;
+    }
+    std::vector<bool> seen(count, false);
+    bool incomplete = false;
+    for (std::size_t disc = 0; disc < count; ++disc) {
+        const auto file = chosen_physical_index_by_disc[disc];
+        if (file == count) {
+            incomplete = true;
+            continue;
+        }
+        if (file > count || seen[file]) {
+            result.diagnostics.emplace_back("PARTIAL_DISC_MAPPING_DUPLICATE_OR_INVALID");
+            return result;
+        }
+        seen[file] = true;
+        const auto measured = physical_discs[file].measured_duration_ms;
+        if (measured != 0 &&
+            duration_difference(provider_disc_durations_ms[disc], measured) >
+                static_cast<std::uint64_t>(kRejectDeltaMs)) {
+            result.diagnostics.emplace_back("PARTIAL_DISC_MAPPING_DURATION_INCOMPATIBLE");
+            return result;
+        }
+    }
+    result.state = PrecisionCueMatchState::Review;
+    if (incomplete) {
+        result.diagnostics.emplace_back("PARTIAL_DISC_MAPPING_INCOMPLETE");
+        return result;
+    }
+    return review_precision_cue_disc_mapping(
+        provider_disc_durations_ms, physical_discs, chosen_physical_index_by_disc);
+}
+
 PrecisionCueDiscMapping review_precision_cue_disc_mapping(
     const std::vector<std::int64_t>& provider_disc_durations_ms,
     const std::vector<PrecisionCuePhysicalDisc>& physical_discs,
