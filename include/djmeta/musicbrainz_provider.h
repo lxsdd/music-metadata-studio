@@ -487,10 +487,14 @@ inline ReleaseEdition parse_release_lookup(std::string_view json,
     const auto* media=obj.get("media");
     if (!media || media->type!=Json::Type::Array)
         throw std::invalid_argument("MusicBrainz release missing track media");
-    std::size_t disc=0;
     for (const auto& medium:media->array) {
         if (medium.type!=Json::Type::Object) continue;
-        ++disc;
+        // MusicBrainz medium.position is the disc number. The order of the
+        // JSON array is not an authoritative disc identity; absent/invalid
+        // positions must remain unknown instead of being fabricated.
+        const auto medium_position=number_or(medium.get("position"));
+        const int disc_number=medium_position>=1 && medium_position<=999
+            ? static_cast<int>(medium_position):-1;
         const auto* tracks=medium.get("tracks");
         if (!tracks || tracks->type!=Json::Type::Array)
             throw std::invalid_argument("MusicBrainz release has incomplete tracklist");
@@ -501,7 +505,13 @@ inline ReleaseEdition parse_release_lookup(std::string_view json,
                 throw std::invalid_argument("MusicBrainz malformed release track");
             EditionTrack row;
             const auto* rec=raw.get("recording");
-            row.source_track_id=rec?str(*rec,"id"):std::string{};
+            // A release-track ID is NOT a recording ID: the same recording
+            // can legitimately occur on several tracks of one release.
+            // Missing track IDs remain unknown, never substituted with a
+            // shared recording ID that would collapse distinct candidates.
+            row.source_track_id=str(raw,"id");
+            if (!row.source_track_id.empty() && !valid_mbid(row.source_track_id))
+                throw std::invalid_argument("Invalid MusicBrainz release track ID");
             row.recording.title=str(raw,"title");
             if (row.recording.title.empty()&&rec)
                 row.recording.title=str(*rec,"title");
@@ -515,7 +525,7 @@ inline ReleaseEdition parse_release_lookup(std::string_view json,
             row.recording.duration_ms=(duration>=0&&duration<=10LL*60*60*1000)?
                 duration:-1;
             const auto position=number_or(raw.get("position"));
-            row.disc_number=static_cast<int>(disc);
+            row.disc_number=disc_number;
             row.track_number=position>=1&&position<=999?
                 static_cast<int>(position):-1;
             if (rec) {
