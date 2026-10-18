@@ -150,6 +150,50 @@ int main() {
            independent[1].decision == MatchDecision::Suggested,
            "same opaque ID in separate provider namespaces remains independent");
 
+    // Source preference is solely a stable display tie-break. Beatport and
+    // Discogs should be visible ahead of MB when evidence is equivalent.
+    const Candidate beatport_equal{"beatport", "900", same};
+    const Candidate discogs_equal{"discogs", "901", same};
+    const Candidate musicbrainz_equal{"musicbrainz", "902", same};
+    const auto catalog_priority = rank(original,
+        {musicbrainz_equal, discogs_equal, beatport_equal});
+    expect(catalog_priority.size() == 3 &&
+           catalog_priority[0].provider == "beatport" &&
+           catalog_priority[1].provider == "discogs" &&
+           catalog_priority[2].provider == "musicbrainz" &&
+           catalog_priority[0].score == catalog_priority[2].score &&
+           catalog_priority[0].decision == catalog_priority[2].decision,
+           "DJ source preference breaks equal evidence only");
+    const auto reordered = rank(original,
+        {beatport_equal, musicbrainz_equal, discogs_equal});
+    expect(reordered.size() == 3 &&
+           reordered[0].provider == "beatport" &&
+           reordered[1].provider == "discogs" &&
+           reordered[2].provider == "musicbrainz",
+           "preferred source ordering is independent of retrieval order");
+    const ProviderPreferences discogs_first{{"discogs", "beatport", "musicbrainz"}};
+    const auto customized = rank(original,
+        {beatport_equal, discogs_equal, musicbrainz_equal}, discogs_first);
+    expect(customized[0].provider == "discogs" &&
+           customized[1].provider == "beatport",
+           "source preference can be explicitly customized");
+    Candidate wrong_mix_beatport = beatport_equal;
+    wrong_mix_beatport.identity.mix = MixKind::Radio;
+    const auto safety_wins = rank(original,
+        {wrong_mix_beatport, musicbrainz_equal});
+    expect(safety_wins[0].provider == "musicbrainz" &&
+           safety_wins[0].decision == MatchDecision::Suggested &&
+           safety_wins[1].provider == "beatport" &&
+           safety_wins[1].decision == MatchDecision::Rejected,
+           "primary DJ source cannot outrank a confirmed mix conflict");
+    Candidate weaker_beatport = beatport_equal;
+    weaker_beatport.identity.isrc.clear();
+    const auto evidence_wins = rank(original,
+        {weaker_beatport, musicbrainz_equal});
+    expect(evidence_wins[0].provider == "musicbrainz" &&
+           evidence_wins[0].score > evidence_wins[1].score,
+           "higher verified evidence outranks preferred provider");
+    
     expect(normalized_isrc("us-abc-26-00001") == "USABC2600001" &&
            normalized_isrc("usabc2600001") == "USABC2600001" &&
            normalized_isrc("US/ABC/26/00001").empty(),
