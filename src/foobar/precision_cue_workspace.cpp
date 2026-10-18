@@ -9,6 +9,7 @@
 #include "djmeta/precision_cue_apple_http.h"
 #include "djmeta/precision_cue_apple_link.h"
 #include "djmeta/precision_cue_filename.h"
+#include "djmeta/precision_cue_write_preflight.h"
 
 #include <atomic>
 #include <cmath>
@@ -190,6 +191,7 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
     if (mapping.state == djmeta::PrecisionCueMatchState::Rejected)
         throw std::invalid_argument("Local MP3s incompatible with provider disc durations");
     std::vector<djmeta::PrecisionCuePlan> plans;
+    std::vector<djmeta::PrecisionCueExternalExportPlan> exports;
     std::wstring details;
     bool duration_warning = mapping.state != djmeta::PrecisionCueMatchState::Selected;
     for (unsigned d = 1; d <= count; ++d) {
@@ -214,8 +216,14 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
                     "Apple catalog duration does not match the local MP3; no CUE proposal");
             if (delta > 1000) duration_warning = true;
         }
+        auto export_plan = djmeta::plan_precision_cue_external_export(plan, physical.basename);
+        if (!export_plan.eligible)
+            throw std::invalid_argument("Generated external CUE export proposal failed validation");
+        exports.push_back(std::move(export_plan));
         plans.push_back(std::move(plan));
     }
+    if (!djmeta::precision_cue_export_targets_unique(exports))
+        throw std::invalid_argument("Two proposed external CUE target names collide");
     details += L"READ-ONLY PREVIEW / REVIEW REQUIRED\r\n";
     details += L"Apple catalog metadata are not independent proof of the exact mixed edition.\r\n";
     details += L"Do not treat frame-aligned CUE markers as sample-exact audio boundaries.\r\n";
@@ -228,6 +236,8 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
     for (std::size_t i = 0; i < plans.size(); ++i) {
         details += L"\r\n=== DISC " + std::to_wstring(i + 1) +
                    L" / " + from_utf8(state.files[mapping.physical_index_by_disc[i]].basename) + L" ===\r\n";
+        details += L"Proposed sibling CUE (NOT SAVED): " +
+                   from_utf8(exports[i].target_cue_basename) + L"\r\n";
         details += from_utf8(plans[i].external_cue_utf8);
     }
     show_text(state.dialog, details);
