@@ -157,6 +157,7 @@ void explicitly_reviewed_disc_mapping() {
     assert(r.discs[0].external_cue_utf8.find("FILE \"A.mp3\" WAVE") != std::string::npos);
     assert(r.discs[1].external_cue_utf8.find("FILE \"B.mp3\" WAVE") != std::string::npos);
 
+    // Explicit duplicate assignment is never accepted, even with equal durations.
     f.reviewed_physical_index_by_disc = {0, 0};
     r = make_precision_cue_release_preview(f);
     assert(r.state == PrecisionCueMatchState::Rejected && r.discs.empty());

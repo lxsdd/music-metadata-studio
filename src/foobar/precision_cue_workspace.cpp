@@ -18,6 +18,7 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -76,6 +77,8 @@ struct Workspace {
     bool registered = false;
     std::vector<LocalFile> files;
     std::shared_ptr<LookupJob> job;
+    std::optional<djmeta::PrecisionCueRelease> release;
+    std::vector<std::size_t> reviewed_mapping; // file-count sentinel = unassigned
 };
 Workspace* g_pending_workspace = nullptr; // Only main thread, owned until WM_INITDIALOG.
 
@@ -167,7 +170,8 @@ std::vector<LocalFile> capture_files(metadb_handle_list_cref handles) {
     return out;
 }
 
-void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release) {
+void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release,
+                    const std::vector<std::size_t>* reviewed = nullptr) {
     const auto count = release.tracks.empty() ? 0u : release.tracks.back().disc_number;
     if (count == 0 || count != state.files.size()) {
         throw std::invalid_argument(
@@ -185,7 +189,9 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
     std::vector<djmeta::PrecisionCuePhysicalDisc> physicals;
     for (const auto& file : state.files)
         physicals.push_back({file.basename, file.duration_ms});
-    const auto mapping = djmeta::resolve_precision_cue_disc_mapping(totals, physicals);
+    const auto mapping = reviewed
+        ? djmeta::review_precision_cue_disc_mapping(totals, physicals, *reviewed)
+        : djmeta::resolve_precision_cue_disc_mapping(totals, physicals);
     if (mapping.state == djmeta::PrecisionCueMatchState::Ambiguous)
         throw std::invalid_argument("Ambiguous MP3-to-disc assignment; review required");
     if (mapping.state == djmeta::PrecisionCueMatchState::Rejected)
@@ -232,7 +238,9 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
     details += L"Provider: Apple / collection " + from_utf8(release.provider_release_id) + L"\r\n";
     if (duration_warning)
         details += L"WARNING: At least one local duration is unknown or requires review.\r\n";
-    details += L"DISC-TO-MP3 MAPPING IS DURATION-INFERRED, NOT VERIFIED.\r\n";
+    details += reviewed
+        ? L"DISC-TO-MP3 MAPPING MANUALLY CHOSEN; EXACT EDITION STILL REQUIRES REVIEW.\r\n"
+        : L"DISC-TO-MP3 MAPPING IS DURATION-INFERRED, NOT VERIFIED.\r\n";
     for (std::size_t i = 0; i < plans.size(); ++i) {
         details += L"\r\n=== DISC " + std::to_wstring(i + 1) +
                    L" / " + from_utf8(state.files[mapping.physical_index_by_disc[i]].basename) + L" ===\r\n";
@@ -241,6 +249,79 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
         details += from_utf8(plans[i].external_cue_utf8);
     }
     show_text(state.dialog, details);
+}
+
+
+void reset_disc_controls(Workspace& state) {
+    state.release.reset();
+    state.reviewed_mapping.clear();
+    SendDlgItemMessageW(state.dialog, IDC_PRECISION_DISC_PICKER, CB_RESETCONTENT, 0, 0);
+    SendDlgItemMessageW(state.dialog, IDC_PRECISION_MP3_PICKER, CB_RESETCONTENT, 0, 0);
+    for (int id : {IDC_PRECISION_DISC_PICKER, IDC_PRECISION_MP3_PICKER,
+                   IDC_PRECISION_ASSIGN_DISC, IDC_PRECISION_PREVIEW_ASSIGNED})
+        EnableWindow(GetDlgItem(state.dialog, id), FALSE);
+}
+
+void initialize_disc_controls(Workspace& state) {
+    if (!state.release || state.release->tracks.empty())
+        throw std::invalid_argument("Album has no disc tracklist");
+    const unsigned count = state.release->tracks.back().disc_number;
+    if (count == 0 || count != state.files.size())
+        throw std::invalid_argument("Album disc count differs from selected MP3 count");
+    state.reviewed_mapping.assign(count, state.files.size());
+    for (unsigned d = 0; d < count; ++d) {
+        const std::wstring label = L"Disc " + std::to_wstring(d + 1);
+        if (SendDlgItemMessageW(state.dialog, IDC_PRECISION_DISC_PICKER, CB_ADDSTRING,
+                0, reinterpret_cast<LPARAM>(label.c_str())) < 0)
+            throw std::runtime_error("Cannot populate disc picker");
+    }
+    for (const auto& file : state.files) {
+        const auto label = from_utf8(file.basename);
+        if (SendDlgItemMessageW(state.dialog, IDC_PRECISION_MP3_PICKER, CB_ADDSTRING,
+                0, reinterpret_cast<LPARAM>(label.c_str())) < 0)
+            throw std::runtime_error("Cannot populate MP3 picker");
+    }
+    SendDlgItemMessageW(state.dialog, IDC_PRECISION_DISC_PICKER, CB_SETCURSEL, 0, 0);
+    SendDlgItemMessageW(state.dialog, IDC_PRECISION_MP3_PICKER, CB_SETCURSEL, -1, 0);
+    for (int id : {IDC_PRECISION_DISC_PICKER, IDC_PRECISION_MP3_PICKER,
+                   IDC_PRECISION_ASSIGN_DISC})
+        EnableWindow(GetDlgItem(state.dialog, id), TRUE);
+    EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_PREVIEW_ASSIGNED), FALSE);
+}
+
+void assign_selected_disc(Workspace& state) {
+    if (!state.release || state.reviewed_mapping.empty())
+        throw std::invalid_argument("Look up an album before assigning discs");
+    const auto disc = SendDlgItemMessageW(state.dialog, IDC_PRECISION_DISC_PICKER,
+                                           CB_GETCURSEL, 0, 0);
+    const auto file = SendDlgItemMessageW(state.dialog, IDC_PRECISION_MP3_PICKER,
+                                           CB_GETCURSEL, 0, 0);
+    if (disc == CB_ERR || file == CB_ERR ||
+        static_cast<std::size_t>(disc) >= state.reviewed_mapping.size() ||
+        static_cast<std::size_t>(file) >= state.files.size())
+        throw std::invalid_argument("Select one disc and one MP3");
+    for (std::size_t d = 0; d < state.reviewed_mapping.size(); ++d)
+        if (d != static_cast<std::size_t>(disc) &&
+            state.reviewed_mapping[d] == static_cast<std::size_t>(file))
+            throw std::invalid_argument("This MP3 is already assigned to another disc");
+    state.reviewed_mapping[static_cast<std::size_t>(disc)] = static_cast<std::size_t>(file);
+    const bool complete = std::all_of(state.reviewed_mapping.begin(),
+        state.reviewed_mapping.end(),
+        [&state](std::size_t index) { return index < state.files.size(); });
+    EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_PREVIEW_ASSIGNED),
+                 complete ? TRUE : FALSE);
+    std::wstring summary = L"EXPLICIT DISC ASSIGNMENTS (NO WRITES)\r\n";
+    for (std::size_t d = 0; d < state.reviewed_mapping.size(); ++d) {
+        summary += L"Disc " + std::to_wstring(d + 1) + L": ";
+        const auto index = state.reviewed_mapping[d];
+        summary += index < state.files.size() ? from_utf8(state.files[index].basename)
+                                               : L"(choose an MP3)";
+        summary += L"\r\n";
+    }
+    summary += complete
+        ? L"All discs assigned. Preview reviewed mapping to validate durations."
+        : L"Assign each disc before previewing the mapping.";
+    show_text(state.dialog, summary);
 }
 
 void start_lookup(Workspace& state) {
@@ -256,6 +337,7 @@ void start_lookup(Workspace& state) {
     // Validate before the background worker even starts.
     (void)djmeta::apple_precision_cue_http_path(request);
     reap_finished_jobs();
+    reset_disc_controls(state);
     auto job = std::make_shared<LookupJob>();
     job->worker = std::jthread([job, request] {
         try {
@@ -286,6 +368,7 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
         modeless_dialog_manager::g_add(dialog);
         state->registered = true;
         g_precision_workspace = dialog;
+        reset_disc_controls(*state);
         show_text(dialog, L"Paste an Apple Music album URL and choose Look up.\r\n"
                           L"Selected local files are read only; generated CUE text is a "
                           L"proposal requiring independent release verification.");
@@ -299,7 +382,19 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
             EnableWindow(GetDlgItem(dialog, IDC_PRECISION_LOOKUP), TRUE);
             try {
                 if (!state->job->error.empty()) show_error(dialog, state->job->error);
-                else show_candidate(*state, state->job->release);
+                else {
+                    state->release = std::move(state->job->release);
+                    initialize_disc_controls(*state);
+                    try { show_candidate(*state, *state->release); }
+                    catch (const std::invalid_argument& error) {
+                        if (std::string(error.what()).find("Ambiguous MP3-to-disc assignment")
+                                == std::string::npos) throw;
+                        show_text(dialog,
+                            L"Multiple MP3-to-disc assignments fit the catalog durations.\r\n"
+                            L"Choose each disc and its MP3, click Assign disc, then Preview reviewed mapping.\r\n"
+                            L"No files are changed.");
+                    }
+                }
             } catch (const std::exception& error) {
                 show_error(dialog, error.what());
             }
@@ -311,6 +406,30 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
         if (LOWORD(wp) == IDC_PRECISION_LOOKUP && HIWORD(wp) == BN_CLICKED) {
             try { start_lookup(*state); }
             catch (const std::exception& error) { show_error(dialog, error.what()); }
+            return TRUE;
+        }
+        if (LOWORD(wp) == IDC_PRECISION_DISC_PICKER && HIWORD(wp) == CBN_SELCHANGE) {
+            const auto disc = SendDlgItemMessageW(dialog, IDC_PRECISION_DISC_PICKER,
+                                                   CB_GETCURSEL, 0, 0);
+            const auto selected = disc >= 0 &&
+                static_cast<std::size_t>(disc) < state->reviewed_mapping.size()
+                ? state->reviewed_mapping[static_cast<std::size_t>(disc)]
+                : state->files.size();
+            SendDlgItemMessageW(dialog, IDC_PRECISION_MP3_PICKER, CB_SETCURSEL,
+                selected < state->files.size() ? static_cast<WPARAM>(selected)
+                                               : static_cast<WPARAM>(-1), 0);
+            return TRUE;
+        }
+        if (LOWORD(wp) == IDC_PRECISION_ASSIGN_DISC && HIWORD(wp) == BN_CLICKED) {
+            try { assign_selected_disc(*state); }
+            catch (const std::exception& error) { show_error(dialog, error.what()); }
+            return TRUE;
+        }
+        if (LOWORD(wp) == IDC_PRECISION_PREVIEW_ASSIGNED && HIWORD(wp) == BN_CLICKED) {
+            try {
+                if (!state->release) throw std::invalid_argument("No album loaded");
+                show_candidate(*state, *state->release, &state->reviewed_mapping);
+            } catch (const std::exception& error) { show_error(dialog, error.what()); }
             return TRUE;
         }
         if (LOWORD(wp) == IDCANCEL && HIWORD(wp) == BN_CLICKED) {

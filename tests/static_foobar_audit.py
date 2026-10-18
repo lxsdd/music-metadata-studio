@@ -208,6 +208,24 @@ for label, source, token in [
     if token not in source:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing " + label)
 
+# Precision CUE native mapping must be explicitly selectable and validated.
+precision = (foobar / "precision_cue_workspace.cpp").read_text(encoding="utf-8")
+for token in (
+    "initialize_disc_controls(*state)", "assign_selected_disc(*state)",
+    "review_precision_cue_disc_mapping(totals, physicals, *reviewed)",
+    "show_candidate(*state, *state->release, &state->reviewed_mapping)",
+):
+    if token not in precision:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: Precision CUE mapping not wired: " + token)
+for token in (
+    "COMBOBOX        IDC_PRECISION_DISC_PICKER",
+    "COMBOBOX        IDC_PRECISION_MP3_PICKER",
+    "PUSHBUTTON      \"Assign disc\", IDC_PRECISION_ASSIGN_DISC",
+    "PUSHBUTTON      \"Preview reviewed mapping\", IDC_PRECISION_PREVIEW_ASSIGNED",
+):
+    if token not in resources:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: Precision CUE resource missing: " + token)
+
 # Product policy: every built-in user-visible label must be English.
 # Original media tags / externally supplied routing profile values may
 # legitimately use other languages and must never be transliterated.
