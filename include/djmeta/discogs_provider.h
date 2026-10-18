@@ -132,6 +132,13 @@ inline SearchResults parse_search(std::string_view json) {
         SearchHit hit;
         hit.kind=kind=="master"?EntityKind::Master:EntityKind::Release;
         hit.id=id;hit.title=title;
+        // The same edition can recur in paginated/search evidence. Only
+        // exact provider entity identity may be collapsed: a master and a
+        // release with the same numeric ID are distinct objects.
+        if(std::any_of(result.hits.begin(),result.hits.end(),
+            [&](const SearchHit& previous) {
+                return previous.kind==hit.kind && previous.id==hit.id;
+            })) continue;
         hit.artist=string_field(row,"artist");
         hit.year=year_field(row);
         hit.country=string_field(row,"country");
@@ -187,6 +194,21 @@ inline ReleaseEdition parse_release(std::string_view json,std::uint64_t expected
         }
     add("LABEL",label_names);
     add("CATALOGNUMBER",catalogues);
+    // Discogs release identifiers are edition evidence, not recording IDs.
+    // Preserve all distinct Barcode values without promoting other types
+    // (matrix/runout, SID, label codes) into a fabricated barcode.
+    std::vector<std::string> barcodes;
+    const auto* identifiers=root.get("identifiers");
+    if(identifiers && identifiers->type==musicbrainz::Json::Type::Array)
+        for(const auto& identifier:identifiers->array) {
+            if(barcodes.size()>=32) break;
+            if(string_field(identifier,"type")!="Barcode") continue;
+            const auto value=string_field(identifier,"value");
+            if(value.empty() || value.size()>128) continue;
+            if(std::find(barcodes.begin(),barcodes.end(),value)==barcodes.end())
+                barcodes.push_back(value);
+        }
+    add("BARCODE",barcodes);
     const auto* tracks=root.get("tracklist");
     if(!tracks || tracks->type!=musicbrainz::Json::Type::Array)
         throw std::invalid_argument("Discogs edition is missing tracklist");
