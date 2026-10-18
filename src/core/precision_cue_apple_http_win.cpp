@@ -110,7 +110,7 @@ std::string fetch_apple_precision_cue_json(const ApplePrecisionCueHttpRequest& r
                   "Apple HTTPS timeout configuration failed");
 
     HttpHandle connection(WinHttpConnect(
-        session.get(), L"itunes.apple.com", WINHTTP_DEFAULT_HTTPS_PORT, 0));
+        session.get(), L"itunes.apple.com", static_cast<INTERNET_PORT>(443), 0));
     const std::wstring request_path(path.begin(), path.end());
     HttpHandle handle(WinHttpOpenRequest(
         connection.get(), L"GET", request_path.c_str(), nullptr,
