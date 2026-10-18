@@ -1,5 +1,6 @@
 #include "djmeta/precision_cue.h"
 #include "djmeta/precision_cue_filename.h"
+#include "djmeta/external_cue.h"
 
 #include <algorithm>
 #include <cctype>
@@ -109,6 +110,15 @@ PrecisionCuePlan make_precision_cue(const PrecisionCueDisc& disc) {
     }
     plan.total_duration_ms = cumulative_ms;
     plan.external_cue_utf8 = out.str();
+    // Reject malformed UTF-8 anywhere in the generated CUE, including
+    // provider titles and FILE basenames. The external CUE inventory is the
+    // same strict parser used by the existing read-only host association.
+    const auto syntax = inspect_external_cue(plan.external_cue_utf8);
+    if (syntax.status != CueSyntaxStatus::Parsed ||
+        syntax.references.size() != 1 ||
+        syntax.references[0].filename != disc.audio_file_basename) {
+        throw std::invalid_argument("Generated CUE has invalid UTF-8 or FILE syntax");
+    }
     return plan;
 }
 
