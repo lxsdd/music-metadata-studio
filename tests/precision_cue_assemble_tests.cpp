@@ -181,11 +181,38 @@ void explicitly_reviewed_disc_mapping() {
 }
 }
 
+
+void partial_disc_mapping_validation() {
+    const std::vector<std::int64_t> durations = {200003, 400003};
+    const std::vector<PrecisionCuePhysicalDisc> files = {
+        {"Disc 1.mp3", 200003}, {"Disc 2.mp3", 400003}
+    };
+    auto r = validate_precision_cue_partial_disc_mapping(durations, files, {0, 2});
+    assert(r.state == PrecisionCueMatchState::Review);
+    assert(r.physical_index_by_disc.empty());
+    r = validate_precision_cue_partial_disc_mapping(durations, files, {0, 1});
+    assert(r.state == PrecisionCueMatchState::Review);
+    assert(r.physical_index_by_disc.size() == 2);
+    r = validate_precision_cue_partial_disc_mapping(durations, files, {0, 0});
+    assert(r.state == PrecisionCueMatchState::Rejected);
+    r = validate_precision_cue_partial_disc_mapping(durations, files, {1, 2});
+    assert(r.state == PrecisionCueMatchState::Rejected);
+    r = validate_precision_cue_partial_disc_mapping(durations, files, {0, 3});
+    assert(r.state == PrecisionCueMatchState::Rejected);
+    r = validate_precision_cue_partial_disc_mapping(durations, files, {0});
+    assert(r.state == PrecisionCueMatchState::Rejected);
+    r = validate_precision_cue_partial_disc_mapping(
+        {200003, 200003}, {{"A.mp3", 200003}, {"B.mp3", 200003}}, {1, 0});
+    assert(r.state == PrecisionCueMatchState::Review);
+    assert(r.physical_index_by_disc.size() == 2);
+}
+
 int main() {
     selected_two_discs();
     fail_closed();
     duration_review();
     disc_mapping_regressions();
     explicitly_reviewed_disc_mapping();
+    partial_disc_mapping_validation();
     return 0;
 }
