@@ -113,18 +113,21 @@ int main() {
       "title":"Album Edition", "date":"2001-06-15",
       "artist-credit":[{"name":"Example Artist"}],
       "media":[
-       {"position":1,"tracks":[
-         {"position":1,"title":"First (Extended Mix)","length":420000,
+       {"position":4,"tracks":[
+         {"id":"33333333-3333-3333-3333-333333333333",
+          "position":1,"title":"First (Extended Mix)","length":420000,
           "artist-credit":[{"name":"Example Artist"}],
           "recording":{"id":"22222222-2222-2222-2222-222222222222",
              "title":"First (Extended Mix)",
              "isrcs":["GBABC2600001"],
              "artist-credit":[{"name":"Example Artist"}]}},
-         {"position":2,"title":"Second","length":301000,
+         {"id":"44444444-4444-4444-4444-444444444444",
+          "position":2,"title":"Second","length":301000,
           "recording":{"id":"22222222-2222-2222-2222-222222222222",
              "title":"Second","artist-credit":[{"name":"Example Artist"}]}}]},
        {"position":2,"tracks":[
-         {"position":1,"title":"Third","length":240000,
+         {"id":"55555555-5555-5555-5555-555555555555",
+          "position":1,"title":"Third","length":240000,
           "recording":{"id":"22222222-2222-2222-2222-222222222222",
              "title":"Third","artist-credit":[{"name":"Guest Artist"}]}}]}
       ]
@@ -135,9 +138,13 @@ int main() {
           edition.fields[2].date_meaning==DateMeaning::EditionRelease &&
           edition.tracks.size()==3 &&
           edition.tracks[0].recording.isrc=="GBABC2600001" &&
-          edition.tracks[1].disc_number==1 && edition.tracks[1].track_number==2 &&
-          edition.tracks[2].disc_number==2 && edition.tracks[2].track_number==1,
-          "release lookup preserves exact edition, recording, date/disc/track scope");
+          edition.tracks[0].disc_number==4 &&
+          edition.tracks[0].source_track_id=="33333333-3333-3333-3333-333333333333" &&
+          edition.tracks[1].disc_number==4 && edition.tracks[1].track_number==2 &&
+          edition.tracks[1].source_track_id=="44444444-4444-4444-4444-444444444444" &&
+          edition.tracks[2].disc_number==2 && edition.tracks[2].track_number==1 &&
+          edition.tracks[2].source_track_id=="55555555-5555-5555-5555-555555555555",
+          "release lookup preserves actual medium positions and distinct release track IDs");
 
     rejects([&]{(void)parse_release_lookup(edition_json,second);},
             "mismatched edition ID is a blocker");
