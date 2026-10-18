@@ -59,6 +59,32 @@ inline std::string search_path(std::string_view query, unsigned page = 1) {
     return "/v4/catalog/search/?q=" + safe_query(query) +
            "&type=tracks&per_page=20&page=" + std::to_string(page);
 }
+struct SearchAttempt {
+    std::string reason; // Human-readable disclosure of the bounded query.
+    std::string path;   // Inert until an authorized host transport exists.
+};
+// Beatport v4 search has historically rejected bracket-heavy queries. Search
+// the artist + BASE TITLE first, then only the title if needed. Keep the mix
+// label for the matcher: never broaden which version may be suggested.
+inline std::vector<SearchAttempt> track_search_plan(
+    std::string_view tagged_title, std::string_view tagged_artist = {}) {
+    if (!text_ok(tagged_title, 150) ||
+        (!tagged_artist.empty() && !text_ok(tagged_artist, 150)))
+        throw std::invalid_argument("Invalid Beatport track search identity");
+    const auto annotated=split_title_mix(tagged_title);
+    const auto title=annotated.version.empty()
+        ? tagged_title : annotated.base;
+    std::vector<SearchAttempt> result;
+    if (!tagged_artist.empty() &&
+        tagged_artist.size() + 1 + title.size() <= 150) {
+        result.push_back({"Artist and base title",
+            search_path(std::string(tagged_artist) + " " + std::string(title))});
+    }
+    const auto title_path=search_path(title);
+    if (result.empty() || result.back().path != title_path)
+        result.push_back({"Base title without artist restriction", title_path});
+    return result;
+}
 inline std::string track_path(std::uint64_t track_id) {
     return "/v4/catalog/tracks/" + decimal(track_id);
 }
@@ -280,6 +306,8 @@ inline SearchResult parse_search(std::string_view json) {
     SearchResult result;
     if (list->array.size() > 200)
         throw std::invalid_argument("Unbounded Beatport search response");
+    const auto total = musicbrainz::number_or(root.get("count"));
+    result.has_more = total > static_cast<std::int64_t>(list->array.size());
     for (const auto& obj : list->array) {
         if (result.hits.size() >= 20) { result.has_more = true; break; }
         try {
@@ -326,7 +354,12 @@ inline ReleaseEdition parse_edition(std::string_view release_json,
     const auto* list = result_list(track_data, "results", "tracks");
     if (list->array.empty() || list->array.size() > 200)
         throw std::invalid_argument("Incomplete or excessive Beatport release tracks");
+    const auto* count_field = release.get("track_count");
     const int count = bounded_number(release, "track_count", 1, 200);
+    // A provided count outside our single-page qualification envelope is
+    // not "unknown". Refuse it rather than silently using the first page.
+    if (count_field && count_field->type != Json::Type::Null && count < 0)
+        throw std::invalid_argument("Unqualified Beatport release track count");
     if (count > 0 && static_cast<std::size_t>(count) != list->array.size())
         throw std::invalid_argument("Partial Beatport release track page");
     for (const auto& object : list->array) {
