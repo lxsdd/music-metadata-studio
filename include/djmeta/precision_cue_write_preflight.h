@@ -138,6 +138,11 @@ inline PrecisionCueWriteDecision preflight_precision_cue_external_write(
         !p.release_identity_confirmed || !p.disc_identity_confirmed ||
         !p.source_snapshot_current || !p.target_snapshot_current)
         return PrecisionCueWriteDecision::ReviewRequired;
+    // Unknown target content cannot be treated as absent or safely overwritten.
+    if (!p.target_exists && (p.existing_content_known || p.existing_content_equal))
+        return PrecisionCueWriteDecision::Reject;
+    if (p.existing_content_equal && !p.existing_content_known)
+        return PrecisionCueWriteDecision::Reject;
     if (p.target_exists && !p.existing_content_known)
         return PrecisionCueWriteDecision::ReviewRequired;
     if (p.target_exists && p.existing_content_equal)
