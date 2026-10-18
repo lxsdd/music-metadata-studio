@@ -36,6 +36,56 @@ int main() {
     rejects([]{(void)release_path(0);},"no zero release ID");
     check(release_path(2442)=="/releases/2442", "release lookup is canonical");
 
+    const auto staged=track_search_plan(
+        "1000 Years (DJ Version)", "Kyau & Albert x Maywave");
+    check(staged.size()==5 &&
+          staged[0].path==search_path("1000 Years (DJ Version)",
+                                     "Kyau & Albert x Maywave") &&
+          staged[1].path.find("track=1000%20Years%20%28DJ%20Version%29")!=
+              std::string::npos &&
+          staged[2].path==track_search_path("1000 Years (DJ Version)") &&
+          staged[3].path==track_search_path("1000 Years") &&
+          staged[4].path==search_path("1000 Years") &&
+          staged[0].label!=staged[2].label,
+          "tiered Discogs queries broaden artist, track and version constraints");
+    const auto simple_plan=track_search_plan("Via Balearia","Estiva");
+    check(simple_plan.size()==4 &&
+          simple_plan[2].path==track_search_path("Via Balearia") &&
+          simple_plan[3].path==search_path("Via Balearia"),
+          "fallback supports a track whose release has a different title");
+    const auto no_artist_plan=track_search_plan("Only You");
+    check(no_artist_plan.size()==2 &&
+          no_artist_plan[0].path==search_path("Only You") &&
+          no_artist_plan[1].path==track_search_path("Only You"),
+          "artist-free lookup stays bounded and does not repeat same attempt");
+    check(release_id_from_url(
+              "https://www.discogs.com/release/38012673-Estiva-Via-Balearia")
+              ==38012673 &&
+          release_id_from_url(
+              "https://discogs.com/release/37332711?utm_source=example")
+              ==37332711 &&
+          release_id_from_url(
+              "https://www.discogs.com/releases/36397609") ==36397609 &&
+          release_path(release_id_from_url(
+              "https://www.discogs.com/release/36819730-Matt-Fax")) ==
+              "/releases/36819730",
+          "known missing Discogger examples resolve to direct fixed release paths");
+    check(release_id_from_url("http://www.discogs.com/release/38012673")==0 &&
+          release_id_from_url(
+              "https://www.discogs.com.evil.test/release/38012673")==0 &&
+          release_id_from_url(
+              "https://evil.test/www.discogs.com/release/38012673")==0 &&
+          release_id_from_url("https://www.discogs.com/release/0")==0 &&
+          release_id_from_url(
+              "https://www.discogs.com/release/99999999999999")==0 &&
+          release_id_from_url(
+              "https://www.discogs.com/release/38012673\r\nbad")==0,
+          "direct release URL parser rejects spoofing, insecure origins and invalid IDs");
+    rejects([]{(void)track_search_path("track\nbad");},
+            "track filter rejects control/header injection");
+    rejects([]{(void)track_search_plan("", "Artist");},
+            "staged query requires a valid track title");
+
     const auto hits=parse_search(R"DJ({
         "pagination":{"page":1,"pages":200,"items":99999},
         "results":[
@@ -133,6 +183,18 @@ int main() {
           collaboration.tracks[0].recording.duration_ms==3723000 &&
           collaboration.fields.size()>=2,
           "explicit multi-artist joins retained without invented separator");
+    const auto trailing_join=parse_release(R"({
+        "id":779,"title":"Trailing bad join","artists":[
+            {"name":"Artist A","join":" & "},{"name":"Artist B","join":" x "}],
+        "tracklist":[{"type_":"track","position":"1","title":"Shared"}]
+    })",779);
+    bool has_album_artist=false;
+    for(const auto& field:trailing_join.fields)
+        if(field.field=="ALBUM ARTIST") has_album_artist=true;
+    check(!has_album_artist &&
+          trailing_join.tracks[0].recording.primary_artist.empty(),
+          "malformed last Discogs artist join must not fabricate a joint credit");
+
     const auto ambiguous_artist=parse_release(R"({
         "id":778,"title":"Unknown credit","artists":[
             {"name":"Artist A"},{"name":"Artist B"}],
