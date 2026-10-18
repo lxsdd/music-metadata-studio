@@ -102,13 +102,60 @@ inline std::string normalized_isrc(std::string_view raw) {
     return result;
 }
 
+// Beatport stores the base title and the version in separate fields; many
+// local DJ tags append the version to TITLE instead. Extract only an explicit
+// terminal (... Mix/Edit/Remix/etc.) annotation. Other parentheses stay in the
+// base title so unrelated compositions cannot become accidental matches.
+struct TitleMixAnnotation {
+    std::string_view base;
+    std::string_view version;
+    MixKind kind = MixKind::Unknown;
+};
+inline MixKind classify_mix_annotation(std::string_view name) {
+    const auto value = comparable(name);
+    if (value == "original mix" || value == "original") return MixKind::Original;
+    if (value.find("remix") != std::string::npos ||
+        value.ends_with(" rmx")) return MixKind::Remix;
+    if (value.find("extended") != std::string::npos) return MixKind::Extended;
+    if (value.find("radio") != std::string::npos) return MixKind::Radio;
+    if (value.find("instrumental") != std::string::npos)
+        return MixKind::Instrumental;
+    if (value.find("live") != std::string::npos) return MixKind::Live;
+    return MixKind::Unknown;
+}
+inline TitleMixAnnotation split_title_mix(std::string_view title) {
+    TitleMixAnnotation output{title, {}, MixKind::Unknown};
+    while (!title.empty() && title.back() == ' ') title.remove_suffix(1);
+    if (title.empty() || title.back() != ')') return output;
+    const auto opening = title.rfind('(');
+    if (opening == std::string_view::npos || opening == 0 ||
+        title.size() - opening > 132) return output;
+    const auto suffix = title.substr(opening+1, title.size()-opening-2);
+    if (suffix.empty() || suffix.find('(') != std::string_view::npos ||
+        suffix.find(')') != std::string_view::npos ||
+        comparable(suffix).empty()) return output;
+    const auto kind = classify_mix_annotation(suffix);
+    const auto normalized = comparable(suffix);
+    const bool named_mix = normalized.ends_with(" mix") ||
+                           normalized.ends_with(" edit") ||
+                           normalized.ends_with(" version") ||
+                           normalized.ends_with(" dub");
+    if (kind == MixKind::Unknown && !named_mix) return output;
+    auto base = title.substr(0, opening);
+    while (!base.empty() && base.back() == ' ') base.remove_suffix(1);
+    if (base.empty() || comparable(base).empty()) return output;
+    return {base, suffix, kind};
+}
+
 inline CandidateMatch compare(const RecordingIdentity& local, const Candidate& remote) {
     CandidateMatch result;
     result.provider = remote.provider;
     result.provider_track_id = remote.provider_track_id;
 
-    const auto local_title = comparable(local.title);
-    const auto remote_title = comparable(remote.identity.title);
+    const auto local_annotation = split_title_mix(local.title);
+    const auto remote_annotation = split_title_mix(remote.identity.title);
+    const auto local_title = comparable(local_annotation.base);
+    const auto remote_title = comparable(remote_annotation.base);
     const auto local_artist = comparable(local.primary_artist);
     const auto remote_artist = comparable(remote.identity.primary_artist);
     if (local_title.empty() || remote_title.empty() ||
@@ -130,11 +177,34 @@ inline CandidateMatch compare(const RecordingIdentity& local, const Candidate& r
     result.evidence.push_back("primary_artist_exact");
 
     bool ambiguous = false;
-    const auto local_mix_name = comparable(local.mix_name);
-    const auto remote_mix_name = comparable(remote.identity.mix_name);
-    if (local.mix != MixKind::Unknown &&
-        remote.identity.mix != MixKind::Unknown) {
-        if (local.mix != remote.identity.mix) {
+    const auto local_mix_name = comparable(local.mix_name.empty()
+        ? local_annotation.version : std::string_view(local.mix_name));
+    const auto remote_mix_name = comparable(remote.identity.mix_name.empty()
+        ? remote_annotation.version : std::string_view(remote.identity.mix_name));
+    const auto local_mix = local.mix != MixKind::Unknown
+        ? local.mix : local_annotation.kind;
+    const auto remote_mix = remote.identity.mix != MixKind::Unknown
+        ? remote.identity.mix : remote_annotation.kind;
+    // Conflicting TITLE suffix versus a separately tagged VERSION is a
+    // source-local disagreement. Never interpret it as stronger evidence.
+    if ((!local.mix_name.empty() && !local_annotation.version.empty() &&
+         comparable(local.mix_name) != comparable(local_annotation.version)) ||
+        (!remote.identity.mix_name.empty() &&
+         !remote_annotation.version.empty() &&
+         comparable(remote.identity.mix_name) !=
+             comparable(remote_annotation.version)) ||
+        (local.mix != MixKind::Unknown &&
+         local_annotation.kind != MixKind::Unknown &&
+         local.mix != local_annotation.kind) ||
+        (remote.identity.mix != MixKind::Unknown &&
+         remote_annotation.kind != MixKind::Unknown &&
+         remote.identity.mix != remote_annotation.kind)) {
+        ambiguous = true;
+        result.conflicts.push_back("title_version_annotation_conflict");
+    }
+    if (local_mix != MixKind::Unknown &&
+        remote_mix != MixKind::Unknown) {
+        if (local_mix != remote_mix) {
             result.conflicts.push_back("mix_type_conflict");
             result.decision = MatchDecision::Rejected;
             return result;
@@ -147,7 +217,7 @@ inline CandidateMatch compare(const RecordingIdentity& local, const Candidate& r
         }
         result.score += 10;
         result.evidence.push_back("mix_type_exact");
-    } else if (local.mix != remote.identity.mix) {
+    } else if (local_mix != remote_mix) {
         ambiguous = true;
         result.conflicts.push_back("mix_type_unverified");
     }
@@ -162,13 +232,15 @@ inline CandidateMatch compare(const RecordingIdentity& local, const Candidate& r
     }
 
     // Matching ISRC alone does not establish the mix or remix identity.
-    if (local.mix == MixKind::Unknown &&
-        remote.identity.mix == MixKind::Unknown) {
+    if (local_mix == MixKind::Unknown &&
+        remote_mix == MixKind::Unknown &&
+        (local_mix_name.empty() || remote_mix_name.empty() ||
+         local_mix_name != remote_mix_name)) {
         ambiguous = true;
         result.conflicts.push_back("mix_identity_unverified");
     }
-    if (local.mix == MixKind::Remix &&
-        remote.identity.mix == MixKind::Remix &&
+    if (local_mix == MixKind::Remix &&
+        remote_mix == MixKind::Remix &&
         local_mix_name.empty() && remote_mix_name.empty()) {
         ambiguous = true;
         result.conflicts.push_back("remix_identity_unverified");
