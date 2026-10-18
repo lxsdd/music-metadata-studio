@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <map>
 #include <set>
 #include <string>
 #include <string_view>
@@ -70,7 +71,18 @@ inline std::string normalized_isrc(std::string_view raw) {
         if (ch >= 0x80 || !std::isalnum(ch)) return {};
         result.push_back(static_cast<char>(std::toupper(ch)));
     }
-    return result.size() == 12 ? result : std::string{};
+    // ISO 3901 structure: two-letter country, three alphanumeric registrant,
+    // two-digit year and five-digit designation. Mere 12-character length
+    // would incorrectly promote malformed IDs to matching evidence.
+    if (result.size() != 12) return {};
+    for (std::size_t i = 0; i < result.size(); ++i) {
+        const char ch = result[i];
+        const bool letter = ch >= 'A' && ch <= 'Z';
+        const bool digit = ch >= '0' && ch <= '9';
+        if (!(i < 2 ? letter : (i < 5 ? (letter || digit) : digit)))
+            return {};
+    }
+    return result;
 }
 
 inline CandidateMatch compare(const RecordingIdentity& local, const Candidate& remote) {
@@ -181,11 +193,38 @@ inline std::vector<CandidateMatch> rank(
     const RecordingIdentity& local,
     const std::vector<Candidate>& candidates) {
     std::vector<CandidateMatch> results;
-    std::set<std::pair<std::string, std::string>> seen_ids;
+    // One provider ID denotes one remote recording. If two responses attach
+    // different metadata to that ID, retaining the first result can silently
+    // turn an untrusted, order-dependent candidate into a strong suggestion.
+    // Deduplicate only by exact provider+ID, and fail closed on collisions.
+    using SourceId = std::pair<std::string, std::string>;
+    std::map<SourceId, Candidate> unique;
+    std::set<SourceId> collisions;
     for (const auto& candidate : candidates) {
-        if (candidate.provider.empty() || candidate.provider_track_id.empty()) continue;
-        if (!seen_ids.emplace(candidate.provider, candidate.provider_track_id).second) continue;
-        results.push_back(compare(local, candidate));
+        if (candidate.provider.empty() || candidate.provider_track_id.empty() ||
+            candidate.provider.find('\0') != std::string::npos ||
+            candidate.provider_track_id.find('\0') != std::string::npos) continue;
+        const SourceId id{candidate.provider, candidate.provider_track_id};
+        const auto [it, inserted] = unique.emplace(id, candidate);
+        if (!inserted) {
+            const auto& a = it->second.identity;
+            const auto& b = candidate.identity;
+            if (a.title != b.title || a.primary_artist != b.primary_artist ||
+                a.mix_name != b.mix_name || a.mix != b.mix ||
+                a.isrc != b.isrc || a.duration_ms != b.duration_ms)
+                collisions.insert(id);
+        }
+    }
+    results.reserve(unique.size());
+    for (const auto& [id, candidate] : unique) {
+        auto match = compare(local, candidate);
+        if (collisions.contains(id)) {
+            match.decision = MatchDecision::Review;
+            match.score = 0;
+            match.evidence.clear();
+            match.conflicts = {"provider_identity_collision"};
+        }
+        results.push_back(std::move(match));
     }
     std::sort(results.begin(), results.end(),
         [](const CandidateMatch& a, const CandidateMatch& b) {
