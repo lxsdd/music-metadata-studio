@@ -73,6 +73,54 @@ int main() {
            has(missing_name_result.conflicts, "named_mix_missing_on_one_side"),
            "named remix on only one side requires manual review");
 
+    // Beatport stores base TITLE and mix_name separately, whereas local DJ
+    // TITLE commonly contains a terminal '(Extended Mix)' annotation.
+    RecordingIdentity dj_title_local = original;
+    dj_title_local.title = "A-Track (Extended Mix)";
+    dj_title_local.mix_name.clear();
+    dj_title_local.mix = MixKind::Unknown;
+    Candidate beatport_separate = strong;
+    beatport_separate.identity.title = "A-Track";
+    beatport_separate.identity.mix_name = "Extended Mix";
+    beatport_separate.identity.mix = MixKind::Extended;
+    const auto separated_match = compare(dj_title_local, beatport_separate);
+    expect(separated_match.decision == MatchDecision::Suggested &&
+           has(separated_match.evidence, "mix_type_exact") &&
+           has(separated_match.evidence, "title_exact"),
+           "qualified suffix from local DJ title matches separate Beatport mix");
+    dj_title_local.title = "A-Track (Radio Edit)";
+    const auto wrong_suffix = compare(dj_title_local, beatport_separate);
+    expect(wrong_suffix.decision == MatchDecision::Rejected &&
+           has(wrong_suffix.conflicts, "mix_type_conflict"),
+           "same ISRC must not turn Radio Edit into Extended Mix");
+    dj_title_local.title = "A-Track (Other Producer Remix)";
+    const auto wrong_remixer = compare(dj_title_local, beatport_separate);
+    expect(wrong_remixer.decision == MatchDecision::Rejected,
+           "named remixer in TITLE cannot become an Extended Mix");
+    dj_title_local.title = "A-Track (Part Two)";
+    expect(compare(dj_title_local, beatport_separate).decision ==
+           MatchDecision::Rejected,
+           "unrelated parenthetical song subtitle must not be stripped");
+    dj_title_local.title = "A-Track (Extended Mix)";
+    dj_title_local.mix = MixKind::Radio;
+    const auto contradictory_local = compare(dj_title_local, beatport_separate);
+    expect(contradictory_local.decision != MatchDecision::Suggested &&
+           has(contradictory_local.conflicts,
+               "title_version_annotation_conflict"),
+           "conflicting local title and version metadata prevent an auto-suggestion");
+    const RecordingIdentity club_title{
+        "A-Track (Club Mix)", "An Artist", "", MixKind::Unknown,
+        "US-ABC-26-00001", 402000};
+    Candidate club = strong;
+    club.identity.title = "A-Track";
+    club.identity.mix_name = "Club Mix";
+    club.identity.mix = MixKind::Unknown;
+    expect(compare(club_title, club).decision == MatchDecision::Suggested,
+           "identical explicit custom mix labels may match with corroborating evidence");
+    club.identity.mix_name = "Dub Mix";
+    expect(compare(club_title, club).decision == MatchDecision::Review,
+           "different custom DJ mix names cannot auto-suggest even with same ISRC");
+    
     const RecordingIdentity simple{"Sample", "DJ", "", MixKind::Unknown, "", 200000};
     Candidate loose{"discogs", "10", {"Sample", "DJ", "", MixKind::Unknown, "", 201000}};
     const auto loose_result = compare(simple, loose);
