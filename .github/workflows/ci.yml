@@ -32,33 +32,6 @@ on:
       - '.github/workflows/ci.yml'
   pull_request:
     branches: [ main ]
-    paths:
-      - 'include/**'
-      - 'src/core/**'
-      - 'src/interop/**'
-      - 'tests/core_tests.cpp'
-      - 'tests/batch_plan_tests.cpp'
-      - 'tests/physical_selection_tests.cpp'
-      - 'tests/external_cue_tests.cpp'
-      - 'tests/cue_association_tests.cpp'
-      - 'tests/staging_tests.cpp'
-      - 'tests/route_profiles_tests.cpp'
-      - 'tests/routing_overrides_tests.cpp'
-      - 'tests/batch_preview_tests.cpp'
-      - 'tests/table_layout_tests.cpp'
-      - 'tests/metadata_diff_tests.cpp'
-      - 'tests/track_review_tests.cpp'
-      - 'tests/review_decisions_tests.cpp'
-      - 'tests/native_preview_controls_tests.cpp'
-      - 'src/foobar/native_preview_controls.h'
-      - 'src/foobar/component.rc'
-      - 'src/foobar/batch_preview_dialog.cpp'
-      - 'tests/c_api_tests.cpp'
-      - 'tests/validate_rules.py'
-      - 'tests/static_foobar_audit.py'
-      - 'rules/**'
-      - 'CMakeLists.txt'
-      - '.github/workflows/ci.yml'
   workflow_dispatch:
 
 concurrency:
