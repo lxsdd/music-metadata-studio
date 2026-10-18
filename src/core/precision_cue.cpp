@@ -1,4 +1,5 @@
 #include "djmeta/precision_cue.h"
+#include "djmeta/precision_cue_filename.h"
 
 #include <algorithm>
 #include <cctype>
@@ -33,18 +34,6 @@ std::string quoted(std::string_view input, std::string_view field, bool required
     return "\"" + std::string(input) + "\"";
 }
 
-bool mp3_basename(std::string_view s) {
-    if (s.empty() || s == "." || s == ".." ||
-        s.find_first_of("/\\:") != std::string_view::npos) {
-        return false;
-    }
-    if (s.size() < 5) return false;
-    const std::string_view suffix = s.substr(s.size() - 4);
-    return std::tolower(static_cast<unsigned char>(suffix[0])) == '.' &&
-           std::tolower(static_cast<unsigned char>(suffix[1])) == 'm' &&
-           std::tolower(static_cast<unsigned char>(suffix[2])) == 'p' &&
-           std::tolower(static_cast<unsigned char>(suffix[3])) == '3';
-}
 
 } // namespace
 
@@ -76,7 +65,7 @@ PrecisionCuePlan make_precision_cue(const PrecisionCueDisc& disc) {
     validate_cue_text(disc.genre, "genre", false);
     validate_cue_text(disc.release_date, "release date", false);
     validate_cue_text(disc.audio_file_basename, "audio filename");
-    if (!mp3_basename(disc.audio_file_basename)) {
+    if (!precision_cue_safe_mp3_basename(disc.audio_file_basename)) {
         throw std::invalid_argument("audio file must be an MP3 basename, not a path");
     }
     if (disc.disc_number == 0 || disc.total_discs == 0 ||
