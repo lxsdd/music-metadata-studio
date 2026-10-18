@@ -127,6 +127,25 @@ void test_invalid_input_fail_closed() {
         d.tracks = std::vector<djmeta::PrecisionCueTrack>(100, {"Synthetic", "Artist", 1000});
         must_reject([&] { (void)djmeta::make_precision_cue(d); });
     }
+    // Windows device names and path-unsafe basenames must never reach FILE.\n    for (const auto& unsafe : std::vector<std::string>{
+        "CON.mp3",
+        "Lpt1.MP3",
+        "AUX.demo.mp3",
+        "bad?.mp3",
+        "bad<name>.mp3",
+        "foo|bar.mp3",
+        "NUL.mp3",
+        "COM9.mp3",
+        "trailing .mp3",
+        "leading .mp3",
+        "has\\u0001control.mp3",
+        "file:name.mp3",
+        "file*.mp3",
+    }) {
+        auto d = good;
+        d.audio_file_basename = unsafe;
+        must_reject([&] { (void)djmeta::make_precision_cue(d); });
+    }
     must_reject([] { (void)djmeta::cue_frame_to_index(-1); });
     must_reject([] { (void)djmeta::milliseconds_to_cue_frame(-1); });
 }
