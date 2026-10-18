@@ -122,5 +122,49 @@ int main() {
            comparable(std::string("A\0B", 3)).empty(),
            "search-only normalization is conservative, UTF-8 preserving, and rejects NUL");
 
+    expect(normalized_isrc("123456789012").empty() &&
+           normalized_isrc("12ABC2600001").empty() &&
+           normalized_isrc("USABC2X00001").empty() &&
+           normalized_isrc("USABC26000A1").empty() &&
+           normalized_isrc("USABC260001").empty() &&
+           normalized_isrc("USABC2600001\n").empty(),
+           "ISRC must satisfy country/registrant/year/designation grammar");
+
+    Candidate invalid_isrc = strong;
+    invalid_isrc.identity.isrc = "12ABC2600001";
+    const auto invalid_code = compare(original, invalid_isrc);
+    expect(invalid_code.decision == MatchDecision::Review &&
+           has(invalid_code.conflicts, "invalid_isrc_unverified") &&
+           !has(invalid_code.evidence, "isrc_exact_not_conclusive"),
+           "invalid provider ISRC never contributes matching evidence");
+    Candidate missing_isrc = strong;
+    missing_isrc.identity.isrc.clear();
+    const auto missing_code = compare(original, missing_isrc);
+    expect(missing_code.decision == MatchDecision::Review &&
+           has(missing_code.conflicts, "isrc_missing_on_one_side"),
+           "one-sided ISRC remains an explicit review uncertainty");
+
+    const RecordingIdentity unknown_version{
+        "Sample", "DJ", "", MixKind::Unknown, "USABC2600001", 200000};
+    const Candidate unknown_remote{
+        "discogs", "11",
+        {"Sample", "DJ", "", MixKind::Unknown, "US-ABC-26-00001", 200000}};
+    const auto unknown_result = compare(unknown_version, unknown_remote);
+    expect(unknown_result.decision == MatchDecision::Review &&
+           has(unknown_result.conflicts, "mix_identity_unverified") &&
+           has(unknown_result.evidence, "isrc_exact_not_conclusive"),
+           "same ISRC cannot auto-suggest unidentified recording version");
+
+    auto remix_local = original;
+    remix_local.mix = MixKind::Remix;
+    remix_local.mix_name.clear();
+    Candidate unnamed_remix = strong;
+    unnamed_remix.identity.mix = MixKind::Remix;
+    unnamed_remix.identity.mix_name.clear();
+    const auto remix_result = compare(remix_local, unnamed_remix);
+    expect(remix_result.decision == MatchDecision::Review &&
+           has(remix_result.conflicts, "remix_identity_unverified"),
+           "unnamed remixes require review despite matching ISRC and runtime");
+
     std::cout << "PASS: candidate evidence, version conflicts, ISRC limits, duration, identity and ordering\n";
 }

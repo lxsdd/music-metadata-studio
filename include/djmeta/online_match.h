@@ -67,10 +67,24 @@ inline std::string normalized_isrc(std::string_view raw) {
     std::string result;
     for (unsigned char ch : raw) {
         if (ch == '-' || ch == ' ' || ch == '\t') continue;
-        if (ch >= 0x80 || !std::isalnum(ch)) return {};
-        result.push_back(static_cast<char>(std::toupper(ch)));
+        if (ch >= 0x80 ||
+            !((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') ||
+              (ch >= '0' && ch <= '9'))) return {};
+        result.push_back(ch >= 'a' && ch <= 'z'
+            ? static_cast<char>(ch - ('a' - 'A'))
+            : static_cast<char>(ch));
     }
-    return result.size() == 12 ? result : std::string{};
+    // ISO 3901: two-letter country, three alphanumeric registrant,
+    // two-digit year and five-digit designation. Length alone is insufficient.
+    if (result.size() != 12) return {};
+    const auto letter = [](char c) { return c >= 'A' && c <= 'Z'; };
+    const auto digit = [](char c) { return c >= '0' && c <= '9'; };
+    if (!letter(result[0]) || !letter(result[1])) return {};
+    for (std::size_t i = 2; i < 5; ++i)
+        if (!letter(result[i]) && !digit(result[i])) return {};
+    for (std::size_t i = 5; i < 12; ++i)
+        if (!digit(result[i])) return {};
+    return result;
 }
 
 inline CandidateMatch compare(const RecordingIdentity& local, const Candidate& remote) {
@@ -132,9 +146,30 @@ inline CandidateMatch compare(const RecordingIdentity& local, const Candidate& r
         result.conflicts.push_back("named_mix_missing_on_one_side");
     }
 
+    // Matching ISRC alone does not establish the mix or remix identity.
+    if (local.mix == MixKind::Unknown &&
+        remote.identity.mix == MixKind::Unknown) {
+        ambiguous = true;
+        result.conflicts.push_back("mix_identity_unverified");
+    }
+    if (local.mix == MixKind::Remix &&
+        remote.identity.mix == MixKind::Remix &&
+        local_mix_name.empty() && remote_mix_name.empty()) {
+        ambiguous = true;
+        result.conflicts.push_back("remix_identity_unverified");
+    }
+
     const auto local_isrc = normalized_isrc(local.isrc);
     const auto remote_isrc = normalized_isrc(remote.identity.isrc);
     const bool same_isrc = !local_isrc.empty() && local_isrc == remote_isrc;
+    if ((!local.isrc.empty() && local_isrc.empty()) ||
+        (!remote.identity.isrc.empty() && remote_isrc.empty())) {
+        ambiguous = true;
+        result.conflicts.push_back("invalid_isrc_unverified");
+    } else if (!same_isrc && (local_isrc.empty() != remote_isrc.empty())) {
+        ambiguous = true;
+        result.conflicts.push_back("isrc_missing_on_one_side");
+    }
     if (same_isrc) {
         result.score += 18;
         result.evidence.push_back("isrc_exact_not_conclusive");
