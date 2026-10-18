@@ -161,8 +161,17 @@ int main() {
           identified.tracks[1].source_track_id==
               "44444444-4444-4444-4444-444444444444",
           "release track IDs remain distinct despite shared recording MBID");
-    const std::vector<LocalReleaseTrack> repeated_recording={
-        {0,{"One","Artist"},1,1}, {1,{"Two","Artist"},1,2}};
+    std::vector<LocalReleaseTrack> repeated_recording(2);
+    repeated_recording[0].source_index=0;
+    repeated_recording[0].recording.title="One";
+    repeated_recording[0].recording.primary_artist="Artist";
+    repeated_recording[0].disc_number=1;
+    repeated_recording[0].track_number=1;
+    repeated_recording[1].source_index=1;
+    repeated_recording[1].recording.title="Two";
+    repeated_recording[1].recording.primary_artist="Artist";
+    repeated_recording[1].disc_number=1;
+    repeated_recording[1].track_number=2;
     const auto repeated_alignment=align_release(repeated_recording,identified);
     check(repeated_alignment.matched==2 && repeated_alignment.unmatched==0,
           "repeated recording MBID does not invalidate separate release tracks");
