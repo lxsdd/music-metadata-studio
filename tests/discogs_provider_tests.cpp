@@ -193,6 +193,48 @@ int main() {
           number1 && number1->values==std::vector<std::string>{"2"} &&
           !track_field(edition.tracks[2],"TRACKNUMBER"),
           "edition row provenance covers explicit title/artist/numeric position only");
+    const auto credited=parse_release(R"DJ({
+        "id":881,"title":"Credits EP",
+        "extraartists":[{"name":"Release Only","role":"Remix"}],
+        "tracklist":[
+          {"position":"1","title":"Night (Club Remix)",
+           "extraartists":[
+             {"name":"DJ One","role":"Remix"},
+             {"name":"DJ Two","role":"Remix By"},
+             {"name":"DJ One","role":"Remix"},
+             {"name":"Writer A","role":"Written-By"},
+             {"name":"Writer B","role":"Composed By"},
+             {"name":"Producer","role":"Producer"},
+             {"name":"Vague","role":"Remix, Producer"},
+             {"name":"Bad\\nCredit","role":"Remix"}]},
+          {"position":"2","title":"Day (Original Mix)"}
+        ]
+    })DJ",881);
+    const auto* remixers=track_field(credited.tracks[0],"REMIXER");
+    const auto* writers=track_field(credited.tracks[0],"SONGWRITER");
+    check(remixers && remixers->values==
+              std::vector<std::string>({"DJ One","DJ Two"}) &&
+          writers && writers->values==
+              std::vector<std::string>({"Writer A","Writer B"}) &&
+          remixers->provider=="discogs" &&
+          remixers->scope==EvidenceScope::Edition &&
+          remixers->source_id=="881/track/1" &&
+          writers->source_id==remixers->source_id,
+          "exact track credit roles retain independent multivalues and edition-row provenance");
+    check(!track_field(credited.tracks[1],"REMIXER") &&
+          !track_field(credited.tracks[1],"SONGWRITER") &&
+          credited.fields.size()==1,
+          "do not infer remix credits from titles or leak release-wide credits to tracks");
+    const auto malformed_credits=parse_release(R"DJ({
+        "id":882,"title":"Untrusted credits",
+        "tracklist":[{"title":"Track",
+          "extraartists":[{"name":"Bad\\nName","role":"Remix"},
+                          {"name":"Unknown","role":"Mastering"},
+                          {"name":"Good","role":"Remix"}]}]
+    })DJ",882);
+    const auto* qualified=track_field(malformed_credits.tracks[0],"REMIXER");
+    check(qualified && qualified->values==std::vector<std::string>{"Good"},
+          "invalid or unrelated credits never become remixer evidence");
     auto by_name=[&](std::string_view field) -> const FieldEvidence* {
         for(const auto& value:edition.fields)
             if(value.field==field) return &value;

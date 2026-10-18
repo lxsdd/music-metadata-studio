@@ -141,6 +141,31 @@ inline std::vector<std::string> string_array(
     }
     return out;
 }
+// Discogs extraartists are track-specific credits. Map only exact, known
+// roles; never guess a remixer from a mix title or inherit release-wide credits.
+// Multiple independently credited people remain separate metadata values.
+inline std::vector<std::string> explicit_track_credits(
+    const musicbrainz::Json& track, std::string_view field) {
+    const auto* entries=track.get("extraartists");
+    if(!entries || entries->type!=musicbrainz::Json::Type::Array ||
+       entries->array.size()>128) return {};
+    std::vector<std::string> credits;
+    for(const auto& entry:entries->array) {
+        if(entry.type!=musicbrainz::Json::Type::Object) continue;
+        const auto role=string_field(entry,"role");
+        const bool remixer=field=="REMIXER" &&
+            (role=="Remix" || role=="Remix By");
+        const bool songwriter=field=="SONGWRITER" &&
+            (role=="Written-By" || role=="Written By" || role=="Composed By");
+        if(!remixer && !songwriter) continue;
+        const auto name=string_field(entry,"name");
+        if(!catalog_label(name,512)) continue;
+        if(std::find(credits.begin(),credits.end(),name)==credits.end())
+            credits.push_back(name);
+        if(credits.size()>=32) break;
+    }
+    return credits;
+}
 inline std::string canonical_url(EntityKind kind,std::uint64_t id) {
     if(!id || id>999999999999ULL)
         throw std::invalid_argument("Unqualified Discogs object identifier");
@@ -456,6 +481,12 @@ inline ReleaseEdition parse_release(std::string_view json,std::uint64_t expected
             add_track("ARTIST",joined_artist_credit(track));
         if(item.track_number>0)
             add_track("TRACKNUMBER",std::to_string(item.track_number));
+        for(const auto* field : {"REMIXER","SONGWRITER"}) {
+            auto credits=explicit_track_credits(track,field);
+            if(!credits.empty())
+                item.fields.push_back({field,std::move(credits),"discogs",
+                    track_source,EvidenceScope::Edition,DateMeaning::NotDate});
+        }
         edition.tracks.push_back(std::move(item));
     }
     if(edition.tracks.empty())
