@@ -282,7 +282,7 @@ void initialize_disc_controls(Workspace& state) {
             throw std::runtime_error("Cannot populate MP3 picker");
     }
     SendDlgItemMessageW(state.dialog, IDC_PRECISION_DISC_PICKER, CB_SETCURSEL, 0, 0);
-    SendDlgItemMessageW(state.dialog, IDC_PRECISION_MP3_PICKER, CB_SETCURSEL, -1, 0);
+    SendDlgItemMessageW(state.dialog, IDC_PRECISION_MP3_PICKER, CB_SETCURSEL, static_cast<WPARAM>(-1), 0);
     for (int id : {IDC_PRECISION_DISC_PICKER, IDC_PRECISION_MP3_PICKER,
                    IDC_PRECISION_ASSIGN_DISC})
         EnableWindow(GetDlgItem(state.dialog, id), TRUE);
