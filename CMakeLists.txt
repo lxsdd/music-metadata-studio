@@ -318,6 +318,17 @@ else()
     target_compile_options(djmeta_cue_manual_preview_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+# Beatport v4 offline catalog parser: DJ mix/version, evidence and edition
+# matching contracts. Never requests OAuth credentials or live HTTP.
+add_executable(djmeta_beatport_provider_tests tests/beatport_provider_tests.cpp)
+target_link_libraries(djmeta_beatport_provider_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_beatport_provider_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_beatport_provider_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_beatport_provider_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 # Official MusicBrainz WS/2 offline fixture parser and request policy, no network I/O.
 add_executable(djmeta_musicbrainz_provider_tests tests/musicbrainz_provider_tests.cpp)
 target_link_libraries(djmeta_musicbrainz_provider_tests PRIVATE djmeta_core)
@@ -340,6 +351,7 @@ else()
 endif()
 
 enable_testing()
+add_test(NAME djmeta_beatport_provider_tests COMMAND djmeta_beatport_provider_tests)
 add_test(NAME djmeta_discogs_provider_tests COMMAND djmeta_discogs_provider_tests)
 add_test(NAME djmeta_musicbrainz_provider_tests COMMAND djmeta_musicbrainz_provider_tests)
 add_test(NAME djmeta_cue_manual_preview_tests COMMAND djmeta_cue_manual_preview_tests)
