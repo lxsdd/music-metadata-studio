@@ -122,6 +122,12 @@ void preflight_fail_closed_matrix() {
     assert(preflight_precision_cue_external_write(p) == ReviewRequired);
     p.source_snapshot_current = true; p.target_snapshot_current = false;
     assert(preflight_precision_cue_external_write(p) == ReviewRequired);
+    p = approved(); p.existing_content_known = true;
+    assert(preflight_precision_cue_external_write(p) == Reject);
+    p = approved(); p.existing_content_equal = true;
+    assert(preflight_precision_cue_external_write(p) == Reject);
+    p = approved(); p.target_exists = true; p.existing_content_equal = true;
+    assert(preflight_precision_cue_external_write(p) == Reject);
 }
 }
 
