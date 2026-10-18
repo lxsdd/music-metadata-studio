@@ -53,6 +53,67 @@ inline std::string string_field(const musicbrainz::Json& node,std::string_view k
     const auto* v=node.get(key);
     return v&&v->type==musicbrainz::Json::Type::String?v->text:std::string{};
 }
+inline bool catalog_label(std::string_view value, std::size_t maximum=512) {
+    if (value.empty() || value.size()>maximum ||
+        !valid_utf8_metadata_text(value)) return false;
+    for (const unsigned char c:value)
+        if (c<0x20 || c==0x7f) return false;
+    return true;
+}
+
+// Discogs duration is a display string, never a sample-accurate CUE offset.
+// Accept only M:SS or H:MM:SS; malformed or unbounded values stay unknown.
+inline std::int64_t duration_ms(std::string_view value) {
+    if (value.size()<4 || value.size()>8) return -1;
+    const auto colon=value.find(':');
+    if (colon==std::string_view::npos) return -1;
+    const auto second=value.find(':',colon+1);
+    if (second!=std::string_view::npos &&
+        value.find(':',second+1)!=std::string_view::npos) return -1;
+    const auto number=[](std::string_view text)->std::int64_t {
+        if (text.empty() || text.size()>3) return -1;
+        std::int64_t n=0;
+        const auto [end,error]=std::from_chars(
+            text.data(),text.data()+text.size(),n);
+        return error==std::errc{} && end==text.data()+text.size()?n:-1;
+    };
+    const auto first=number(value.substr(0,colon));
+    const auto middle=number(value.substr(colon+1,
+        second==std::string_view::npos ? value.size()-colon-1 :
+        second-colon-1));
+    if (first<0 || middle<0) return -1;
+    std::int64_t seconds=0;
+    if (second==std::string_view::npos) {
+        if (value.size()-colon-1!=2 || middle>=60) return -1;
+        seconds=first*60+middle;
+    } else {
+        const auto last=number(value.substr(second+1));
+        if (second-colon-1!=2 || value.size()-second-1!=2 ||
+            middle>=60 || last<0 || last>=60) return -1;
+        seconds=first*3600+middle*60+last;
+    }
+    return seconds>0 && seconds<=10*60*60 ? seconds*1000 : -1;
+}
+
+// Multi-artist primary identity is safe only with explicit Discogs joins.
+// Never fabricate a collaboration separator from multiple credited names.
+inline std::string joined_artist_credit(const musicbrainz::Json& node) {
+    const auto* arr=node.get("artists");
+    if(!arr || arr->type!=musicbrainz::Json::Type::Array ||
+       arr->array.empty() || arr->array.size()>64) return {};
+    std::string joined;
+    for(std::size_t i=0;i<arr->array.size();++i) {
+        const auto name=string_field(arr->array[i],"name");
+        const auto join=string_field(arr->array[i],"join");
+        if(!catalog_label(name) ||
+           (!join.empty() && !catalog_label(join,64)) ||
+           (i+1<arr->array.size() && join.empty())) return {};
+        joined+=name;
+        joined+=join;
+        if(joined.size()>1024) return {};
+    }
+    return joined;
+}
 inline std::string year_field(const musicbrainz::Json& node) {
     const auto* v=node.get("year");
     if(!v || v->type!=musicbrainz::Json::Type::Number ||
@@ -72,7 +133,7 @@ inline std::vector<std::string> string_array(
     for(const auto& v:array->array) {
         if(out.size()==max) break;
         if(v.type!=musicbrainz::Json::Type::String ||
-           v.text.empty() || v.text.size()>512) continue;
+           !catalog_label(v.text)) continue;
         if(std::find(out.begin(),out.end(),v.text)==out.end())
             out.push_back(v.text);
     }
@@ -128,13 +189,17 @@ inline SearchResults parse_search(std::string_view json) {
         if(kind!="release" && kind!="master") continue;
         const auto id=id_field(row);
         const auto title=string_field(row,"title");
-        if(!id || title.empty() || title.size()>2048) continue;
+        if(!id || !catalog_label(title,2048)) continue;
         SearchHit hit;
         hit.kind=kind=="master"?EntityKind::Master:EntityKind::Release;
         hit.id=id;hit.title=title;
         hit.artist=string_field(row,"artist");
+        if(!hit.artist.empty() && !catalog_label(hit.artist,1024))
+            hit.artist.clear();
         hit.year=year_field(row);
         hit.country=string_field(row,"country");
+        if(!hit.country.empty() && !catalog_label(hit.country,128))
+            hit.country.clear();
         hit.genres=string_array(row,"genre");
         hit.styles=string_array(row,"style");
         hit.canonical_url=canonical_url(hit.kind,id);
@@ -149,8 +214,8 @@ inline ReleaseEdition parse_release(std::string_view json,std::uint64_t expected
     if(id_field(root)!=expected_id)
         throw std::invalid_argument("Discogs edition identity mismatch");
     const std::string title=string_field(root,"title");
-    if(title.empty())
-        throw std::invalid_argument("Discogs edition has no title");
+    if(!catalog_label(title,2048))
+        throw std::invalid_argument("Discogs edition has no safe title");
     ReleaseEdition edition;
     edition.provider="discogs";
     edition.edition_id=std::to_string(expected_id);
@@ -170,7 +235,7 @@ inline ReleaseEdition parse_release(std::string_view json,std::uint64_t expected
     if(artists&&artists->type==musicbrainz::Json::Type::Array)
         for(const auto& artist:artists->array) {
             const auto name=string_field(artist,"name");
-            if(!name.empty() && credited.size()<64) credited.push_back(name);
+            if(catalog_label(name) && credited.size()<64) credited.push_back(name);
         }
     add("ALBUM ARTIST",credited);
     const auto* labels=root.get("labels");
@@ -180,9 +245,9 @@ inline ReleaseEdition parse_release(std::string_view json,std::uint64_t expected
             if(label_names.size()>=64) break;
             const auto name=string_field(label,"name");
             const auto cat=string_field(label,"catno");
-            if(!name.empty() && std::find(label_names.begin(),label_names.end(),name)==label_names.end())
+            if(catalog_label(name) && std::find(label_names.begin(),label_names.end(),name)==label_names.end())
                 label_names.push_back(name);
-            if(!cat.empty() && std::find(catalogues.begin(),catalogues.end(),cat)==catalogues.end())
+            if(catalog_label(cat) && std::find(catalogues.begin(),catalogues.end(),cat)==catalogues.end())
                 catalogues.push_back(cat);
         }
     add("LABEL",label_names);
@@ -193,18 +258,24 @@ inline ReleaseEdition parse_release(std::string_view json,std::uint64_t expected
     for(const auto& track:tracks->array) {
         if(edition.tracks.size()>=256)
             throw std::invalid_argument("Discogs tracklist exceeds safe limit");
-        if(track.type!=musicbrainz::Json::Type::Object ||
-           string_field(track,"type_")=="heading") continue;
+        if(track.type!=musicbrainz::Json::Type::Object) continue;
+        const auto kind=string_field(track,"type_");
+        // Index/heading/subtrack containers are NOT ordinary track rows.
+        // Unknown types are never silently flattened into a false track.
+        if(!kind.empty() && kind!="track") continue;
         const auto track_title=string_field(track,"title");
-        if(track_title.empty()) continue;
+        if(!catalog_label(track_title,2048)) continue;
         EditionTrack item;
         item.source_track_id=string_field(track,"position");
+        if(!item.source_track_id.empty() &&
+           !catalog_label(item.source_track_id,128))
+            item.source_track_id.clear();
         item.recording.title=track_title;
-        item.recording.primary_artist=credited.size()==1?credited[0]:std::string{};
-        const auto* credits=track.get("artists");
-        if(credits && credits->type==musicbrainz::Json::Type::Array &&
-           credits->array.size()==1)
-            item.recording.primary_artist=string_field(credits->array[0],"name");
+        item.recording.duration_ms=duration_ms(string_field(track,"duration"));
+        // Explicit per-track credits override album credits; malformed or
+        // ambiguous multi-artist joins must not fall back to album identity.
+        item.recording.primary_artist=track.get("artists")
+            ? joined_artist_credit(track) : joined_artist_credit(root);
         if(!item.source_track_id.empty()) {
             int position=0;
             const auto [end,error]=std::from_chars(

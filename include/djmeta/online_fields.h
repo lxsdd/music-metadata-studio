@@ -8,7 +8,9 @@
 
 #include <cctype>
 #include <cstddef>
+#include <map>
 #include <string>
+#include <tuple>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -39,6 +41,14 @@ inline std::string ascii_upper_field(std::string_view name) {
     return result;
 }
 
+inline bool valid_evidence_origin(std::string_view value, std::size_t limit) {
+    if (value.empty() || value.size() > limit ||
+        !valid_utf8_metadata_text(value)) return false;
+    for (const unsigned char c : value)
+        if (c < 0x20 || c == 0x7f) return false;
+    return true;
+}
+
 inline bool is_structural_or_non_tag_field(const std::string& uppercase) {
     return is_protected_cue_metadata(uppercase) ||
            is_lyrics_metadata(uppercase) ||
@@ -53,6 +63,14 @@ inline std::vector<FieldReviewRow> review_online_fields(
     const std::vector<FieldEvidence>& proposed_evidence) {
     std::vector<FieldReviewRow> rows;
     rows.reserve(proposed_evidence.size());
+    // Same provider/source/scope cannot propose two independent values for
+    // one physical tag. Detect both identical and conflicting duplicates;
+    // different providers or recording-vs-edition scopes remain reviewable.
+    using EvidenceKey = std::tuple<std::string, std::string, std::string, EvidenceScope>;
+    std::map<EvidenceKey, std::size_t> occurrence_count;
+    for (const auto& evidence : proposed_evidence)
+        ++occurrence_count[{ascii_upper_field(evidence.field),
+                            evidence.provider, evidence.source_id, evidence.scope}];
     for (std::size_t i = 0; i < proposed_evidence.size(); ++i) {
         const FieldEvidence& evidence = proposed_evidence[i];
         FieldReviewRow row;
@@ -62,15 +80,27 @@ inline std::vector<FieldReviewRow> review_online_fields(
         const auto name = ascii_upper_field(evidence.field);
 
         if (name.empty() || evidence.field.empty() ||
+            evidence.field.size() > 256 ||
             !valid_utf8_metadata_text(evidence.field) ||
-            evidence.provider.empty() || evidence.source_id.empty() ||
-            evidence.source_id.find('\0') != std::string::npos) {
+            !valid_evidence_origin(evidence.provider, 128) ||
+            !valid_evidence_origin(evidence.source_id, 512)) {
             row.reason = "invalid_evidence_identity";
+            rows.push_back(std::move(row));
+            continue;
+        }
+        if (occurrence_count[{name, evidence.provider, evidence.source_id,
+                              evidence.scope}] > 1) {
+            row.reason = "duplicate_provider_field_evidence";
             rows.push_back(std::move(row));
             continue;
         }
         if (is_structural_or_non_tag_field(name)) {
             row.reason = "protected_metadata_field";
+            rows.push_back(std::move(row));
+            continue;
+        }
+        if (evidence.values.size() > 128) {
+            row.reason = "unbounded_evidence_values";
             rows.push_back(std::move(row));
             continue;
         }
@@ -81,7 +111,8 @@ inline std::vector<FieldReviewRow> review_online_fields(
         }
         bool malformed_values = false;
         for (const auto& value : evidence.values) {
-            if (value.empty() || value.find('\0') != std::string::npos ||
+            if (value.empty() || value.size() > 8192 ||
+                value.find('\0') != std::string::npos ||
                 !valid_utf8_metadata_text(value)) {
                 malformed_values = true;
                 break;

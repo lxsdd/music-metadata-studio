@@ -101,5 +101,44 @@ int main() {
           extra_safety[4].reason == "invalid_or_empty_evidence_value",
           "shared lyrics safety and UTF-8/NUL/empty provider-value guards");
 
-    std::cout << "PASS: online field provenance, protected tags, no-op and review-only\n";
+    const auto repeated = review_online_fields(original, {
+        {"genre", {"House"}, "discogs", "release:100", EvidenceScope::Edition},
+        {"GENRE", {"Tech House"}, "discogs", "release:100", EvidenceScope::Edition},
+        {"GENRE", {"Dance"}, "musicbrainz", "release:100", EvidenceScope::Edition},
+        {"GENRE", {"Electronic"}, "discogs", "release:100", EvidenceScope::Recording}
+    });
+    check(repeated.size() == 4 &&
+          repeated[0].state == FieldReviewState::Blocked &&
+          repeated[1].state == FieldReviewState::Blocked &&
+          repeated[0].reason == "duplicate_provider_field_evidence" &&
+          repeated[1].reason == "duplicate_provider_field_evidence" &&
+          repeated[2].state == FieldReviewState::NeedsReview &&
+          repeated[3].state == FieldReviewState::NeedsReview,
+          "same-origin duplicates blocked, independent provider/scope preserved");
+    const auto identical = review_online_fields(original, {
+        {"ARTIST", {"A", "B"}, "discogs", "release:100"},
+        {"artist", {"A", "B"}, "discogs", "release:100"}
+    });
+    check(identical[0].state == FieldReviewState::Blocked &&
+          identical[1].state == FieldReviewState::Blocked,
+          "identical duplicate evidence must not create duplicate approvals");
+    const auto malformed_origin = review_online_fields(original, {
+        {"TITLE", {"X"}, "discogs\nother", "release:1"},
+        {"TITLE", {"X"}, "discogs", std::string("id\0hidden", 9)},
+        {"TITLE", {"X"}, "discogs", std::string(513, 'x')},
+        {"TITLE", {"X"}, "discogs", "release:2"}
+    });
+    check(malformed_origin[0].reason == "invalid_evidence_identity" &&
+          malformed_origin[1].reason == "invalid_evidence_identity" &&
+          malformed_origin[2].reason == "invalid_evidence_identity" &&
+          malformed_origin[3].state == FieldReviewState::NeedsReview,
+          "provider/source identity controls, NUL and bounds fail closed");
+    const auto bounded = review_online_fields(original, {
+        {"GENRE", std::vector<std::string>(129, "x"), "discogs", "release:3"},
+        {"COMMENT", {std::string(8193, 'x')}, "discogs", "release:3"}
+    });
+    check(bounded[0].reason == "unbounded_evidence_values" &&
+          bounded[1].reason == "invalid_or_empty_evidence_value",
+          "provider field-vector and value bounds prevent unreviewable proposals");
+    std::cout << "PASS: online field provenance, duplicate-origin safety, bounds, no-op and review-only\n";
 }

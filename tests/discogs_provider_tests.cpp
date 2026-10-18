@@ -75,6 +75,9 @@ int main() {
           {"position":"A1","title":"Main Track (Club Mix)","duration":"4:02"},
           {"position":"2","title":"Other Track","artists":[{"name":"Guest"}]},
           {"type_":"heading","title":"Bonus"},
+          {"type_":"index","position":"B","title":"Medley",
+           "sub_tracks":[{"position":"B1","title":"Part 1"}]},
+          {"type_":"video","title":"Not an audio track"},
           {"position":"1-03","title":"Complex position"}
         ]
     })DJ";
@@ -83,6 +86,7 @@ int main() {
           edition.tracks.size()==3 &&
           edition.tracks[0].source_track_id=="A1" &&
           edition.tracks[0].track_number==-1 &&
+          edition.tracks[0].recording.duration_ms==242000 &&
           edition.tracks[0].recording.primary_artist=="Primary Artist" &&
           edition.tracks[1].track_number==2 &&
           edition.tracks[1].recording.primary_artist=="Guest" &&
@@ -105,6 +109,46 @@ int main() {
           year && year->values.size()==1 && year->values[0]=="2003" &&
           year->date_meaning==DateMeaning::EditionRelease,
           "multi-value genre/style/catalog and edition year are lossless, never first-recording date");
+    check(duration_ms("4:02")==242000 &&
+          duration_ms("1:02:03")==3723000 &&
+          duration_ms("4:2")==-1 && duration_ms("4:60")==-1 &&
+          duration_ms("999:99")==-1 && duration_ms("0:00")==-1 &&
+          duration_ms("1:02:03:04")==-1 && duration_ms("")==-1,
+          "strict Discogs display duration is bounded, never a CUE index");
+    const auto collaboration=parse_release(R"({
+        "id":777,"title":"Together","artists":[
+            {"name":"Artist A","join":" & "},{"name":"Artist B","join":""}],
+        "tracklist":[{"type_":"track","position":"1","title":"Shared",
+            "duration":"1:02:03"}]
+    })",777);
+    check(collaboration.tracks.size()==1 &&
+          collaboration.tracks[0].recording.primary_artist=="Artist A & Artist B" &&
+          collaboration.tracks[0].recording.duration_ms==3723000 &&
+          collaboration.fields.size()>=2,
+          "explicit multi-artist joins retained without invented separator");
+    const auto ambiguous_artist=parse_release(R"({
+        "id":778,"title":"Unknown credit","artists":[
+            {"name":"Artist A"},{"name":"Artist B"}],
+        "tracklist":[{"type_":"track","position":"1","title":"Shared"}]
+    })",778);
+    check(ambiguous_artist.tracks[0].recording.primary_artist.empty(),
+          "unqualified collaboration does not inherit a guessed artist");
+    rejects([]{(void)parse_release(R"({
+        "id":2,"title":"Medley only","tracklist":[
+            {"type_":"index","title":"Medley",
+             "sub_tracks":[{"type_":"track","title":"Subtrack"}]},
+            {"type_":"heading","title":"Side A"}]
+    })",2);}, "nested index and headings cannot masquerade as track rows");
+    const auto unsafe_hits=parse_search(R"({"results":[
+        {"type":"release","id":5,"title":"Unsafe\\nName"},
+        {"type":"release","id":6,"title":"Valid","artist":"Bad\\nArtist",
+         "genre":["Good","Bad\\nGenre"]}]})");
+    check(unsafe_hits.hits.size()==1 &&
+          unsafe_hits.hits[0].id==6 &&
+          unsafe_hits.hits[0].artist.empty() &&
+          unsafe_hits.hits[0].genres.size()==1 &&
+          unsafe_hits.hits[0].genres[0]=="Good",
+          "remote control escapes cannot enter catalog labels or tags");
     rejects([&]{(void)parse_release(sample,322);},
             "reject substituted release identity before comparison or write approval");
     rejects([]{(void)parse_release(R"({"id":1,"title":"No tracklist"})",1);},
