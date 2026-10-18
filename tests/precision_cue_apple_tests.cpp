@@ -58,7 +58,8 @@ void lookup_positive() {
     request.candidates = {release};
     request.physical_discs = {{"Disc 1.mp3", 445174}, {"Disc 2.mp3", 400003}};
     const auto result = djmeta::make_precision_cue_release_preview(request);
-    assert(result.preview_qualified);
+    assert(result.state == djmeta::PrecisionCueMatchState::Review);
+    assert(!result.preview_qualified);
     assert(result.discs.size() == 2);
     assert(result.discs[1].boundaries[0].cue_frame == 0);
     assert(result.discs[1].external_cue_utf8.find("Teil Über") != std::string::npos);
@@ -68,8 +69,8 @@ void lookup_positive() {
     integrated.reference_release = reference;
     integrated.local_discs = request.physical_discs;
     const auto combined = djmeta::preview_apple_precision_cue_album(integrated);
-    assert(combined.state == djmeta::PrecisionCueMatchState::Selected);
-    assert(combined.preview_qualified && combined.discs.size() == 2);
+    assert(combined.state == djmeta::PrecisionCueMatchState::Review);
+    assert(!combined.preview_qualified && combined.discs.size() == 2);
     assert(combined.discs[0].boundaries[0].cue_frame == 0);
     assert(combined.discs[1].boundaries[0].cue_frame == 0);
 
