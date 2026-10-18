@@ -42,6 +42,24 @@ int main() {
           release_tracks_path(987) ==
               "/v4/catalog/releases/987/tracks?per_page=200",
           "fixed Beatport v4 endpoint paths, percent encoding and bounded pagination");
+    const auto search_plan=track_search_plan(
+        "Home (Extended Mix)", "DJ Example");
+    check(search_plan.size()==2 &&
+          search_plan[0].path==search_path("DJ Example Home") &&
+          search_plan[1].path==search_path("Home") &&
+          search_plan[0].reason!=search_plan[1].reason,
+          "Beatport search first uses artist and base title, then broadens");
+    const auto no_artist_plan=track_search_plan("Home (Radio Edit)");
+    check(no_artist_plan.size()==1 &&
+          no_artist_plan[0].path==search_path("Home"),
+          "mixed DJ title annotation is never passed as a fragile search suffix");
+    refuses([] { (void)track_search_plan("Home\nOther", "DJ"); },
+            "search plans reject control-bearing local tags");
+    const auto long_artist_plan=track_search_plan("Home",std::string(150,'A'));
+    check(long_artist_plan.size()==1 &&
+          long_artist_plan[0].path==search_path("Home"),
+          "excess combined query length safely falls back to base title");
+
     refuses([] { (void)search_path("bad\nheader"); },
             "control bytes cannot inject request headers");
     refuses([] { (void)search_path("bad\rheader"); },
@@ -204,6 +222,10 @@ int main() {
           search.hits[0].mix_name=="Extended Mix" &&
           search.hits[1].mix_name=="Radio Edit",
           "search preserves distinct named versions and discards malformed hits");
+    const auto pages=parse_search(R"({"count":27,"tracks":[
+       {"id":1,"name":"First"}]})");
+    check(pages.hits.size()==1 && pages.has_more,
+          "API count reveals additional pages without automatically fetching them");
     refuses([] { (void)parse_search(R"({"tracks":{} })"); },
             "reject unexpected search result shape");
     refuses([] { (void)parse_search(R"({"tracks":[],"results":[]})"); },
@@ -239,6 +261,15 @@ int main() {
           "release and track editions preserve version/position and album credits");
     refuses([&] { (void)parse_edition(release,tracks,988); },
             "release ID mismatch prevents false edition alignment");
+    refuses([&] { (void)parse_edition(R"({
+            "id":987,"name":"Very long album","track_count":220})",
+            tracks,987); },
+            "release with more than a bounded track page is not accepted");
+    refuses([&] { (void)parse_edition(R"({
+            "id":987,"name":"Bad count","track_count":"2"})",
+            tracks,987); },
+            "malformed release count is not interpreted as unknown");
+
     refuses([&] { (void)parse_edition(release,
             R"({"results":[{"id":321,"name":"Home"}]})",987); },
             "partial track page cannot silently become complete album");
