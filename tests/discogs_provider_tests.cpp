@@ -86,6 +86,22 @@ int main() {
     rejects([]{(void)track_search_plan("", "Artist");},
             "staged query requires a valid track title");
 
+    check(allowed_readonly_path(search_path("Via Balearia","Estiva")) &&
+          allowed_readonly_path(track_search_path("1000 Years")) &&
+          allowed_readonly_path(track_search_path("Only You","Matt Fax")) &&
+          allowed_readonly_path(release_path(38012673)),
+          "only canonical authenticated Discogs API paths cross native HTTP");
+    check(!allowed_readonly_path("https://api.discogs.com/releases/123") &&
+          !allowed_readonly_path("/users/example/collection") &&
+          !allowed_readonly_path("/database/search?q=X&type=master&page=1&per_page=20") &&
+          !allowed_readonly_path("/database/search?q=Hi%0D%0ABad&type=release&page=1&per_page=20") &&
+          !allowed_readonly_path("/database/search?q=Hi&type=release&token=secret&page=1&per_page=20") &&
+          !allowed_readonly_path("/database/search?q=Hi&type=release&page=2&per_page=20") &&
+          !allowed_readonly_path("/database/search?track=Hi&type=release&page=1&per_page=200") &&
+          !allowed_readonly_path("/releases/0") &&
+          !allowed_readonly_path("/releases/42/notes") &&
+          !allowed_readonly_path("/releases/042"),
+          "native Discogs host rejects foreign endpoints, tokens, control escapes and extra pages");
     const auto hits=parse_search(R"DJ({
         "pagination":{"page":1,"pages":200,"items":99999},
         "results":[
