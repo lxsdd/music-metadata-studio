@@ -20,6 +20,9 @@ struct PrecisionCuePreviewRequest {
     PrecisionCueRelease reference;
     std::vector<PrecisionCueRelease> candidates;
     std::vector<PrecisionCuePhysicalDisc> physical_discs;
+    // Only set after an explicit per-disc UI choice; never inferred from filenames.
+    // Still requires release/MP3 identity review and NEVER authorizes writes.
+    std::vector<std::size_t> reviewed_physical_index_by_disc;
     std::string genre;
     std::string release_date;
 };
@@ -47,6 +50,14 @@ struct PrecisionCueDiscMapping {
 PrecisionCueDiscMapping resolve_precision_cue_disc_mapping(
     const std::vector<std::int64_t>& provider_disc_durations_ms,
     const std::vector<PrecisionCuePhysicalDisc>& physical_discs);
+
+// Revalidate an explicit user-chosen permutation against ALL duration/path
+// constraints. Ambiguous durations can become a REVIEWABLE preview, never an
+// automatic Selected mapping. The caller must record each actual UI choice.
+PrecisionCueDiscMapping review_precision_cue_disc_mapping(
+    const std::vector<std::int64_t>& provider_disc_durations_ms,
+    const std::vector<PrecisionCuePhysicalDisc>& physical_discs,
+    const std::vector<std::size_t>& reviewed_physical_index_by_disc);
 
 // All disc plans are created in memory, or none is returned on rejection.
 // Unknown physical durations cause REVIEW; >1 s deviation causes REVIEW;

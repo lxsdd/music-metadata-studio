@@ -110,6 +110,45 @@ PrecisionCueDiscMapping resolve_precision_cue_disc_mapping(
     return result;
 }
 
+PrecisionCueDiscMapping review_precision_cue_disc_mapping(
+    const std::vector<std::int64_t>& provider_disc_durations_ms,
+    const std::vector<PrecisionCuePhysicalDisc>& physical_discs,
+    const std::vector<std::size_t>& reviewed_physical_index_by_disc) {
+    PrecisionCueDiscMapping result;
+    const auto baseline = resolve_precision_cue_disc_mapping(
+        provider_disc_durations_ms, physical_discs);
+    if (baseline.state == PrecisionCueMatchState::Rejected) return baseline;
+    const auto count = provider_disc_durations_ms.size();
+    if (reviewed_physical_index_by_disc.size() != count) {
+        result.diagnostics.emplace_back("EXPLICIT_DISC_MAPPING_COUNT_INVALID");
+        return result;
+    }
+    std::vector<bool> seen(count, false);
+    for (std::size_t disc = 0; disc < count; ++disc) {
+        const auto file = reviewed_physical_index_by_disc[disc];
+        if (file >= count || seen[file]) {
+            result.diagnostics.emplace_back("EXPLICIT_DISC_MAPPING_NOT_A_PERMUTATION");
+            return result;
+        }
+        seen[file] = true;
+        const auto measured = physical_discs[file].measured_duration_ms;
+        if (measured != 0 &&
+            duration_difference(provider_disc_durations_ms[disc], measured) >
+                static_cast<std::uint64_t>(kRejectDeltaMs)) {
+            result.diagnostics.emplace_back("EXPLICIT_DISC_MAPPING_DURATION_INCOMPATIBLE");
+            return result;
+        }
+    }
+    result.state = PrecisionCueMatchState::Review;
+    result.physical_index_by_disc = reviewed_physical_index_by_disc;
+    result.diagnostics.emplace_back("EXPLICIT_DISC_MAPPING_REQUIRES_IDENTITY_REVIEW");
+    for (std::size_t disc = 0; disc < count; ++disc)
+        if (physical_discs[reviewed_physical_index_by_disc[disc]].measured_duration_ms == 0)
+            result.diagnostics.emplace_back(
+                "LOCAL_DURATION_UNKNOWN_DISC_" + std::to_string(disc + 1));
+    return result;
+}
+
 PrecisionCuePreviewResult make_precision_cue_release_preview(
     const PrecisionCuePreviewRequest& request) {
     PrecisionCuePreviewResult result;
@@ -147,8 +186,11 @@ PrecisionCuePreviewResult make_precision_cue_release_preview(
         }
         provider_totals[track.disc_number - 1] += track.duration_ms;
     }
-    const auto mapping = resolve_precision_cue_disc_mapping(
-        provider_totals, request.physical_discs);
+    const auto mapping = request.reviewed_physical_index_by_disc.empty()
+        ? resolve_precision_cue_disc_mapping(provider_totals, request.physical_discs)
+        : review_precision_cue_disc_mapping(
+            provider_totals, request.physical_discs,
+            request.reviewed_physical_index_by_disc);
     result.diagnostics.insert(result.diagnostics.end(),
                               mapping.diagnostics.begin(), mapping.diagnostics.end());
     if (mapping.state == PrecisionCueMatchState::Rejected ||

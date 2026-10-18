@@ -137,6 +137,47 @@ void disc_mapping_regressions() {
     r = make_precision_cue_release_preview(f);
     assert(r.state == PrecisionCueMatchState::Rejected && r.discs.empty());
 }
+
+void explicitly_reviewed_disc_mapping() {
+    auto f = fixture();
+    // Two same-length discs: duration-only matching must remain ambiguous.
+    f.reference.tracks[2].duration_ms = 100001;
+    f.reference.tracks[3].duration_ms = 100002;
+    f.candidates[0].tracks[2].duration_ms = 100001;
+    f.candidates[0].tracks[3].duration_ms = 100002;
+    f.physical_discs = {{"B.mp3", 200003}, {"A.mp3", 200003}};
+    auto r = make_precision_cue_release_preview(f);
+    assert(r.state == PrecisionCueMatchState::Ambiguous && r.discs.empty());
+
+    // User explicitly chooses the reversed order: proposal only, never auto-approved.
+    f.reviewed_physical_index_by_disc = {1, 0};
+    r = make_precision_cue_release_preview(f);
+    assert(r.state == PrecisionCueMatchState::Review && !r.preview_qualified);
+    assert(r.discs.size() == 2);
+    assert(r.discs[0].external_cue_utf8.find("FILE \"A.mp3\" WAVE") != std::string::npos);
+    assert(r.discs[1].external_cue_utf8.find("FILE \"B.mp3\" WAVE") != std::string::npos);
+
+    f.reviewed_physical_index_by_disc = {0, 0};
+    r = make_precision_cue_release_preview(f);
+    assert(r.state == PrecisionCueMatchState::Rejected && r.discs.empty());
+    f.reviewed_physical_index_by_disc = {0, 2};
+    r = make_precision_cue_release_preview(f);
+    assert(r.state == PrecisionCueMatchState::Rejected && r.discs.empty());
+    f.reviewed_physical_index_by_disc = {0};
+    r = make_precision_cue_release_preview(f);
+    assert(r.state == PrecisionCueMatchState::Rejected && r.discs.empty());
+
+    f.reviewed_physical_index_by_disc = {1, 0};
+    f.physical_discs[0].measured_duration_ms += 4000;
+    r = make_precision_cue_release_preview(f);
+    assert(r.state == PrecisionCueMatchState::Rejected && r.discs.empty());
+
+    f.physical_discs[0].measured_duration_ms = 0;
+    f.physical_discs[1].measured_duration_ms = 0;
+    r = make_precision_cue_release_preview(f);
+    assert(r.state == PrecisionCueMatchState::Review && !r.preview_qualified);
+    assert(r.discs.size() == 2);
+}
 }
 
 int main() {
@@ -144,5 +185,6 @@ int main() {
     fail_closed();
     duration_review();
     disc_mapping_regressions();
+    explicitly_reviewed_disc_mapping();
     return 0;
 }
