@@ -25,7 +25,7 @@ namespace {
 
 constexpr UINT_PTR kPollTimer = 9001;
 HWND g_precision_workspace = nullptr; // Only accessed from foobar's UI thread.
-Workspace* g_pending_workspace = nullptr; // Pre-WM_INITDIALOG failure handoff.
+
 
 struct LocalFile {
     std::string basename;
@@ -61,6 +61,7 @@ struct Workspace {
     std::vector<LocalFile> files;
     std::shared_ptr<LookupJob> job;
 };
+Workspace* g_pending_workspace = nullptr; // Only main thread, owned until WM_INITDIALOG.
 
 std::wstring from_utf8(std::string_view value) {
     if (value.empty()) return {};
@@ -321,7 +322,7 @@ void open_precision_workspace(metadb_handle_list_cref handles) {
     }
 }
 
-class precision_context_menu final : public contextmenu_item_simple {
+class precision_context_menu : public contextmenu_item_simple {
 public:
     GUID get_parent() override { return guids::context_group; }
     unsigned get_num_items() override { return 1; }
