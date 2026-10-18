@@ -501,7 +501,10 @@ inline ReleaseEdition parse_release_lookup(std::string_view json,
                 throw std::invalid_argument("MusicBrainz malformed release track");
             EditionTrack row;
             const auto* rec=raw.get("recording");
-            row.source_track_id=rec?str(*rec,"id"):std::string{};
+            // The release track MBID identifies this edition position; the recording
+            // MBID identifies audio and may legitimately recur across tracks.
+            // Never substitute a recording ID for a missing release-track ID.
+            row.source_track_id=str(raw,"id");
             row.recording.title=str(raw,"title");
             if (row.recording.title.empty()&&rec)
                 row.recording.title=str(*rec,"title");
