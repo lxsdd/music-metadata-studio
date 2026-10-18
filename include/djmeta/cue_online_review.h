@@ -8,6 +8,8 @@
 
 #include <cstddef>
 #include <limits>
+#include <map>
+#include <tuple>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -58,6 +60,19 @@ inline std::vector<CueCandidateFieldReview> review_cue_candidate_fields(
     const std::vector<FieldEvidence>& evidence) {
     std::vector<CueCandidateFieldReview> output;
     output.reserve(evidence.size());
+    // Duplicate canonical CUE targets from one source are ambiguous, even
+    // when the input uses different case or equivalent field aliases.
+    using EvidenceKey = std::tuple<std::string, std::string, std::string,
+                                   EvidenceScope>;
+    std::map<EvidenceKey, std::size_t> occurrence_count;
+    for (const auto& proposed : evidence) {
+        const auto target = proposed.scope == EvidenceScope::Recording
+            ? CueReviewTarget::TrackLocal : CueReviewTarget::AlbumGlobal;
+        const auto canonical = known_cue_target(proposed.field, target);
+        if (!canonical.empty())
+            ++occurrence_count[{canonical, proposed.provider,
+                                proposed.source_id, proposed.scope}];
+    }
 
     for (std::size_t i = 0; i < evidence.size(); ++i) {
         const auto& proposed = evidence[i];
@@ -69,11 +84,12 @@ inline std::vector<CueCandidateFieldReview> review_cue_candidate_fields(
             output.push_back(std::move(row));
             continue;
         }
-        if (proposed.provider.empty() || proposed.source_id.empty() ||
+        if (proposed.field.empty() || proposed.field.size() > 256 ||
             !valid_utf8_metadata_text(proposed.field) ||
-            proposed.values.size() != 1 || proposed.values[0].empty() ||
-            proposed.values[0].find('\0') != std::string::npos ||
-            !valid_utf8_metadata_text(proposed.values[0])) {
+            !valid_evidence_origin(proposed.provider, 128) ||
+            !valid_evidence_origin(proposed.source_id, 512) ||
+            proposed.values.size() != 1 ||
+            !valid_evidence_origin(proposed.values[0], 8192)) {
             row.reason = "cue_evidence_invalid_or_multivalue";
             output.push_back(std::move(row));
             continue;
@@ -87,6 +103,19 @@ inline std::vector<CueCandidateFieldReview> review_cue_candidate_fields(
         row.target = proposed.scope == EvidenceScope::Recording
             ? CueReviewTarget::TrackLocal : CueReviewTarget::AlbumGlobal;
         row.cue_field = known_cue_target(field, row.target);
+        if (!row.cue_field.empty() &&
+            occurrence_count[{row.cue_field, proposed.provider,
+                              proposed.source_id, proposed.scope}] > 1) {
+            row.reason = "cue_duplicate_provider_field_evidence";
+            output.push_back(std::move(row));
+            continue;
+        }
+        if (field == "DATE" && row.target == CueReviewTarget::AlbumGlobal &&
+            proposed.date_meaning != DateMeaning::EditionRelease) {
+            row.reason = "cue_date_scope_mismatch";
+            output.push_back(std::move(row));
+            continue;
+        }
         if (row.cue_field.empty()) {
             row.target = CueReviewTarget::Unsupported;
             row.reason = "cue_field_not_representable";

@@ -13,8 +13,9 @@ void check(bool yes, const char* why) {
 djmeta::online::FieldEvidence item(
     const char* field, std::vector<std::string> values,
     djmeta::online::EvidenceScope scope,
-    djmeta::online::DateMeaning date = djmeta::online::DateMeaning::NotDate) {
-    return {field, std::move(values), "discogs", "release:100", scope, date};
+    djmeta::online::DateMeaning date = djmeta::online::DateMeaning::NotDate,
+    const char* source_id = "release:100") {
+    return {field, std::move(values), "discogs", source_id, scope, date};
 }
 }
 
@@ -36,10 +37,13 @@ int main() {
         item("GENRE", {"Techno"}, EvidenceScope::Edition),
         item("TITLE", {"Other Second"}, EvidenceScope::Recording),
         item("ARTIST", {"Album Artist"}, EvidenceScope::Recording),
-        item("ARTIST", {"Other Singer"}, EvidenceScope::Recording),
+        item("ARTIST", {"Other Singer"}, EvidenceScope::Recording,
+             DateMeaning::NotDate, "recording:200"),
         item("KEY", {"A minor"}, EvidenceScope::Recording),
-        item("DATE", {"1997"}, EvidenceScope::Edition),
-        item("GENRE", {"House", "Trance"}, EvidenceScope::Edition),
+        item("DATE", {"1997"}, EvidenceScope::Edition,
+             DateMeaning::NotDate, "release:101"),
+        item("GENRE", {"House", "Trance"}, EvidenceScope::Edition,
+             DateMeaning::NotDate, "release:102"),
         item("CUESHEET", {"destructive"}, EvidenceScope::Recording),
         item("DATE", {"1998"}, EvidenceScope::Edition,
              DateMeaning::EditionRelease)
@@ -116,6 +120,56 @@ int main() {
     check(rejected[0].state == FieldReviewState::Blocked &&
           rejected[0].reason == "cue_inventory_unqualified",
           "no proposals from unqualified syntax or encoding");
+
+
+    // Provider strings are untrusted; CR/LF must not inject CUE structure.
+    const auto invalid_rows = review_cue_candidate_fields(parsed, 1, {
+        item("TITLE", {"Safe\nFILE stolen.flac WAVE"}, EvidenceScope::Recording),
+        {"TITLE", {"Value"}, "discogs\nspoof", "release:100",
+         EvidenceScope::Recording, DateMeaning::NotDate},
+        {"TITLE", {"Value"}, "discogs", "release:100\rspoof",
+         EvidenceScope::Recording, DateMeaning::NotDate},
+        item("TITLE", {std::string(8193, 'x')}, EvidenceScope::Recording),
+        item(std::string(257, 'F').c_str(), {"Value"}, EvidenceScope::Recording)
+    });
+    check(invalid_rows.size() == 5, "invalid evidence is visible for review");
+    for (const auto& row : invalid_rows)
+        check(row.state == FieldReviewState::Blocked &&
+              row.reason == "cue_evidence_invalid_or_multivalue",
+              "malformed provenance and CUE line injection fail closed");
+
+    const auto repeated = review_cue_candidate_fields(parsed, 1, {
+        item("TITLE", {"Other Second"}, EvidenceScope::Recording),
+        item("title", {"Second"}, EvidenceScope::Recording)
+    });
+    check(repeated.size() == 2 &&
+          repeated[0].reason == "cue_duplicate_provider_field_evidence" &&
+          repeated[1].reason == "cue_duplicate_provider_field_evidence" &&
+          repeated[0].state == FieldReviewState::Blocked &&
+          repeated[1].state == FieldReviewState::Blocked,
+          "same-source case aliases cannot compete for one CUE token");
+
+    const auto independent = review_cue_candidate_fields(parsed, 1, {
+        item("TITLE", {"Other Second"}, EvidenceScope::Recording),
+        item("TITLE", {"Second"}, EvidenceScope::Recording,
+             DateMeaning::NotDate, "recording:200")
+    });
+    check(independent[0].state == FieldReviewState::NeedsReview &&
+          independent[1].state == FieldReviewState::Unchanged,
+          "distinct recording sources remain independently reviewable");
+
+    const auto edition_date = review_cue_candidate_fields(parsed, 1, {
+        item("DATE", {"1997"}, EvidenceScope::Edition,
+             DateMeaning::OriginalRelease, "release:201"),
+        item("DATE", {"1997"}, EvidenceScope::Edition,
+             DateMeaning::DigitalPublication, "release:202"),
+        item("DATE", {"1998"}, EvidenceScope::Edition,
+             DateMeaning::EditionRelease, "release:203")
+    });
+    check(edition_date[0].reason == "cue_date_scope_mismatch" &&
+          edition_date[1].reason == "cue_date_scope_mismatch" &&
+          edition_date[2].state == FieldReviewState::Unchanged,
+          "original/digital dates cannot overwrite edition CUE date");
 
     std::cout << "PASS: CUE field scope, inheritance impact, no-op, unknown-field guards\n";
 }
