@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <map>
 #include <set>
 #include <string>
 #include <string_view>
@@ -216,11 +217,43 @@ inline std::vector<CandidateMatch> rank(
     const RecordingIdentity& local,
     const std::vector<Candidate>& candidates) {
     std::vector<CandidateMatch> results;
-    std::set<std::pair<std::string, std::string>> seen_ids;
+    // Duplicate provider IDs must not silently select the first payload.
+    // Identical repeats are harmless; any conflicting recording payload makes
+    // the entire provider identity unusable, independent of input order.
+    // Exact byte equality is intentional: an unverified representation change
+    // is not grounds for an automatic metadata suggestion.
+    const auto same_identity = [](const RecordingIdentity& a,
+                                  const RecordingIdentity& b) {
+        return a.title == b.title &&
+               a.primary_artist == b.primary_artist &&
+               a.mix_name == b.mix_name &&
+               a.mix == b.mix &&
+               a.isrc == b.isrc &&
+               a.duration_ms == b.duration_ms;
+    };
+    using Key = std::pair<std::string, std::string>;
+    std::map<Key, std::size_t> first;
+    std::set<Key> conflicting;
+    std::map<Key, RecordingIdentity> originals;
     for (const auto& candidate : candidates) {
-        if (candidate.provider.empty() || candidate.provider_track_id.empty()) continue;
-        if (!seen_ids.emplace(candidate.provider, candidate.provider_track_id).second) continue;
-        results.push_back(compare(local, candidate));
+        if (candidate.provider.empty() || candidate.provider_track_id.empty())
+            continue;
+        const Key key{candidate.provider, candidate.provider_track_id};
+        const auto [it, inserted] = first.emplace(key, results.size());
+        if (inserted) {
+            results.push_back(compare(local, candidate));
+            originals.emplace(key, candidate.identity);
+        } else {
+            if (!same_identity(originals.at(key), candidate.identity))
+                conflicting.insert(key);
+        }
+    }
+    for (const auto& key : conflicting) {
+        auto& match = results[first.at(key)];
+        match.decision = MatchDecision::Rejected;
+        match.score = 0;
+        match.evidence.clear();
+        match.conflicts.push_back("provider_identity_conflict");
     }
     std::sort(results.begin(), results.end(),
         [](const CandidateMatch& a, const CandidateMatch& b) {

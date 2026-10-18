@@ -104,14 +104,51 @@ int main() {
     const auto ranked = rank(original, {unnamed, radio, strong, duplicate, deezer, uncertain});
     expect(ranked.size() == 4,
            "invalid identifiers and duplicate provider records ignored");
-    expect(ranked[0].provider == "beatport" &&
-           ranked[1].provider == "deezer" &&
+    expect(ranked[0].provider == "deezer" &&
            ranked[0].decision == MatchDecision::Suggested &&
-           ranked[1].decision == MatchDecision::Suggested,
-           "deterministic tie order across independent sources");
-    expect(ranked[2].decision == MatchDecision::Review &&
+           ranked[1].decision == MatchDecision::Review &&
+           ranked[2].decision == MatchDecision::Rejected &&
            ranked[3].decision == MatchDecision::Rejected,
-           "rank by semantic disposition before numerical evidence score");
+           "conflicting duplicate provider ID cannot outrank independent evidence");
+    const auto find_match = [](const std::vector<CandidateMatch>& matches,
+                               std::string_view provider,
+                               std::string_view id) -> const CandidateMatch* {
+        for (const auto& match : matches)
+            if (match.provider == provider && match.provider_track_id == id)
+                return &match;
+        return nullptr;
+    };
+    const auto* disputed = find_match(ranked, "beatport", "128");
+    expect(disputed && disputed->decision == MatchDecision::Rejected &&
+           disputed->score == 0 && disputed->evidence.empty() &&
+           has(disputed->conflicts, "provider_identity_conflict"),
+           "conflicting same-provider track identity is fail-closed");
+    const auto reversed = rank(original, {duplicate, strong, deezer});
+    const auto* reversed_disputed = find_match(reversed, "beatport", "128");
+    expect(reversed_disputed &&
+           reversed_disputed->decision == MatchDecision::Rejected &&
+           has(reversed_disputed->conflicts, "provider_identity_conflict"),
+           "duplicate conflict cannot depend on provider response ordering");
+    const auto exact_repeat = rank(original, {strong, strong, deezer});
+    const auto* repeated = find_match(exact_repeat, "beatport", "128");
+    expect(exact_repeat.size() == 2 && repeated &&
+           repeated->decision == MatchDecision::Suggested &&
+           !has(repeated->conflicts, "provider_identity_conflict"),
+           "byte-identical provider repeats deduplicate without false conflict");
+    Candidate altered_artist = strong;
+    altered_artist.identity.primary_artist = "Different artist";
+    const auto inconsistent = rank(original, {strong, altered_artist});
+    expect(inconsistent.size() == 1 &&
+           inconsistent[0].decision == MatchDecision::Rejected &&
+           has(inconsistent[0].conflicts, "provider_identity_conflict"),
+           "conflicting artist under same provider ID cannot be suggested");
+    Candidate same_id_other_provider = strong;
+    same_id_other_provider.provider = "musicbrainz";
+    const auto independent = rank(original, {strong, same_id_other_provider});
+    expect(independent.size() == 2 &&
+           independent[0].decision == MatchDecision::Suggested &&
+           independent[1].decision == MatchDecision::Suggested,
+           "same opaque ID in separate provider namespaces remains independent");
 
     expect(normalized_isrc("us-abc-26-00001") == "USABC2600001" &&
            normalized_isrc("usabc2600001") == "USABC2600001" &&
