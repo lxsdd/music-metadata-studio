@@ -44,15 +44,29 @@ struct LookupJob {
 // must NEVER post to stale/reused HWNDs or access foobar SDK objects.
 // Finished jobs are collected at next launch, outstanding jobs joined
 // only during process/component teardown.
-std::vector<std::shared_ptr<LookupJob>> g_lookup_jobs;
+struct LookupJobPool {
+    std::vector<std::shared_ptr<LookupJob>> jobs;
+    ~LookupJobPool() {
+        // A worker captures its own shared state. Join BEFORE removing the
+        // pool's ownership so its final reference can never disappear on
+        // that same worker thread (which would self-join/terminate).
+        for (const auto& job : jobs) {
+            if (job->worker.joinable()) job->worker.join();
+        }
+    }
+};
+LookupJobPool g_lookup_pool;
 
 void reap_finished_jobs() {
-    g_lookup_jobs.erase(
-        std::remove_if(g_lookup_jobs.begin(), g_lookup_jobs.end(),
+    auto& jobs = g_lookup_pool.jobs;
+    jobs.erase(
+        std::remove_if(jobs.begin(), jobs.end(),
             [](const std::shared_ptr<LookupJob>& job) {
-                return job->ready.load(std::memory_order_acquire);
+                if (!job->ready.load(std::memory_order_acquire)) return false;
+                if (job->worker.joinable()) job->worker.join();
+                return true;
             }),
-        g_lookup_jobs.end());
+        jobs.end());
 }
 
 struct Workspace {
@@ -227,7 +241,7 @@ void start_lookup(Workspace& state) {
         }
         job->ready.store(true, std::memory_order_release);
     });
-    g_lookup_jobs.push_back(job);
+    g_lookup_pool.jobs.push_back(job);
     state.job = std::move(job);
     EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_LOOKUP), FALSE);
     show_text(state.dialog, L"Requesting official Apple album metadata...\r\n"
