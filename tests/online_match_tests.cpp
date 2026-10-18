@@ -104,19 +104,48 @@ int main() {
     const auto ranked = rank(original, {unnamed, radio, strong, duplicate, deezer, uncertain});
     expect(ranked.size() == 4,
            "invalid identifiers and duplicate provider records ignored");
-    expect(ranked[0].provider == "beatport" &&
-           ranked[1].provider == "deezer" &&
-           ranked[0].decision == MatchDecision::Suggested &&
-           ranked[1].decision == MatchDecision::Suggested,
-           "deterministic tie order across independent sources");
-    expect(ranked[2].decision == MatchDecision::Review &&
-           ranked[3].decision == MatchDecision::Rejected,
-           "rank by semantic disposition before numerical evidence score");
+    expect(ranked[0].provider == "deezer" &&
+           ranked[0].decision == MatchDecision::Suggested,
+           "independent source remains a suggestion despite colliding provider ID");
+    const auto collision = std::find_if(ranked.begin(), ranked.end(),
+        [](const CandidateMatch& item) {
+            return item.provider == "beatport" && item.provider_track_id == "128";
+        });
+    expect(collision != ranked.end() &&
+           collision->decision == MatchDecision::Review &&
+           collision->score == 0 &&
+           collision->evidence.empty() &&
+           has(collision->conflicts, "provider_identity_collision"),
+           "inconsistent records sharing a provider ID must never be suggested");
+    const auto reverse_ranked = rank(original,
+        {unnamed, radio, duplicate, strong, deezer, uncertain});
+    const auto reverse_collision = std::find_if(
+        reverse_ranked.begin(), reverse_ranked.end(),
+        [](const CandidateMatch& item) {
+            return item.provider == "beatport" && item.provider_track_id == "128";
+        });
+    expect(reverse_ranked.size() == ranked.size() &&
+           reverse_collision != reverse_ranked.end() &&
+           reverse_collision->decision == MatchDecision::Review &&
+           reverse_collision->score == 0 &&
+           has(reverse_collision->conflicts, "provider_identity_collision"),
+           "provider identity collision must fail closed regardless of input order");
+    const auto identical_duplicates = rank(original, {strong, strong});
+    expect(identical_duplicates.size() == 1 &&
+           identical_duplicates[0].decision == MatchDecision::Suggested,
+           "byte-identical duplicate evidence may be safely deduplicated");
+    Candidate nul_provider = strong;
+    nul_provider.provider = std::string("beat\0port", 9);
+    expect(rank(original, {nul_provider}).empty(),
+           "provider IDs with embedded NUL cannot enter a result identity");
 
     expect(normalized_isrc("us-abc-26-00001") == "USABC2600001" &&
            normalized_isrc("usabc2600001") == "USABC2600001" &&
-           normalized_isrc("US/ABC/26/00001").empty(),
-           "ISRC token matching accepts optional separators but rejects bad codes");
+           normalized_isrc("US/ABC/26/00001").empty() &&
+           normalized_isrc("00ABC2600001").empty() &&
+           normalized_isrc("USABC2X00001").empty() &&
+           normalized_isrc("USABC26000A1").empty(),
+           "ISRC matching validates ISO 3901 field structure, not only length");
     expect(comparable("  A --B \t C! ") == "a b c" &&
            comparable("Björk") == "björk" &&
            comparable(std::string("A\0B", 3)).empty(),
