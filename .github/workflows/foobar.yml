@@ -15,16 +15,6 @@ on:
       - '.github/workflows/foobar.yml'
   pull_request:
     branches: [ main ]
-    paths:
-      - 'include/**'
-      - 'src/core/**'
-      - 'src/foobar/**'
-      - 'rules/**'
-      - 'scripts/**'
-      - 'tests/static_foobar_audit.py'
-      - 'foo_dj_metadata_normalizer.vcxproj'
-      - 'VERSION'
-      - '.github/workflows/foobar.yml'
   workflow_dispatch:
 
 permissions:
