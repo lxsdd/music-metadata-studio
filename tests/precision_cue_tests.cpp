@@ -77,16 +77,16 @@ void test_frame_classification() {
 
 void test_generated_utf8_validation() {
     auto d = synthetic_disc();
-    d.album_title = std::string("bad ") + char(0xc3) + '(';
+    d.album_title = std::string("bad ") + static_cast<char>(static_cast<unsigned char>(0xc3)) + '(';
     must_reject([&] { (void)djmeta::make_precision_cue(d); });
 
     d = synthetic_disc();
     d.tracks[0].title =
-        std::string("bad ") + char(0xed) + char(0xa0) + char(0x80);
+        std::string("bad ") + static_cast<char>(static_cast<unsigned char>(0xed)) + static_cast<char>(static_cast<unsigned char>(0xa0)) + static_cast<char>(static_cast<unsigned char>(0x80));
     must_reject([&] { (void)djmeta::make_precision_cue(d); });
 
     d = synthetic_disc();
-    d.audio_file_basename = std::string("bad ") + char(0xff) + ".mp3";
+    d.audio_file_basename = std::string("bad ") + static_cast<char>(static_cast<unsigned char>(0xff)) + ".mp3";
     must_reject([&] { (void)djmeta::make_precision_cue(d); });
 
     d = synthetic_disc();
