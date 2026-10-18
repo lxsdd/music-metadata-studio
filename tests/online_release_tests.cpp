@@ -111,6 +111,55 @@ int main() {
     check(wrong_mix.unmatched == 1,
           "different mix must never be forced despite position");
 
+    // Provider track identities must not become two distinct recordings.
+    auto repeated_id = release;
+    repeated_id.tracks = {
+        {"recording:77", song("First"), 1, 1, {}},
+        {"recording:77", song("First"), 1, 2, {}}
+    };
+    const auto repeated_alignment = align_release(
+        {{10, song("First"), 1, 1}}, repeated_id);
+    check(repeated_alignment.matched == 1 &&
+          repeated_alignment.tracks[0].decision == MatchDecision::Review &&
+          contains(repeated_alignment.tracks[0].conflicts,
+                   "repeated_edition_track_identity"),
+          "repeated identical provider track ID is never an automatic suggestion");
+
+    auto contradictory_id = repeated_id;
+    contradictory_id.tracks[1].recording.title = "Different recording";
+    const auto blocked_id = align_release(
+        {{10, song("First"), 1, 1}}, contradictory_id);
+    check(blocked_id.matched == 0 && blocked_id.unmatched == 1 &&
+          contains(blocked_id.tracks[0].conflicts,
+                   "conflicting_edition_track_identity"),
+          "same provider track ID with contradictory recordings blocks edition");
+    std::swap(contradictory_id.tracks[0], contradictory_id.tracks[1]);
+    const auto reversed_id = align_release(
+        {{10, song("First"), 1, 1}}, contradictory_id);
+    check(reversed_id.matched == 0 &&
+          contains(reversed_id.tracks[0].conflicts,
+                   "conflicting_edition_track_identity"),
+          "provider ID conflict is independent of remote tracklist ordering");
+
+    auto contradictory_fields = repeated_id;
+    contradictory_fields.tracks[1].fields.push_back(genres);
+    const auto blocked_fields = align_release(
+        {{10, song("First"), 1, 1}}, contradictory_fields);
+    check(blocked_fields.matched == 0 &&
+          contains(blocked_fields.tracks[0].conflicts,
+                   "conflicting_edition_track_identity"),
+          "provider ID with contradictory field provenance blocks edition");
+
+    auto distinct_ids = repeated_id;
+    distinct_ids.tracks[1].source_track_id = "recording:78";
+    const auto distinct_alignment = align_release(
+        {{10, song("First"), 1, 1}}, distinct_ids);
+    check(distinct_alignment.matched == 1 &&
+          distinct_alignment.tracks[0].decision == MatchDecision::Suggested &&
+          !contains(distinct_alignment.tracks[0].conflicts,
+                    "repeated_edition_track_identity"),
+          "distinct provider track IDs retain safe position-aware matching");
+
     const auto again = align_release(local, release);
     check(again.tracks[0].edition_track_index == aligned.tracks[0].edition_track_index &&
           again.tracks[1].edition_track_index == aligned.tracks[1].edition_track_index,

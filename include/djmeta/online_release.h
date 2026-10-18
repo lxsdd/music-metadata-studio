@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
@@ -125,6 +126,29 @@ inline ReleaseAlignment align_release(const std::vector<LocalReleaseTrack>& loca
             return fail("duplicate_local_source_index");
     if (k == 0) return fail("empty_release_tracklist");
 
+    // An edition cannot safely assign two different recordings to the same
+    // provider track ID. Repeated identical identities may represent an
+    // intentional repeated recording, but must never be auto-suggested.
+    std::map<std::string, std::size_t> first_remote_id;
+    std::set<std::string> repeated_remote_ids;
+    for (std::size_t j = 0; j < k; ++j) {
+        const auto& track = edition.tracks[j];
+        if (track.source_track_id.empty()) continue;
+        const auto [it, inserted] =
+            first_remote_id.emplace(track.source_track_id, j);
+        if (inserted) continue;
+        repeated_remote_ids.insert(track.source_track_id);
+        const auto& previous = edition.tracks[it->second];
+        const auto& a = previous.recording;
+        const auto& b = track.recording;
+        if (a.title != b.title ||
+            a.primary_artist != b.primary_artist ||
+            a.mix_name != b.mix_name || a.mix != b.mix ||
+            a.isrc != b.isrc || a.duration_ms != b.duration_ms ||
+            previous.fields != track.fields)
+            return fail("conflicting_edition_track_identity");
+    }
+
     const std::size_t m = k + n;
     constexpr std::int64_t inf = 1'000'000'000LL;
     std::vector<std::vector<std::int64_t>> cost(
@@ -218,6 +242,11 @@ inline ReleaseAlignment align_release(const std::vector<LocalReleaseTrack>& loca
             } else {
                 result.evidence.emplace_back(position.reason);
             }
+        }
+        if (!edition.tracks[chosen].source_track_id.empty() &&
+            repeated_remote_ids.contains(edition.tracks[chosen].source_track_id)) {
+            result.conflicts.emplace_back("repeated_edition_track_identity");
+            result.decision = MatchDecision::Review;
         }
         const auto chosen_cost = cost[i + 1][chosen + 1];
         int ties = 0;
