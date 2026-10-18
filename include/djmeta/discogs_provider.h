@@ -107,7 +107,8 @@ inline std::string joined_artist_credit(const musicbrainz::Json& node) {
         const auto join=string_field(arr->array[i],"join");
         if(!catalog_label(name) ||
            (!join.empty() && !catalog_label(join,64)) ||
-           (i+1<arr->array.size() && join.empty())) return {};
+           (i+1<arr->array.size() && join.empty()) ||
+           (i+1==arr->array.size() && !join.empty())) return {};
         joined+=name;
         joined+=join;
         if(joined.size()>1024) return {};
@@ -169,6 +170,83 @@ inline std::string search_path(std::string_view title,
     if(result.size()>2048)
         throw std::invalid_argument("Discogs query too large");
     return result;
+}
+// Discogs supports 'track' as a distinct database search field. A release
+// named differently from a contained track must not require browsing an
+// artist tree or repeatedly clearing an artist cache.
+inline std::string track_search_path(std::string_view title,
+                                     std::string_view artist = {}) {
+    std::string path="/database/search?track="+
+        musicbrainz::encode_url_query(validated_term(title))+
+        "&type=release";
+    if (!artist.empty())
+        path+="&artist="+musicbrainz::encode_url_query(validated_term(artist));
+    path+="&page=1&per_page=20";
+    if(path.size()>2048)
+        throw std::invalid_argument("Discogs query too large");
+    return path;
+}
+struct SearchAttempt {
+    std::string label; // Displayable reason for this fixed official request.
+    std::string path;  // Only official relative API paths. No tokens or URL I/O.
+};
+inline std::vector<SearchAttempt> track_search_plan(
+    std::string_view title, std::string_view artist = {}) {
+    validated_term(title);
+    if (!artist.empty()) validated_term(artist);
+    const auto annotation = split_title_mix(title);
+    const auto core = annotation.version.empty()
+        ? title : annotation.base;
+    std::vector<SearchAttempt> plan;
+    const auto add = [&](std::string label, std::string path) {
+        for (const auto& previous : plan)
+            if (previous.path == path) return;
+        plan.push_back({std::move(label),std::move(path)});
+    };
+    // First search narrow and cheap, then broaden only on explicit request
+    // when previous attempts have no qualified hits. Never bulk crawl.
+    add("Release title with artist", search_path(title,artist));
+    add("Exact track in release", track_search_path(title,artist));
+    if (!artist.empty())
+        add("Track without artist restriction",track_search_path(title));
+    if (core != title)
+        add("Track without mix suffix",track_search_path(core));
+    add("Broad catalog keywords",search_path(core));
+    return plan;
+}
+// Canonical pasted Discogs URLs can directly select a release, bypassing the
+// search index. Never fetch the supplied URL: only extract an integer ID and
+// construct our own fixed API release_path after qualification.
+inline std::uint64_t release_id_from_url(std::string_view url) {
+    if (url.empty() || url.size()>2048) return 0;
+    for (unsigned char c:url)
+        if (c<0x20 || c==0x7f) return 0;
+    const std::string_view origins[]={
+        "https://www.discogs.com/release/",
+        "https://discogs.com/release/",
+        "https://www.discogs.com/releases/",
+        "https://discogs.com/releases/"
+    };
+    std::string_view rest;
+    bool recognized=false;
+    for (auto base:origins)
+        if (url.starts_with(base)) {
+            rest=url.substr(base.size());
+            recognized=true;
+            break;
+        }
+    if(!recognized || rest.empty()) return 0;
+    const auto length=rest.find_first_not_of("0123456789");
+    const auto digits=rest.substr(0,length);
+    if(digits.empty() || digits.size()>12) return 0;
+    if(length!=std::string_view::npos &&
+       rest[length]!='-' && rest[length]!='/' &&
+       rest[length]!='?' && rest[length]!='#') return 0;
+    std::uint64_t id=0;
+    const auto [end,error]=std::from_chars(
+        digits.data(),digits.data()+digits.size(),id);
+    return error==std::errc{} && end==digits.data()+digits.size() &&
+           id>0 && id<=999999999999ULL ? id : 0;
 }
 inline std::string release_path(std::uint64_t id) {
     if(!id || id>999999999999ULL)
