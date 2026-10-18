@@ -59,6 +59,14 @@ PrecisionCueDiscMapping review_precision_cue_disc_mapping(
     const std::vector<PrecisionCuePhysicalDisc>& physical_discs,
     const std::vector<std::size_t>& reviewed_physical_index_by_disc);
 
+// Read-only per-selection validation for the native disc chooser. An incomplete
+// selection is reviewable, never a valid complete mapping or write approval.
+// The sentinel physical_discs.size() denotes an unassigned disc.
+PrecisionCueDiscMapping validate_precision_cue_partial_disc_mapping(
+    const std::vector<std::int64_t>& provider_disc_durations_ms,
+    const std::vector<PrecisionCuePhysicalDisc>& physical_discs,
+    const std::vector<std::size_t>& chosen_physical_index_by_disc);
+
 // All disc plans are created in memory, or none is returned on rejection.
 // Unknown physical durations cause REVIEW; >1 s deviation causes REVIEW;
 // >3 s is rejected. A correct duration is NOT proof of source mastering.
