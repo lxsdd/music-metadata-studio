@@ -124,6 +124,18 @@ int main() {
           hits.hits[1].kind==EntityKind::Master &&
           hits.hits[1].canonical_url=="https://www.discogs.com/master/125",
           "separate master/release IDs, dedupe tag vectors, never trust remote URL");
+    const auto duplicate_hits=parse_search(R"DJ({"results":[
+        {"type":"release","id":44,"title":"First edition"},
+        {"type":"release","id":44,"title":"Duplicate edition"},
+        {"type":"master","id":44,"title":"Same number, different type"},
+        {"type":"release","id":45,"title":"Second edition"},
+        {"type":"master","id":44,"title":"Repeated master"}]})DJ");
+    check(duplicate_hits.hits.size()==3 &&
+          duplicate_hits.hits[0].title=="First edition" &&
+          duplicate_hits.hits[1].kind==EntityKind::Master &&
+          duplicate_hits.hits[1].id==44 &&
+          duplicate_hits.hits[2].id==45,
+          "dedupe exact Discogs identities without merging master and release");
     rejects([]{(void)parse_search(R"({"results":{}})");},
             "fail closed on malformed result type");
     rejects([]{(void)parse_search(std::string(2*1024*1024+1,'x'));},
@@ -158,6 +170,29 @@ int main() {
           edition.tracks[1].recording.primary_artist=="Guest" &&
           edition.tracks[2].track_number==-1,
           "preserve side/position and direct artist provenance without inventing track numbers");
+    const auto track_field=[](const EditionTrack& track,
+                              std::string_view name)->const FieldEvidence* {
+        for(const auto& field:track.fields)
+            if(field.field==name) return &field;
+        return nullptr;
+    };
+    const auto* title0=track_field(edition.tracks[0],"TITLE");
+    const auto* title1=track_field(edition.tracks[1],"TITLE");
+    const auto* artist1=track_field(edition.tracks[1],"ARTIST");
+    const auto* number1=track_field(edition.tracks[1],"TRACKNUMBER");
+    check(title0 && title0->values==std::vector<std::string>{"Main Track (Club Mix)"} &&
+          title0->provider=="discogs" &&
+          title0->source_id=="321/track/1" &&
+          title0->scope==EvidenceScope::Edition &&
+          title0->date_meaning==DateMeaning::NotDate &&
+          !track_field(edition.tracks[0],"ARTIST") &&
+          !track_field(edition.tracks[0],"TRACKNUMBER") &&
+          title1 && title1->source_id=="321/track/2" &&
+          artist1 && artist1->values==std::vector<std::string>{"Guest"} &&
+          artist1->source_id==title1->source_id &&
+          number1 && number1->values==std::vector<std::string>{"2"} &&
+          !track_field(edition.tracks[2],"TRACKNUMBER"),
+          "edition row provenance covers explicit title/artist/numeric position only");
     auto by_name=[&](std::string_view field) -> const FieldEvidence* {
         for(const auto& value:edition.fields)
             if(value.field==field) return &value;
@@ -197,6 +232,7 @@ int main() {
     check(collaboration.tracks.size()==1 &&
           collaboration.tracks[0].recording.primary_artist=="Artist A & Artist B" &&
           collaboration.tracks[0].recording.duration_ms==3723000 &&
+          !track_field(collaboration.tracks[0],"ARTIST") &&
           collaboration.fields.size()>=2,
           "explicit multi-artist joins retained without invented separator");
     const auto trailing_join=parse_release(R"({
@@ -218,8 +254,18 @@ int main() {
     })",778);
     check(album_credit(ambiguous_artist).empty(),
           "ambiguous multi-artist album credits must not become separate album artist tags");
-    check(ambiguous_artist.tracks[0].recording.primary_artist.empty(),
+    check(ambiguous_artist.tracks[0].recording.primary_artist.empty() &&
+          !track_field(ambiguous_artist.tracks[0],"ARTIST"),
           "unqualified collaboration does not inherit a guessed artist");
+    const auto ambiguous_track=parse_release(R"({
+        "id":780,"title":"Ambiguous track credit",
+        "tracklist":[{"type_":"track","position":"1","title":"Duet",
+          "artists":[{"name":"A"},{"name":"B"}]}]
+    })",780);
+    check(ambiguous_track.tracks.size()==1 &&
+          !track_field(ambiguous_track.tracks[0],"ARTIST") &&
+          track_field(ambiguous_track.tracks[0],"TITLE"),
+          "ambiguous explicit track credits are not silently joined");
     rejects([]{(void)parse_release(R"({
         "id":2,"title":"Medley only","tracklist":[
             {"type_":"index","title":"Medley",

@@ -11,6 +11,7 @@
 #include <charconv>
 #include <cstdint>
 #include <limits>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -332,6 +333,7 @@ inline SearchResults parse_search(std::string_view json) {
     const auto* rows=root.get("results");
     if(!rows || rows->type!=musicbrainz::Json::Type::Array)
         throw std::invalid_argument("Discogs response lacks a result list");
+    std::set<std::pair<EntityKind, std::uint64_t>> seen;
     for(const auto& row:rows->array) {
         if(result.hits.size()>=20) break;
         if(row.type!=musicbrainz::Json::Type::Object) continue;
@@ -340,8 +342,12 @@ inline SearchResults parse_search(std::string_view json) {
         const auto id=id_field(row);
         const auto title=string_field(row,"title");
         if(!id || !catalog_label(title,2048)) continue;
+        const auto entity_kind=kind=="master"?EntityKind::Master:EntityKind::Release;
+        // Search pagination can repeat the same catalog identity. Keep the
+        // first qualified row, but never collapse a master into a release.
+        if(!seen.emplace(entity_kind,id).second) continue;
         SearchHit hit;
-        hit.kind=kind=="master"?EntityKind::Master:EntityKind::Release;
+        hit.kind=entity_kind;
         hit.id=id;hit.title=title;
         hit.artist=string_field(row,"artist");
         if(!hit.artist.empty() && !catalog_label(hit.artist,1024))
@@ -434,6 +440,22 @@ inline ReleaseEdition parse_release(std::string_view json,std::uint64_t expected
             // "A1", "1-01", etc. are preserved only as source IDs, NEVER
             // converted to fictitious numerical disc/track positions.
         }
+        // Track-level evidence must refer to this exact edition row. A
+        // fallback album artist is useful for matching, but is NOT proof
+        // that Discogs independently credited this track's ARTIST field.
+        const std::string track_source=edition.edition_id+"/track/"+
+            std::to_string(edition.tracks.size()+1);
+        const auto add_track=[&](std::string field,std::string value) {
+            if(!value.empty())
+                item.fields.push_back({std::move(field),{std::move(value)},
+                    "discogs",track_source,EvidenceScope::Edition,
+                    DateMeaning::NotDate});
+        };
+        add_track("TITLE",track_title);
+        if(track.get("artists"))
+            add_track("ARTIST",joined_artist_credit(track));
+        if(item.track_number>0)
+            add_track("TRACKNUMBER",std::to_string(item.track_number));
         edition.tracks.push_back(std::move(item));
     }
     if(edition.tracks.empty())
