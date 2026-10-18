@@ -152,4 +152,37 @@ inline PrecisionCueWriteDecision preflight_precision_cue_external_write(
     return PrecisionCueWriteDecision::ReadyForExplicitWrite;
 }
 
+
+// Pure two-phase commit gate. The host must collect the second evidence set
+// immediately before opening a write handle, not reuse the preview snapshot.
+// A changed target (including appearing/disappearing) always requires review.
+// This does NOT perform I/O, establish path safety, or authorize embedded writes.
+struct PrecisionCueWriteCommitEvidence {
+    PrecisionCueWritePreflight preview;
+    PrecisionCueWritePreflight at_commit;
+    std::uint64_t source_snapshot_token_preview = 0;
+    std::uint64_t source_snapshot_token_commit = 0;
+    std::uint64_t target_snapshot_token_preview = 0;
+    std::uint64_t target_snapshot_token_commit = 0;
+};
+
+inline PrecisionCueWriteDecision revalidate_precision_cue_external_commit(
+    const PrecisionCueWriteCommitEvidence& e) noexcept {
+    if (preflight_precision_cue_external_write(e.preview) !=
+            PrecisionCueWriteDecision::ReadyForExplicitWrite)
+        return PrecisionCueWriteDecision::ReviewRequired;
+    if (e.source_snapshot_token_preview == 0 ||
+        e.target_snapshot_token_preview == 0 ||
+        e.source_snapshot_token_preview != e.source_snapshot_token_commit ||
+        e.target_snapshot_token_preview != e.target_snapshot_token_commit ||
+        e.preview.target_exists != e.at_commit.target_exists ||
+        e.preview.existing_content_known != e.at_commit.existing_content_known ||
+        e.preview.existing_content_equal != e.at_commit.existing_content_equal)
+        return PrecisionCueWriteDecision::ReviewRequired;
+    return preflight_precision_cue_external_write(e.at_commit) ==
+                   PrecisionCueWriteDecision::ReadyForExplicitWrite
+        ? PrecisionCueWriteDecision::ReadyForExplicitWrite
+        : PrecisionCueWriteDecision::ReviewRequired;
+}
+
 } // namespace djmeta
