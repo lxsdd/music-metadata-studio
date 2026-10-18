@@ -25,6 +25,7 @@ namespace {
 
 constexpr UINT_PTR kPollTimer = 9001;
 HWND g_precision_workspace = nullptr; // Only accessed from foobar's UI thread.
+Workspace* g_pending_workspace = nullptr; // Pre-WM_INITDIALOG failure handoff.
 
 struct LocalFile {
     std::string basename;
@@ -238,6 +239,7 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
         auto* state = reinterpret_cast<Workspace*>(lp);
         if (!state) return FALSE;
         state->dialog = dialog;
+        if (g_pending_workspace == state) g_pending_workspace = nullptr;
         SetWindowLongPtrW(dialog, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(state));
         modeless_dialog_manager::g_add(dialog);
         state->registered = true;
@@ -298,12 +300,18 @@ void open_precision_workspace(metadb_handle_list_cref handles) {
         // This is a standalone modeless top-level window, not a child/owner
         // that disables foobar playback or playlist navigation.
         Workspace* const raw = state.release();
+        g_pending_workspace = raw;
         const HWND window = CreateDialogParamW(
             core_api::get_my_instance(), MAKEINTRESOURCEW(IDD_PRECISION_CUE_PREVIEW),
             nullptr, precision_dialog_proc, reinterpret_cast<LPARAM>(raw));
         if (!window) {
-            // CreateDialogParamW failure may occur before WM_INITDIALOG.
-            if (g_precision_workspace != raw->dialog) delete raw;
+            // WM_INITDIALOG might never have taken ownership, or it might
+            // already have destroyed the HWND. Only the untouched pending
+            // pointer can be deleted here; never dereference a freed state.
+            if (g_pending_workspace) {
+                delete g_pending_workspace;
+                g_pending_workspace = nullptr;
+            }
             throw std::runtime_error("Failed to create Precision CUE native preview");
         }
         ShowWindow(window, SW_SHOW);
