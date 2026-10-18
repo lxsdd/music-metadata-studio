@@ -134,6 +134,8 @@ int main() {
           edition.fields.size()==3 &&
           edition.fields[2].date_meaning==DateMeaning::EditionRelease &&
           edition.tracks.size()==3 &&
+          edition.tracks[0].source_track_id.empty() &&
+          edition.tracks[1].source_track_id.empty() &&
           edition.tracks[0].recording.isrc=="GBABC2600001" &&
           edition.tracks[1].disc_number==1 && edition.tracks[1].track_number==2 &&
           edition.tracks[2].disc_number==2 && edition.tracks[2].track_number==1,
