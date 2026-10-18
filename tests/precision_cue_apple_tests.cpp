@@ -1,6 +1,7 @@
 #include "djmeta/precision_cue_apple.h"
 #include "djmeta/precision_cue_assemble.h"
 #include "djmeta/precision_cue_apple_link.h"
+#include "djmeta/precision_cue_apple_preview.h"
 
 #ifdef NDEBUG
 #undef NDEBUG
@@ -61,6 +62,33 @@ void lookup_positive() {
     assert(result.discs.size() == 2);
     assert(result.discs[1].boundaries[0].cue_frame == 0);
     assert(result.discs[1].external_cue_utf8.find("Teil Über") != std::string::npos);
+    djmeta::ApplePrecisionCuePreviewInput integrated;
+    integrated.album_url = "https://music.apple.com/de/album/synthetic-mix/12345";
+    integrated.lookup_response_json = valid;
+    integrated.reference_release = reference;
+    integrated.local_discs = request.physical_discs;
+    const auto combined = djmeta::preview_apple_precision_cue_album(integrated);
+    assert(combined.state == djmeta::PrecisionCueMatchState::Selected);
+    assert(combined.preview_qualified && combined.discs.size() == 2);
+    assert(combined.discs[0].boundaries[0].cue_frame == 0);
+    assert(combined.discs[1].boundaries[0].cue_frame == 0);
+
+    integrated.album_url = "https://music.apple.com/de/album/synthetic-mix/54321";
+    const auto wrong_id = djmeta::preview_apple_precision_cue_album(integrated);
+    assert(wrong_id.state == djmeta::PrecisionCueMatchState::Rejected);
+    assert(wrong_id.discs.empty() && !wrong_id.preview_qualified);
+
+    integrated.album_url = "https://music.apple.com/de/album/synthetic-mix/12345";
+    integrated.local_discs[0].measured_duration_ms += 3001;
+    const auto wrong_local_duration = djmeta::preview_apple_precision_cue_album(integrated);
+    assert(wrong_local_duration.state == djmeta::PrecisionCueMatchState::Rejected);
+    assert(wrong_local_duration.discs.empty());
+    integrated.local_discs[0].measured_duration_ms -= 3001;
+
+    integrated.reference_release.tracks[0].duration_ms = 0;
+    const auto uncertain = djmeta::preview_apple_precision_cue_album(integrated);
+    assert(uncertain.state == djmeta::PrecisionCueMatchState::Review);
+    assert(uncertain.discs.empty() && !uncertain.preview_qualified);
 }
 
 void lookup_synthetic_thirty() {
