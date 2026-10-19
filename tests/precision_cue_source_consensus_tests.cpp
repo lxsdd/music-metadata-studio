@@ -3,6 +3,7 @@
 #undef NDEBUG
 #endif
 #include <cassert>
+#include <string>
 #include <vector>
 
 static djmeta::PrecisionCueDurationSource source(const char* provider, unsigned resolution) {
@@ -45,6 +46,13 @@ int main() {
     deezer.release.tracks[0].duration_ms = 61000;
     assert(audit_precision_cue_source_consensus({apple, deezer}).state ==
            PrecisionCueConsensusState::SingleHighResolutionSource);
+    // A clearly incompatible whole-second duration is not corroboration.
+    deezer.release.tracks[0].duration_ms = 65000;
+    auto coarse_conflict = audit_precision_cue_source_consensus({apple, deezer});
+    assert(coarse_conflict.state == PrecisionCueConsensusState::Review);
+    assert(coarse_conflict.diagnostics.size() == 1);
+    assert(coarse_conflict.diagnostics[0] == "COARSE_REFERENCE_DURATION_CONFLICT");
+    deezer.release.tracks[0].duration_ms = 61000;
     deezer.release.tracks[0].title = "Intro (Original)";
     assert(audit_precision_cue_source_consensus({apple, deezer}).state ==
            PrecisionCueConsensusState::Rejected);
@@ -91,5 +99,34 @@ int main() {
     mb.release.tracks[18].duration_ms += 100;
     assert(audit_precision_cue_source_consensus({apple, mb}).state ==
            PrecisionCueConsensusState::Review);
+
+    // Repeated sub-second truncation can look acceptable track-by-track
+    // yet produce a badly drifted full-disc CUE.
+    deezer = source("deezer", 1000);
+    deezer.release.tracks = apple.release.tracks;
+    for (auto& track : deezer.release.tracks) track.duration_ms -= 900;
+    coarse_conflict = audit_precision_cue_source_consensus({apple, deezer});
+    assert(coarse_conflict.state == PrecisionCueConsensusState::Review);
+    assert(coarse_conflict.diagnostics[0] == "COARSE_REFERENCE_DURATION_CONFLICT");
+
+    // Standard CUE supports at most 99 tracks per disc; this native preview
+    // supports at most eight explicitly mapped physical MP3 discs.
+    apple = source("apple", 1);
+    apple.release.tracks.clear();
+    for (unsigned track = 1; track <= 99; ++track)
+        apple.release.tracks.push_back({1, track, "Synthetic Track", "Artist", 1000});
+    assert(audit_precision_cue_source_consensus({apple}).state ==
+           PrecisionCueConsensusState::SingleHighResolutionSource);
+    apple.release.tracks.push_back({1, 100, "Overflow", "Artist", 1000});
+    assert(audit_precision_cue_source_consensus({apple}).state ==
+           PrecisionCueConsensusState::Rejected);
+    apple.release.tracks.pop_back();
+    for (unsigned disc = 2; disc <= 8; ++disc)
+        apple.release.tracks.push_back({disc, 1, "Synthetic Track", "Artist", 1000});
+    assert(audit_precision_cue_source_consensus({apple}).state ==
+           PrecisionCueConsensusState::SingleHighResolutionSource);
+    apple.release.tracks.push_back({9, 1, "Ninth Disc", "Artist", 1000});
+    assert(audit_precision_cue_source_consensus({apple}).state ==
+           PrecisionCueConsensusState::Rejected);
     return 0;
 }

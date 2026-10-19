@@ -4,6 +4,7 @@
 #include "djmeta/precision_cue_match.h"
 #include <cstddef>
 #include <cstdint>
+#include <algorithm>
 #include <set>
 #include <string>
 #include <string_view>
@@ -57,17 +58,18 @@ inline std::string normalized(std::string_view input) {
 inline bool valid_release_structure(const PrecisionCueRelease& r) {
     if (r.provider.empty() || r.provider_release_id.empty() ||
         r.album_title.empty() || r.album_performer.empty() ||
-        r.tracks.empty() || r.tracks.size() > 200) return false;
+        r.tracks.empty() || r.tracks.size() > 8u * 99u) return false;
     unsigned current_disc = 1;
     unsigned current_track = 0;
     for (const auto& t : r.tracks) {
         if (t.disc_number != current_disc) {
-            if (t.disc_number != current_disc + 1 || t.track_number != 1)
+            if (t.disc_number != current_disc + 1 ||
+                t.disc_number > 8 || t.track_number != 1)
                 return false;
             current_disc = t.disc_number;
             current_track = 0;
         }
-        if (t.track_number != ++current_track ||
+        if (t.track_number != ++current_track || current_track > 99 ||
             t.title.empty() || t.performer.empty() ||
             t.duration_ms <= 0 || t.duration_ms > 24LL * 3600 * 1000)
             return false;
@@ -106,6 +108,7 @@ inline PrecisionCueConsensusReport audit_precision_cue_source_consensus(
     }
     std::set<std::pair<std::string, std::string>> provider_ids;
     bool conflicting_frames = false;
+    bool coarse_reference_conflict = false;
     const auto cue_frame = [](std::int64_t ms) {
         return (ms * 75 + 500) / 1000;
     };
@@ -123,13 +126,16 @@ inline PrecisionCueConsensusReport audit_precision_cue_source_consensus(
         std::int64_t primary_elapsed = 0;
         std::int64_t other_elapsed = 0;
         unsigned current_disc = 0;
+        std::int64_t tracks_in_disc = 0;
         for (std::size_t i = 0; i < release.tracks.size(); ++i) {
             const auto& track = release.tracks[i];
             if (track.disc_number != current_disc) {
                 current_disc = track.disc_number;
                 primary_elapsed = 0;
                 other_elapsed = 0;
+                tracks_in_disc = 0;
             }
+            ++tracks_in_disc;
             const auto primary_ms = sources.front().release.tracks[i].duration_ms;
             const auto other_ms = track.duration_ms;
             primary_elapsed += primary_ms;
@@ -141,6 +147,22 @@ inline PrecisionCueConsensusReport audit_precision_cue_source_consensus(
             });
             if (sources.front().resolution_ms <= 14 && source.resolution_ms <= 14 &&
                 (delta > 1 || delta < -1)) conflicting_frames = true;
+            // Whole-second reference durations are identity evidence only.
+            // A large per-track or accumulated drift is contradictory,
+            // not independent corroboration of a mixed edition.
+            if (source.resolution_ms > 14) {
+                const auto resolution = static_cast<std::int64_t>(
+                    (std::max)(source.resolution_ms, sources.front().resolution_ms));
+                const auto duration_delta = other_ms - primary_ms;
+                const auto cumulative_delta = other_elapsed - primary_elapsed;
+                const auto track_limit = resolution + 500;
+                const auto cumulative_limit =
+                    ((resolution + 1) / 2) * tracks_in_disc + 1000;
+                if (duration_delta > track_limit || duration_delta < -track_limit ||
+                    cumulative_delta > cumulative_limit ||
+                    cumulative_delta < -cumulative_limit)
+                    coarse_reference_conflict = true;
+            }
         }
     }
     if (sources.front().resolution_ms > 14) {
@@ -149,6 +171,9 @@ inline PrecisionCueConsensusReport audit_precision_cue_source_consensus(
     } else if (conflicting_frames) {
         report.state = PrecisionCueConsensusState::Review;
         report.diagnostics.emplace_back("HIGH_RESOLUTION_BOUNDARIES_DISAGREE");
+    } else if (coarse_reference_conflict) {
+        report.state = PrecisionCueConsensusState::Review;
+        report.diagnostics.emplace_back("COARSE_REFERENCE_DURATION_CONFLICT");
     } else if (report.high_resolution_sources < 2) {
         report.state = PrecisionCueConsensusState::SingleHighResolutionSource;
         report.diagnostics.emplace_back("NO_INDEPENDENT_FRAME_RESOLUTION_CORROBORATION");
