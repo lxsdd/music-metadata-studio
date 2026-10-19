@@ -286,7 +286,7 @@ for label, token in (
     ("Discogs source rank separation", "discogs_live_master_not_exact_edition"),
     ("Discogs CUE edition matcher", "review_cue_release_edition(cue,edition)"),
     ("Discogs CUE stale check", "CUE changed during Discogs release lookup."),
-    ("Discogs physical track assignment blocked", "discogs_live_release_track_unassigned"),
+    ("Discogs production physical comparison", "review_discogs_physical_edition(originals,*cached)"),
     ("official MusicBrainz parser", "djmeta::online::musicbrainz::parse_search(reply,kind)"),
     ("no stale online match", "CUE changed during online search"),
     ("source verified only via HTTP reason", 'item.reason.starts_with("musicbrainz_live_")'),
@@ -322,6 +322,13 @@ for token in ("WinHttpOpen(", "WINHTTP_FLAG_SECURE", 'L"musicbrainz.org"',
             raise SystemExit("STATIC FOOBAR AUDIT FAIL: MusicBrainz adapter contains a writer")
     elif token not in online_transport:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: official MusicBrainz network boundary: " + token)
+discogs_physical = (root / "include" / "djmeta" / "discogs_release_review.h").read_text(encoding="utf-8")
+for token in ("review_online_fields(originals,edition.fields)",
+              "discogs_local_only_no_provider_value",
+              "discogs_live_release_track_unassigned",
+              "discogs_live_release_unverified_track_provenance"):
+    if token not in discogs_physical:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing Discogs physical review safety: " + token)
 if "IDC_METADATA_INSPECT_CUE" not in resources:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing read-only CUE inspect control")
 if 'GENERIC_READ' not in sources or 'OPEN_EXISTING' not in sources:

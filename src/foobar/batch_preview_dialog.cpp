@@ -25,6 +25,7 @@
 #include "djmeta/musicbrainz_provider.h"
 #include "djmeta/discogs_provider.h"
 #include "djmeta/cue_release_review.h"
+#include "djmeta/discogs_release_review.h"
 #include "djmeta/cue_online_bridge.h"
 #include "djmeta/physical_selection.h"
 #include "djmeta/review_decisions.h"
@@ -693,38 +694,6 @@ std::vector<djmeta::online::FieldReviewRow> discogs_cue_release_rows(
         } else for(const auto& field:item.fields)
             append(prefix,field);
     }
-    return rows;
-}
-
-// A single physical file does not establish which track of a Discogs edition
-// it represents. Edition fields can be reviewed; per-track fields stay blocked.
-std::vector<djmeta::online::FieldReviewRow> discogs_physical_release_rows(
-    const djmeta::MetadataDocument& originals,
-    const djmeta::online::ReleaseEdition& edition) {
-    using namespace djmeta::online;
-    std::vector<FieldReviewRow> rows;
-    const auto add=[&](const std::string& prefix,const FieldEvidence& candidate,
-                       bool blocked) {
-        FieldReviewRow row;
-        row.field=prefix+candidate.field;
-        row.candidate=candidate;
-        row.state=blocked?FieldReviewState::Blocked:FieldReviewState::NeedsReview;
-        row.reason=blocked?"discogs_live_release_track_unassigned":
-            "discogs_live_release_edition_field_review";
-        if(!blocked) for(const auto& original:originals.fields)
-            if(musicbrainz::comparable_search_key(original.name)==
-               musicbrainz::comparable_search_key(candidate.field)) {
-                row.original_values=original.values;
-                if(original.values==candidate.values)
-                    row.state=FieldReviewState::Unchanged;
-                break;
-            }
-        rows.push_back(std::move(row));
-    };
-    for(const auto& field:edition.fields) add("Album / ",field,false);
-    for(std::size_t i=0;i<edition.tracks.size();++i)
-        for(const auto& field:edition.tracks[i].fields)
-            add("Release Track "+std::to_string(i+1)+" / ",field,true);
     return rows;
 }
 
@@ -2601,7 +2570,7 @@ void perform_discogs_load(HWND dialog, PreviewState& state) {
         entry.handle,entry.input.source_path).raw_text!=cue_before)
         throw std::runtime_error("CUE changed during Discogs release lookup.");
     auto flat=cue?discogs_cue_release_rows(*cue,*cached):
-        discogs_physical_release_rows(originals,*cached);
+        djmeta::online::review_discogs_physical_edition(originals,*cached);
     auto grouped=group_musicbrainz_release_rows(flat);
     state.candidate_rows=std::move(grouped.summary);
     state.musicbrainz_detail_groups=std::move(grouped.detail);
