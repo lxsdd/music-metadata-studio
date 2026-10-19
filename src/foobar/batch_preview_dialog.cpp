@@ -8,6 +8,7 @@
 #include "cue_readonly_source.h"
 #include "musicbrainz_http.h"
 #include "discogs_http.h"
+#include "readonly_network_request.h"
 #include "batch_table_settings.h"
 #include "legacy_routing_profiles.h"
 #include "native_preview_controls.h"
@@ -38,6 +39,7 @@
 #include <commctrl.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <charconv>
 #include <limits>
 #include <memory>
@@ -62,6 +64,23 @@ struct PreviewEntry {
     std::string observed_source_guard; // read-only file version evidence
     std::string source_probe_detail;   // only shown as a preview diagnostic
     std::string raw_target_probe_detail; // never represents foobar's final FileOps destination
+};
+
+// Pure data captured on the main foobar UI thread before starting a single
+// official Discogs GET. The network worker never reads foobar SDK handles,
+// local music files, CUE carriers, or native dialog HWND controls.
+struct PendingDiscogsContext {
+    enum class Kind { Search, Release };
+    Kind kind=Kind::Search;
+    std::size_t source_index=0;
+    bool cue_mode=false;
+    std::string cue_before;
+    djmeta::MetadataDocument originals;
+    std::uint64_t release_id=0;
+    std::string plan_identity;
+    std::string strategy;
+    std::size_t attempt_index=0;
+    std::size_t total=1;
 };
 
 struct PreviewState {
@@ -110,6 +129,9 @@ struct PreviewState {
     djmeta::online::musicbrainz::SearchKind musicbrainz_kind =
         djmeta::online::musicbrainz::SearchKind::Recording;
     std::vector<djmeta::online::musicbrainz::SearchCandidate> musicbrainz_results;
+    std::shared_ptr<ReadOnlyNetworkJob> discogs_request;
+    std::optional<PendingDiscogsContext> discogs_context;
+    bool discogs_close_requested=false;
     bool discogs_provider_selected = false; // visible runtime-only source selector
     bool discogs_live_view = false; // last response, never inferred from combo
     bool discogs_search_was_cue = false;
@@ -2378,7 +2400,9 @@ void show_workspace_help(HWND dialog) {
     MessageBoxW(dialog,
         L"1. Find & compare\n"
         L"Select a track on the left. Its TITLE is already in the search box. "
-        L"Click Search MusicBrainz, or double-click a track on the search tab. "
+        L"Choose Discogs or MusicBrainz and click Search (one deliberate lookup). "
+        L"Discogs search and release lookups use an isolated network worker, "
+        L"so browsing and playback remain responsive during HTTPS. "
         L"Select a result to compare original and suggested fields below. "
         L"For a CUE, click Inspect CUE first; release tracklists require an exact CUE.\n\n"
         L"2. Review proposals\n"
@@ -2401,12 +2425,37 @@ void show_workspace_help(HWND dialog) {
         L"How to use Music Metadata Studio",MB_OK|MB_ICONINFORMATION);
 }
 
+// Only immutable path/token strings cross into the worker. The thread has
+// no access to foobar SDK, HWND controls, MetadataDocument or CUE bytes.
+void begin_discogs_network(HWND dialog, PreviewState& state,
+                           std::string path, std::string token,
+                           PendingDiscogsContext context) {
+    if(state.discogs_request)
+        throw std::runtime_error("A Discogs request is already active.");
+    // A worker-owned token is wiped whether WinHTTP succeeds or throws.
+    auto transport=[route=std::move(path),secret=std::move(token)]() mutable {
+        struct Wipe {
+            std::string& value;
+            ~Wipe(){ if(!value.empty())
+                SecureZeroMemory(value.data(),value.size()); }
+        } wipe{secret};
+        return fetch_discogs_json_readonly(route,secret);
+    };
+    auto job=start_readonly_network(dialog,std::move(transport));
+    state.discogs_context.emplace(std::move(context));
+    state.discogs_request=std::move(job);
+    EnableWindow(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH),FALSE);
+    EnableWindow(GetDlgItem(dialog,IDC_METADATA_MB_LOAD_RELEASE),FALSE);
+}
+
 // Official Discogs requests share the existing foobar snapshot/rules guards.
 // Token is entered in a password-style control and never persisted or logged.
 // One deliberate button activation issues at most one HTTPS GET.
 void perform_discogs_search(HWND dialog, PreviewState& state) {
     using namespace djmeta::online;
     using namespace djmeta::online::discogs;
+    if(state.discogs_request)
+        throw std::runtime_error("Wait for the previous Discogs request.");
     if(!state.show_candidate || state.selected_track_index>=state.entries.size())
         throw std::invalid_argument("Select a qualified audio or CUE source first.");
     const auto& entry=state.entries[state.selected_track_index];
@@ -2451,7 +2500,7 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
          entered==to_utf8(state.auto_search_text));
     const std::string term=entered.empty()?local_title:entered;
     if(term.empty()) throw std::invalid_argument("Enter a track, album or exact Discogs release URL.");
-    const std::string token=to_utf8(read_control(dialog,IDC_METADATA_DISCOGS_TOKEN));
+    auto token=to_utf8(read_control(dialog,IDC_METADATA_DISCOGS_TOKEN));
     if(token.empty()) throw std::invalid_argument(
         "Discogs needs an authorized personal access token (not saved).");
     const auto direct_id=release_id_from_url(term);
@@ -2493,14 +2542,46 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
          std::to_wstring(state.search_attempt_index+1)+L"/"+
          std::to_wstring(total)+L"]...").c_str());
     RedrawWindow(dialog,nullptr,nullptr,RDW_INVALIDATE|RDW_UPDATENOW);
-    const auto reply=fetch_discogs_json_readonly(path,token);
+    PendingDiscogsContext context;
+    context.kind=PendingDiscogsContext::Kind::Search;
+    context.source_index=state.selected_track_index;
+    context.cue_mode=cue_mode;
+    context.cue_before=std::move(cue_before);
+    context.originals=std::move(originals);
+    context.release_id=direct_id;
+    context.plan_identity=std::move(identity);
+    context.strategy=std::move(strategy);
+    context.attempt_index=state.search_attempt_index;
+    context.total=total;
+    begin_discogs_network(dialog,state,std::move(path),std::move(token),
+                          std::move(context));
+}
+
+void publish_discogs_search(HWND dialog, PreviewState& state,
+                            const PendingDiscogsContext& request,
+                            const std::string& reply) {
+    (void)dialog;
+    using namespace djmeta::online;
+    using namespace djmeta::online::discogs;
+    if(state.stale || state.refreshing ||
+       !state.show_candidate || !state.discogs_provider_selected ||
+       state.selected_track_index!=request.source_index ||
+       request.source_index>=state.entries.size())
+        throw std::runtime_error("Discogs result discarded: the selected source changed.");
+    const auto& entry=state.entries[request.source_index];
+    verify_snapshot(entry);
+    verify_rules_snapshot(state.captured_rules);
+    if(request.cue_mode && read_cue_raw_on_demand(
+        entry.handle,entry.input.source_path).raw_text!=request.cue_before)
+        throw std::runtime_error("CUE changed during Discogs lookup. Retry.");
     SearchResults result;
-    if(direct_id) {
-        direct_edition=parse_release(reply,direct_id);
+    std::optional<ReleaseEdition> direct_edition;
+    if(request.release_id) {
+        direct_edition=parse_release(reply,request.release_id);
         SearchHit hit;
         hit.kind=EntityKind::Release;
-        hit.id=direct_id;
-        hit.canonical_url=canonical_url(hit.kind,direct_id);
+        hit.id=request.release_id;
+        hit.canonical_url=canonical_url(hit.kind,request.release_id);
         for(const auto& field:direct_edition->fields) {
             if(field.values.empty()) continue;
             if(field.field=="ALBUM") hit.title=field.values.front();
@@ -2510,31 +2591,31 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
         }
         result.hits.push_back(std::move(hit));
     } else result=parse_search(reply);
+    // The final host recheck is on the UI thread immediately before display;
+    // a remote response never becomes tag-write authorization.
     verify_snapshot(entry);
     verify_rules_snapshot(state.captured_rules);
-    if(cue_mode && read_cue_raw_on_demand(
-        entry.handle,entry.input.source_path).raw_text!=cue_before)
-        throw std::runtime_error("CUE changed during Discogs lookup. Retry.");
-    auto browse=discogs_search_rows(result,originals);
+    auto browse=discogs_search_rows(result,request.originals);
     state.candidate_rows=std::move(browse.summary);
     state.musicbrainz_detail_groups=std::move(browse.detail);
     state.musicbrainz_results.clear();
     state.discogs_results=std::move(result.hits);
     state.discogs_direct_edition=std::move(direct_edition);
-    state.discogs_search_was_cue=cue_mode;
-    state.candidate_source_index=state.selected_track_index;
+    state.discogs_search_was_cue=request.cue_mode;
+    state.candidate_source_index=request.source_index;
     state.musicbrainz_kind=musicbrainz::SearchKind::Release;
     state.discogs_live_view=true;
     state.musicbrainz_live_view=true;
     state.musicbrainz_release_loaded=false;
     state.cue_inspection_mode=false;
     state.cue_candidate_comparison_mode=false;
-    state.search_plan_identity=std::move(identity);
+    state.search_plan_identity=request.plan_identity;
+    state.search_attempt_index=request.attempt_index;
     state.search_attempt_notice=
-        L"Discogs query "+std::to_wstring(state.search_attempt_index+1)+L"/"+
-        std::to_wstring(total)+L" - "+from_utf8(strategy)+L": "+
+        L"Discogs query "+std::to_wstring(request.attempt_index+1)+L"/"+
+        std::to_wstring(request.total)+L" - "+from_utf8(request.strategy)+L": "+
         std::to_wstring(state.discogs_results.size())+L" result(s). "+
-        (state.discogs_results.empty() && state.search_attempt_index+1<total
+        (state.discogs_results.empty() && request.attempt_index+1<request.total
             ? L"Click Search again for the next, broader official query."
             : L"Select an exact release, then Inspect release tracks. "
               L"Master results cannot supply edition evidence.");
@@ -2542,9 +2623,15 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
     update_metadata_table(state);
 }
 
+void publish_discogs_release(HWND dialog, PreviewState& state,
+                             const PendingDiscogsContext& request,
+                             const djmeta::online::ReleaseEdition& edition);
+
 void perform_discogs_load(HWND dialog, PreviewState& state) {
     using namespace djmeta::online;
     using namespace djmeta::online::discogs;
+    if(state.discogs_request)
+        throw std::runtime_error("Discogs is still retrieving another request.");
     if(!state.show_candidate || !state.discogs_live_view ||
        state.musicbrainz_release_loaded ||
        state.candidate_source_index!=state.selected_track_index ||
@@ -2574,40 +2661,70 @@ void perform_discogs_load(HWND dialog, PreviewState& state) {
     const auto& entry=state.entries[state.selected_track_index];
     verify_snapshot(entry);
     verify_rules_snapshot(state.captured_rules);
-    std::optional<djmeta::CueMetadataInventory> cue;
     std::string cue_before;
-    djmeta::MetadataDocument originals;
     if(state.discogs_search_was_cue) {
         const auto raw=read_cue_raw_on_demand(entry.handle,entry.input.source_path);
-        cue=djmeta::inspect_cue_metadata(raw.raw_text,raw.carrier);
-        if(cue->status!=djmeta::CueSyntaxStatus::Parsed)
+        const auto cue=djmeta::inspect_cue_metadata(raw.raw_text,raw.carrier);
+        if(cue.status!=djmeta::CueSyntaxStatus::Parsed)
             throw std::invalid_argument("CUE changed or cannot be parsed.");
         cue_before=raw.raw_text;
-    } else {
-        if(!entry.input.physical_source_qualified ||
-            is_external_cue_locator(entry.input.source_path))
-            throw std::invalid_argument("Discogs physical selection is unqualified.");
-        const auto info=entry.handle->get_info_ref();
-        originals=metadata_from_file_info(info->info());
+    } else if(!entry.input.physical_source_qualified ||
+              is_external_cue_locator(entry.input.source_path)) {
+        throw std::invalid_argument("Discogs physical selection is unqualified.");
     }
     std::optional<ReleaseEdition> cached;
     if(state.discogs_direct_edition &&
        state.discogs_direct_edition->edition_id==std::to_string(id))
         cached=state.discogs_direct_edition;
-    if(!cached) {
+    PendingDiscogsContext context;
+    context.kind=PendingDiscogsContext::Kind::Release;
+    context.source_index=state.selected_track_index;
+    context.release_id=id;
+    context.cue_mode=state.discogs_search_was_cue;
+    context.cue_before=std::move(cue_before);
+    if(cached) {
+        publish_discogs_release(dialog,state,context,*cached);
+    } else {
         SetDlgItemTextW(dialog,IDC_BATCH_HINT,
-            L"Retrieving exact Discogs release tracks (read-only)...");
-        RedrawWindow(dialog,nullptr,nullptr,RDW_INVALIDATE|RDW_UPDATENOW);
-        const auto token=to_utf8(read_control(dialog,IDC_METADATA_DISCOGS_TOKEN));
-        cached=parse_release(
-            fetch_discogs_json_readonly(release_path(id),token),id);
+            L"Retrieving Discogs edition asynchronously; foobar remains usable...");
+        auto token=to_utf8(read_control(dialog,IDC_METADATA_DISCOGS_TOKEN));
+        begin_discogs_network(dialog,state,release_path(id),std::move(token),
+                              std::move(context));
     }
+}
+
+void publish_discogs_release(HWND dialog, PreviewState& state,
+                             const PendingDiscogsContext& request,
+                             const djmeta::online::ReleaseEdition& edition) {
+    (void)dialog;
+    if(state.stale || state.refreshing ||
+       !state.show_candidate || !state.discogs_provider_selected ||
+       !state.discogs_live_view || state.musicbrainz_release_loaded ||
+       state.candidate_source_index!=request.source_index ||
+       state.selected_track_index!=request.source_index ||
+       request.source_index>=state.entries.size() ||
+       edition.provider!="discogs" ||
+       edition.edition_id!=std::to_string(request.release_id))
+        throw std::runtime_error("Discogs edition discarded: source or release changed.");
+    const auto& entry=state.entries[request.source_index];
     verify_snapshot(entry);
     verify_rules_snapshot(state.captured_rules);
-    if(cue && read_cue_raw_on_demand(
-        entry.handle,entry.input.source_path).raw_text!=cue_before)
-        throw std::runtime_error("CUE changed during Discogs release lookup.");
-    // Physical duration is from the qualified host file_info, never CUE.
+    std::optional<djmeta::CueMetadataInventory> cue;
+    djmeta::MetadataDocument originals;
+    if(request.cue_mode) {
+        const auto raw=read_cue_raw_on_demand(entry.handle,entry.input.source_path);
+        if(raw.raw_text!=request.cue_before)
+            throw std::runtime_error("CUE changed during Discogs release lookup.");
+        cue=djmeta::inspect_cue_metadata(raw.raw_text,raw.carrier);
+        if(cue->status!=djmeta::CueSyntaxStatus::Parsed)
+            throw std::invalid_argument("CUE changed or cannot be parsed.");
+    } else {
+        if(!entry.input.physical_source_qualified ||
+           is_external_cue_locator(entry.input.source_path))
+            throw std::invalid_argument("Discogs physical selection unqualified.");
+        const auto info=entry.handle->get_info_ref();
+        originals=metadata_from_file_info(info->info());
+    }
     std::int64_t physical_duration_ms=-1;
     if(!cue) {
         const auto info=entry.handle->get_info_ref();
@@ -2616,18 +2733,52 @@ void perform_discogs_load(HWND dialog, PreviewState& state) {
             physical_duration_ms=static_cast<std::int64_t>(
                 seconds*1000.0+0.5);
     }
-    auto flat=cue?discogs_cue_release_rows(*cue,*cached):
+    auto flat=cue?discogs_cue_release_rows(*cue,edition):
         djmeta::online::review_discogs_physical_edition(
-            originals,*cached,physical_duration_ms);
+            originals,edition,physical_duration_ms);
     auto grouped=group_musicbrainz_release_rows(flat);
+    verify_snapshot(entry);
+    verify_rules_snapshot(state.captured_rules);
     state.candidate_rows=std::move(grouped.summary);
     state.musicbrainz_detail_groups=std::move(grouped.detail);
     state.musicbrainz_release_loaded=true;
-    state.search_attempt_notice=L"Exact Discogs edition "+std::to_wstring(id)+
-        L" loaded. Only uniquely verified track fields are compared; "
-        L"ambiguous matches remain blocked. Read-only.";
+    state.search_attempt_notice=L"Exact Discogs edition "+
+        std::to_wstring(request.release_id)+
+        L" loaded. Unverified track fields remain blocked. Read-only.";
     ListView_SetItemState(state.metadata_list,-1,0,LVIS_SELECTED);
     update_metadata_table(state);
+}
+
+void consume_discogs_network(HWND dialog, PreviewState& state) {
+    auto job=state.discogs_request;
+    if(!job || !readonly_network_finished(*job)) return;
+    if(job->worker.joinable()) job->worker.join();
+    auto context=std::move(state.discogs_context);
+    state.discogs_request.reset();
+    state.discogs_context.reset();
+    if(state.discogs_close_requested) {
+        DestroyWindow(dialog);
+        return;
+    }
+    EnableWindow(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH),TRUE);
+    try {
+        if(!context)
+            throw std::runtime_error("Discogs request lost its source context.");
+        if(!job->error.empty())
+            throw std::runtime_error(job->error);
+        if(context->kind==PendingDiscogsContext::Kind::Search)
+            publish_discogs_search(dialog,state,*context,job->response);
+        else
+            publish_discogs_release(dialog,state,*context,
+                djmeta::online::discogs::parse_release(
+                    job->response,context->release_id));
+    } catch(const std::exception& error) {
+        state.search_attempt_notice=L"Discogs lookup failed or became stale. "+
+            from_utf8(error.what())+L" No changes were made.";
+        update_metadata_table(state);
+        MessageBoxW(dialog,from_utf8(error.what()).c_str(),
+                    L"Discogs read-only lookup",MB_OK|MB_ICONWARNING);
+    }
 }
 
 INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
@@ -2803,6 +2954,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
     if (!state) return FALSE;
 
     if (message == WM_NCDESTROY) {
+        // Never allow DLL worker code to survive module/window teardown.
+        // WinHTTP uses bounded native timeouts; jthread is joined, not detached.
+        state->discogs_request.reset();
+        state->discogs_context.reset();
         if (state->help_tooltips && IsWindow(state->help_tooltips)) {
             DestroyWindow(state->help_tooltips);
             state->help_tooltips=nullptr;
@@ -2816,7 +2971,19 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         delete state;
         return FALSE;
     }
+    if (message == kReadOnlyNetworkDoneMessage) {
+        consume_discogs_network(dialog,*state);
+        return TRUE;
+    }
     if (message == WM_CLOSE) {
+        // Closing the modeless workspace must not freeze foobar while an
+        // in-flight HTTPS request finishes. Hide, then destroy on completion.
+        if(state->discogs_request &&
+           !readonly_network_finished(*state->discogs_request)) {
+            state->discogs_close_requested=true;
+            ShowWindow(dialog,SW_HIDE);
+            return TRUE;
+        }
         if(state->help_tooltips) SendMessageW(state->help_tooltips,TTM_POP,0,0);
         DestroyWindow(dialog);
         return TRUE;
@@ -3820,6 +3987,7 @@ void show_batch_preview_dialog(
             auto* existing = reinterpret_cast<PreviewState*>(
                 GetWindowLongPtrW(g_workspace,GWLP_USERDATA));
             const bool same = existing && same_workspace_selection(*existing,handles);
+            if (existing) existing->discogs_close_requested=false;
             if (IsIconic(g_workspace)) ShowWindow(g_workspace,SW_RESTORE);
             ShowWindow(g_workspace,SW_SHOW);
             SetForegroundWindow(g_workspace);

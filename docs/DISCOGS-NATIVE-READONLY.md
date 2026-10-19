@@ -4,6 +4,15 @@ The foobar Prepare Tracks / Find & compare page now offers a source selector
 **MusicBrainz** / **Discogs (token)**. Discogs uses the existing fixed-host
 WinHTTP GET adapter and the existing bounded official catalog/edition parsers.
 
+- Official Discogs **search and exact-edition HTTPS requests** execute on a
+  dedicated, joined native worker. Only the fixed API path and runtime token
+  cross that boundary; foobar SDK calls, source/CUE reads, parsing, visual
+  updates and pre/post-snapshot verification stay on the main UI thread.
+  Closing during an active request hides the workspace and completes
+  destruction after its bounded response; a late result after refresh,
+  provider switch or source selection change is discarded without changes.
+  Native Windows HWND regression tests cover delayed completion, responsive
+  event dispatch, errors and safe request lifetime.
 - Enter a **personal access token authorized by Discogs** in the masked
   temporary native control. It is neither persisted, logged, committed, added
   to URLs, nor stored in the user's foobar configuration.

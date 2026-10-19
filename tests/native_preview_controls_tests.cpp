@@ -1,4 +1,5 @@
 #include "../src/foobar/native_preview_controls.h"
+#include "../src/foobar/readonly_network_request.h"
 #include "../src/foobar/review_grid_controls.h"
 #include "../src/foobar/legacy_routing_profiles.h"
 
@@ -9,6 +10,10 @@
 #include <vector>
 #include <array>
 #include <utility>
+#include <future>
+#include <atomic>
+#include <thread>
+#include <stdexcept>
 
 namespace {
 void check(bool value, const char* message) {
@@ -24,7 +29,12 @@ std::size_t notified_track_identity = static_cast<std::size_t>(-1);
 int notified_find_row = -99;
 std::vector<std::wstring> active_track_names;
 bool rebuilding_master = false;
+int read_only_worker_notifications = 0;
 INT_PTR CALLBACK test_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
+    if(message==djmeta_foobar::kReadOnlyNetworkDoneMessage) {
+        ++read_only_worker_notifications;
+        return TRUE;
+    }
     if (message == WM_NOTIFY) {
         const auto* hdr = reinterpret_cast<const NMHDR*>(lp);
         if (hdr && hdr->idFrom == IDC_METADATA_TRACK_LIST &&
@@ -747,6 +757,62 @@ int main() {
     check(GetDlgItem(dialog, IDC_BATCH_APPLY_ALL) &&
           GetDlgItem(dialog, IDC_BATCH_APPLY_SELECTED),
           "preview actions exist in production resource");
+
+    // Production request worker primitive: a delayed transport must not
+    // block the host dialog thread or perform post-close SDK operations.
+    {
+        std::promise<void> release;
+        auto gate=release.get_future().share();
+        std::atomic<int> calls{0};
+        auto job=djmeta_foobar::start_readonly_network(dialog,[&] {
+            ++calls;
+            gate.wait();
+            return std::string("synthetic read-only JSON");
+        });
+        check(!djmeta_foobar::readonly_network_finished(*job),
+              "network request remains pending before synthetic reply");
+        check(SendMessageW(dialog,WM_NULL,0,0)==0,
+              "modeless host dispatch remains responsive during provider wait");
+        release.set_value();
+        for(int n=0;n<200 && !djmeta_foobar::readonly_network_finished(*job);++n)
+            Sleep(5);
+        check(djmeta_foobar::readonly_network_finished(*job) &&
+              job->response=="synthetic read-only JSON" &&
+              job->error.empty() && calls==1,
+              "one background response is published with release/acquire ordering");
+        MSG notification{};
+        while(PeekMessageW(&notification,dialog,
+                           djmeta_foobar::kReadOnlyNetworkDoneMessage,
+                           djmeta_foobar::kReadOnlyNetworkDoneMessage,PM_REMOVE))
+            DispatchMessageW(&notification);
+        check(read_only_worker_notifications==1,
+              "completion posts one native message without a pointer or secret");
+        if(job->worker.joinable()) job->worker.join();
+        job.reset(); // owned jthread safely joined after completion
+        bool rejected=false;
+        try {
+            (void)djmeta_foobar::start_readonly_network(
+                nullptr,[] {return std::string("not allowed");});
+        } catch(const std::invalid_argument&) {
+            rejected=true;
+        }
+        check(rejected,"native worker rejects missing callback HWND");
+        auto failure=djmeta_foobar::start_readonly_network(dialog,[]() -> std::string {
+            throw std::runtime_error("synthetic provider outage");
+        });
+        for(int n=0;n<200 && !djmeta_foobar::readonly_network_finished(*failure);++n)
+            Sleep(5);
+        check(djmeta_foobar::readonly_network_finished(*failure) &&
+              failure->response.empty() &&
+              failure->error=="synthetic provider outage",
+              "network errors are captured without crashing the dialog thread");
+        if(failure->worker.joinable()) failure->worker.join();
+        failure.reset();
+        while(PeekMessageW(&notification,dialog,
+                           djmeta_foobar::kReadOnlyNetworkDoneMessage,
+                           djmeta_foobar::kReadOnlyNetworkDoneMessage,PM_REMOVE))
+            DispatchMessageW(&notification);
+    }
 
     check(DestroyWindow(dialog)!=FALSE && !IsWindow(dialog),
           "modeless HWND shuts down without lingering native controls");

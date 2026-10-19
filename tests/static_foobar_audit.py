@@ -293,7 +293,11 @@ for label, token in (
     ("Discogs source rank separation", "discogs_live_master_not_exact_edition"),
     ("Discogs CUE edition matcher", "review_cue_release_edition(cue,edition)"),
     ("Discogs CUE stale check", "CUE changed during Discogs release lookup."),
-    ("Discogs production physical comparison", "originals,*cached,physical_duration_ms)"),
+    ("Discogs official HTTPS worker", "begin_discogs_network(dialog,state"),
+    ("Discogs worker completion on main thread", "consume_discogs_network(dialog,*state)"),
+    ("Discogs network results revalidated", "publish_discogs_search(dialog,state,*context,job->response)"),
+    ("No detached WinHTTP worker", "state->discogs_request.reset()"),
+    ("Discogs production physical comparison", "originals,edition,physical_duration_ms)"),
     ("Discogs host physical duration", "info->info().get_length()"),
     ("official MusicBrainz parser", "djmeta::online::musicbrainz::parse_search(reply,kind)"),
     ("no stale online match", "CUE changed during online search"),
@@ -325,6 +329,17 @@ for token in ("IDC_METADATA_MB_QUERY", "IDC_METADATA_MB_SEARCH", "IDC_METADATA_M
               "IDC_METADATA_ONLINE_PROVIDER", "IDC_METADATA_DISCOGS_TOKEN"):
     if token not in resources:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing official MusicBrainz control: " + token)
+# Async official Discogs worker: network-only callable, posted HWND signal,
+# UI-thread CUE/source/rules rechecks and owner-joined DLL lifetime.
+transport=(foobar / "readonly_network_request.h").read_text(encoding="utf-8")
+for token in ("std::jthread", "PostMessageW(notify,kReadOnlyNetworkDoneMessage,0,0)",
+              "std::memory_order_release", "std::memory_order_acquire",
+              "if(worker.joinable()) worker.join()"):
+    if token not in transport:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: native HTTP worker lifecycle missing: "+token)
+if "detach(" in transport or "metadb_handle" in transport or "get_info_ref" in transport:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: network worker lifetime or SDK access unsafe")
+
 # The fallback is implemented in the shared review-row provenance helper.
 # The UI must not need an obsolete inline "Pasted:" concatenation.
 origin_model=(root / "include" / "djmeta" / "online_fields.h").read_text(encoding="utf-8")
