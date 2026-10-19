@@ -73,6 +73,8 @@ for token in (
     "state->search_query = state->lookup_url",
     "IDC_PRECISION_ALBUM_RESULTS, CB_GETCURSEL",
     "state.search_hits[static_cast<std::size_t>(choice)].collection_id",
+    "job->selected_album = std::move(selected_album)",
+    "apple_precision_cue_selection_matches_lookup(",
 ):
     if token not in precision:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: precision CUE copy review gate missing " + token)

@@ -1,6 +1,7 @@
 #include "djmeta/precision_cue_apple.h"
 #include "djmeta/precision_cue_assemble.h"
 #include "djmeta/precision_cue_apple_link.h"
+#include "djmeta/precision_cue_apple_selection.h"
 #include "djmeta/precision_cue_apple_preview.h"
 #include "djmeta/precision_cue_request_revision.h"
 
@@ -108,6 +109,39 @@ void lookup_positive() {
     assert(uncertain.discs.empty() && !uncertain.preview_qualified);
 }
 
+
+void selection_lookup_binding() {
+    // An unchanged collection ID is insufficient when the search result's
+    // edition metadata or track count changes before the full lookup.
+    auto full = djmeta::parse_apple_precision_cue_lookup(valid, "12345");
+    djmeta::ApplePrecisionCueAlbumHit hit{
+        "12345", "  SYNTHETIC   Mix  ", "various artists", 4};
+    assert(djmeta::apple_precision_cue_selection_matches_lookup(hit, full));
+    hit.title = "Synthetic Mix (Original)";
+    assert(!djmeta::apple_precision_cue_selection_matches_lookup(hit, full));
+    hit.title = "Synthetic Mix";
+    hit.performer = "Different Artist";
+    assert(!djmeta::apple_precision_cue_selection_matches_lookup(hit, full));
+    hit.performer = "Various Artists";
+    hit.collection_id = "12346";
+    assert(!djmeta::apple_precision_cue_selection_matches_lookup(hit, full));
+    hit.collection_id = "12345";
+    hit.track_count = 3;
+    assert(!djmeta::apple_precision_cue_selection_matches_lookup(hit, full));
+    hit.track_count = 4;
+    full.provider = "deezer";
+    assert(!djmeta::apple_precision_cue_selection_matches_lookup(hit, full));
+    full.provider = "apple";
+    full.tracks.pop_back();
+    assert(!djmeta::apple_precision_cue_selection_matches_lookup(hit, full));
+    full.tracks.push_back({2, 2, "Last", "Artist Four", 200002});
+    hit.title = "Café 東京 (DJ Mix)";
+    full.album_title = "Café 東京 (DJ Mix)";
+    assert(djmeta::apple_precision_cue_selection_matches_lookup(hit, full));
+    full.album_title = "Café 東京 (Original)";
+    assert(!djmeta::apple_precision_cue_selection_matches_lookup(hit, full));
+}
+
 void lookup_synthetic_thirty() {
     std::string json = R"JSON({"resultCount":31,"results":[{"wrapperType":"collection","collectionId":12345,"collectionName":"Synthetic Mix","artistName":"Various Artists","trackCount":30})JSON";
     for (unsigned disc = 1; disc <= 2; ++disc) {
@@ -194,6 +228,7 @@ void lookup_negative() {
 int main() {
     request_revision_fixtures();
     lookup_positive();
+    selection_lookup_binding();
     lookup_synthetic_thirty();
     album_search();
     lookup_negative();

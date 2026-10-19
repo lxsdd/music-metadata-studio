@@ -9,6 +9,7 @@
 #include "djmeta/precision_cue_apple.h"
 #include "djmeta/precision_cue_apple_http.h"
 #include "djmeta/precision_cue_apple_link.h"
+#include "djmeta/precision_cue_apple_selection.h"
 #include "djmeta/precision_cue_request_revision.h"
 #include "djmeta/precision_cue_filename.h"
 #include "djmeta/precision_cue_write_preflight.h"
@@ -53,6 +54,7 @@ struct LookupJob {
     std::atomic<bool> ready{false};
     djmeta::PrecisionCueRelease release;
     std::vector<djmeta::ApplePrecisionCueAlbumHit> hits;
+    std::optional<djmeta::ApplePrecisionCueAlbumHit> selected_album;
     djmeta::ApplePrecisionCueHttpKind kind = djmeta::ApplePrecisionCueHttpKind::AlbumLookup;
     std::string error;
     std::jthread worker;
@@ -680,6 +682,7 @@ void start_lookup(Workspace& state) {
     djmeta::ApplePrecisionCueHttpRequest request;
     request.kind = djmeta::ApplePrecisionCueHttpKind::AlbumLookup;
     request.user_initiated = true;
+    std::optional<djmeta::ApplePrecisionCueAlbumHit> selected_album;
     if (input.starts_with("https://")) {
         const auto parsed = djmeta::parse_apple_precision_cue_album_link(input);
         request.parameter = parsed.collection_id;
@@ -695,6 +698,7 @@ void start_lookup(Workspace& state) {
             throw std::invalid_argument("Choose one exact Apple album candidate");
         request.parameter =
             state.search_hits[static_cast<std::size_t>(choice)].collection_id;
+        selected_album = state.search_hits[static_cast<std::size_t>(choice)];
         request.storefront = "DE";
     }
     // Search hits never authorize a CUE: fetch the full ordered tracklist
@@ -704,10 +708,18 @@ void start_lookup(Workspace& state) {
     reset_disc_controls(state);
     auto job = std::make_shared<LookupJob>();
     job->kind = request.kind;
+    job->selected_album = std::move(selected_album);
     job->worker = std::jthread([job, request] {
         try {
             const auto json = djmeta::fetch_apple_precision_cue_json(request);
-            job->release = djmeta::parse_apple_precision_cue_lookup(json, request.parameter);
+            auto looked_up = djmeta::parse_apple_precision_cue_lookup(json, request.parameter);
+            if (job->selected_album &&
+                !djmeta::apple_precision_cue_selection_matches_lookup(
+                    *job->selected_album, looked_up))
+                throw std::invalid_argument(
+                    "Selected Apple album changed between search and lookup "
+                    "(title, artist, release ID or track count); search again");
+            job->release = std::move(looked_up);
         } catch (const std::exception& error) {
             job->error = error.what();
         } catch (...) {
