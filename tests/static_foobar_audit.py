@@ -297,7 +297,7 @@ for label, token in (
     ("native field date meaning tooltip", "online_evidence_date_label("),
     ("native overflow disclosure", 'L"Additional fields not displayed"'),
 
-    ("pasted provider source label", '"Pasted: " + row.candidate.provider'),
+    ("provider origin helper consulted", "online_evidence_origin_label(item)"),
     ("unverified provider tooltip", 'L"Source: manual paste, provider unverified"'),
 
     ("CUE source re-read on import", "const auto cue = djmeta::inspect_cue_metadata(raw.raw_text, raw.carrier)"),
@@ -318,6 +318,24 @@ for token in ("IDC_METADATA_MB_QUERY", "IDC_METADATA_MB_SEARCH", "IDC_METADATA_M
               "IDC_METADATA_ONLINE_PROVIDER", "IDC_METADATA_DISCOGS_TOKEN"):
     if token not in resources:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing official MusicBrainz control: " + token)
+# The fallback is implemented in the shared review-row provenance helper.
+# The UI must not need an obsolete inline "Pasted:" concatenation.
+origin_model=(root / "include" / "djmeta" / "online_fields.h").read_text(encoding="utf-8")
+if 'return "Pasted: " + row.candidate.provider;' not in origin_model or \
+   'row.reason.starts_with("discogs_live_")' not in origin_model or \
+   'row.reason.starts_with("musicbrainz_live_")' not in origin_model:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing provider-aware origin fallback")
+# Multiline native tooltips must have actual newline escape sequences, not
+# visible backslash-n text from overescaped C++ string literals.
+if r'L"\\nProvider ID: "' in batch_table_dialog or \
+   r'L"\\nScope: "' in batch_table_dialog or \
+   r'L"\\nDate meaning: "' in batch_table_dialog:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: tooltip contains literal backslash-n")
+if r'L"\nProvider ID: "' not in batch_table_dialog or \
+   r'L"\nScope: "' not in batch_table_dialog or \
+   r'L"\nDate meaning: "' not in batch_table_dialog:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: source provenance tooltip lacks multiline details")
+
 # Explicit trusted-host read-only transport is permitted; generic web scraping
 # or transport in core is NOT. Do not overfit the previous offline-only policy.
 online_transport = (foobar / "musicbrainz_http.cpp").read_text(encoding="utf-8")

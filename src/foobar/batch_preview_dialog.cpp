@@ -2998,17 +2998,17 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                             const auto label=
                                 L"Source: "+from_utf8(
                                     djmeta::online::online_evidence_origin_label(item))+
-                                L"\\nProvider ID: "+from_utf8(item.candidate.source_id)+
-                                L"\\nScope: "+from_utf8(
+                                L"\nProvider ID: "+from_utf8(item.candidate.source_id)+
+                                L"\nScope: "+from_utf8(
                                     djmeta::online::online_evidence_scope_label(
                                         item.candidate.scope))+
-                                L"\\nDate meaning: "+from_utf8(
+                                L"\nDate meaning: "+from_utf8(
                                     djmeta::online::online_evidence_date_label(
                                         item.candidate.date_meaning))+
-                                L"\\nReason: "+from_utf8(item.reason)+
-                                L"\\nOriginal: "+show_field_values(item.original_values)+
-                                L"\\nEvidence: "+show_field_values(item.candidate.values)+
-                                L"\\nRead-only; no tag or CUE write authorization.";
+                                L"\nReason: "+from_utf8(item.reason)+
+                                L"\nOriginal: "+show_field_values(item.original_values)+
+                                L"\nEvidence: "+show_field_values(item.candidate.values)+
+                                L"\nRead-only; no tag or CUE write authorization.";
                             lstrcpynW(tip->pszText,label.c_str(),tip->cchTextMax);
                         }
                     }
