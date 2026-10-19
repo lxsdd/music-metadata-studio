@@ -404,7 +404,8 @@ discogs_review=(root / "include" / "djmeta" / "discogs_release_review.h").read_t
 if 'retained.field="Physical / "' not in discogs_review:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: physical tags mixed with edition group")
 for token in ("local_physical_group", "is_local_physical_original(row)",
-              "is_local_physical_original(item)", "make_local_physical_original("):
+              "is_local_physical_original(item)",
+              "append_local_physical_inventory("):
     if token not in batch_table_dialog:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: native local source grouping missing: "+token)
 
