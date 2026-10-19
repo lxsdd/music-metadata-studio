@@ -2418,6 +2418,7 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
           (state.discogs_live_view && state.discogs_search_was_cue)));
     djmeta::MetadataDocument originals;
     std::string local_title,local_artist,cue_before;
+    std::string local_barcode,local_catalog_number;
     if(cue_mode) {
         const auto raw=read_cue_raw_on_demand(entry.handle,entry.input.source_path);
         const auto cue=djmeta::inspect_cue_metadata(raw.raw_text,raw.carrier);
@@ -2433,6 +2434,16 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
         originals=metadata_from_file_info(info->info());
         local_title=unique_metadata_value(originals,"TITLE");
         local_artist=unique_metadata_value(originals,"ARTIST");
+        // Only one intact value is sufficiently qualified. Duplicate or
+        // multivalue edition identifiers are ignored, not guessed.
+        const auto barcode=djmeta::online::unique_discogs_physical_tag(
+            originals,"BARCODE");
+        if(barcode && catalog_label(*barcode,150))
+            local_barcode=*barcode;
+        const auto catalog=djmeta::online::unique_discogs_physical_tag(
+            originals,"CATALOGNUMBER");
+        if(catalog && catalog_label(*catalog,150))
+            local_catalog_number=*catalog;
     }
     const auto entered=to_utf8(read_control(dialog,IDC_METADATA_MB_QUERY));
     const bool auto_query=entered.empty() ||
@@ -2457,10 +2468,14 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
         state.search_attempt_index=0;
     } else {
         const auto plan=track_search_plan(
-            term,auto_query?local_artist:std::string{});
+            term,auto_query?local_artist:std::string{},
+            auto_query?local_barcode:std::string{},
+            auto_query?local_catalog_number:std::string{});
         identity="discogs|"+entry.input.source_path+"|"+
             std::to_string(state.selected_track_index)+"|"+term+"|"+
-            (auto_query?local_artist:"");
+            (auto_query?local_artist:"")+"|"+
+            (auto_query?local_barcode:"")+"|"+
+            (auto_query?local_catalog_number:"");
         if(identity!=state.search_plan_identity)
             state.search_attempt_index=0;
         else if(state.discogs_live_view && state.discogs_results.empty() &&

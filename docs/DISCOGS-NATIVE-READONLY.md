@@ -7,6 +7,14 @@ WinHTTP GET adapter and the existing bounded official catalog/edition parsers.
 - Enter a **personal access token authorized by Discogs** in the masked
   temporary native control. It is neither persisted, logged, committed, added
   to URLs, nor stored in the user's foobar configuration.
+- When the selected physical track has a single valid BARCODE and/or
+  CATALOGNUMBER, the explicitly initiated Discogs search first tries those
+  documented, fixed-host **edition** filters (preserving leading zeros and
+  punctuation) before returning to release/track/artist text search.
+  Duplicate or multivalue identifiers are never chosen arbitrarily. Manually
+  edited queries bypass these automatic local identifier filters.
+  The provider search hit is still only a candidate until the exact release
+  detail is inspected; a barcode cannot authorize tag writes.
 - Search one deliberate request at a time. Search attempts broaden only
   after an explicit additional click and a zero-result response. A canonical
   `https://www.discogs.com/release/<id>` URL performs one fixed-host

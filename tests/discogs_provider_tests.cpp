@@ -36,6 +36,28 @@ int main() {
     rejects([]{(void)release_path(0);},"no zero release ID");
     check(release_path(2442)=="/releases/2442", "release lookup is canonical");
 
+    const auto edition_first=track_search_plan(
+        "Home (Extended Mix)","DJ Example","004299999998","CAT 007/A");
+    check(edition_first.size()==7 &&
+          edition_first[0].path==
+            edition_identifier_search_path("barcode","004299999998") &&
+          edition_first[1].path==
+            edition_identifier_search_path("catno","CAT 007/A") &&
+          edition_first[2].path==search_path("Home (Extended Mix)","DJ Example") &&
+          edition_first[0].label=="Exact edition barcode" &&
+          edition_first[1].label=="Exact edition catalog number" &&
+          edition_first[0].path.find("004299999998")!=std::string::npos &&
+          edition_first[1].path.find("CAT%20007%2FA")!=std::string::npos,
+          "official barcode and catalog filters precede bounded title fallback");
+    check(track_search_plan("Home","DJ Example",{},"CAT 007/A").size()==5,
+          "a single catalog number participates without any barcode guess");
+    rejects([]{(void)edition_identifier_search_path("ISRC","USABC2601234");},
+            "Discogs API does not support a fabricated ISRC search filter");
+    rejects([]{(void)edition_identifier_search_path("barcode","x\r\nAuthorization: bad");},
+            "barcode search forbids header injection");
+    rejects([]{(void)edition_identifier_search_path("catno",std::string(151,'x'));},
+            "catalog identifiers are bounded");
+
     const auto staged=track_search_plan(
         "1000 Years (DJ Version)", "Kyau & Albert x Maywave");
     check(staged.size()==5 &&
@@ -89,7 +111,11 @@ int main() {
     check(allowed_readonly_path(search_path("Via Balearia","Estiva")) &&
           allowed_readonly_path(track_search_path("1000 Years")) &&
           allowed_readonly_path(track_search_path("Only You","Matt Fax")) &&
-          allowed_readonly_path(release_path(38012673)),
+          allowed_readonly_path(release_path(38012673)) &&
+          allowed_readonly_path(edition_identifier_search_path(
+              "barcode","004299999998")) &&
+          allowed_readonly_path(edition_identifier_search_path(
+              "catno","CAT 007/A")),
           "only canonical authenticated Discogs API paths cross native HTTP");
     check(!allowed_readonly_path("https://api.discogs.com/releases/123") &&
           !allowed_readonly_path("/users/example/collection") &&
@@ -98,6 +124,11 @@ int main() {
           !allowed_readonly_path("/database/search?q=Hi&type=release&token=secret&page=1&per_page=20") &&
           !allowed_readonly_path("/database/search?q=Hi&type=release&page=2&per_page=20") &&
           !allowed_readonly_path("/database/search?track=Hi&type=release&page=1&per_page=200") &&
+          !allowed_readonly_path("/database/search?barcode=123&type=release&artist=Any&page=1&per_page=20") &&
+          !allowed_readonly_path("/database/search?catno=XYZ&type=release&token=secret&page=1&per_page=20") &&
+          !allowed_readonly_path("/database/search?isrc=USABC2601234&type=release&page=1&per_page=20") &&
+          !allowed_readonly_path("/database/search?barcode=%30%30&type=release&page=1&per_page=20") &&
+          !allowed_readonly_path("/database/search?barcode=0%0A&type=release&page=1&per_page=20") &&
           !allowed_readonly_path("/releases/0") &&
           !allowed_readonly_path("/releases/42/notes") &&
           !allowed_readonly_path("/releases/042"),

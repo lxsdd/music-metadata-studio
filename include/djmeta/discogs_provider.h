@@ -251,12 +251,28 @@ inline std::string track_search_path(std::string_view title,
         throw std::invalid_argument("Discogs query too large");
     return path;
 }
+// Discogs documents barcode and catno as edition search filters.
+ // Both identifiers are text, never converted to numbers (leading zeros
+ // and punctuation in a catalog number are significant).
+inline std::string edition_identifier_search_path(
+    std::string_view kind, std::string_view value) {
+    if(kind!="barcode" && kind!="catno")
+        throw std::invalid_argument("Unsupported Discogs identifier filter");
+    const auto validated=validated_term(value);
+    const auto result="/database/search?"+std::string(kind)+"="+
+        musicbrainz::encode_url_query(validated)+
+        "&type=release&page=1&per_page=20";
+    if(result.size()>2048)
+        throw std::invalid_argument("Discogs identifier request too large");
+    return result;
+}
 struct SearchAttempt {
     std::string label; // Displayable reason for this fixed official request.
     std::string path;  // Only official relative API paths. No tokens or URL I/O.
 };
 inline std::vector<SearchAttempt> track_search_plan(
-    std::string_view title, std::string_view artist = {}) {
+    std::string_view title, std::string_view artist = {},
+    std::string_view barcode = {}, std::string_view catalog_number = {}) {
     validated_term(title);
     if (!artist.empty()) validated_term(artist);
     const auto annotation = split_title_mix(title);
@@ -268,8 +284,16 @@ inline std::vector<SearchAttempt> track_search_plan(
             if (previous.path == path) return;
         plan.push_back({std::move(label),std::move(path)});
     };
-    // First search narrow and cheap, then broaden only on explicit request
-    // when previous attempts have no qualified hits. Never bulk crawl.
+    // Exact physical edition identifiers get priority only when the host
+    // supplied unambiguous tags and the user explicitly initiates Search.
+    // No result is treated as verified until its release detail is opened.
+    if(!barcode.empty())
+        add("Exact edition barcode",
+            edition_identifier_search_path("barcode",barcode));
+    if(!catalog_number.empty())
+        add("Exact edition catalog number",
+            edition_identifier_search_path("catno",catalog_number));
+    // Then broaden by staged release / track search on explicit clicks.
     add("Release title with artist", search_path(title,artist));
     add("Exact track in release", track_search_path(title,artist));
     if (!artist.empty())
@@ -376,13 +400,22 @@ inline bool allowed_readonly_path(std::string_view path) {
     std::string term,artist;
     const bool track=raw_term.starts_with("track=");
     const bool q=raw_term.starts_with("q=");
-    if(!track && !q) return false;
-    const auto raw_value=raw_term.substr(track?6:2);
+    const bool barcode=raw_term.starts_with("barcode=");
+    const bool catno=raw_term.starts_with("catno=");
+    if(!track && !q && !barcode && !catno) return false;
+    // Edition identifiers are standalone official filters; never append
+    // arbitrary query keys, artist constraints, tokens or pagination.
+    if((barcode || catno) && !tail.empty()) return false;
+    const auto raw_value=raw_term.substr(
+        track?6:q?2:barcode?8:6);
     if(!decode_canonical_term(raw_value,term) ||
        (!raw_artist.empty() &&
         !decode_canonical_term(raw_artist,artist)) ||
        (!tail.empty() && raw_artist.empty())) return false;
     try {
+        if(barcode || catno)
+            return path==edition_identifier_search_path(
+                barcode?"barcode":"catno",validated_term(term));
         return path==(track?track_search_path(validated_term(term),artist):
                             search_path(validated_term(term),artist));
     } catch(const std::invalid_argument&) {
