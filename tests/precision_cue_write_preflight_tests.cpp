@@ -112,6 +112,34 @@ void export_planning_positive_and_negative() {
         plan_precision_cue_external_export(cue, "Other.mp3")}));
 }
 
+void reserved_unicode_device_alias_regressions() {
+    // Windows recognizes superscript 1/2/3 in COM/LPT device aliases.
+    // Keep these tests independent of filesystem locale and real audio.
+    const std::vector<std::string> reserved = {
+        "COM¹.mp3", "com².MP3", "CoM³.mix.mp3",
+        "LPT¹.mp3", "lpt².MP3", "LpT³.mix.mp3",
+        "COM1.mp3", "lpt9.mp3", "CON .mp3"
+    };
+    for (const auto& basename : reserved) {
+        VERIFY(!precision_cue_safe_mp3_basename(basename));
+        PrecisionCueDisc disc;
+        disc.album_title = "Synthetic";
+        disc.album_performer = "Test";
+        disc.audio_file_basename = basename;
+        disc.tracks = {{"Synthetic track", "Test", 120000}};
+        bool rejected = false;
+        try { (void)make_precision_cue(disc); }
+        catch (const std::invalid_argument&) { rejected = true; }
+        VERIFY(rejected);
+        VERIFY(!plan_precision_cue_external_export(
+            synthetic_plan(), basename).eligible);
+    }
+    // A similar non-device stem remains valid; do not ban Unicode generally.
+    VERIFY(precision_cue_safe_mp3_basename("Album COM¹ mix.mp3"));
+    VERIFY(precision_cue_safe_mp3_basename("COM¹ remix.mp3"));
+    VERIFY(precision_cue_safe_mp3_basename("Disc Über 東京.mp3"));
+}
+
 void export_generated_layout_positive_edge_cases() {
     PrecisionCueDisc disc;
     disc.album_title = "Synthetic 99-track disc";
@@ -260,6 +288,7 @@ int main() {
     // Surface unexpected runtime validation errors across all CI platforms.
     try {
         export_planning_positive_and_negative();
+        reserved_unicode_device_alias_regressions();
         export_generated_layout_positive_edge_cases();
         preflight_fail_closed_matrix();
         sha256_exact_byte_regressions();

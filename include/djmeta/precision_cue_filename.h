@@ -30,11 +30,27 @@ inline bool precision_cue_safe_mp3_basename(std::string_view s) noexcept {
     };
     if (eq("con") || eq("prn") || eq("aux") || eq("nul") ||
         eq("conin$") || eq("conout$")) return false;
-    if (base.size() == 4 && base[3] >= '1' && base[3] <= '9') {
+    // Windows reserves COM1..COM9 and LPT1..LPT9, including the Unicode
+    // superscript digits ¹ ² ³ (UTF-8 C2 B9/B2/B3). These aliases are
+    // device names even when followed by an extension, e.g. COM¹.mp3.
+    // Reject before proposing a sibling .cue path; the eventual writer
+    // must still validate canonical filesystem identities independently.
+    if (base.size() == 4 || base.size() == 5) {
         const auto prefix = base.substr(0, 3);
-        if (prefix == "COM" || prefix == "LPT" ||
-            (lower(prefix[0]) == 'c' && lower(prefix[1]) == 'o' && lower(prefix[2]) == 'm') ||
-            (lower(prefix[0]) == 'l' && lower(prefix[1]) == 'p' && lower(prefix[2]) == 't')) return false;
+        const bool serial = lower(prefix[0]) == 'c' &&
+            lower(prefix[1]) == 'o' && lower(prefix[2]) == 'm';
+        const bool printer = lower(prefix[0]) == 'l' &&
+            lower(prefix[1]) == 'p' && lower(prefix[2]) == 't';
+        if (serial || printer) {
+            if (base.size() == 4 && base[3] >= '1' && base[3] <= '9')
+                return false;
+            if (base.size() == 5 &&
+                static_cast<unsigned char>(base[3]) == 0xc2 &&
+                (static_cast<unsigned char>(base[4]) == 0xb9 ||
+                 static_cast<unsigned char>(base[4]) == 0xb2 ||
+                 static_cast<unsigned char>(base[4]) == 0xb3))
+                return false;
+        }
     }
     return true;
 }
