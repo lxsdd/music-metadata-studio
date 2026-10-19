@@ -101,6 +101,24 @@ void export_planning_positive_and_negative() {
         plan_precision_cue_external_export(cue, "Other.mp3")}));
 }
 
+void export_generated_layout_positive_edge_cases() {
+    PrecisionCueDisc disc;
+    disc.album_title = "Unicode \u00dcbersicht";
+    disc.album_performer = "DJ Example";
+    disc.genre = "Electronic";
+    disc.release_date = "2026-10-19";
+    disc.audio_file_basename = "disc-99.mp3";
+    for (unsigned i = 1; i <= 99; ++i)
+        disc.tracks.push_back({"Synthetic " + std::to_string(i), "DJ", 1000});
+    const auto plan = make_precision_cue(disc);
+    assert(plan.boundaries.size() == 99);
+    assert(plan_precision_cue_external_export(plan, disc.audio_file_basename).eligible);
+
+    disc.tracks.resize(1);
+    const auto single = make_precision_cue(disc);
+    assert(plan_precision_cue_external_export(single, disc.audio_file_basename).eligible);
+}
+
 PrecisionCueWritePreflight approved() {
     PrecisionCueWritePreflight p;
     p.preview_available = true;
@@ -183,7 +201,9 @@ void sha256_exact_byte_regressions() {
            "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1");
     const auto cue = synthetic_plan().external_cue_utf8;
     assert(precision_cue_sha256(cue) != precision_cue_sha256(cue + " "));
-    assert(precision_cue_sha256(cue) != precision_cue_sha256(cue + "\\0"));
+    auto nul_suffixed = cue;
+    nul_suffixed.push_back('\0');
+    assert(precision_cue_sha256(cue) != precision_cue_sha256(nul_suffixed));
 }
 
 void commit_revalidation_fail_closed_matrix() {
@@ -226,6 +246,7 @@ void commit_revalidation_fail_closed_matrix() {
 
 int main() {
     export_planning_positive_and_negative();
+    export_generated_layout_positive_edge_cases();
     preflight_fail_closed_matrix();
     sha256_exact_byte_regressions();
     commit_revalidation_fail_closed_matrix();
