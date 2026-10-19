@@ -17,6 +17,12 @@ WinHTTP GET adapter and the existing bounded official catalog/edition parsers.
   exact provider source ID, scope, date meaning and refusal reason. Up to
   1,024 detail rows are rendered; excessive evidence is explicitly marked,
   never silently truncated or treated as write approval.
+- Every Discogs edition track now has a protected, display-only MATCH
+  diagnostic. Suggested identity displays independent evidence such as
+  title, artist, duration and position without implying certainty or write
+  approval. Missing physical duration, duplicate local identity, wrong remix,
+  ambiguous assignment and tainted provider provenance explain why the
+  individual track is blocked. MATCH_DIAGNOSTIC can never be a physical tag.
 - Inspect a verified release: full multivalue edition fields are shown
   separately from individual recording/track fields, each preserving source
   IDs. A qualified physical file may compare track-specific fields only when

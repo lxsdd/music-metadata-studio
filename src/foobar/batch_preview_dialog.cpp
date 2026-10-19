@@ -990,9 +990,11 @@ void refresh_musicbrainz_detail_rows(PreviewState& state) {
         const auto proposed=(row.reason=="musicbrainz_local_only_no_provider_value" ||
             row.reason=="discogs_local_only_no_provider_value")
             ? L"(not supplied)" : show_field_values(row.candidate.values);
-        const std::wstring status=(row.reason==
-            "musicbrainz_local_only_no_provider_value" ||
-            row.reason=="discogs_local_only_no_provider_value") ? L"Keep original" :
+        const std::wstring status=row.candidate.field=="MATCH_DIAGNOSTIC"
+            ? (row.state==djmeta::online::FieldReviewState::Unchanged
+                ? L"Suggested identity only" : L"Not safely matched") :
+            (row.reason=="musicbrainz_local_only_no_provider_value" ||
+             row.reason=="discogs_local_only_no_provider_value") ? L"Keep original" :
             row.state==
             djmeta::online::FieldReviewState::Blocked ? L"Blocked"
             : row.state==djmeta::online::FieldReviewState::Unchanged

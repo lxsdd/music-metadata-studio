@@ -102,11 +102,14 @@ inline std::vector<FieldReviewRow> review_discogs_physical_edition(
     // Only a unique Suggested association with no conflicts may expose
     // track-specific fields for comparison. This is NEVER write approval.
     std::size_t verified_track=no_release_track;
-    if(const auto local=discogs_physical_identity(
-           originals,physical_duration_ms)) {
+    const auto local=discogs_physical_identity(
+        originals,physical_duration_ms);
+    std::optional<TrackAssociation> chosen_association;
+    if(local) {
         const auto alignment=align_release({*local},edition);
         if(alignment.tracks.size()==1) {
             const auto& link=alignment.tracks.front();
+            chosen_association=link;
             if(link.decision==MatchDecision::Suggested &&
                link.conflicts.empty() &&
                link.edition_track_index<edition.tracks.size())
@@ -122,6 +125,45 @@ inline std::vector<FieldReviewRow> review_discogs_physical_edition(
                        field.scope==EvidenceScope::Edition &&
                        field.source_id==expected;
             });
+        // Display-only proof/uncertainty for each edition track. This row
+        // is not a candidate metadata tag and cannot approve a write.
+        FieldReviewRow diagnosis;
+        diagnosis.field="Release Track "+std::to_string(i+1)+" / MATCH";
+        diagnosis.candidate.field="MATCH_DIAGNOSTIC";
+        diagnosis.candidate.provider="discogs";
+        diagnosis.candidate.source_id=expected;
+        diagnosis.candidate.scope=EvidenceScope::Edition;
+        diagnosis.state=FieldReviewState::Blocked;
+        if(!trusted) {
+            diagnosis.reason="discogs_live_match_track_provenance_unqualified";
+            diagnosis.candidate.values={"Incomplete or inconsistent track provenance"};
+        } else if(!local) {
+            diagnosis.reason="discogs_live_match_local_identity_ambiguous";
+            diagnosis.candidate.values={"Unique physical TITLE and ARTIST are required"};
+        } else if(physical_duration_ms<=0 || physical_duration_ms>36000000) {
+            diagnosis.reason="discogs_live_match_duration_unavailable";
+            diagnosis.candidate.values={"Physical audio duration unavailable"};
+        } else if(i==verified_track) {
+            diagnosis.state=FieldReviewState::Unchanged;
+            diagnosis.reason="discogs_live_match_suggested_readonly";
+            diagnosis.candidate.values=chosen_association
+                ? chosen_association->evidence : std::vector<std::string>{};
+            diagnosis.candidate.values.push_back("Suggested only; no write approval");
+        } else if(chosen_association &&
+                  chosen_association->edition_track_index==i) {
+            diagnosis.reason="discogs_live_match_requires_review";
+            diagnosis.candidate.values=chosen_association->conflicts;
+            if(diagnosis.candidate.values.empty())
+                diagnosis.candidate.values={"Insufficient independent evidence"};
+        } else {
+            const auto compared=compare(local->recording,
+                Candidate{"discogs",track.source_track_id,track.recording});
+            diagnosis.reason="discogs_live_match_other_or_conflicting_track";
+            diagnosis.candidate.values=compared.conflicts;
+            if(diagnosis.candidate.values.empty())
+                diagnosis.candidate.values={"Not the uniquely qualified edition track"};
+        }
+        rows.push_back(std::move(diagnosis));
         if(i==verified_track && trusted) {
             auto compared=review_online_fields(originals,track.fields);
             for(auto& row:compared) {

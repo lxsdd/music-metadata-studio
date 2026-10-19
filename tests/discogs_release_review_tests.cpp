@@ -111,6 +111,16 @@ int main() {
             field(verified,"Album / REPLAYGAIN_TRACK_GAIN") &&
             physical.fields[3].values==std::vector<std::string>{"-4.5 dB"},
             "matching preserves original custom multivalues and ReplayGain");
+    const auto* diagnosis=field(verified,"Release Track 1 / MATCH");
+    const auto* other_diagnosis=field(verified,"Release Track 2 / MATCH");
+    require(diagnosis && diagnosis->candidate.field=="MATCH_DIAGNOSTIC" &&
+            diagnosis->state==FieldReviewState::Unchanged &&
+            diagnosis->reason=="discogs_live_match_suggested_readonly" &&
+            !diagnosis->candidate.values.empty() &&
+            other_diagnosis && other_diagnosis->state==FieldReviewState::Blocked &&
+            other_diagnosis->candidate.source_id=="4243/track/2",
+            "per-track native provenance and match evidence remain review-only");
+
     auto with_isrc=physical;
     with_isrc.fields.push_back({"ISRC",{"USABC2601234"}});
     const auto isrc_not_in_catalog=review_discogs_physical_edition(
@@ -122,14 +132,20 @@ int main() {
             "one-sided local ISRC is retained but not treated as Discogs evidence");
     const auto no_duration=review_discogs_physical_edition(physical,exact);
     require(field(no_duration,"Release Track 1 / REMIXER")->state==
-                FieldReviewState::Blocked,
-            "title, artist and position alone never verify a mix");
+                FieldReviewState::Blocked &&
+            field(no_duration,"Release Track 1 / MATCH")->reason==
+                "discogs_live_match_duration_unavailable",
+            "missing duration cannot verify a remix; rationale is visible");
     auto wrong_mix=physical;
     wrong_mix.fields[0].values={"Track One (Radio Edit)"};
     const auto wrong=review_discogs_physical_edition(wrong_mix,exact,242000);
+    const auto* wrong_diagnosis=field(wrong,"Release Track 1 / MATCH");
     require(field(wrong,"Release Track 1 / REMIXER")->state==
-                FieldReviewState::Blocked,
-            "wrong mix never inherits a Discogs remix credit");
+                FieldReviewState::Blocked &&
+            wrong_diagnosis && wrong_diagnosis->state==FieldReviewState::Blocked &&
+            wrong_diagnosis->reason=="discogs_live_match_other_or_conflicting_track" &&
+            !wrong_diagnosis->candidate.values.empty(),
+            "wrong remix remains blocked with a concrete identity conflict");
     auto ambiguous=exact;
     ambiguous.tracks[1]=ambiguous.tracks[0];
     ambiguous.tracks[1].source_track_id="B1";
@@ -148,13 +164,17 @@ int main() {
     duplicated.fields.push_back({"title",{"Track One (Extended Mix)"}});
     const auto duplicate=review_discogs_physical_edition(duplicated,exact,242000);
     require(field(duplicate,"Release Track 1 / REMIXER")->state==
-                FieldReviewState::Blocked,
-            "duplicate physical identity tags fail closed");
+                FieldReviewState::Blocked &&
+            field(duplicate,"Release Track 1 / MATCH")->reason==
+                "discogs_live_match_local_identity_ambiguous",
+            "duplicate physical identity tags fail closed with rationale");
     auto tainted_edition=exact;
     tainted_edition.tracks[0].fields.front().source_id="4243/track/99";
     const auto unsafe=review_discogs_physical_edition(
         physical,tainted_edition,242000);
-    require(field(unsafe,"Release Track 1 / REMIXER")->state==
+    require(field(unsafe,"Release Track 1 / MATCH")->reason==
+                "discogs_live_match_track_provenance_unqualified" &&
+            field(unsafe,"Release Track 1 / REMIXER")->state==
                 FieldReviewState::Blocked,
             "tainted track field provenance blocks all track comparisons");
     std::cout<<"Discogs read-only physical edition review PASS\n";

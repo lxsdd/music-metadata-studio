@@ -146,6 +146,8 @@ int main() {
     discogs_live.candidate.scope=EvidenceScope::Edition;
     discogs_live.candidate.date_meaning=DateMeaning::EditionRelease;
     discogs_live.reason="discogs_live_release_group";
+    check(is_structural_or_non_tag_field("MATCH_DIAGNOSTIC"),
+          "match diagnostic field cannot become a physical tag proposal");
     check(online_evidence_origin_label(discogs_live)=="Discogs API" &&
           online_evidence_scope_label(discogs_live.candidate.scope)=="exact edition" &&
           online_evidence_date_label(discogs_live.candidate.date_meaning)=="edition release",

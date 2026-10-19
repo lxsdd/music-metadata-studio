@@ -87,6 +87,7 @@ inline bool valid_evidence_origin(std::string_view value, std::size_t limit) {
 inline bool is_structural_or_non_tag_field(const std::string& uppercase) {
     return is_protected_cue_metadata(uppercase) ||
            is_lyrics_metadata(uppercase) ||
+           uppercase == "MATCH_DIAGNOSTIC" ||
            uppercase == "METADATA_BLOCK_PICTURE" ||
            uppercase.rfind("REPLAYGAIN_", 0) == 0;
 }
