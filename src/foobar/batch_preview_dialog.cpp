@@ -3708,7 +3708,9 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             return TRUE;
         }
         if (id == IDCANCEL) {
-            DestroyWindow(dialog);
+            // ESC/Cancel follows the same modeless close lifecycle as the
+            // caption X. Never join a live WinHTTP worker on the UI thread.
+            SendMessageW(dialog,WM_CLOSE,0,0);
             return TRUE;
         }
         if (id == IDC_BATCH_REFRESH && HIWORD(wp) == BN_CLICKED) {

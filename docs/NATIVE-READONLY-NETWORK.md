@@ -26,10 +26,12 @@ Provider rate limits and fixed-host WinHTTP validation remain unchanged.
   workspace. Search/load commands remain disabled until a response arrives.
   A source change, provider switch, refresh or altered CUE discards results.
 - While a provider request is in flight, foobar playback and other windows
-  can continue running. Closing the workspace hides it until that request
-  completes, then destroys it; forced application shutdown safely joins
-  bounded WinHTTP calls. A failed provider lookup cannot approve or write
-  a metadata field.
+  can continue running. **Window X, Escape and Cancel** use the same safe
+  `WM_CLOSE` route: the window hides until the request completes, then
+  destroys its worker and state; none of these controls synchronously
+  joins an in-flight WinHTTP request on the UI thread. Forced application
+  shutdown safely joins bounded WinHTTP calls. A failed provider lookup
+  cannot approve or write a metadata field.
 
 ## Qualification and remaining gates
 

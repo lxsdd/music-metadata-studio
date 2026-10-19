@@ -310,6 +310,7 @@ for label, token in (
     ("provider-origin source label", "online_evidence_origin_label(item)"),
     ("Discogs edition grouping", '"discogs_live_release_group"'),
     ("Discogs async exact release selection", "selected_exact_release_id("),
+    ("Cancel delegates to safe asynchronous close", "SendMessageW(dialog,WM_CLOSE,0,0)"),
     ("Discogs stale candidate rejection", "Discogs release selection changed during lookup."),
     ("native field provenance tooltip", "header->idFrom == IDC_METADATA_MB_DETAILS &&"),
     ("native field evidence scope tooltip", "online_evidence_scope_label("),
