@@ -47,6 +47,15 @@ void export_planning_positive_and_negative() {
     altered.external_cue_utf8[0] = static_cast<char>(0xff);
     assert(!plan_precision_cue_external_export(altered, "Disc Über 東京.mp3").eligible);
     altered = cue;
+    altered.external_cue_utf8 += "  TRACK 03 AUDIO\n";
+    assert(!plan_precision_cue_external_export(altered, "Disc Über 東京.mp3").eligible);
+    altered = cue;
+    altered.external_cue_utf8 += "    INDEX 01 03:20:00\n";
+    assert(!plan_precision_cue_external_export(altered, "Disc Über 東京.mp3").eligible);
+    altered = cue;
+    altered.external_cue_utf8 += "    INDEX 00 00:00:00\n";
+    assert(!plan_precision_cue_external_export(altered, "Disc Über 東京.mp3").eligible);
+    altered = cue;
     altered.boundaries[1].cue_frame++;
     assert(!plan_precision_cue_external_export(altered, "Disc Über 東京.mp3").eligible);
     altered = cue;
