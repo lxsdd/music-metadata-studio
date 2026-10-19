@@ -57,6 +57,29 @@ inline PrecisionCueExternalExportPlan plan_precision_cue_external_export(
         result.diagnostic = "CUE_FILE_REFERENCE_OR_ENCODING_UNQUALIFIED";
         return result;
     }
+    // A generated plan must contain exactly one TRACK and one INDEX 01 per
+    // boundary. Reject appended/duplicated instructions before export.
+    std::size_t track_lines = 0, index_lines = 0;
+    std::size_t line_start = 0;
+    while (line_start < plan.external_cue_utf8.size()) {
+        const auto end = plan.external_cue_utf8.find('\n', line_start);
+        const auto line = plan.external_cue_utf8.substr(
+            line_start, end == std::string::npos ? std::string::npos : end - line_start);
+        if (line.rfind("  TRACK ", 0) == 0) ++track_lines;
+        if (line.rfind("    INDEX 01 ", 0) == 0) ++index_lines;
+        if (line.rfind("    INDEX ", 0) == 0 &&
+            line.rfind("    INDEX 01 ", 0) != 0) {
+            result.diagnostic = "CUE_UNEXPECTED_INDEX";
+            return result;
+        }
+        if (end == std::string::npos) break;
+        line_start = end + 1;
+    }
+    if (track_lines != plan.boundaries.size() ||
+        index_lines != plan.boundaries.size()) {
+        result.diagnostic = "CUE_TRACK_INDEX_COUNT_MISMATCH";
+        return result;
+    }
     std::int64_t previous_ms = -1, previous_frame = -1;
     std::size_t search_at = 0;
     try {
