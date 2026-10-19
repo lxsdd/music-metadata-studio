@@ -206,7 +206,7 @@ int main() {
              {"name":"Writer B","role":"Composed By"},
              {"name":"Producer","role":"Producer"},
              {"name":"Vague","role":"Remix, Producer"},
-             {"name":"Bad\\nCredit","role":"Remix"}]},
+             {"name":"Bad\nCredit","role":"Remix"}]},
           {"position":"2","title":"Day (Original Mix)"}
         ]
     })DJ",881);
@@ -228,7 +228,7 @@ int main() {
     const auto malformed_credits=parse_release(R"DJ({
         "id":882,"title":"Untrusted credits",
         "tracklist":[{"title":"Track",
-          "extraartists":[{"name":"Bad\\nName","role":"Remix"},
+          "extraartists":[{"name":"Bad\nName","role":"Remix"},
                           {"name":"Unknown","role":"Mastering"},
                           {"name":"Good","role":"Remix"}]}]
     })DJ",882);
