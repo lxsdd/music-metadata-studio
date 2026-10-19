@@ -34,6 +34,77 @@ inline std::string precision_cue_ascii_lower(std::string value) {
     return value;
 }
 
+// Canonical *generated* text validation, intentionally stricter than the
+// general external-CUE parser used to inspect pre-existing files. No I/O.
+inline bool precision_cue_strict_generated_layout(
+    const PrecisionCuePlan& plan, std::string_view mp3_basename) {
+    if (plan.external_cue_utf8.empty() ||
+        plan.external_cue_utf8.size() > 1024 * 1024) return false;
+    const std::string_view text(plan.external_cue_utf8);
+    std::vector<std::string_view> lines;
+    std::size_t cursor = 0;
+    while (cursor < text.size()) {
+        const auto end = text.find('\n', cursor);
+        if (end == std::string_view::npos || lines.size() >= 305) return false;
+        lines.push_back(text.substr(cursor, end - cursor));
+        cursor = end + 1;
+    }
+    std::size_t pos = 0;
+    const auto exact = [&](std::string_view expected) {
+        if (pos == lines.size() || lines[pos] != expected) return false;
+        ++pos;
+        return true;
+    };
+    const auto quoted = [&](std::string_view prefix) {
+        if (pos == lines.size()) return false;
+        const auto line = lines[pos];
+        if (!line.starts_with(prefix) || line.size() <= prefix.size() + 2 ||
+            line.back() != '"') return false;
+        const auto value = line.substr(prefix.size(), line.size() - prefix.size() - 1);
+        if (value.find('"') != std::string_view::npos) return false;
+        for (const unsigned char c : value)
+            if (c < 0x20 || c == 0x7f) return false;
+        ++pos;
+        return true;
+    };
+    const auto number = [&](std::string_view prefix, unsigned& parsed) {
+        if (pos == lines.size() || !lines[pos].starts_with(prefix)) return false;
+        const auto digits = lines[pos].substr(prefix.size());
+        if (digits.empty() || digits.size() > 2 || digits.front() == '0') return false;
+        unsigned value = 0;
+        for (const char c : digits) {
+            if (c < '0' || c > '9') return false;
+            value = value * 10 + static_cast<unsigned>(c - '0');
+        }
+        if (value == 0 || value > 99) return false;
+        parsed = value;
+        ++pos;
+        return true;
+    };
+    if (pos < lines.size() && lines[pos].starts_with("REM GENRE ") &&
+        !quoted("REM GENRE ")) return false;
+    if (pos < lines.size() && lines[pos].starts_with("REM DATE ") &&
+        !quoted("REM DATE ")) return false;
+    unsigned disc = 0, total_discs = 0;
+    if (!number("REM DISCNUMBER ", disc) ||
+        !number("REM TOTALDISCS ", total_discs) ||
+        disc > total_discs ||
+        !quoted("PERFORMER ") || !quoted("TITLE ") ||
+        !exact("FILE \"" + std::string(mp3_basename) + "\" WAVE")) return false;
+
+    for (std::size_t i = 0; i < plan.boundaries.size(); ++i) {
+        const unsigned track = static_cast<unsigned>(i + 1);
+        const std::string track_line = "  TRACK " +
+            std::string(track < 10 ? "0" : "") + std::to_string(track) + " AUDIO";
+        if (!exact(track_line) || !quoted("    TITLE ") ||
+            !quoted("    PERFORMER ") ||
+            !exact("    INDEX 01 " +
+                   cue_frame_to_index(plan.boundaries[i].cue_frame)))
+            return false;
+    }
+    return pos == lines.size();
+}
+
 // Only a proposed sibling filename; NEVER a qualified destination path.
 // Input must be an in-memory CUE produced by make_precision_cue().
 inline PrecisionCueExternalExportPlan plan_precision_cue_external_export(
@@ -57,31 +128,8 @@ inline PrecisionCueExternalExportPlan plan_precision_cue_external_export(
         result.diagnostic = "CUE_FILE_REFERENCE_OR_ENCODING_UNQUALIFIED";
         return result;
     }
-    // A generated plan must contain exactly one TRACK and one INDEX 01 per
-    // boundary. Reject appended/duplicated instructions before export.
-    std::size_t track_lines = 0, index_lines = 0;
-    std::size_t line_start = 0;
-    while (line_start < plan.external_cue_utf8.size()) {
-        const auto end = plan.external_cue_utf8.find('\n', line_start);
-        const auto line = plan.external_cue_utf8.substr(
-            line_start, end == std::string::npos ? std::string::npos : end - line_start);
-        if (line.rfind("  TRACK ", 0) == 0) ++track_lines;
-        if (line.rfind("    INDEX 01 ", 0) == 0) ++index_lines;
-        if (line.rfind("    INDEX ", 0) == 0 &&
-            line.rfind("    INDEX 01 ", 0) != 0) {
-            result.diagnostic = "CUE_UNEXPECTED_INDEX";
-            return result;
-        }
-        if (end == std::string::npos) break;
-        line_start = end + 1;
-    }
-    if (track_lines != plan.boundaries.size() ||
-        index_lines != plan.boundaries.size()) {
-        result.diagnostic = "CUE_TRACK_INDEX_COUNT_MISMATCH";
-        return result;
-    }
+    // Validate the numeric boundary model before rendering expected INDEX lines.
     std::int64_t previous_ms = -1, previous_frame = -1;
-    std::size_t search_at = 0;
     try {
         for (std::size_t i = 0; i < plan.boundaries.size(); ++i) {
             const auto& boundary = plan.boundaries[i];
@@ -93,19 +141,19 @@ inline PrecisionCueExternalExportPlan plan_precision_cue_external_export(
                 result.diagnostic = "CUE_BOUNDARIES_INVALID";
                 return result;
             }
-            const std::string marker = "    INDEX 01 " +
-                cue_frame_to_index(boundary.cue_frame) + "\n";
-            const auto found = plan.external_cue_utf8.find(marker, search_at);
-            if (found == std::string::npos) {
-                result.diagnostic = "CUE_INDEX_TEXT_MISMATCH";
-                return result;
-            }
-            search_at = found + marker.size();
             previous_ms = boundary.elapsed_ms;
             previous_frame = boundary.cue_frame;
         }
     } catch (const std::exception&) {
         result.diagnostic = "CUE_BOUNDARIES_INVALID";
+        return result;
+    }
+    // The generic CUE inventory validates FILE syntax, not the generated
+    // grammar. Require exactly the generator's header/track/index sequence:
+    // no extra instructions, duplicate metadata, altered TRACK order, or
+    // displaced INDEX lines may be exported as if reviewed.
+    if (!precision_cue_strict_generated_layout(plan, mp3_basename)) {
+        result.diagnostic = "CUE_GENERATED_LAYOUT_MISMATCH";
         return result;
     }
     if (previous_ms >= plan.total_duration_ms) {
