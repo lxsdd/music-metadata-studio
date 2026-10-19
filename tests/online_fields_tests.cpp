@@ -189,5 +189,34 @@ int main() {
         physical_tag,"local_physical_group");
     check(online_evidence_origin_label(physical_group)=="Local physical",
           "group header retains local carrier provenance");
+    // Both Discogs and MusicBrainz native search details use this shared
+    // bounded source inventory, retaining all 70 original fields when able.
+    MetadataDocument seventy;
+    for(int i=0;i<70;++i)
+        seventy.fields.push_back({"CUSTOM_"+std::to_string(i),
+            {std::to_string(i),"Second value"}});
+    const auto original_seventy=seventy;
+    std::vector<FieldReviewRow> full_detail;
+    append_local_physical_inventory(full_detail,seventy);
+    check(full_detail.size()==70 && seventy==original_seventy &&
+          full_detail[69].original_values==seventy.fields[69].values &&
+          online_evidence_origin_label(full_detail[69])=="Local physical",
+          "online search must not stop silently at 50 original physical tags");
+    std::vector<FieldReviewRow> bounded{
+        make_local_physical_original(physical_tag,"local_physical_inventory_readonly")};
+    append_local_physical_inventory(bounded,seventy,12);
+    check(bounded.size()==12 &&
+          bounded[10].original_values==seventy.fields[9].values &&
+          bounded[11].reason=="local_physical_inventory_overflow" &&
+          bounded[11].original_values.front().find("60 original field")!=std::string::npos &&
+          bounded[11].state==FieldReviewState::Blocked &&
+          online_evidence_origin_label(bounded[11])=="Local physical",
+          "large catalog previews expose hidden-original count and preserve source");
+    bool rejected_unrenderable=false;
+    try {
+        std::vector<FieldReviewRow> no_room;
+        append_local_physical_inventory(no_room,seventy,1);
+    } catch(const std::invalid_argument&) {rejected_unrenderable=true;}
+    check(rejected_unrenderable,"cannot silently discard a local inventory");
     std::cout << "PASS: online field provenance, duplicate-origin safety, bounds, no-op and review-only\\n";
 }

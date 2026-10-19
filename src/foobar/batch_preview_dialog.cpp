@@ -551,21 +551,10 @@ MusicBrainzBrowseRows musicbrainz_search_rows(
         }
         if (hit.kind==musicbrainz::SearchKind::Release)
             add("EDITION DATE","",hit.release_date);
-        // Show all original source fields, including custom/multivalued ones
-        // that the online provider DID NOT supply. An absent MB value is
-        // never a suggestion to delete or clear the original physical tag.
-        for (const auto& field : original_tags.fields) {
-            if(detail.size()>=50) break;
-            bool supplied=false;
-            for(const auto& row:detail)
-                if(musicbrainz::comparable_search_key(row.field)==
-                   musicbrainz::comparable_search_key(field.name)) {
-                    supplied=true;break;
-                }
-            if(supplied) continue;
-            detail.push_back(make_local_physical_original(
-                field,"musicbrainz_local_only_no_provider_value"));
-        }
+        // Display the full original physical inventory independently from
+        // search-hit fields. Keep all values and source identities separate;
+        // above native capacity show an explicit overflow count, not silence.
+        append_local_physical_inventory(detail,original_tags);
         result.detail.push_back(std::move(detail));
     }
     return result;
@@ -613,11 +602,9 @@ MusicBrainzBrowseRows discogs_search_rows(
         add("STYLE",hit.styles);
         add("CANONICAL URL (read-only)",{hit.canonical_url});
         if(master) add("EDITION REQUIRED",{"Select a concrete Discogs release"});
-        for(const auto& field:originals.fields) {
-            if(details.size()>=50) break;
-            details.push_back(make_local_physical_original(
-                field,"discogs_local_only_no_provider_value"));
-        }
+        // Search previews are evidence, not confirmed edition fields. Show
+        // bounded original physical inventory with explicit overflow notice.
+        append_local_physical_inventory(details,originals);
         out.detail.push_back(std::move(details));
     }
     return out;
@@ -1041,7 +1028,9 @@ void refresh_musicbrainz_detail_rows(PreviewState& state) {
         const bool local_original=djmeta::online::is_local_physical_original(row);
         const auto proposed=local_original
             ? L"(not supplied)" : show_field_values(row.candidate.values);
-        const std::wstring status=row.candidate.field=="MATCH_DIAGNOSTIC"
+        const std::wstring status=row.reason=="local_physical_inventory_overflow"
+            ? L"More original tags" :
+            row.candidate.field=="MATCH_DIAGNOSTIC"
             ? (row.state==djmeta::online::FieldReviewState::Unchanged
                 ? L"Suggested identity only" : L"Not safely matched") :
             local_original ? L"Keep original" :

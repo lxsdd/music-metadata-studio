@@ -6,9 +6,11 @@
 #include "djmeta/online_release.h"
 #include "djmeta/structural_guard.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cstddef>
 #include <map>
+#include <stdexcept>
 #include <string>
 #include <tuple>
 #include <string_view>
@@ -38,6 +40,8 @@ inline bool is_local_physical_original(const FieldReviewRow& row) {
     return row.reason=="discogs_local_only_no_provider_value" ||
            row.reason=="musicbrainz_local_only_no_provider_value" ||
            row.reason=="manual_beatport_local_only_no_provider_value" ||
+           row.reason=="local_physical_inventory_readonly" ||
+           row.reason=="local_physical_inventory_overflow" ||
            row.reason=="local_physical_group";
 }
 inline FieldReviewRow make_local_physical_original(
@@ -53,6 +57,35 @@ inline FieldReviewRow make_local_physical_original(
     row.state=FieldReviewState::Unchanged;
     row.reason=std::move(reason);
     return row;
+}
+
+// A search-result detail pane must never silently drop physical tags at
+// the old 50-row limit. Bound per-hit allocations to the native pane's
+// capacity; explicitly disclose any remaining fields and point to the
+// separate full "All current tags" inventory. Original vectors stay intact.
+inline void append_local_physical_inventory(
+    std::vector<FieldReviewRow>& detail,const djmeta::MetadataDocument& source,
+    std::size_t maximum_visible=1024) {
+    if(maximum_visible<2 || detail.size()>=maximum_visible)
+        throw std::invalid_argument("Local source inventory cannot be displayed");
+    const auto remaining_capacity=maximum_visible-detail.size();
+    const bool overflow=source.fields.size()>remaining_capacity;
+    const std::size_t count=overflow
+        ? remaining_capacity-1:source.fields.size();
+    for(std::size_t i=0;i<count;++i)
+        detail.push_back(make_local_physical_original(
+            source.fields[i],"local_physical_inventory_readonly"));
+    if(overflow) {
+        const auto hidden=source.fields.size()-count;
+        const djmeta::MetadataField notice{
+            "Additional physical tags not displayed",
+            {std::to_string(hidden)+
+             " original field(s) remain. Review proposals > All current tags."}};
+        auto row=make_local_physical_original(
+            notice,"local_physical_inventory_overflow");
+        row.state=FieldReviewState::Blocked;
+        detail.push_back(std::move(row));
+    }
 }
 
 // The UI must not label pasted or unverified evidence as an official HTTPS

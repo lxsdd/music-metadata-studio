@@ -44,6 +44,13 @@ WinHTTP GET adapter and the existing bounded official catalog/edition parsers.
   **Keep original**, without a fabricated remote source/edition ID. The
   same carrier-origin separation applies to MusicBrainz search and manually
   entered Beatport review; edition evidence retains its real source ID.
+- Discogs and MusicBrainz search details show all original physical tags
+  up to the native 1,024-row capacity, rather than silently dropping them
+  after 50 rows. If an unusually large inventory exceeds the native pane,
+  a blocked, explicit **Additional physical tags not displayed** row shows
+  the remaining count and points to **Review proposals > All current tags**,
+  where the complete local inventory can be inspected independently.
+  Provider facts remain separate from the local original rows.
 - Native result and field detail provenance distinguish official Discogs API,
   official MusicBrainz API and user-pasted evidence; hovering a field shows
   exact provider source ID, scope, date meaning and refusal reason. Up to

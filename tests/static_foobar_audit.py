@@ -408,6 +408,16 @@ for token in ("local_physical_group", "is_local_physical_original(row)",
     if token not in batch_table_dialog:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: native local source grouping missing: "+token)
 
+# No 50-row truncation without disclosure in the provider search detail.
+for token in ("append_local_physical_inventory(detail,original_tags)",
+              "append_local_physical_inventory(details,originals)",
+              "local_physical_inventory_overflow", "More original tags"):
+    sources_to_check=batch_table_dialog+(root / "include" / "djmeta" / "online_fields.h").read_text(encoding="utf-8")
+    if token not in sources_to_check:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: original tag inventory not fully disclosed: "+token)
+if "if(detail.size()>=50) break;" in batch_table_dialog or    "if(details.size()>=50) break;" in batch_table_dialog:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: silent 50-row source tag truncation")
+
 # The fallback is implemented in the shared review-row provenance helper.
 # The UI must not need an obsolete inline "Pasted:" concatenation.
 origin_model=(root / "include" / "djmeta" / "online_fields.h").read_text(encoding="utf-8")
