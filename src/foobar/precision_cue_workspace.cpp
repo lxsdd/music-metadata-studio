@@ -5,6 +5,7 @@
 
 #include "djmeta/precision_cue.h"
 #include "djmeta/precision_cue_assemble.h"
+#include "djmeta/precision_cue_boundary_audit.h"
 #include "djmeta/precision_cue_apple.h"
 #include "djmeta/precision_cue_apple_http.h"
 #include "djmeta/precision_cue_apple_link.h"
@@ -267,6 +268,15 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
         details += L"Proposed sibling CUE (NOT SAVED): " +
                    from_utf8(exports[i].target_cue_basename) + L"\r\n";
         details += from_utf8(plans[i].external_cue_utf8);
+        details += L"\r\n75-FPS QUANTIZATION AUDIT (catalog timing, NOT audio-verified):\r\n";
+        for (const auto& boundary : plans[i].boundaries) {
+            const auto offset_us = djmeta::precision_cue_quantization_offset_microseconds(boundary);
+            details += L"Track " + std::to_wstring(boundary.track_number) +
+                       L": " + std::to_wstring(boundary.elapsed_ms) + L" ms -> " +
+                       from_utf8(djmeta::cue_frame_to_index(boundary.cue_frame)) +
+                       L"; frame rounding " + (offset_us >= 0 ? L"+" : L"") +
+                       std::to_wstring(offset_us) + L" us\r\n";
+        }
     }
     show_text(state.dialog, details);
     if (reviewed) {

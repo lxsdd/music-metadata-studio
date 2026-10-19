@@ -66,6 +66,22 @@ void test_long_indices_and_unicode() {
     assert(first.external_cue_utf8.find("Über den Wolken – 東京") != std::string::npos);
 }
 
+void test_quantization_audit_exact_integer_offsets() {
+    const auto plan = djmeta::make_precision_cue(synthetic_disc());
+    assert(plan.boundaries.size() == 3);
+    assert(djmeta::precision_cue_quantization_offset_microseconds(plan.boundaries[0]) == 0);
+    // 19ms -> 1 frame = 13.333...ms; signed offset is -5666.667us.
+    assert(djmeta::precision_cue_quantization_offset_microseconds(plan.boundaries[1]) == -5667);
+    // 38ms -> 3 frames = 40ms; signed offset is +2000us.
+    assert(djmeta::precision_cue_quantization_offset_microseconds(plan.boundaries[2]) == 2000);
+    auto invalid = plan.boundaries[1];
+    invalid.cue_frame += 1;
+    must_reject([&] { (void)djmeta::precision_cue_quantization_offset_microseconds(invalid); });
+    invalid = plan.boundaries[1];
+    invalid.elapsed_ms = -1;
+    must_reject([&] { (void)djmeta::precision_cue_quantization_offset_microseconds(invalid); });
+}
+
 void test_frame_classification() {
     using enum djmeta::PrecisionCueComparison;
     assert(djmeta::classify_cue_delta(100, 100) == ExactFrame);
@@ -243,6 +259,7 @@ int main() {
     test_integer_cumulative_rounding();
     test_long_indices_and_unicode();
     test_frame_classification();
+    test_quantization_audit_exact_integer_offsets();
     test_boundary_audit_multidisc_synthetic();
     test_invalid_input_fail_closed();
     test_generated_utf8_validation();

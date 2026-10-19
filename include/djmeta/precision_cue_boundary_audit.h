@@ -7,9 +7,25 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <stdexcept>
 #include <vector>
 
 namespace djmeta {
+
+// Signed difference between the nearest 75-fps marker and the catalog's
+// cumulative millisecond boundary, rounded to the nearest MICROSECOND.
+// This is solely a quantization audit, not an audio/edition comparison.
+// The exact unrounded difference is (cue_frame*1000 - elapsed_ms*75)/75 ms.
+inline std::int64_t precision_cue_quantization_offset_microseconds(
+    const PrecisionCueBoundary& boundary) {
+    if (boundary.elapsed_ms < 0 || boundary.cue_frame < 0 ||
+        boundary.cue_frame != milliseconds_to_cue_frame(boundary.elapsed_ms))
+        throw std::invalid_argument("Invalid quantized CUE boundary");
+    const auto numerator = boundary.cue_frame * 1000 - boundary.elapsed_ms * 75;
+    const auto absolute = numerator >= 0 ? numerator : -numerator;
+    const auto rounded = (absolute * 1000 + 37) / 75;
+    return numerator >= 0 ? rounded : -rounded;
+}
 
 struct PrecisionCueReferenceBoundary {
     unsigned track_number = 0;
