@@ -282,5 +282,40 @@ int main() {
                             {"id":0,"name":"Invalid"}]})",987); },
             "invalid track causes fail-closed album parsing");
 
+
+    // Exact-edition completeness is mandatory, even for a plausible teaser.
+    refuses([&] { (void)parse_edition(
+        R"({"id":987,"name":"Home EP"})",tracks,987); },
+        "missing release count cannot establish complete edition");
+    refuses([&] { (void)parse_edition(release,
+        R"({"count":3,"results":[
+          {"id":321,"name":"Home","release":{"id":987}},
+          {"id":322,"name":"Home","release":{"id":987}}]})",987); },
+        "pagination count must agree with release");
+    refuses([&] { (void)parse_edition(release,
+        R"({"next":"page-2","results":[
+          {"id":321,"name":"Home","release":{"id":987}},
+          {"id":322,"name":"Home","release":{"id":987}}]})",987); },
+        "next-page pointer disqualifies full edition");
+    refuses([&] { (void)parse_edition(release,
+        R"({"page":2,"results":[
+          {"id":321,"name":"Home","release":{"id":987}},
+          {"id":322,"name":"Home","release":{"id":987}}]})",987); },
+        "non-first page cannot be full edition");
+    refuses([&] { (void)parse_edition(release,
+        R"({"results":[
+          {"id":321,"name":"Home","release":{"id":987}},
+          {"id":321,"name":"Home Again","release":{"id":987}}]})",987); },
+        "duplicate recording IDs are not two tracks");
+    refuses([&] { (void)parse_edition(release,
+        R"({"results":[
+          {"id":321,"name":"Home","number":1,"release":{"id":987}},
+          {"id":322,"name":"Home","number":1,"release":{"id":987}}]})",987); },
+        "duplicate edition positions are ambiguous");
+    refuses([&] { (void)parse_edition(release,
+        R"({"results":[
+          {"id":321,"name":"Home"},
+          {"id":322,"name":"Home","release":{"id":987}}]})",987); },
+        "missing per-track release membership cannot be assumed");
     std::cout << "PASS: Beatport bounded v4 catalog parser, editions, versions, provenance, no writes and safety\n";
 }

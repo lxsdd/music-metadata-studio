@@ -27,6 +27,7 @@
 #include "djmeta/discogs_provider.h"
 #include "djmeta/cue_release_review.h"
 #include "djmeta/beatport_manual_intake.h"
+#include "djmeta/beatport_release_review.h"
 #include "djmeta/discogs_release_review.h"
 #include "djmeta/cue_online_bridge.h"
 #include "djmeta/physical_selection.h"
@@ -2454,7 +2455,12 @@ void show_workspace_help(HWND dialog) {
         L"Alternatively @beatport-track-facts accepts explicitly typed "
          L"TITLE/ARTIST/VERSION/DURATION=MM:SS and other visible factual "
          L"fields with @provider=beatport and @id=track:NNN. "
-         L"Mismatches are blocked and CUE ordinals are never guessed.\n\n"
+         L"To compare an exact Beatport edition, paste @beatport-release-json "
+         L"then the release detail JSON, then @beatport-tracks-json and its "
+         L"complete track page. Incomplete or foreign pages fail closed. "
+         L"Physical and inspected CUE tracks get independent, read-only "
+         L"mix/identity evidence; no CUE ordinal is inferred from order. "
+         L"Mismatches are blocked.\n\n"
         L"3. Plan file locations\n"
         L"Choose a routing profile, destination and naming expression, then "
         L"preview the proposed paths. Neither moves nor renames are enabled.\n\n"
@@ -4131,8 +4137,13 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 djmeta::online::is_beatport_user_json_clipboard(text);
             const bool beatport_user_facts =
                 djmeta::online::is_beatport_user_facts_clipboard(text);
+            const bool beatport_user_release =
+                djmeta::online::is_beatport_user_release_clipboard(text);
             std::optional<djmeta::online::ManualCandidate> user_candidate;
-            if(!beatport_user_json && !beatport_user_facts)
+            std::optional<djmeta::online::ReleaseEdition> user_edition;
+            if(beatport_user_release)
+                user_edition=djmeta::online::parse_beatport_user_release_clipboard(text);
+            else if(!beatport_user_json && !beatport_user_facts)
                 user_candidate=djmeta::online::parse_manual_candidate(text);
             std::vector<djmeta::online::FieldReviewRow> rows;
             if (compare_cue) {
@@ -4146,8 +4157,15 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 const auto raw =
                     read_cue_raw_on_demand(entry.handle, entry.input.source_path);
                 const auto cue = djmeta::inspect_cue_metadata(raw.raw_text, raw.carrier);
-                rows = djmeta::online::review_manual_cue_candidate(
-                    cue, *user_candidate);
+                if(beatport_user_release)
+                    rows=djmeta::online::review_beatport_user_edition_cue(
+                        cue,*user_edition);
+                else
+                    rows = djmeta::online::review_manual_cue_candidate(
+                        cue, *user_candidate);
+                if(read_cue_raw_on_demand(
+                    entry.handle,entry.input.source_path).raw_text!=raw.raw_text)
+                    throw std::runtime_error("CUE changed during clipboard comparison.");
             } else {
                 if (!entry.input.physical_source_qualified ||
                     is_external_cue_locator(entry.input.source_path))
@@ -4159,7 +4177,15 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                         "@cue_track_ordinal applies only to CUE comparison.");
                 const auto ref = entry.handle->get_info_ref();
                 const auto original = metadata_from_file_info(ref->info());
-                if(beatport_user_json || beatport_user_facts) {
+                if(beatport_user_release) {
+                    const double seconds=ref->info().get_length();
+                    const std::int64_t duration_ms=
+                        seconds>0.0 && seconds<=36000.0
+                        ? static_cast<std::int64_t>(seconds*1000.0+0.5)
+                        : -1;
+                    rows=djmeta::online::review_beatport_user_edition_physical(
+                        original,duration_ms,*user_edition);
+                } else if(beatport_user_json || beatport_user_facts) {
                     const auto beatport_track = beatport_user_json
                         ? djmeta::online::parse_beatport_user_json_clipboard(text)
                         : djmeta::online::parse_beatport_user_facts_clipboard(text);
@@ -4175,17 +4201,32 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                         original, user_candidate->fields);
                 }
             }
-            state->candidate_rows = std::move(rows);
+            verify_snapshot(entry);
+            verify_rules_snapshot(state->captured_rules);
+            if(beatport_user_release) {
+                auto grouped=group_musicbrainz_release_rows(rows);
+                state->candidate_rows=std::move(grouped.summary);
+                state->musicbrainz_detail_groups=std::move(grouped.detail);
+            } else {
+                state->candidate_rows=std::move(rows);
+                state->musicbrainz_detail_groups.clear();
+            }
             state->candidate_source_index = state->selected_track_index;
             state->cue_inspection_mode = false;
             state->cue_candidate_comparison_mode = compare_cue;
-            state->musicbrainz_live_view = false;
+            state->musicbrainz_live_view = beatport_user_release;
+            state->musicbrainz_release_loaded = beatport_user_release;
+            state->musicbrainz_kind =
+                djmeta::online::musicbrainz::SearchKind::Release;
+            state->search_attempt_notice = beatport_user_release
+                ? L"Pasted Beatport edition and complete tracklist. "
+                  L"Unmatched tracks blocked; no API authorization or writes."
+                : L"";
             state->discogs_live_view = false;
             state->discogs_results.clear();
             state->discogs_direct_edition.reset();
             state->discogs_search_was_cue = false;
             state->musicbrainz_results.clear();
-            state->musicbrainz_detail_groups.clear();
             update_metadata_table(*state);
             return TRUE;
         }

@@ -11,6 +11,7 @@
 #include <cctype>
 #include <cstdint>
 #include <stdexcept>
+#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -354,18 +355,35 @@ inline ReleaseEdition parse_edition(std::string_view release_json,
     const auto* list = result_list(track_data, "results", "tracks");
     if (list->array.empty() || list->array.size() > 200)
         throw std::invalid_argument("Incomplete or excessive Beatport release tracks");
-    const auto* count_field = release.get("track_count");
+    // A partial or teaser page is not a verified edition. A missing count
+    // cannot prove completeness, even when the visible array looks plausible.
     const int count = bounded_number(release, "track_count", 1, 200);
-    // A provided count outside our single-page qualification envelope is
-    // not "unknown". Refuse it rather than silently using the first page.
-    if (count_field && count_field->type != Json::Type::Null && count < 0)
-        throw std::invalid_argument("Unqualified Beatport release track count");
-    if (count > 0 && static_cast<std::size_t>(count) != list->array.size())
-        throw std::invalid_argument("Partial Beatport release track page");
+    if (count < 1 || static_cast<std::size_t>(count) != list->array.size())
+        throw std::invalid_argument("Unqualified or partial Beatport tracklist");
+    const auto* reported = track_data.get("count");
+    if (reported && (reported->type != Json::Type::Number ||
+                     musicbrainz::number_or(reported) != count))
+        throw std::invalid_argument("Beatport page count contradicts edition");
+    const auto* page = track_data.get("page");
+    if (page && (page->type != Json::Type::Number ||
+                 musicbrainz::number_or(page) != 1))
+        throw std::invalid_argument("Beatport tracks are not the first page");
+    const auto* next = track_data.get("next");
+    const auto* previous = track_data.get("previous");
+    if ((next && next->type != Json::Type::Null) ||
+        (previous && previous->type != Json::Type::Null))
+        throw std::invalid_argument("Beatport tracklist is paginated");
+    std::set<std::uint64_t> seen_ids;
+    std::set<int> seen_positions;
     for (const auto& object : list->array) {
         auto track = parse_track_object(object);
-        if (track.release_id != 0 && track.release_id != expected_release_id)
-            throw std::invalid_argument("Foreign track in Beatport release");
+        if (track.release_id != expected_release_id)
+            throw std::invalid_argument("Beatport track release identity missing or foreign");
+        if (!seen_ids.insert(track.id).second)
+            throw std::invalid_argument("Duplicate Beatport track identity");
+        if (track.track_number > 0 &&
+            !seen_positions.insert(track.track_number).second)
+            throw std::invalid_argument("Duplicate Beatport edition position");
         EditionTrack row;
         row.source_track_id = decimal(track.id);
         row.recording = to_candidate(track).identity;

@@ -1,4 +1,4 @@
-#include "djmeta/beatport_manual_intake.h"
+#include "djmeta/beatport_release_review.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -197,5 +197,84 @@ int main() {
           "Windows CRLF clipboard marker accepted");
     check(original.fields[4].values==std::vector<std::string>{"-5.4 dB"},
           "no media metadata writes or mutation");
+
+    // Exact edition: two independently supplied JSON documents, no network.
+    const std::string bundle =
+        "@beatport-release-json\n"
+        R"({"id":987,"name":"Home EP","track_count":2,"new_release_date":"2026-10-16"})" "\n"
+        "@beatport-tracks-json\n"
+        R"({"count":2,"results":[
+          {"id":321,"name":"Home","mix_name":"Extended Mix","number":1,
+           "artists":[{"name":"DJ Example"}],"length_ms":402500,
+           "isrc":"GBXYZ2601234","release":{"id":987,"name":"Home EP"}},
+          {"id":322,"name":"Home","mix_name":"Radio Edit","number":2,
+           "artists":[{"name":"DJ Example"}],"length_ms":202500,
+           "release":{"id":987,"name":"Home EP"}}]})";
+    check(is_beatport_user_release_clipboard(bundle),
+          "explicit Beatport release marker recognized");
+    const auto edition=parse_beatport_user_release_clipboard(bundle);
+    check(edition.provider=="beatport" && edition.edition_id=="987" &&
+          edition.tracks.size()==2 &&
+          edition.tracks[1].recording.mix==MixKind::Radio,
+          "complete edition preserves two separate mix identities");
+    const auto physical_review=review_beatport_user_edition_physical(
+        original,402500,edition);
+    const auto* first=find(physical_review,"Release Track 1 / TITLE");
+    const auto* other=find(physical_review,"Release Track 2 / TITLE");
+    const auto* album=find(physical_review,"Album / ALBUM");
+    const auto* local_custom=find(physical_review,"Physical / MYTAG");
+    check(first && first->state!=FieldReviewState::Blocked &&
+          first->candidate.source_id=="321" &&
+          first->candidate.scope==EvidenceScope::Recording &&
+          other && other->state==FieldReviewState::Blocked &&
+          album && album->candidate.source_id=="987" &&
+          local_custom && local_custom->original_values==
+              std::vector<std::string>({"One","Two"}) &&
+          online_evidence_origin_label(*first)=="Pasted: beatport",
+          "physical edition compares only exact mix and keeps local multivalues");
+    const auto wrong_edition=review_beatport_user_edition_physical(
+        wrong,402500,edition);
+    check(find(wrong_edition,"Album / ALBUM")->state==
+              FieldReviewState::Blocked,
+          "conflicting physical mix cannot borrow edition facts");
+    const auto cue=djmeta::inspect_cue_metadata(
+        "PERFORMER \"DJ Example\"\n"
+        "TITLE \"Home EP\"\n"
+        "FILE \"sample.mp3\" MP3\n"
+        "  TRACK 01 AUDIO\n"
+        "    TITLE \"Home (Extended Mix)\"\n"
+        "    PERFORMER \"DJ Example\"\n"
+        "    INDEX 01 00:00:00\n"
+        "  TRACK 02 AUDIO\n"
+        "    TITLE \"Home (Radio Edit)\"\n"
+        "    PERFORMER \"DJ Example\"\n"
+        "    INDEX 01 06:42:00\n",
+        djmeta::CueCarrierKind::ExternalText);
+    check(cue.status==djmeta::CueSyntaxStatus::Parsed,
+          "external CUE fixture parses");
+    const auto cue_review=review_beatport_user_edition_cue(cue,edition);
+    const auto* cue_album=find(cue_review,"Album / TITLE");
+    bool match_seen=false,recording_seen=false;
+    for(const auto& row:cue_review) {
+        if(row.candidate.field=="MATCH_DIAGNOSTIC") match_seen=true;
+        if(row.candidate.field=="TITLE" &&
+           row.candidate.scope==EvidenceScope::Recording) {
+            recording_seen=true;
+            check(row.candidate.source_id=="321" ||
+                  row.candidate.source_id=="322",
+                  "CUE evidence preserves individual Beatport track ID");
+        }
+    }
+    check(cue_album && cue_album->original_values==
+              std::vector<std::string>{"Home EP"} &&
+          match_seen && recording_seen,
+          "CUE album and track evidence shown without fabricated virtual writes");
+    rejects([&]{(void)parse_beatport_user_release_clipboard(
+        bundle.substr(0,bundle.find("\n@beatport-tracks-json")));},
+        "release detail alone is not a full tracklist");
+    rejects([&]{auto bad=bundle;auto p=bad.find("\"track_count\":2");
+        bad.replace(p,15,"\"track_count\":3");
+        (void)parse_beatport_user_release_clipboard(bad);},
+        "incomplete pasted edition is rejected");
     std::cout<<"Beatport user clipboard read-only workflow PASS\n";
 }

@@ -39,3 +39,51 @@ Automated scope: core positive/negative parsing and mix identity tests,
 native production clipboard-handler static audit, exact-SHA Windows
 Win32/x64 builds. Installed foobar and genuine provider integration remain
 independent acceptance gates.
+
+## Full exact-edition clipboard review (physical and CUE)
+
+A separate **read-only release/tracklist** path is available when you already
+lawfully possess both original JSON documents. It never downloads or scrapes
+Beatport and never treats pasted evidence as an authenticated API response.
+
+Select a physical track, or use **Inspect CUE** first for an external/embedded
+textual CUE, and paste the following **single UTF-8 clipboard text**:
+
+```text
+@beatport-release-json
+{"id":987,"name":"Home EP","track_count":2}
+@beatport-tracks-json
+{"count":2,"results":[
+  {"id":321,"name":"Home","mix_name":"Extended Mix","number":1,
+   "artists":[{"name":"DJ Example"}],"length_ms":402500,
+   "release":{"id":987,"name":"Home EP"}},
+  {"id":322,"name":"Home","mix_name":"Radio Edit","number":2,
+   "artists":[{"name":"DJ Example"}],"length_ms":202500,
+   "release":{"id":987,"name":"Home EP"}}
+]}
+```
+
+The two JSON documents must be complete, separately identifiable, and fit
+within the 64-KiB clipboard envelope. **Import clipboard** displays grouped
+album and individual recording/edition field comparisons. Track identity
+requires a unique, nonconflicting association; radio/extended mixes cannot
+borrow each other's credits. For a CUE, global fields compare against real
+CUE-global tokens, and track evidence is only associated when the existing
+one-to-one matcher has independent identity evidence. CUE INDEX timestamps
+are **not** treated as reliable recording durations. Weak associations can
+show original values and pasted candidate facts only as **Blocked** evidence.
+
+A missing/invalid release `track_count`, missing or foreign per-track release
+IDs, duplicate track IDs/positions, mismatched page `count`, non-first pages,
+or a non-null next/previous page indicator **reject the entire edition**.
+No partial track page is silently promoted to a complete album. Incomplete
+JSON can still be handled as a **single track** using the separate
+`@beatport-track-json` path if that one track itself qualifies; never claim
+it represents the complete release.
+
+Original physical multivalue, ReplayGain and custom fields remain visible
+and untouched. Neither imported facts nor displayed Review states authorize
+physical/CUE writes, artwork changes, File Operations or external requests.
+Live Beatport API discovery is still **disabled** without a verified lawful
+provider credential route. Exact-head CI and actual foobar host validation
+remain separate from parser correctness.

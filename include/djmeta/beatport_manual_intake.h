@@ -61,6 +61,53 @@ inline beatport::TrackEvidence parse_beatport_user_json_clipboard(
 // DATE@edition=2026-10-16
 // The standard strict manual parser handles UTF-8, duplicate fields, limits
 // and provenance; DURATION is identification evidence, not a physical tag.
+
+// A lawful, user-pasted release detail AND its independently supplied complete
+// track page are required. Neither document is downloaded by this component.
+// The two explicit markers prevent a search teaser from masquerading as an
+// exact edition, and retain both original JSON objects without reserialization.
+inline constexpr std::string_view beatport_user_release_header=
+    "@beatport-release-json";
+inline constexpr std::string_view beatport_user_tracks_header=
+    "@beatport-tracks-json";
+
+inline bool is_beatport_user_release_clipboard(std::string_view raw) {
+    return raw.starts_with("@beatport-release-json\n") ||
+           raw.starts_with("@beatport-release-json\r\n");
+}
+
+inline ReleaseEdition parse_beatport_user_release_clipboard(
+    std::string_view raw) {
+    if (!is_beatport_user_release_clipboard(raw))
+        throw std::invalid_argument("Expected explicit Beatport release JSON marker");
+    if (raw.size() > 65536 || raw.find('\0') != std::string_view::npos)
+        throw std::invalid_argument("Beatport edition clipboard exceeds 64 KiB");
+    const auto first_newline = raw.find('\n');
+    const auto separator = raw.find("\n@beatport-tracks-json\n",
+        first_newline + 1);
+    const auto windows_separator = raw.find("\r\n@beatport-tracks-json\r\n",
+        first_newline + 1);
+    const bool windows = windows_separator != std::string_view::npos &&
+        (separator == std::string_view::npos ||
+         windows_separator < separator);
+    const auto split = windows ? windows_separator : separator;
+    if (split == std::string_view::npos)
+        throw std::invalid_argument("Missing separate Beatport release tracks JSON");
+    const auto start = first_newline + 1;
+    const auto end = windows ? split + 1 : split;
+    const auto tracks_start = split +
+        (windows ? std::string_view("\r\n@beatport-tracks-json\r\n").size()
+                 : std::string_view("\n@beatport-tracks-json\n").size());
+    if (start >= end || tracks_start >= raw.size())
+        throw std::invalid_argument("Empty Beatport release or tracks document");
+    const auto release = raw.substr(start, end - start);
+    const auto tracks = raw.substr(tracks_start);
+    const auto release_obj = musicbrainz::JsonParser(release).parse();
+    const auto id = beatport::id(release_obj);
+    if (!id) throw std::invalid_argument("Beatport release ID is missing");
+    return beatport::parse_edition(release, tracks, id);
+}
+
 inline constexpr std::string_view beatport_user_facts_header=
     "@beatport-track-facts";
 
