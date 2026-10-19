@@ -7,6 +7,7 @@
 #include <commctrl.h>
 #include <algorithm>
 #include <cstddef>
+#include <numeric>
 #include <optional>
 #include <set>
 #include <vector>
@@ -22,6 +23,31 @@ namespace djmeta_foobar {
  * All identities refer to underlying sources, never to sorted UI rows.
  * No host SDK or filesystem write API is needed here.
  */
+// Preserve official API relevance order until a user explicitly sorts.
+template<class CellText>
+std::vector<std::size_t> native_candidate_view_order(
+    std::size_t count, int sort_column, bool descending, CellText cell_text) {
+    std::vector<std::size_t> order(count);
+    std::iota(order.begin(),order.end(),std::size_t{0});
+    if(sort_column>=0 && sort_column<5)
+        std::stable_sort(order.begin(),order.end(),[&](auto left,auto right) {
+            const auto a=cell_text(left,sort_column);
+            const auto b=cell_text(right,sort_column);
+            return descending?a>b:a<b;
+        });
+    return order;
+}
+
+// A master ID, unverified candidate, stale context or pending request
+// can never enable release-track inspection.
+inline bool native_release_loadable(
+    bool live, bool loaded, bool source_matches, bool request_pending,
+    std::string_view selected_id, const std::vector<std::string>& exact_ids) {
+    return live && !loaded && source_matches && !request_pending &&
+        !selected_id.empty() &&
+        std::find(exact_ids.begin(),exact_ids.end(),selected_id)!=exact_ids.end();
+}
+
 enum class PreviewCommand {
     None, Accept, Reject, Reset, ManualValue, TrackFilterChanged, FocusFilterChanged, VisibleWhitespaceChanged
 };

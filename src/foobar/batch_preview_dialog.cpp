@@ -166,7 +166,7 @@ struct PreviewState {
     std::size_t candidate_source_index = (std::numeric_limits<std::size_t>::max)();
     std::vector<djmeta::online::FieldReviewRow> candidate_rows;
     std::vector<std::size_t> candidate_view_order; // independent of normalization rows
-    int candidate_sort_column = 0;
+    int candidate_sort_column = -1; // API relevance until explicit column click
     bool candidate_sort_descending = false;
     djmeta::ReviewGridLayout<4> track_grid;
     djmeta::ReviewGridLayout<5> detail_grid;
@@ -1098,6 +1098,38 @@ void update_musicbrainz_browse_headers(PreviewState& state) {
     }
 }
 
+// The native action is enabled only for the selected verified release, not
+// merely when some unrelated release is present in provider results.
+void update_online_release_load_button(PreviewState& state) {
+    if(!state.dialog || !state.metadata_list) return;
+    std::vector<std::string> exact_ids;
+    if(state.discogs_live_view) {
+        for(const auto& hit:state.discogs_results)
+            if(hit.kind==djmeta::online::discogs::EntityKind::Release)
+                exact_ids.push_back("release:"+std::to_string(hit.id));
+    } else {
+        for(const auto& hit:state.musicbrainz_results)
+            if(hit.kind==djmeta::online::musicbrainz::SearchKind::Release)
+                exact_ids.push_back(hit.mbid);
+    }
+    std::string selected_identity;
+    const int selected=ListView_GetNextItem(state.metadata_list,-1,LVNI_SELECTED);
+    if(selected>=0 && static_cast<std::size_t>(selected)<state.candidate_view_order.size()) {
+        const auto index=state.candidate_view_order[static_cast<std::size_t>(selected)];
+        if(index<state.candidate_rows.size())
+            selected_identity=state.candidate_rows[index].candidate.source_id;
+    }
+    const bool ready=native_release_loadable(
+        state.show_candidate && state.musicbrainz_live_view &&
+            state.musicbrainz_kind==djmeta::online::musicbrainz::SearchKind::Release,
+        state.musicbrainz_release_loaded,
+        state.candidate_source_index==state.selected_track_index,
+        state.discogs_request!=nullptr || state.musicbrainz_request!=nullptr,
+        selected_identity,exact_ids);
+    EnableWindow(GetDlgItem(state.dialog,IDC_METADATA_MB_LOAD_RELEASE),
+                 ready?TRUE:FALSE);
+}
+
 void update_metadata_table(PreviewState& state) {
     if (state.show_candidate) {
         // Candidate counts describe result identities, not field-change rows.
@@ -1145,20 +1177,8 @@ void update_metadata_table(PreviewState& state) {
         EnableWindow(GetDlgItem(state.dialog, IDC_METADATA_INSPECT_CUE),
                      cue_readable ? TRUE : FALSE);
         EnableWindow(GetDlgItem(state.dialog, IDC_METADATA_MB_SEARCH),
-                     (physical || cue_readable) ? TRUE : FALSE);
-        const bool can_load_release = state.musicbrainz_live_view &&
-            !state.musicbrainz_release_loaded &&
-            state.candidate_source_index == state.selected_track_index &&
-            state.musicbrainz_kind ==
-                djmeta::online::musicbrainz::SearchKind::Release &&
-            (state.discogs_live_view
-                ? std::any_of(state.discogs_results.begin(),state.discogs_results.end(),
-                    [](const auto& hit) {
-                        return hit.kind==djmeta::online::discogs::EntityKind::Release;
-                    })
-                : !state.musicbrainz_results.empty());
-        EnableWindow(GetDlgItem(state.dialog, IDC_METADATA_MB_LOAD_RELEASE),
-                     can_load_release ? TRUE : FALSE);
+                     (physical || cue_readable) &&
+                     !state.discogs_request && !state.musicbrainz_request ? TRUE : FALSE);
         // Preserve the candidate, not its old sorted view row.
         std::string selected_browser_id;
         const int selected_before=ListView_GetNextItem(
@@ -1176,15 +1196,11 @@ void update_metadata_table(PreviewState& state) {
         if ((physical || state.cue_inspection_mode ||
              state.cue_candidate_comparison_mode || state.musicbrainz_live_view) &&
             state.selected_track_index == state.candidate_source_index) {
-            for (std::size_t i = 0; i < state.candidate_rows.size(); ++i)
-                state.candidate_view_order.push_back(i);
-            const int sort_column = state.candidate_sort_column;
-            std::stable_sort(state.candidate_view_order.begin(),
-                             state.candidate_view_order.end(),
-                [&](std::size_t a, std::size_t b) {
-                    const auto left = candidate_cell_text(state.candidate_rows[a], sort_column);
-                    const auto right = candidate_cell_text(state.candidate_rows[b], sort_column);
-                    return state.candidate_sort_descending ? left > right : left < right;
+            state.candidate_view_order=native_candidate_view_order(
+                state.candidate_rows.size(),state.candidate_sort_column,
+                state.candidate_sort_descending,
+                [&](std::size_t row,int column) {
+                    return candidate_cell_text(state.candidate_rows[row],column);
                 });
         }
         ListView_SetItemCountEx(state.metadata_list,
@@ -1220,6 +1236,7 @@ void update_metadata_table(PreviewState& state) {
         } else {
             ListView_DeleteAllItems(state.musicbrainz_details);
         }
+        update_online_release_load_button(state);
         InvalidateRect(state.metadata_list, nullptr, FALSE);
         InvalidateRect(state.metadata_track_list, nullptr, FALSE); // counts may change after import
         const std::wstring hint = !selected_valid
@@ -2581,6 +2598,10 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
                           std::move(context));
 }
 
+void publish_discogs_release(HWND dialog, PreviewState& state,
+                             const PendingDiscogsContext& request,
+                             const djmeta::online::ReleaseEdition& edition);
+
 void publish_discogs_search(HWND dialog, PreviewState& state,
                             const PendingDiscogsContext& request,
                             const std::string& reply) {
@@ -2646,11 +2667,33 @@ void publish_discogs_search(HWND dialog, PreviewState& state,
               L"Master results cannot supply edition evidence.");
     ListView_SetItemState(state.metadata_list,-1,0,LVIS_SELECTED);
     update_metadata_table(state);
+    if(state.discogs_direct_edition) {
+        // The deliberate exact URL search already fetched this edition.
+        // Reuse it for read-only Track/CUE field comparison in one action.
+        const auto target="release:"+std::to_string(request.release_id);
+        std::size_t view_index=state.candidate_view_order.size();
+        for(std::size_t i=0;i<state.candidate_view_order.size();++i) {
+            const auto row=state.candidate_view_order[i];
+            if(row<state.candidate_rows.size() &&
+               state.candidate_rows[row].candidate.source_id==target) {
+                view_index=i;
+                break;
+            }
+        }
+        if(view_index==state.candidate_view_order.size())
+            throw std::runtime_error("Exact Discogs release missing from native result list.");
+        state.updating_musicbrainz_selection=true;
+        ListView_SetItemState(state.metadata_list,-1,0,LVIS_SELECTED);
+        ListView_SetItemState(state.metadata_list,static_cast<int>(view_index),
+            LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);
+        state.updating_musicbrainz_selection=false;
+        PendingDiscogsContext exact_request=request;
+        exact_request.kind=PendingDiscogsContext::Kind::Release;
+        exact_request.context_version=state.online_context_version.current();
+        publish_discogs_release(dialog,state,exact_request,
+                                *state.discogs_direct_edition);
+    }
 }
-
-void publish_discogs_release(HWND dialog, PreviewState& state,
-                             const PendingDiscogsContext& request,
-                             const djmeta::online::ReleaseEdition& edition);
 
 void perform_discogs_load(HWND dialog, PreviewState& state) {
     using namespace djmeta::online;
@@ -3358,6 +3401,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
              (header->code==LVN_KEYDOWN &&
               reinterpret_cast<const NMLVKEYDOWN*>(lp)->wVKey==VK_RETURN));
         if (release_activation &&
+            IsWindowEnabled(GetDlgItem(dialog,IDC_METADATA_MB_LOAD_RELEASE)) &&
             may_activate_musicbrainz_release(header->code,
                 state->show_candidate && state->musicbrainz_live_view,
                 state->musicbrainz_kind==
@@ -3384,6 +3428,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                      (changed->uOldState & LVIS_SELECTED))) {
                     state->online_context_version.invalidate();
                     refresh_musicbrainz_detail_rows(*state);
+                    update_online_release_load_button(*state);
                 }
             }
             return TRUE;

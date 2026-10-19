@@ -274,6 +274,32 @@ int main() {
                   "DPI-aware selected-candidate label never collides with list header");
         }
     }
+    const std::vector<std::wstring> provider_ranked{
+        L"Zeta (provider rank 1)",L"Alpha (provider rank 2)",L"Beta (provider rank 3)"};
+    const auto native_order=[&](int column,bool descending) {
+        return djmeta_foobar::native_candidate_view_order(
+            provider_ranked.size(),column,descending,
+            [&](std::size_t i,int) {return provider_ranked.at(i);});
+    };
+    check(native_order(-1,false)==std::vector<std::size_t>({0,1,2}) &&
+          native_order(0,false)==std::vector<std::size_t>({1,2,0}) &&
+          native_order(0,true)==std::vector<std::size_t>({0,2,1}),
+          "official API relevance order preserved until explicit column sort");
+    const std::vector<std::string> exact_ids{
+        "release:38012673", "release:37332711"};
+    check(djmeta_foobar::native_release_loadable(
+              true,false,true,false,"release:38012673",exact_ids) &&
+          !djmeta_foobar::native_release_loadable(
+              true,false,true,false,"master:38012673",exact_ids) &&
+          !djmeta_foobar::native_release_loadable(
+              true,false,true,false,"release:999",exact_ids) &&
+          !djmeta_foobar::native_release_loadable(
+              true,false,true,true,"release:38012673",exact_ids) &&
+          !djmeta_foobar::native_release_loadable(
+              true,false,false,false,"release:38012673",exact_ids) &&
+          !djmeta_foobar::native_release_loadable(
+              true,true,true,false,"release:38012673",exact_ids),
+          "native release action rejects masters, unrelated, pending, stale and loaded rows");
     check(djmeta_foobar::may_activate_musicbrainz_release(
         NM_DBLCLK,true,true,false,true) &&
           djmeta_foobar::may_activate_musicbrainz_release(
