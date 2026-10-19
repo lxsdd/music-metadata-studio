@@ -106,8 +106,9 @@ inline PrecisionCueConsensusReport audit_precision_cue_source_consensus(
         report.diagnostics.emplace_back("INVALID_PRIMARY_SOURCE");
         return report;
     }
-    std::set<std::pair<std::string, std::string>> provider_ids;
+    std::set<std::string> independent_providers;
     bool conflicting_frames = false;
+    bool one_frame_ambiguity = false;
     bool coarse_reference_conflict = false;
     const auto cue_frame = [](std::int64_t ms) {
         return (ms * 75 + 500) / 1000;
@@ -116,10 +117,20 @@ inline PrecisionCueConsensusReport audit_precision_cue_source_consensus(
         const auto& release = source.release;
         if (!valid_release_structure(release) ||
             source.resolution_ms == 0 || source.resolution_ms > 1000 ||
-            !provider_ids.emplace(release.provider, release.provider_release_id).second ||
             !same_edition(sources.front().release, release)) {
             report.diagnostics.emplace_back("DUPLICATE_OR_DIFFERENT_RELEASE_EDITION");
-            return PrecisionCueConsensusReport{};
+            return report;
+        }
+        const auto provider_key = normalized(release.provider);
+        if (!independent_providers.emplace(provider_key).second) {
+            report.diagnostics.emplace_back("REPEATED_PROVIDER_NOT_INDEPENDENT");
+            return report;
+        }
+        // Deezer public album track durations are whole seconds. Caller-
+        // supplied resolution metadata cannot promote them to CUE frames.
+        if (provider_key == "deezer" && source.resolution_ms < 1000) {
+            report.diagnostics.emplace_back("DEEZER_SECONDS_NOT_FRAME_PRECISION");
+            return report;
         }
         if (source.resolution_ms <= 14) ++report.high_resolution_sources;
         if (&source == &sources.front()) continue;
@@ -145,8 +156,10 @@ inline PrecisionCueConsensusReport audit_precision_cue_source_consensus(
                 release.provider, track.disc_number, track.track_number,
                 other_ms - primary_ms, delta, source.resolution_ms
             });
-            if (sources.front().resolution_ms <= 14 && source.resolution_ms <= 14 &&
-                (delta > 1 || delta < -1)) conflicting_frames = true;
+            if (sources.front().resolution_ms <= 14 && source.resolution_ms <= 14) {
+                if (delta != 0) one_frame_ambiguity = true;
+                if (delta > 1 || delta < -1) conflicting_frames = true;
+            }
             // Whole-second reference durations are identity evidence only.
             // A large per-track or accumulated drift is contradictory,
             // not independent corroboration of a mixed edition.
@@ -174,12 +187,15 @@ inline PrecisionCueConsensusReport audit_precision_cue_source_consensus(
     } else if (coarse_reference_conflict) {
         report.state = PrecisionCueConsensusState::Review;
         report.diagnostics.emplace_back("COARSE_REFERENCE_DURATION_CONFLICT");
+    } else if (one_frame_ambiguity) {
+        report.state = PrecisionCueConsensusState::Review;
+        report.diagnostics.emplace_back("ONE_FRAME_BOUNDARY_AMBIGUITY_REVIEW");
     } else if (report.high_resolution_sources < 2) {
         report.state = PrecisionCueConsensusState::SingleHighResolutionSource;
         report.diagnostics.emplace_back("NO_INDEPENDENT_FRAME_RESOLUTION_CORROBORATION");
     } else {
         report.state = PrecisionCueConsensusState::Agreed;
-        report.diagnostics.emplace_back("BOUNDARIES_AGREE_WITHIN_ONE_FRAME_NOT_SAMPLE_PROOF");
+        report.diagnostics.emplace_back("FRAME_BOUNDARIES_IDENTICAL_NOT_SAMPLE_PROOF");
     }
     return report;
 }

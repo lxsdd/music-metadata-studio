@@ -29,10 +29,26 @@ int main() {
            PrecisionCueConsensusState::SingleHighResolutionSource);
     assert(audit_precision_cue_source_consensus({apple, mb}).state ==
            PrecisionCueConsensusState::Agreed);
+    // Two Apple collection IDs are not two independent timing providers.
+    auto other_apple = source("APPLE", 1);
+    other_apple.release.provider_release_id = "alternate-collection";
+    auto repeated = audit_precision_cue_source_consensus({apple, other_apple});
+    assert(repeated.state == PrecisionCueConsensusState::Rejected);
+    assert(repeated.diagnostics.size() == 1);
+    assert(repeated.diagnostics[0] == "REPEATED_PROVIDER_NOT_INDEPENDENT");
+    // Deezer whole-second durations cannot be relabelled as millisecond timing.
+    auto fake_precision = source("Deezer", 1);
+    auto spoof = audit_precision_cue_source_consensus({fake_precision});
+    assert(spoof.state == PrecisionCueConsensusState::Rejected);
+    assert(spoof.diagnostics[0] == "DEEZER_SECONDS_NOT_FRAME_PRECISION");
+    spoof = audit_precision_cue_source_consensus({apple, fake_precision});
+    assert(spoof.state == PrecisionCueConsensusState::Rejected);
+    assert(spoof.diagnostics[0] == "DEEZER_SECONDS_NOT_FRAME_PRECISION");
 
     mb.release.tracks[0].duration_ms += 13;
-    assert(audit_precision_cue_source_consensus({apple, mb}).state ==
-           PrecisionCueConsensusState::Agreed);
+    auto single_frame = audit_precision_cue_source_consensus({apple, mb});
+    assert(single_frame.state == PrecisionCueConsensusState::Review);
+    assert(single_frame.diagnostics[0] == "ONE_FRAME_BOUNDARY_AMBIGUITY_REVIEW");
     mb.release.tracks[0].duration_ms += 15;
     assert(audit_precision_cue_source_consensus({apple, mb}).state ==
            PrecisionCueConsensusState::Review);
@@ -60,8 +76,9 @@ int main() {
     mb.release.tracks[1].track_number = 3;
     assert(audit_precision_cue_source_consensus({apple, mb}).state ==
            PrecisionCueConsensusState::Rejected);
-    assert(audit_precision_cue_source_consensus({apple, apple}).state ==
-           PrecisionCueConsensusState::Rejected);
+    repeated = audit_precision_cue_source_consensus({apple, apple});
+    assert(repeated.state == PrecisionCueConsensusState::Rejected);
+    assert(repeated.diagnostics[0] == "REPEATED_PROVIDER_NOT_INDEPENDENT");
     apple.resolution_ms = 1000;
     assert(audit_precision_cue_source_consensus({apple}).state ==
            PrecisionCueConsensusState::Review);
@@ -87,7 +104,8 @@ int main() {
     mb.release.tracks[17].duration_ms += 14;
     mb.release.tracks[18].duration_ms -= 14;
     const auto report = audit_precision_cue_source_consensus({apple, mb});
-    assert(report.state == PrecisionCueConsensusState::Agreed);
+    assert(report.state == PrecisionCueConsensusState::Review);
+    assert(report.diagnostics[0] == "ONE_FRAME_BOUNDARY_AMBIGUITY_REVIEW");
     assert(report.differences.size() == 30);
     unsigned exact = 0, one_frame = 0;
     for (const auto& diff : report.differences) {
