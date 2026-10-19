@@ -39,6 +39,8 @@ struct LocalFile {
 struct LookupJob {
     std::atomic<bool> ready{false};
     djmeta::PrecisionCueRelease release;
+    std::vector<djmeta::ApplePrecisionCueAlbumHit> hits;
+    djmeta::ApplePrecisionCueHttpKind kind = djmeta::ApplePrecisionCueHttpKind::AlbumLookup;
     std::string error;
     std::jthread worker;
 };
@@ -81,7 +83,9 @@ struct Workspace {
     std::optional<djmeta::PrecisionCueRelease> release;
     std::vector<std::size_t> reviewed_mapping; // file-count sentinel = unassigned
     std::vector<std::string> reviewed_cues; // Only after manual mapping preview.
-    std::string lookup_url; // Link bound to the asynchronous lookup.
+    std::string lookup_url; // Input bound to the asynchronous provider request.
+    std::string search_query;
+    std::vector<djmeta::ApplePrecisionCueAlbumHit> search_hits;
     bool reviewed_preview_ready = false;
 };
 Workspace* g_pending_workspace = nullptr; // Only main thread, owned until WM_INITDIALOG.
@@ -288,6 +292,12 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
 }
 
 
+void clear_search_results(Workspace& state) {
+    state.search_query.clear();
+    state.search_hits.clear();
+    SendDlgItemMessageW(state.dialog, IDC_PRECISION_ALBUM_RESULTS, CB_RESETCONTENT, 0, 0);
+}
+
 void reset_disc_controls(Workspace& state) {
     invalidate_cue_copy(state);
     CheckDlgButton(state.dialog, IDC_PRECISION_EDITION_CONFIRMED, BST_UNCHECKED);
@@ -412,21 +422,78 @@ void copy_reviewed_disc_cue(Workspace& state) {
     SetDlgItemTextW(state.dialog, IDC_PRECISION_SOURCE_HINT, status);
 }
 
+void start_search(Workspace& state) {
+    if (state.job && !state.job->ready.load(std::memory_order_acquire))
+        return;
+    const auto query = to_utf8(url_entry(state.dialog));
+    if (query.find("://") != std::string::npos)
+        throw std::invalid_argument(
+            "Search requires artist and album text, not a provider URL. "
+            "For an Apple album URL use Look up selected; a Deezer URL "
+            "is only an identity hint, not an authorized metadata API.");
+    djmeta::ApplePrecisionCueHttpRequest request;
+    request.kind = djmeta::ApplePrecisionCueHttpKind::AlbumSearch;
+    request.parameter = query;
+    request.storefront = "DE";
+    request.user_initiated = true;
+    (void)djmeta::apple_precision_cue_http_path(request);
+    reap_finished_jobs();
+    reset_disc_controls(state);
+    clear_search_results(state);
+    auto job = std::make_shared<LookupJob>();
+    job->kind = request.kind;
+    job->worker = std::jthread([job, request] {
+        try {
+            const auto json = djmeta::fetch_apple_precision_cue_json(request);
+            job->hits = djmeta::parse_apple_precision_cue_album_search(json);
+        } catch (const std::exception& error) {
+            job->error = error.what();
+        } catch (...) {
+            job->error = "Unexpected Apple search response";
+        }
+        job->ready.store(true, std::memory_order_release);
+    });
+    state.lookup_url = query;
+    g_lookup_pool.jobs.push_back(job);
+    state.job = std::move(job);
+    EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_SEARCH), FALSE);
+    EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_LOOKUP), FALSE);
+    show_text(state.dialog, L"Searching official Apple album catalog...\r\n"
+                            L"Choose an exact candidate; search results never authorize a CUE.");
+    SetTimer(state.dialog, kPollTimer, 250, nullptr);
+}
+
 void start_lookup(Workspace& state) {
     if (state.job && !state.job->ready.load(std::memory_order_acquire))
         return;
-    const auto url = to_utf8(url_entry(state.dialog));
-    const auto parsed = djmeta::parse_apple_precision_cue_album_link(url);
+    const auto input = to_utf8(url_entry(state.dialog));
     djmeta::ApplePrecisionCueHttpRequest request;
     request.kind = djmeta::ApplePrecisionCueHttpKind::AlbumLookup;
-    request.parameter = parsed.collection_id;
-    request.storefront = parsed.storefront.empty() ? "DE" : parsed.storefront;
     request.user_initiated = true;
-    // Validate before the background worker even starts.
+    if (input.starts_with("https://")) {
+        const auto parsed = djmeta::parse_apple_precision_cue_album_link(input);
+        request.parameter = parsed.collection_id;
+        request.storefront = parsed.storefront.empty() ? "DE" : parsed.storefront;
+    } else {
+        if (input != state.search_query || state.search_hits.empty())
+            throw std::invalid_argument(
+                "Search for artist and album, then explicitly choose an Apple release");
+        const auto choice = SendDlgItemMessageW(state.dialog,
+            IDC_PRECISION_ALBUM_RESULTS, CB_GETCURSEL, 0, 0);
+        if (choice == CB_ERR ||
+            static_cast<std::size_t>(choice) >= state.search_hits.size())
+            throw std::invalid_argument("Choose one exact Apple album candidate");
+        request.parameter =
+            state.search_hits[static_cast<std::size_t>(choice)].collection_id;
+        request.storefront = "DE";
+    }
+    // Search hits never authorize a CUE: fetch the full ordered tracklist
+    // in a second, explicitly initiated, rate-limited request.
     (void)djmeta::apple_precision_cue_http_path(request);
     reap_finished_jobs();
     reset_disc_controls(state);
     auto job = std::make_shared<LookupJob>();
+    job->kind = request.kind;
     job->worker = std::jthread([job, request] {
         try {
             const auto json = djmeta::fetch_apple_precision_cue_json(request);
@@ -438,9 +505,10 @@ void start_lookup(Workspace& state) {
         }
         job->ready.store(true, std::memory_order_release);
     });
-    state.lookup_url = url;
+    state.lookup_url = input;
     g_lookup_pool.jobs.push_back(job);
     state.job = std::move(job);
+    EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_SEARCH), FALSE);
     EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_LOOKUP), FALSE);
     show_text(state.dialog, L"Requesting official Apple album metadata...\r\n"
                             L"foobar2000 remains usable. No files are modified.");
@@ -458,9 +526,8 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
         state->registered = true;
         g_precision_workspace = dialog;
         reset_disc_controls(*state);
-        show_text(dialog, L"Paste an Apple Music album URL and choose Look up.\r\n"
-                          L"Selected local files are read only; generated CUE text is a "
-                          L"proposal requiring independent release verification.");
+        show_text(dialog, L"Paste an Apple Music album URL, or enter artist and album terms and Search albums.\r\n"
+                          L"Select the exact candidate before Look up selected. All local files are read only.");
         return TRUE;
     }
     auto* state = reinterpret_cast<Workspace*>(GetWindowLongPtrW(dialog, GWLP_USERDATA));
@@ -468,13 +535,32 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
     if (message == WM_TIMER && wp == kPollTimer) {
         if (state->job && state->job->ready.load(std::memory_order_acquire)) {
             KillTimer(dialog, kPollTimer);
+            EnableWindow(GetDlgItem(dialog, IDC_PRECISION_SEARCH), TRUE);
             EnableWindow(GetDlgItem(dialog, IDC_PRECISION_LOOKUP), TRUE);
             try {
                 if (to_utf8(url_entry(dialog)) != state->lookup_url) {
                     reset_disc_controls(*state);
-                    show_error(dialog, "Apple album URL changed during lookup; retry");
+                    clear_search_results(*state);
+                    show_error(dialog, "Album input changed during provider request; retry");
                 } else if (!state->job->error.empty()) show_error(dialog, state->job->error);
-                else {
+                else if (state->job->kind == djmeta::ApplePrecisionCueHttpKind::AlbumSearch) {
+                    clear_search_results(*state);
+                    state->search_hits = std::move(state->job->hits);
+                    state->search_query = state->lookup_url;
+                    for (const auto& hit : state->search_hits) {
+                        const auto label = from_utf8(hit.title + " / " + hit.performer +
+                            " (" + std::to_string(hit.track_count) + " tracks; Apple " +
+                            hit.collection_id + ")");
+                        if (SendDlgItemMessageW(dialog, IDC_PRECISION_ALBUM_RESULTS,
+                                CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str())) < 0)
+                            throw std::runtime_error("Could not populate Apple candidates");
+                    }
+                    show_text(dialog, state->search_hits.empty()
+                        ? L"No Apple albums found. Refine the artist and album search."
+                        : L"Choose the exact Apple album candidate in the list, then click "
+                          L"Look up selected. The full tracklist must still pass review. "
+                          L"Wait 3.1 seconds between Apple requests.");
+                } else {
                     state->release = std::move(state->job->release);
                     initialize_disc_controls(*state);
                     try { show_candidate(*state, *state->release); }
@@ -497,6 +583,16 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
     if (message == WM_COMMAND) {
         if (LOWORD(wp) == IDC_PRECISION_APPLE_LINK && HIWORD(wp) == EN_CHANGE) {
             reset_disc_controls(*state);
+            clear_search_results(*state);
+            return TRUE;
+        }
+        if (LOWORD(wp) == IDC_PRECISION_ALBUM_RESULTS && HIWORD(wp) == CBN_SELCHANGE) {
+            reset_disc_controls(*state);
+            return TRUE;
+        }
+        if (LOWORD(wp) == IDC_PRECISION_SEARCH && HIWORD(wp) == BN_CLICKED) {
+            try { start_search(*state); }
+            catch (const std::exception& error) { show_error(dialog, error.what()); }
             return TRUE;
         }
         if (LOWORD(wp) == IDC_PRECISION_EDITION_CONFIRMED && HIWORD(wp) == BN_CLICKED) {
@@ -604,7 +700,7 @@ public:
                 {0x9c, 0xe3, 0x62, 0x98, 0xb8, 0x2a, 0x68, 0xf4}};
     }
     bool get_item_description(unsigned, pfc::string_base& output) override {
-        output = "Look up an Apple Music continuous mix and preview its CUE timing "
+        output = "Search or look up an Apple Music continuous mix and preview its CUE timing "
                  "for selected local MP3s. Read-only, independent review required.";
         return true;
     }

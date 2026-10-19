@@ -68,6 +68,11 @@ for token in (
     "IDC_PRECISION_COPY_CUE",
     "CF_UNICODETEXT",
     "state.lookup_url",
+    "start_search(*state)",
+    "parse_apple_precision_cue_album_search(json)",
+    "state->search_query = state->lookup_url",
+    "IDC_PRECISION_ALBUM_RESULTS, CB_GETCURSEL",
+    "state.search_hits[static_cast<std::size_t>(choice)].collection_id",
 ):
     if token not in precision:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: precision CUE copy review gate missing " + token)
@@ -240,6 +245,9 @@ if ("validate_precision_cue_partial_disc_mapping(" not in assign_body or
 if "if (validation.state != djmeta::PrecisionCueMatchState::Review)" not in assign_body:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: partial mapping rejection gate missing")
 for token in (
+    "COMBOBOX        IDC_PRECISION_ALBUM_RESULTS",
+    "PUSHBUTTON      \"Search albums\", IDC_PRECISION_SEARCH",
+    "PUSHBUTTON      \"Look up selected\", IDC_PRECISION_LOOKUP",
     "COMBOBOX        IDC_PRECISION_DISC_PICKER",
     "COMBOBOX        IDC_PRECISION_MP3_PICKER",
     "PUSHBUTTON      \"Assign disc\", IDC_PRECISION_ASSIGN_DISC",

@@ -405,6 +405,18 @@ int main() {
           "Precision CUE standalone dialog has normal resize/minimize/close chrome");
     HWND cue_link = GetDlgItem(cue_dialog, IDC_PRECISION_APPLE_LINK);
     HWND cue_lookup = GetDlgItem(cue_dialog, IDC_PRECISION_LOOKUP);
+    HWND cue_search = GetDlgItem(cue_dialog, IDC_PRECISION_SEARCH);
+    HWND cue_results = GetDlgItem(cue_dialog, IDC_PRECISION_ALBUM_RESULTS);
+    check(cue_search && cue_results, "native Apple search and explicit candidate selection exist");
+    check((static_cast<DWORD>(GetWindowLongPtrW(cue_results, GWL_STYLE)) & 0x3u)
+              == CBS_DROPDOWNLIST, "Apple candidates cannot be entered or silently substituted");
+    check(SendMessageW(cue_results, CB_GETCURSEL, 0, 0) == CB_ERR,
+          "no Apple candidate is silently selected before a search");
+    check(SendMessageW(cue_results, CB_ADDSTRING, 0,
+          reinterpret_cast<LPARAM>(L"Synthetic Album (2 tracks; Apple 123)")) >= 0,
+          "native Apple candidate picker accepts a synthetic result");
+    check(SendMessageW(cue_results, CB_SETCURSEL, 0, 0) == 0,
+          "candidate selection is explicit and stable");
     HWND cue_text = GetDlgItem(cue_dialog, IDC_PRECISION_PREVIEW_TEXT);
     HWND cue_hint = GetDlgItem(cue_dialog, IDC_PRECISION_SOURCE_HINT);
     check(cue_link && cue_lookup && cue_text && cue_hint,
