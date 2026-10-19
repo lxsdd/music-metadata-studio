@@ -627,7 +627,7 @@ void embedded_textual_cuesheet_readonly_inventory_regressions() {
     VERIFY(inspect_precision_cue_embedded_text(metadata).state == State::NeedsReview);
     metadata.fields.back().values = {"FILE \"mix.mp3\" MP3\n\xff"};
     VERIFY(inspect_precision_cue_embedded_text(metadata).state == State::NeedsReview);
-    metadata.fields.back().values = {std::string("\xff\xfeF\0I\0L\0E\0", 10)};
+    metadata.fields.back().values = {std::string({char(255), char(254), 'F', char(0), 'I', char(0), 'L', char(0), 'E', char(0)})};
     VERIFY(inspect_precision_cue_embedded_text(metadata).state == State::NeedsReview);
     metadata.fields.back().values = {"FILE \"../ambiguous.mp3\" MP3\n"};
     VERIFY(inspect_precision_cue_embedded_text(metadata).state == State::SyntaxOnly);

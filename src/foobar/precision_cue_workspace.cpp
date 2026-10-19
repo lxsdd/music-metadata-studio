@@ -321,6 +321,7 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
         ? L"DISC-TO-MP3 MAPPING MANUALLY CHOSEN; EXACT EDITION STILL REQUIRES REVIEW.\r\n"
         : L"DISC-TO-MP3 MAPPING IS DURATION-INFERRED, NOT VERIFIED.\r\n";
     for (std::size_t i = 0; i < plans.size(); ++i) {
+        const auto& file = state.files[mapping.physical_index_by_disc[i]];
         details += L"\r\n=== DISC " + std::to_wstring(i + 1) +
                    L" / " + from_utf8(state.files[mapping.physical_index_by_disc[i]].basename) + L" ===\r\n";
         details += L"Proposed sibling CUE (NOT SAVED): " +
@@ -345,7 +346,6 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
         }
         // The existing sibling target is inspected read-only and is NEVER
         // opened with write access. Results are only valid at preview time.
-        const auto& file = state.files[mapping.physical_index_by_disc[i]];
         const auto inspection = djmeta::inspect_precision_cue_existing_target(
             plans[i], file.physical_absolute_path, file.basename);
         if (reviewed) {
