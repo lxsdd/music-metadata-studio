@@ -9,6 +9,7 @@
 #include "djmeta/precision_cue_apple.h"
 #include "djmeta/precision_cue_apple_http.h"
 #include "djmeta/precision_cue_apple_link.h"
+#include "djmeta/precision_cue_request_revision.h"
 #include "djmeta/precision_cue_filename.h"
 #include "djmeta/precision_cue_write_preflight.h"
 #include "djmeta/precision_cue_foobar_path.h"
@@ -93,6 +94,7 @@ struct Workspace {
     std::string search_query;
     std::vector<djmeta::ApplePrecisionCueAlbumHit> search_hits;
     bool reviewed_preview_ready = false;
+    djmeta::PrecisionCueRequestRevision input_revision;
 };
 Workspace* g_pending_workspace = nullptr; // Only main thread, owned until WM_INITDIALOG.
 
@@ -510,6 +512,7 @@ void start_search(Workspace& state) {
         job->ready.store(true, std::memory_order_release);
     });
     state.lookup_url = query;
+    state.input_revision.begin_request();
     g_lookup_pool.jobs.push_back(job);
     state.job = std::move(job);
     EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_SEARCH), FALSE);
@@ -562,6 +565,7 @@ void start_lookup(Workspace& state) {
         job->ready.store(true, std::memory_order_release);
     });
     state.lookup_url = input;
+    state.input_revision.begin_request();
     g_lookup_pool.jobs.push_back(job);
     state.job = std::move(job);
     EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_SEARCH), FALSE);
@@ -594,10 +598,11 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
             EnableWindow(GetDlgItem(dialog, IDC_PRECISION_SEARCH), TRUE);
             EnableWindow(GetDlgItem(dialog, IDC_PRECISION_LOOKUP), TRUE);
             try {
-                if (to_utf8(url_entry(dialog)) != state->lookup_url) {
+                if (!state->input_revision.request_is_current() ||
+                    to_utf8(url_entry(dialog)) != state->lookup_url) {
                     reset_disc_controls(*state);
                     clear_search_results(*state);
-                    show_error(dialog, "Album input changed during provider request; retry");
+                    show_error(dialog, "Album text or selected release changed during provider request; retry");
                 } else if (!state->job->error.empty()) show_error(dialog, state->job->error);
                 else if (state->job->kind == djmeta::ApplePrecisionCueHttpKind::AlbumSearch) {
                     clear_search_results(*state);
@@ -638,11 +643,13 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
     }
     if (message == WM_COMMAND) {
         if (LOWORD(wp) == IDC_PRECISION_APPLE_LINK && HIWORD(wp) == EN_CHANGE) {
+            state->input_revision.input_changed();
             reset_disc_controls(*state);
             clear_search_results(*state);
             return TRUE;
         }
         if (LOWORD(wp) == IDC_PRECISION_ALBUM_RESULTS && HIWORD(wp) == CBN_SELCHANGE) {
+            state->input_revision.input_changed();
             reset_disc_controls(*state);
             return TRUE;
         }

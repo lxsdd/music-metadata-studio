@@ -2,6 +2,7 @@
 #include "djmeta/precision_cue_assemble.h"
 #include "djmeta/precision_cue_apple_link.h"
 #include "djmeta/precision_cue_apple_preview.h"
+#include "djmeta/precision_cue_request_revision.h"
 
 #ifdef NDEBUG
 #undef NDEBUG
@@ -31,6 +32,21 @@ std::string replace_once(std::string input, const std::string& from, const std::
     assert(at != std::string::npos);
     input.replace(at, from.size(), to);
     return input;
+}
+
+void request_revision_fixtures() {
+    djmeta::PrecisionCueRequestRevision guard;
+    assert(!guard.request_is_current()); // No request was started.
+    guard.begin_request();
+    assert(guard.request_is_current());  // Unchanged Apple URL and selection.
+    guard.input_changed();               // User selects another album.
+    assert(!guard.request_is_current());
+    guard.input_changed();               // User selects the original again.
+    assert(!guard.request_is_current()); // Same final text is still stale.
+    guard.begin_request();
+    assert(guard.request_is_current());  // Explicit retry uses fresh revision.
+    guard.input_changed();               // URL edited during lookup.
+    assert(!guard.request_is_current());
 }
 
 void lookup_positive() {
@@ -176,6 +192,7 @@ void lookup_negative() {
 } // namespace
 
 int main() {
+    request_revision_fixtures();
     lookup_positive();
     lookup_synthetic_thirty();
     album_search();
