@@ -262,6 +262,17 @@ else()
     target_compile_options(djmeta_precision_cue_apple_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+# Strict, transport-free Deezer official album JSON parsing fixtures.
+add_executable(djmeta_precision_cue_deezer_tests
+    tests/precision_cue_deezer_tests.cpp)
+target_link_libraries(djmeta_precision_cue_deezer_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_precision_cue_deezer_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_precision_cue_deezer_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_precision_cue_deezer_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 add_executable(djmeta_precision_cue_apple_link_tests
     tests/precision_cue_apple_link_tests.cpp)
 target_link_libraries(djmeta_precision_cue_apple_link_tests PRIVATE djmeta_core)
@@ -382,6 +393,7 @@ if(WIN32)
 endif()
 add_test(NAME djmeta_precision_cue_apple_tests COMMAND djmeta_precision_cue_apple_tests)
 add_test(NAME djmeta_precision_cue_apple_link_tests COMMAND djmeta_precision_cue_apple_link_tests)
+add_test(NAME djmeta_precision_cue_deezer_tests COMMAND djmeta_precision_cue_deezer_tests)
 add_test(NAME djmeta_precision_cue_source_consensus_tests COMMAND djmeta_precision_cue_source_consensus_tests)
 add_test(NAME djmeta_precision_cue_assemble_tests COMMAND djmeta_precision_cue_assemble_tests)
 add_test(NAME djmeta_precision_cue_write_preflight_tests COMMAND djmeta_precision_cue_write_preflight_tests)
