@@ -313,7 +313,7 @@ void create_only_external_writer_regressions() {
     req.reviewed_cue_sha256 = precision_cue_sha256(req.plan.external_cue_utf8);
     req.explicitly_approved_for_external_create = true;
     const auto target = req.qualified_sibling_directory /
-        fs::u8path("Disc Über 東京.cue");
+        precision_cue_external_detail::utf8_path("Disc Über 東京.cue");
 
     std::size_t probes = 0;
     std::uint64_t current_source = 101;
