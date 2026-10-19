@@ -307,6 +307,14 @@ void create_only_external_writer_regressions() {
     req.plan = synthetic_plan();
     req.mp3_basename = "Disc Über 東京.mp3";
     req.qualified_sibling_directory = fs::canonical(sandbox);
+    const auto physical_source = req.qualified_sibling_directory /
+        precision_cue_external_detail::utf8_path(req.mp3_basename);
+    {
+        // Disposable dummy file, never actual user audio.
+        std::ofstream mock_mp3(physical_source, std::ios::binary);
+        mock_mp3 << "synthetic MP3 fixture -- no audio";
+    }
+    req.physical_mp3_absolute_path = fs::canonical(physical_source);
     req.reviewed_preflight = approved();
     req.reviewed_source_snapshot_token = 101;
     req.reviewed_target_snapshot_token = 202;
@@ -346,6 +354,16 @@ void create_only_external_writer_regressions() {
            Status::Rejected);
     req.qualified_sibling_directory = fs::canonical(sandbox);
 
+    const auto original_source = req.physical_mp3_absolute_path;
+    req.physical_mp3_absolute_path = fs::path("relative/incorrect.mp3");
+    VERIFY(create_new_precision_cue_external(req, observe).status ==
+           Status::Rejected);
+    req.physical_mp3_absolute_path = req.qualified_sibling_directory /
+        precision_cue_external_detail::utf8_path("Unrelated.mp3");
+    VERIFY(create_new_precision_cue_external(req, observe).status ==
+           Status::Rejected);
+    req.physical_mp3_absolute_path = original_source;
+
     current_source = 500;
     VERIFY(create_new_precision_cue_external(req, observe).status ==
            Status::ReviewRequired);
@@ -366,8 +384,25 @@ void create_only_external_writer_regressions() {
     VERIFY(create_new_precision_cue_external(req, stale_after_staging).status ==
            Status::ReviewRequired);
     VERIFY(!fs::exists(target));
-    VERIFY(fs::directory_iterator(req.qualified_sibling_directory) ==
-           fs::directory_iterator{});
+    VERIFY(std::distance(fs::directory_iterator(req.qualified_sibling_directory),
+                         fs::directory_iterator{}) == 1);
+
+    // Even a callback that falsely reports unchanged identity must not hide
+    // a physical-source size change between staging and publication.
+    probes = 0;
+    auto physical_changes_during_stage = [&] {
+        ++probes;
+        if (probes == 2) {
+            std::ofstream mutate(physical_source, std::ios::binary | std::ios::app);
+            mutate << "simulated stale source";
+        }
+        return PrecisionCueExternalFreshSnapshot{approved(), 101, 202};
+    };
+    VERIFY(create_new_precision_cue_external(
+               req, physical_changes_during_stage).status == Status::ReviewRequired);
+    VERIFY(!fs::exists(target));
+    VERIFY(std::distance(fs::directory_iterator(req.qualified_sibling_directory),
+                         fs::directory_iterator{}) == 1);
 
     probes = 0;
     const auto created = create_new_precision_cue_external(req, observe);
