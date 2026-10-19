@@ -314,7 +314,7 @@ int main() {
         "INDEX 01 06:10:00\n";
     const auto no_duration_inventory=inspect_cue_metadata(
         no_duration_cue,CueCarrierKind::ExternalText);
-    const auto official_edition=discogs::parse_release(R"({
+    const auto official_edition=discogs::parse_release(R"DISCOGS({
         "id":38012673,"title":"Night EP",
         "artists":[{"name":"Example"}],
         "tracklist":[
@@ -322,7 +322,7 @@ int main() {
              "extraartists":[{"name":"Remixer","role":"Remix"}]},
             {"position":"2","title":"Away (Extended Mix)","duration":"5:20"}
         ]
-    })",38012673);
+    })DISCOGS",38012673);
     const auto evidence_only=review_cue_release_edition(
         no_duration_inventory,official_edition);
     check(evidence_only.eligible && evidence_only.tracks.size()==2 &&
