@@ -301,7 +301,10 @@ inline std::vector<SearchAttempt> track_search_plan(
     std::string_view title, std::string_view artist = {},
     std::string_view barcode = {}, std::string_view catalog_number = {},
     std::string_view album = {}) {
-    validated_term(title);
+    // Some physical sources carry a qualified ALBUM, barcode or catalog
+    // number but no TITLE. Those can still search exact editions without
+    // inventing a recording identity or sending an empty track filter.
+    if (!title.empty()) validated_term(title);
     if (!artist.empty()) validated_term(artist);
     if (!album.empty()) validated_term(album);
     const auto annotation = split_title_mix(title);
@@ -329,13 +332,18 @@ inline std::vector<SearchAttempt> track_search_plan(
         add("Tagged album release title",release_title_search_path(album,artist));
     // Then broaden by staged release / track search on deliberate user
     // initiation; empty responses can advance within the same bounded plan.
-    add("Release title with artist", search_path(title,artist));
-    add("Exact track in release", track_search_path(title,artist));
-    if (!artist.empty())
-        add("Track without artist restriction",track_search_path(title));
-    if (core != title)
-        add("Track without mix suffix",track_search_path(core));
-    add("Broad catalog keywords",search_path(core));
+    if (!title.empty()) {
+        add("Release title with artist", search_path(title,artist));
+        add("Exact track in release", track_search_path(title,artist));
+        if (!artist.empty())
+            add("Track without artist restriction",track_search_path(title));
+        if (core != title)
+            add("Track without mix suffix",track_search_path(core));
+        add("Broad catalog keywords",search_path(core));
+    }
+    if (plan.empty())
+        throw std::invalid_argument(
+            "Discogs search requires a track title, album or exact edition identifier");
     return plan;
 }
 // Advance only after a successfully published search response. Failed

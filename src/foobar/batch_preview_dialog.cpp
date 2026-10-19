@@ -2573,7 +2573,11 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
         (state.auto_search_track==state.selected_track_index &&
          entered==to_utf8(state.auto_search_text));
     const std::string term=entered.empty()?local_title:entered;
-    if(term.empty()) throw std::invalid_argument("Enter a track, album or exact Discogs release URL.");
+    if(term.empty() && (!auto_query ||
+       (local_album.empty() && local_barcode.empty() &&
+        local_catalog_number.empty())))
+        throw std::invalid_argument(
+            "Enter a track, album, edition identifier or exact Discogs release URL.");
     auto token=to_utf8(read_control(dialog,IDC_METADATA_DISCOGS_TOKEN));
     if(token.empty()) throw std::invalid_argument(
         "Discogs needs an authorized personal access token (not saved).");

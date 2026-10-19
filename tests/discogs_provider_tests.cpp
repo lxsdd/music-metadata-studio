@@ -96,6 +96,22 @@ int main() {
               release_title_search_path("Various Artists Collection") &&
           album_no_artist[1].path==search_path("Side A"),
           "artist-free album search remains distinct from track title");
+    // Full native chain: an ALBUM-only physical source or an identifier-only
+    // file can reach a real release search without a fabricated TITLE.
+    const auto album_only=track_search_plan("", "Matt Fax", {}, {}, "Contrast EP");
+    check(album_only.size()==1 &&
+          album_only[0].path==release_title_search_path("Contrast EP","Matt Fax") &&
+          allowed_readonly_path(album_only[0].path),
+          "album-only file uses one authorized exact-release-title request");
+    const auto ids_only=track_search_plan("", {}, "004299999998", "CAT 007/A");
+    check(ids_only.size()==2 &&
+          ids_only[0].path==edition_identifier_search_path("barcode","004299999998") &&
+          ids_only[1].path==edition_identifier_search_path("catno","CAT 007/A") &&
+          allowed_readonly_path(ids_only[0].path) &&
+          allowed_readonly_path(ids_only[1].path),
+          "identifier-only source searches editions without empty track queries");
+    rejects([]{(void)track_search_plan("", {}, {}, {}, "");},
+            "no recording, album or identifier never produces a request");
     rejects([]{(void)track_search_plan("Valid",{}, {}, {}, "bad\nheader");},
             "malformed album hint cannot cross the native provider boundary");
     rejects([]{(void)release_title_search_path(std::string(151,'x'));},

@@ -50,6 +50,21 @@ unavoidable installed-host gate.
    as independent physical tag-write targets. Close/Cancel the dialog.
    **Do not run foobar's own ordinary tag writer, ReplayGain scan or File
    Operations on the test files** during this test.
+   **Optional Discogs live-read gate (separate from the basic host PASS):**
+   In the same disposable playlist, select one copied physical MP3, switch
+   to Discogs and enter **your own** authorized personal API token in the
+   password-style control. Initiate Search using either its existing tags or
+   a pasted canonical release URL such as
+   `https://www.discogs.com/release/38012673`. Verify the result is an
+   **exact release**, select its album/track summary, inspect the native
+   Original/Suggested/Status detail rows and confirm uncertain or unrelated
+   tracks remain blocked. Repeat on the disposable external CUE where
+   applicable; no source audio, tags, CUE or filename may change.
+   Do not submit or record the token, response payload, personal metadata
+   or music path. If authorization is unavailable, record
+   `DISCOGS_LIVE=NOT_TESTED`, not PASS. A successful static/DLL build is
+   not proof of this live host path.
+
 4. Run verification using the exact `TEST_FOLDER` printed by Prepare:
 
    ```powershell
