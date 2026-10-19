@@ -373,6 +373,16 @@ for token in ("std::jthread", "PostMessageW(notify,kReadOnlyNetworkDoneMessage,0
 if "detach(" in transport or "metadb_handle" in transport or "get_info_ref" in transport:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: network worker lifetime or SDK access unsafe")
 
+# Verify the WinHTTP worker respects Discogs pacing between automatic
+# zero-hit fallback stages; the former immediate exception broke the workflow.
+discogs_http=(foobar / "discogs_http.cpp").read_text(encoding="utf-8")
+for token in ("request_spacing_wait_ms(", "std::this_thread::sleep_for(",
+              "reject_cancelled(cancel)", "last_request_tick=tick"):
+    if token not in discogs_http:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: staged Discogs worker pacing missing: "+token)
+if "Discogs rate limit: try again after the request interval." in discogs_http:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: zero-hit fallback still self-rejects")
+
 # The fallback is implemented in the shared review-row provenance helper.
 # The UI must not need an obsolete inline "Pasted:" concatenation.
 origin_model=(root / "include" / "djmeta" / "online_fields.h").read_text(encoding="utf-8")

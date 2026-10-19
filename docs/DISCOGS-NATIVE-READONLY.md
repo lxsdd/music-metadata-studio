@@ -24,8 +24,11 @@ WinHTTP GET adapter and the existing bounded official catalog/edition parsers.
   edited queries bypass these automatic local identifier filters.
   The provider search hit is still only a candidate until the exact release
   detail is inspected; a barcode cannot authorize tag writes.
-- Search one deliberate request at a time. Search attempts broaden only
-  after an explicit additional click and a zero-result response. A canonical
+- Search begins only with a deliberate user action. After zero hits its
+  bounded official strategies automatically broaden; a nonempty result
+  requires another deliberate Search click. The joined network worker waits
+  for the 1.6-second request interval without blocking foobar, and closing
+  can cancel that wait. A canonical
   `https://www.discogs.com/release/<id>` URL performs one fixed-host
   release lookup directly. Unknown hosts, masters and unqualified IDs cannot
   become exact release metadata.

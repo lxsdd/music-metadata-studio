@@ -5,11 +5,13 @@
 #include <windows.h>
 #include <winhttp.h>
 
+#include <chrono>
 #include <cstdint>
 #include <mutex>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 
 namespace djmeta_foobar {
 namespace {
@@ -51,15 +53,25 @@ std::string fetch_discogs_json_readonly(
         throw std::invalid_argument(
             "Discogs requires a separately configured authorized user token.");
     reject_cancelled(cancel);
-    // Conservative single process limit, provider-local. Do not block foobar's
-    // UI thread waiting for rate limits or retry in the background.
-    {
-        std::lock_guard<std::mutex> lock(request_mutex);
-        const auto tick=GetTickCount64();
-        if(last_request_tick!=0 && tick-last_request_tick<1600)
-            throw std::runtime_error(
-                "Discogs rate limit: try again after the request interval.");
-        last_request_tick=tick;
+    // Auto-broadening a user-started zero-hit search may reach this worker
+    // within 1600 ms. Wait only here, outside foobar's UI message loop;
+    // reserve a single rate slot under the mutex and honor cancellation.
+    for(;;) {
+        reject_cancelled(cancel);
+        std::uint64_t remaining=0;
+        {
+            std::lock_guard<std::mutex> lock(request_mutex);
+            const auto tick=GetTickCount64();
+            remaining=djmeta::online::discogs::request_spacing_wait_ms(
+                last_request_tick,tick);
+            if(remaining==0) {
+                last_request_tick=tick;
+                break;
+            }
+        }
+        reject_cancelled(cancel);
+        const auto slice=remaining>50?50:remaining;
+        std::this_thread::sleep_for(std::chrono::milliseconds(slice));
     }
     reject_cancelled(cancel);
     NativeHandle session(WinHttpOpen(

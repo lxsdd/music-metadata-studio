@@ -62,6 +62,18 @@ inline bool catalog_label(std::string_view value, std::size_t maximum=512) {
     return true;
 }
 
+// Pacing is mandatory for a user-initiated zero-hit search: the next
+// bounded stage must wait, not immediately reject a valid request.
+inline constexpr std::uint64_t minimum_request_spacing_ms=1600;
+inline std::uint64_t request_spacing_wait_ms(
+    std::uint64_t last_tick,std::uint64_t now_tick) noexcept {
+    if(last_tick==0) return 0; // First request.
+    if(now_tick<last_tick) return minimum_request_spacing_ms;
+    const auto elapsed=now_tick-last_tick;
+    return elapsed>=minimum_request_spacing_ms?0:
+        minimum_request_spacing_ms-elapsed;
+}
+
 // Discogs duration is a display string, never a sample-accurate CUE offset.
 // Accept only M:SS or H:MM:SS; malformed or unbounded values stay unknown.
 inline std::int64_t duration_ms(std::string_view value) {

@@ -20,6 +20,14 @@ template<class F> void rejects(F fn, const char* why) {
 int main() {
     using namespace djmeta::online;
     using namespace djmeta::online::discogs;
+    check(request_spacing_wait_ms(0,100)==0 &&
+          request_spacing_wait_ms(100,100)==1600 &&
+          request_spacing_wait_ms(100,101)==1599 &&
+          request_spacing_wait_ms(100,1699)==1 &&
+          request_spacing_wait_ms(100,1700)==0 &&
+          request_spacing_wait_ms(100,1900)==0 &&
+          request_spacing_wait_ms(500,200)==1600,
+          "staged Discogs requests wait in their worker instead of failing");
     const auto request=search_path("What Time Is Love (Original Version)","The KLF");
     check(request.starts_with("/database/search?q=") &&
           request.find("type=release")!=std::string::npos &&
