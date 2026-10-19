@@ -55,6 +55,36 @@ void export_planning_positive_and_negative() {
     altered = cue;
     altered.external_cue_utf8 += "    INDEX 00 00:00:00\n";
     assert(!plan_precision_cue_external_export(altered, "Disc Über 東京.mp3").eligible);
+    // Valid FILE inventories alone cannot protect a generated CUE from
+    // syntactically plausible injected/reordered directives.
+    const auto reject_changed_cue = [&](std::string_view before, std::string_view after) {
+        auto changed = cue;
+        const auto at = changed.external_cue_utf8.find(before);
+        assert(at != std::string::npos);
+        changed.external_cue_utf8.replace(at, before.size(), after);
+        assert(!plan_precision_cue_external_export(changed, "Disc Über 東京.mp3").eligible);
+    };
+    reject_changed_cue("REM DISCNUMBER 1\n",
+                       "REM DISCNUMBER 1\nREM COMMENT \"unexpected\"\n");
+    reject_changed_cue("REM TOTALDISCS 1\n",
+                       "REM TOTALDISCS 1\nTITLE \"injected\"\n");
+    reject_changed_cue("  TRACK 01 AUDIO\n", "  TRACK 02 AUDIO\n");
+    reject_changed_cue("  TRACK 01 AUDIO\n", "  TRACK 1 AUDIO\n");
+    reject_changed_cue("    INDEX 01 00:00:00\n",
+                       "    INDEX 01 00:00:00\n    INDEX 01 00:00:00\n");
+    reject_changed_cue("  TRACK 02 AUDIO\n",
+                       "  TRACK 02 AUDIO\n    REM COMMENT \"injected\"\n");
+    reject_changed_cue("    TITLE \"Start (Mixed)\"\n",
+                       "    TITLE \"Start (Mixed)\"\n    TITLE \"injected\"\n");
+    reject_changed_cue("    TITLE \"Start (Mixed)\"\n",
+                       "    TITLE \"Start (Mixed)\" INJECT\n");
+    reject_changed_cue("REM DISCNUMBER 1\n", "REM DISCNUMBER 0\n");
+    reject_changed_cue("REM DISCNUMBER 1\n", "REM DISCNUMBER 2\n");
+    reject_changed_cue("REM TOTALDISCS 1\n", "REM TOTALDISCS 01\n");
+    reject_changed_cue("    INDEX 01 00:00:00\n",
+                       "    INDEX 01 00:00:00 \n");
+    reject_changed_cue("REM DISCNUMBER 1\n",
+                       "REM DATE \"2026\"\nREM GENRE \"Electronic\"\nREM DISCNUMBER 1\n");
     altered = cue;
     altered.boundaries[1].cue_frame++;
     assert(!plan_precision_cue_external_export(altered, "Disc Über 東京.mp3").eligible);
