@@ -289,6 +289,7 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
     if (mapping.state == djmeta::PrecisionCueMatchState::Rejected)
         throw std::invalid_argument("Local MP3s incompatible with provider disc durations");
     std::vector<djmeta::PrecisionCuePlan> plans;
+    std::vector<djmeta::PrecisionCuePhysicalBoundsAudit> bounds_by_disc;
     std::vector<djmeta::PrecisionCueExternalExportPlan> exports;
     std::vector<std::string> validated_cues;
     std::vector<std::optional<djmeta::PrecisionCueReviewedExternalCreate>> reviewed_exports;
@@ -332,6 +333,7 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
         if (!export_plan.eligible)
             throw std::invalid_argument("Generated external CUE export proposal failed validation");
         exports.push_back(std::move(export_plan));
+        bounds_by_disc.push_back(bounds);
         validated_cues.push_back(plan.external_cue_utf8);
         plans.push_back(std::move(plan));
     }
@@ -350,6 +352,9 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
         : L"DISC-TO-MP3 MAPPING IS DURATION-INFERRED, NOT VERIFIED.\r\n";
     for (std::size_t i = 0; i < plans.size(); ++i) {
         const auto& file = state.files[mapping.physical_index_by_disc[i]];
+        const auto& bounds = bounds_by_disc[i];
+        const bool bounds_allow_create =
+            bounds.state == djmeta::PrecisionCuePhysicalBoundsState::QualifiedForExplicitReview;
         details += L"\r\n=== DISC " + std::to_wstring(i + 1) +
                    L" / " + from_utf8(state.files[mapping.physical_index_by_disc[i]].basename) + L" ===\r\n";
         details += L"Proposed sibling CUE (NOT SAVED): " +
