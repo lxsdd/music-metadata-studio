@@ -28,6 +28,7 @@
 #include "metadata_adapter.h"
 
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -790,8 +791,29 @@ void start_lookup(Workspace& state) {
         job->worker = std::jthread([job, deezer_request] {
             try {
                 const auto json = djmeta::fetch_deezer_precision_cue_json(deezer_request);
-                auto reference = djmeta::parse_deezer_precision_cue_album(
-                    json, deezer_request.album_id);
+                djmeta::PrecisionCueRelease reference;
+                try {
+                    reference = djmeta::parse_deezer_precision_cue_album(
+                        json, deezer_request.album_id);
+                } catch (const std::invalid_argument& error) {
+                    const std::string_view reason(error.what());
+                    if (reason != "Deezer paginated tracklist requires review" &&
+                        reason != "Deezer incomplete album tracklist")
+                        throw;
+                    const auto count = djmeta::deezer_precision_cue_declared_track_count(
+                        json, deezer_request.album_id);
+                    std::vector<std::string> pages;
+                    for (std::size_t index = 0; index < count; index += 100) {
+                        // Sleep only on the background worker, never foobar's UI.
+                        std::this_thread::sleep_for(std::chrono::milliseconds(3200));
+                        auto page_request = deezer_request;
+                        page_request.track_page = true;
+                        page_request.track_index = index;
+                        pages.push_back(djmeta::fetch_deezer_precision_cue_json(page_request));
+                    }
+                    reference = djmeta::parse_deezer_precision_cue_album_pages(
+                        json, deezer_request.album_id, pages);
+                }
                 djmeta::ApplePrecisionCueHttpRequest apple_search;
                 apple_search.kind = djmeta::ApplePrecisionCueHttpKind::AlbumSearch;
                 apple_search.parameter = reference.album_title;
@@ -815,7 +837,7 @@ void start_lookup(Workspace& state) {
         EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_LOOKUP), FALSE);
         show_text(state.dialog,
             L"Reading the official Deezer album identity, then searching Apple's "
-            L"high-resolution duration catalog. No audio is downloaded.\\r\\n"
+            L"high-resolution duration catalog. No audio is downloaded.\r\n"
             L"Choose the exact matching Apple edition before preview.");
         SetTimer(state.dialog, kPollTimer, 250, nullptr);
         return;

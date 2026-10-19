@@ -29,7 +29,62 @@ void rejects(std::string_view json) {
     CHECK(false);
 }
 }
+
+void paginated_thirty_track_album() {
+    auto item = [](int n) {
+        const int disc = n <= 15 ? 1 : 2;
+        const int index = n <= 15 ? n : n - 15;
+        return std::string("{\"id\":") + std::to_string(100 + n) +
+            ",\"title\":\"Synthetic " + std::to_string(n) +
+            "\",\"artist\":{\"name\":\"Example Artist\"},\"disk_number\":" +
+            std::to_string(disc) + ",\"track_position\":" +
+            std::to_string(index) + ",\"duration\":123}";
+    };
+    std::string rows;
+    for (int n = 1; n <= 30; ++n) {
+        if (!rows.empty()) rows += ",";
+        rows += item(n);
+    }
+    const auto album_json = std::string(
+        "{\"id\":1071045032,\"title\":\"Synthetic Mix\","
+        "\"artist\":{\"name\":\"Example Artist\"},\"nb_tracks\":30,"
+        "\"tracks\":{\"data\":[") +
+        item(1) + "," + item(2) +
+        "],\"total\":30,\"next\":\"https://api.deezer.com/album/1071045032/tracks?index=2\"}}";
+    const auto page_json = std::string("{\"data\":[") + rows +
+        "],\"total\":30}";
+    CHECK(deezer_precision_cue_declared_track_count(album_json,"1071045032") == 30);
+    rejects(album_json);
+    const auto complete = parse_deezer_precision_cue_album_pages(
+        album_json,"1071045032",{page_json});
+    CHECK(complete.tracks.size()==30 && complete.tracks[14].track_number==15);
+    CHECK(complete.tracks[15].disc_number==2 &&
+          complete.tracks[15].track_number==1);
+    auto wrong = page_json;
+    const auto id_pos = wrong.find("\"id\":101");
+    CHECK(id_pos != std::string::npos);
+    wrong.replace(id_pos,8,"\"id\":999");
+    try {
+        (void)parse_deezer_precision_cue_album_pages(
+            album_json,"1071045032",{wrong});
+        CHECK(false);
+    } catch (const std::invalid_argument&) {}
+    try {
+        (void)parse_deezer_precision_cue_album_pages(
+            album_json,"1071045032",{page_json,page_json});
+        CHECK(false);
+    } catch (const std::invalid_argument&) {}
+    auto truncated = page_json;
+    truncated.replace(truncated.find("\"total\":30"),10,"\"total\":29");
+    try {
+        (void)parse_deezer_precision_cue_album_pages(
+            album_json,"1071045032",{truncated});
+        CHECK(false);
+    } catch (const std::invalid_argument&) {}
+}
+
 int main() {
+    paginated_thirty_track_album();
     CHECK(deezer_precision_cue_album_api_url("001071045032") ==
           "https://api.deezer.com/album/1071045032");
     for (const auto invalid : {"0","-1","1?x=2","1/../2","18446744073709551615"})

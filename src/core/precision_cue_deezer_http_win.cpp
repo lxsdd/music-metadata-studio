@@ -75,8 +75,15 @@ std::string deezer_precision_cue_http_path(const DeezerPrecisionCueHttpRequest& 
     if (!url.starts_with(kDeezerBase) || url.size() <= kDeezerBase.size() ||
         url.size() > 256)
         throw std::invalid_argument("Deezer API request not permitted");
-    const std::string path = url.substr(kDeezerBase.size());
-    if (!path.starts_with("/album/") || path.find_first_of("?#%\\") != std::string::npos)
+    std::string path = url.substr(kDeezerBase.size());
+    if (request.track_page) {
+        if (request.track_index > 700 || request.track_index % 100 != 0)
+            throw std::invalid_argument("Invalid Deezer fixed page offset");
+        path += "/tracks?index=" + std::to_string(request.track_index) + "&limit=100";
+    } else if (request.track_index != 0) {
+        throw std::invalid_argument("Deezer album request cannot specify page offset");
+    }
+    if (!path.starts_with("/album/") || path.find_first_of("#%\\") != std::string::npos)
         throw std::invalid_argument("Deezer API endpoint not permitted");
     for (unsigned char ch : path)
         if (ch < 0x21u || ch > 0x7eu)

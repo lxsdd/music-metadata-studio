@@ -1,6 +1,7 @@
 #include "djmeta/precision_cue_apple.h"
 #include "djmeta/precision_cue_deezer.h"
 
+#include <algorithm>
 #include <charconv>
 #include <cstdint>
 #include <map>
@@ -477,8 +478,21 @@ std::string deezer_precision_cue_album_api_url(std::string_view album_id) {
            std::to_string(positive_number(album_id));
 }
 
-PrecisionCueRelease parse_deezer_precision_cue_album(
+std::size_t deezer_precision_cue_declared_track_count(
     std::string_view json, std::string_view expected_album_id) {
+    const auto root = JsonParser(json).parse();
+    if (root.type != JsonValue::Type::Object ||
+        number(root, "id") != positive_number(expected_album_id))
+        reject("Deezer album ID mismatch");
+    const auto total = number(root, "nb_tracks");
+    if (total > 8 * 99) reject("Deezer track count exceeds CUE limits");
+    (void)get(root, "tracks", JsonValue::Type::Object);
+    return static_cast<std::size_t>(total);
+}
+
+PrecisionCueRelease parse_deezer_precision_cue_album_pages(
+    std::string_view json, std::string_view expected_album_id,
+    const std::vector<std::string>& page_jsons) {
     const auto expected = positive_number(expected_album_id);
     const auto root = JsonParser(json).parse();
     if (root.type != JsonValue::Type::Object)
@@ -489,19 +503,65 @@ PrecisionCueRelease parse_deezer_precision_cue_album(
     if (total > 8 * 99) reject("Deezer track count exceeds CUE limits");
     const auto& album_artist = get(root, "artist", JsonValue::Type::Object);
     const auto& tracks = get(root, "tracks", JsonValue::Type::Object);
-    const auto& data = get(tracks, "data", JsonValue::Type::Array).items;
-    // The Deezer album endpoint may paginate its tracklist. A single
-    // response with 'next' or fewer tracks is NOT a complete release.
-    if (const auto* next = tracks.find("next")) {
-        if (next->type != JsonValue::Type::Literal ||
-            next->raw != "null")
-            reject("Deezer paginated tracklist requires review");
-    }
+    const auto& initial = get(tracks, "data", JsonValue::Type::Array).items;
     if (const auto* reported = tracks.find("total")) {
         if (reported->type != JsonValue::Type::Number ||
             positive_number(reported->raw) != total)
             reject("Deezer pagination total mismatch");
     }
+    if (const auto* next = tracks.find("next")) {
+        if (next->type != JsonValue::Type::Literal &&
+            next->type != JsonValue::Type::String)
+            reject("Deezer malformed pagination cursor");
+        if (next->type == JsonValue::Type::Literal && next->raw != "null")
+            reject("Deezer malformed pagination cursor");
+        if (page_jsons.empty() && next->type == JsonValue::Type::String)
+            reject("Deezer paginated tracklist requires review");
+    }
+    std::vector<JsonValue> assembled;
+    if (!page_jsons.empty()) {
+        // Never follow provider-supplied URLs. Fetch only fixed page indices.
+        const auto expected_pages = (static_cast<std::size_t>(total) + 99u) / 100u;
+        if (page_jsons.size() != expected_pages || expected_pages > 8)
+            reject("Deezer missing or excess track pages");
+        for (std::size_t page_index = 0; page_index < page_jsons.size(); ++page_index) {
+            const auto page = JsonParser(page_jsons[page_index]).parse();
+            if (page.type != JsonValue::Type::Object ||
+                number(page, "total") != total)
+                reject("Deezer track page total mismatch");
+            const auto& rows = get(page, "data", JsonValue::Type::Array).items;
+            const auto remaining = static_cast<std::size_t>(total) - assembled.size();
+            const auto expected_rows = (std::min)(remaining, std::size_t{100});
+            if (rows.size() != expected_rows)
+                reject("Deezer track page gap or truncation");
+            assembled.insert(assembled.end(), rows.begin(), rows.end());
+            const auto* next = page.find("next");
+            const bool more = assembled.size() < static_cast<std::size_t>(total);
+            if (more && (!next || next->type != JsonValue::Type::String ||
+                         next->raw.empty()))
+                reject("Deezer missing next-page marker");
+            if (!more && next &&
+                (next->type != JsonValue::Type::Literal || next->raw != "null"))
+                reject("Deezer unexpected final-page marker");
+        }
+        if (initial.size() > assembled.size())
+            reject("Deezer album page prefix too long");
+        for (std::size_t i = 0; i < initial.size(); ++i) {
+            const auto& a = initial[i];
+            const auto& b = assembled[i];
+            if (a.type != JsonValue::Type::Object ||
+                b.type != JsonValue::Type::Object ||
+                number(a, "id") != number(b, "id") ||
+                position(a, "disk_number") != position(b, "disk_number") ||
+                position(a, "track_position") != position(b, "track_position") ||
+                number(a, "duration") != number(b, "duration") ||
+                text(a, "title") != text(b, "title") ||
+                text(get(a, "artist", JsonValue::Type::Object), "name") !=
+                    text(get(b, "artist", JsonValue::Type::Object), "name"))
+                reject("Deezer album/track-page identity changed");
+        }
+    }
+    const auto& data = page_jsons.empty() ? initial : assembled;
     if (data.size() != static_cast<std::size_t>(total))
         reject("Deezer incomplete album tracklist");
     PrecisionCueRelease release;
@@ -551,6 +611,11 @@ PrecisionCueRelease parse_deezer_precision_cue_album(
         release.tracks.push_back(std::move(track));
     }
     return release;
+}
+
+PrecisionCueRelease parse_deezer_precision_cue_album(
+    std::string_view json, std::string_view expected_album_id) {
+    return parse_deezer_precision_cue_album_pages(json, expected_album_id, {});
 }
 
 } // namespace djmeta
