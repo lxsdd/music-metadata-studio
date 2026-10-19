@@ -297,6 +297,13 @@ inline PrecisionCueId3Patch preview_precision_cue_id3_txxx_patch(
                 return reject(PrecisionCueId3PatchState::ReviewRequired,
                               "ID3_TXXX_ENCODING_UNSUPPORTED");
             if (parsed.cue_name) {
+                // ID3v2.3 permits only Latin-1 (0) or BOM-marked UTF-16 (1).
+                // UTF-16BE (2) and UTF-8 (3) belong to ID3v2.4. Never
+                // generate a new postimage from a nonconforming v2.3 frame,
+                // including when the requested CUE would otherwise be a no-op.
+                if (version == 3 && parsed.encoding > 1)
+                    return reject(PrecisionCueId3PatchState::ReviewRequired,
+                                  "ID3V23_CUESHEET_ENCODING_UNSUPPORTED");
                 ++cue_count;
                 if (cue_count > 1)
                     return reject(PrecisionCueId3PatchState::ReviewRequired,

@@ -139,6 +139,43 @@ void v23_ascii_and_unicode() {
     CHECK(patch(edit.postimage_tag,non_ascii.external_cue_utf8).state==
           PrecisionCueId3PatchState::NoOp);
 }
+void encoding_version_gate() {
+    using State = PrecisionCueId3PatchState;
+    const auto old = synthetic("Mix");
+    const auto changed = synthetic("Mix New");
+    const auto payload_utf8 = txxx_utf8(old.external_cue_utf8);
+    // An ID3v2.3 TXXX frame with encoding 3 may be parseable UTF-8,
+    // but it is not a valid v2.3 encoding. Reject edits AND no-op.
+    const auto invalid_v23_utf8 = tag(frame("TXXX",payload_utf8,3),3,2048);
+    CHECK(patch(invalid_v23_utf8,changed.external_cue_utf8).state==
+          State::ReviewRequired);
+    CHECK(patch(invalid_v23_utf8,old.external_cue_utf8).state==
+          State::ReviewRequired);
+    std::string utf16be(1,'\\2');
+    for (const char c : std::string_view("CUESHEET")) {
+        utf16be.push_back('\\0');
+        utf16be.push_back(c);
+    }
+    utf16be += std::string(2,'\\0');
+    for (const char c : old.external_cue_utf8) {
+        CHECK(static_cast<unsigned char>(c)<128);
+        utf16be.push_back('\\0');
+        utf16be.push_back(c);
+    }
+    const auto invalid_v23_utf16be=tag(frame("TXXX",utf16be,3),3,8192);
+    CHECK(patch(invalid_v23_utf16be,changed.external_cue_utf8).state==
+          State::ReviewRequired);
+    CHECK(patch(invalid_v23_utf16be,old.external_cue_utf8).state==
+          State::ReviewRequired);
+    // ID3v2.4 explicitly permits UTF-16BE (2); it must remain writable
+    // in the *in-memory planner* and retain the original tag allocation.
+    const auto valid_v24_utf16be=tag(frame("TXXX",utf16be,4),4,8192);
+    const auto proposal=patch(valid_v24_utf16be,changed.external_cue_utf8);
+    CHECK(proposal.state==State::PreviewReady);
+    CHECK(proposal.postimage_tag.size()==valid_v24_utf16be.size());
+    CHECK(patch(proposal.postimage_tag,changed.external_cue_utf8).state==
+          State::NoOp);
+}
 void file_preview_is_bounded_and_read_only() {
     namespace fs=std::filesystem;
     std::random_device random;
@@ -241,6 +278,7 @@ void reject_unsafe_and_ambiguous() {
 int main() {
     v24_patch_preserves_other_frames_and_full_audio();
     v23_ascii_and_unicode();
+    encoding_version_gate();
     reject_unsafe_and_ambiguous();
     file_preview_is_bounded_and_read_only();
     std::puts("PASS: in-memory ID3v2.3/v2.4 CUESHEET postimages preserve all other frames and audio offsets");
