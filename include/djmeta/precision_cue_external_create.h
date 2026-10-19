@@ -4,8 +4,10 @@
 // handle snapshots and explicit user approval; fabricated tokens are not proof.
 #include "djmeta/precision_cue_write_preflight.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -82,6 +84,7 @@ inline bool write_new_stage(const std::filesystem::path& path,
     }
     if (okay && !FlushFileBuffers(handle)) okay = false;
     if (!CloseHandle(handle)) okay = false;
+    if (!okay) (void)DeleteFileW(path.c_str());
     return okay;
 #else
     int flags = O_WRONLY | O_CREAT | O_EXCL;
@@ -103,6 +106,7 @@ inline bool write_new_stage(const std::filesystem::path& path,
     }
     if (okay && ::fsync(fd) != 0) okay = false;
     if (::close(fd) != 0) okay = false;
+    if (!okay) (void)::unlink(path.c_str());
     return okay;
 #endif
 }
@@ -221,27 +225,30 @@ inline PrecisionCueExternalCreateResult create_new_precision_cue_external(
             return {Status::ReviewRequired, "CUE_SOURCE_OR_TARGET_STALE"};
 
         const auto stage = parent / std::filesystem::u8path(
-            "." + export_plan.target_cue_basename + ".precision-cue-" +
+            ".precision-cue-" +
             precision_cue_external_detail::random_suffix() + ".tmp");
         // CREATE_NEW / O_EXCL: never truncate a preexisting stage.
         if (!precision_cue_external_detail::write_new_stage(
                 stage, request.plan.external_cue_utf8))
             return {Status::IoError, "CUE_STAGING_CREATE_FAILED"};
-        const auto cleanup = [&]() {
-            std::error_code ignored;
-            std::filesystem::remove(stage, ignored);
-        };
+        // RAII cleanup also runs if the second host snapshot probe throws.
+        // Only a successfully created stage is owned by this scope.
+        struct StageCleanup {
+            std::filesystem::path path;
+            ~StageCleanup() {
+                std::error_code ignored;
+                std::filesystem::remove(path, ignored);
+            }
+        } stage_cleanup{stage};
         // Prevent publishing bytes whose reviewed source/target identity
         // changed while the temporary file was being written and flushed.
         evidence = inspect();
         if (revalidate_precision_cue_external_commit(evidence) !=
             PrecisionCueWriteDecision::ReadyForExplicitWrite) {
-            cleanup();
             return {Status::ReviewRequired, "CUE_CHANGED_DURING_STAGING"};
         }
         const bool published =
             precision_cue_external_detail::publish_without_replace(stage, target);
-        cleanup();
         if (!published) {
             if (std::filesystem::exists(target, ec))
                 return {Status::Collision, "CUE_TARGET_APPEARED_DURING_PUBLISH"};
