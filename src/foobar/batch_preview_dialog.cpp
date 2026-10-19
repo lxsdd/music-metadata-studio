@@ -83,6 +83,23 @@ struct PendingDiscogsContext {
     std::size_t total=1;
 };
 
+struct PendingMusicBrainzContext {
+    enum class Kind { Search, Release };
+    Kind operation=Kind::Search;
+    std::size_t source_index=0;
+    djmeta::online::musicbrainz::SearchKind kind =
+        djmeta::online::musicbrainz::SearchKind::Recording;
+    bool cue_mode=false;
+    std::string cue_before;
+    std::string local_title;
+    std::string local_artist;
+    djmeta::MetadataDocument originals;
+    std::string strategy;
+    std::size_t attempt_index=0;
+    std::size_t total=1;
+    std::string release_mbid;
+};
+
 struct PreviewState {
     HWND dialog = nullptr;
     HWND help_tooltips = nullptr; // Native tooltip HWND lives/dies with dialog.
@@ -129,9 +146,11 @@ struct PreviewState {
     djmeta::online::musicbrainz::SearchKind musicbrainz_kind =
         djmeta::online::musicbrainz::SearchKind::Recording;
     std::vector<djmeta::online::musicbrainz::SearchCandidate> musicbrainz_results;
+    std::shared_ptr<ReadOnlyNetworkJob> musicbrainz_request;
+    std::optional<PendingMusicBrainzContext> musicbrainz_context;
     std::shared_ptr<ReadOnlyNetworkJob> discogs_request;
     std::optional<PendingDiscogsContext> discogs_context;
-    bool discogs_close_requested=false;
+    bool online_close_requested=false;
     bool discogs_provider_selected = false; // visible runtime-only source selector
     bool discogs_live_view = false; // last response, never inferred from combo
     bool discogs_search_was_cue = false;
@@ -2430,8 +2449,8 @@ void show_workspace_help(HWND dialog) {
 void begin_discogs_network(HWND dialog, PreviewState& state,
                            std::string path, std::string token,
                            PendingDiscogsContext context) {
-    if(state.discogs_request)
-        throw std::runtime_error("A Discogs request is already active.");
+    if(state.discogs_request || state.musicbrainz_request)
+        throw std::runtime_error("An official provider request is already active.");
     // A worker-owned token is wiped whether WinHTTP succeeds or throws.
     auto transport=[route=std::move(path),secret=std::move(token)]() mutable {
         struct Wipe {
@@ -2454,8 +2473,8 @@ void begin_discogs_network(HWND dialog, PreviewState& state,
 void perform_discogs_search(HWND dialog, PreviewState& state) {
     using namespace djmeta::online;
     using namespace djmeta::online::discogs;
-    if(state.discogs_request)
-        throw std::runtime_error("Wait for the previous Discogs request.");
+    if(state.discogs_request || state.musicbrainz_request)
+        throw std::runtime_error("Wait for the previous official provider request.");
     if(!state.show_candidate || state.selected_track_index>=state.entries.size())
         throw std::invalid_argument("Select a qualified audio or CUE source first.");
     const auto& entry=state.entries[state.selected_track_index];
@@ -2630,8 +2649,8 @@ void publish_discogs_release(HWND dialog, PreviewState& state,
 void perform_discogs_load(HWND dialog, PreviewState& state) {
     using namespace djmeta::online;
     using namespace djmeta::online::discogs;
-    if(state.discogs_request)
-        throw std::runtime_error("Discogs is still retrieving another request.");
+    if(state.discogs_request || state.musicbrainz_request)
+        throw std::runtime_error("Another provider request is still in progress.");
     if(!state.show_candidate || !state.discogs_live_view ||
        state.musicbrainz_release_loaded ||
        state.candidate_source_index!=state.selected_track_index ||
@@ -2756,7 +2775,7 @@ void consume_discogs_network(HWND dialog, PreviewState& state) {
     auto context=std::move(state.discogs_context);
     state.discogs_request.reset();
     state.discogs_context.reset();
-    if(state.discogs_close_requested) {
+    if(state.online_close_requested) {
         DestroyWindow(dialog);
         return;
     }
@@ -2778,6 +2797,151 @@ void consume_discogs_network(HWND dialog, PreviewState& state) {
         update_metadata_table(state);
         MessageBoxW(dialog,from_utf8(error.what()).c_str(),
                     L"Discogs read-only lookup",MB_OK|MB_ICONWARNING);
+    }
+}
+
+// MusicBrainz uses the same network-only joined worker as Discogs. Parsing,
+// SDK access, local-CUE identity checks and presentation are main-thread only.
+void begin_musicbrainz_network(HWND dialog, PreviewState& state,
+                               std::string path, PendingMusicBrainzContext ctx) {
+    if(state.discogs_request || state.musicbrainz_request)
+        throw std::runtime_error("Another official provider request is active.");
+    auto job=start_readonly_network(dialog,
+        [route=std::move(path)] {return fetch_musicbrainz_json_readonly(route);});
+    state.musicbrainz_context.emplace(std::move(ctx));
+    state.musicbrainz_request=std::move(job);
+    EnableWindow(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH),FALSE);
+    EnableWindow(GetDlgItem(dialog,IDC_METADATA_MB_LOAD_RELEASE),FALSE);
+}
+
+void publish_musicbrainz_search(
+    PreviewState& state, const PendingMusicBrainzContext& request,
+    const std::string& reply) {
+    if(state.stale || state.refreshing || !state.show_candidate ||
+       state.discogs_provider_selected ||
+       state.selected_track_index!=request.source_index ||
+       request.source_index>=state.entries.size())
+        throw std::runtime_error("MusicBrainz search result discarded after source change.");
+    const auto& entry=state.entries[request.source_index];
+    verify_snapshot(entry);
+    verify_rules_snapshot(state.captured_rules);
+    if(request.cue_mode && read_cue_raw_on_demand(
+        entry.handle,entry.input.source_path).raw_text!=request.cue_before)
+        throw std::runtime_error("CUE changed during online search. Retry.");
+    const auto result=djmeta::online::musicbrainz::parse_search(
+        reply,request.kind);
+    auto rows=musicbrainz_search_rows(
+        result,request.local_title,request.local_artist,request.originals);
+    verify_snapshot(entry);
+    verify_rules_snapshot(state.captured_rules);
+    state.candidate_rows=std::move(rows.summary);
+    state.musicbrainz_detail_groups=std::move(rows.detail);
+    state.musicbrainz_original_title=request.local_title;
+    state.musicbrainz_original_artist=request.local_artist;
+    state.candidate_source_index=request.source_index;
+    state.musicbrainz_results=result.candidates;
+    state.discogs_live_view=false;
+    state.discogs_results.clear();
+    state.discogs_direct_edition.reset();
+    state.musicbrainz_kind=request.kind;
+    state.musicbrainz_live_view=true;
+    state.musicbrainz_release_loaded=false;
+    state.updating_musicbrainz_selection=true;
+    ListView_SetItemState(state.metadata_list,-1,0,LVIS_SELECTED);
+    state.updating_musicbrainz_selection=false;
+    state.cue_inspection_mode=false;
+    state.cue_candidate_comparison_mode=false;
+    state.search_attempt_index=request.attempt_index;
+    state.search_attempt_notice=
+        L"MusicBrainz query "+std::to_wstring(request.attempt_index+1)+
+        L"/"+std::to_wstring(request.total)+L" - "+
+        from_utf8(request.strategy)+L": "+
+        std::to_wstring(result.candidates.size())+L" result(s). "+
+        (result.candidates.empty() && request.attempt_index+1<request.total
+            ? L"Click Search again to try the next, broader strategy."
+            : result.candidates.empty()
+            ? L"No more search variants. Edit the title to retry."
+            : L"Compare recording, artist and version. Nothing approved for writing.");
+    update_metadata_table(state);
+}
+
+void publish_musicbrainz_release(
+    PreviewState& state,const PendingMusicBrainzContext& request,
+    const std::string& reply) {
+    if(state.stale || state.refreshing || !state.show_candidate ||
+       state.discogs_provider_selected ||
+       !state.musicbrainz_live_view || state.musicbrainz_release_loaded ||
+       state.musicbrainz_kind!=
+           djmeta::online::musicbrainz::SearchKind::Release ||
+       state.selected_track_index!=request.source_index ||
+       state.candidate_source_index!=request.source_index ||
+       request.source_index>=state.entries.size())
+        throw std::runtime_error("MusicBrainz release result discarded after source change.");
+    const bool still_verified=std::any_of(
+        state.musicbrainz_results.begin(),state.musicbrainz_results.end(),
+        [&](const auto& result) {
+            return result.kind==djmeta::online::musicbrainz::SearchKind::Release &&
+                   result.mbid==request.release_mbid;
+        });
+    if(!still_verified)
+        throw std::runtime_error("MusicBrainz release no longer belongs to the current search.");
+    const int selected=ListView_GetNextItem(state.metadata_list,-1,LVNI_SELECTED);
+    if(selected<0 ||
+       static_cast<std::size_t>(selected)>=state.candidate_view_order.size() ||
+       state.candidate_view_order[static_cast<std::size_t>(selected)]>=
+           state.candidate_rows.size() ||
+       state.candidate_rows[
+           state.candidate_view_order[static_cast<std::size_t>(selected)]]
+               .candidate.source_id!=request.release_mbid)
+        throw std::runtime_error("MusicBrainz release selection changed during lookup.");
+    const auto& entry=state.entries[request.source_index];
+    verify_snapshot(entry);
+    verify_rules_snapshot(state.captured_rules);
+    const auto raw=read_cue_raw_on_demand(entry.handle,entry.input.source_path);
+    if(raw.raw_text!=request.cue_before)
+        throw std::runtime_error("CUE changed during lookup; discard stale results.");
+    const auto cue=djmeta::inspect_cue_metadata(raw.raw_text,raw.carrier);
+    if(cue.status!=djmeta::CueSyntaxStatus::Parsed)
+        throw std::invalid_argument("MusicBrainz CUE became unqualified.");
+    const auto release=djmeta::online::musicbrainz::parse_release_lookup(
+        reply,request.release_mbid);
+    auto grouped=group_musicbrainz_release_rows(
+        musicbrainz_cue_release_rows(cue,release));
+    verify_snapshot(entry);
+    verify_rules_snapshot(state.captured_rules);
+    state.candidate_rows=std::move(grouped.summary);
+    state.musicbrainz_detail_groups=std::move(grouped.detail);
+    state.musicbrainz_release_loaded=true;
+    ListView_SetItemState(state.metadata_list,-1,0,LVIS_SELECTED);
+    update_metadata_table(state);
+}
+
+void consume_musicbrainz_network(HWND dialog, PreviewState& state) {
+    auto job=state.musicbrainz_request;
+    if(!job || !readonly_network_finished(*job)) return;
+    if(job->worker.joinable()) job->worker.join();
+    auto request=std::move(state.musicbrainz_context);
+    state.musicbrainz_request.reset();
+    state.musicbrainz_context.reset();
+    if(state.online_close_requested) {
+        DestroyWindow(dialog);
+        return;
+    }
+    EnableWindow(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH),TRUE);
+    try {
+        if(!request)
+            throw std::runtime_error("MusicBrainz request lost its context.");
+        if(!job->error.empty())throw std::runtime_error(job->error);
+        if(request->operation==PendingMusicBrainzContext::Kind::Search)
+            publish_musicbrainz_search(state,*request,job->response);
+        else
+            publish_musicbrainz_release(state,*request,job->response);
+    } catch(const std::exception& error) {
+        state.search_attempt_notice=L"MusicBrainz lookup failed or became stale. "+
+            from_utf8(error.what())+L" No files were changed.";
+        update_metadata_table(state);
+        MessageBoxW(dialog,from_utf8(error.what()).c_str(),
+                    L"MusicBrainz read-only lookup",MB_OK|MB_ICONWARNING);
     }
 }
 
@@ -2954,8 +3118,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
     if (!state) return FALSE;
 
     if (message == WM_NCDESTROY) {
-        // Never allow DLL worker code to survive module/window teardown.
-        // WinHTTP uses bounded native timeouts; jthread is joined, not detached.
+        // No SDK or DLL code outlives the native workspace lifetime.
+        // WinHTTP timeouts bound the shutdown join; workers never detach.
+        state->musicbrainz_request.reset();
+        state->musicbrainz_context.reset();
         state->discogs_request.reset();
         state->discogs_context.reset();
         if (state->help_tooltips && IsWindow(state->help_tooltips)) {
@@ -2972,15 +3138,24 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         return FALSE;
     }
     if (message == kReadOnlyNetworkDoneMessage) {
-        consume_discogs_network(dialog,*state);
+        // One active official provider worker at a time. A completion may
+        // destroy the HWND when Close was requested: never touch state after.
+        if(state->discogs_request &&
+           readonly_network_finished(*state->discogs_request))
+            consume_discogs_network(dialog,*state);
+        else if(state->musicbrainz_request &&
+                readonly_network_finished(*state->musicbrainz_request))
+            consume_musicbrainz_network(dialog,*state);
         return TRUE;
     }
     if (message == WM_CLOSE) {
         // Closing the modeless workspace must not freeze foobar while an
         // in-flight HTTPS request finishes. Hide, then destroy on completion.
-        if(state->discogs_request &&
-           !readonly_network_finished(*state->discogs_request)) {
-            state->discogs_close_requested=true;
+        if((state->discogs_request &&
+            !readonly_network_finished(*state->discogs_request)) ||
+           (state->musicbrainz_request &&
+            !readonly_network_finished(*state->musicbrainz_request))) {
+            state->online_close_requested=true;
             ShowWindow(dialog,SW_HIDE);
             return TRUE;
         }
@@ -3540,6 +3715,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             if (state->stale) return TRUE;
         }
         if (id == IDC_METADATA_MB_SEARCH && HIWORD(wp) == BN_CLICKED) {
+            if(state->musicbrainz_request || state->discogs_request)
+                throw std::runtime_error("Wait for the current provider lookup.");
             if(state->discogs_provider_selected) {
                 perform_discogs_search(dialog,*state);
                 return TRUE;
@@ -3637,47 +3814,25 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 std::to_wstring(strategy_count)+L"]...";
             SetDlgItemTextW(dialog,IDC_BATCH_HINT,status.c_str());
             RedrawWindow(dialog,nullptr,nullptr,RDW_INVALIDATE|RDW_UPDATENOW);
-            const auto reply=fetch_musicbrainz_json_readonly(path);
-            const auto result=djmeta::online::musicbrainz::parse_search(reply,kind);
-            verify_snapshot(entry);
-            verify_rules_snapshot(state->captured_rules);
-            if (cue_mode && read_cue_raw_on_demand(
-                entry.handle,entry.input.source_path).raw_text!=cue_before)
-                throw std::runtime_error("CUE changed during online search. Retry.");
-            auto rows=musicbrainz_search_rows(
-                result,local_title,local_artist,original_tags);
-            state->candidate_rows=std::move(rows.summary);
-            state->musicbrainz_detail_groups=std::move(rows.detail);
-            state->musicbrainz_original_title=local_title;
-            state->musicbrainz_original_artist=local_artist;
-            state->candidate_source_index=state->selected_track_index;
-            state->musicbrainz_results=result.candidates;
-            state->discogs_live_view=false;
-            state->discogs_results.clear();
-            state->discogs_direct_edition.reset();
-            state->musicbrainz_kind=kind;
-            state->musicbrainz_live_view=true;
-            state->musicbrainz_release_loaded=false;
-            state->updating_musicbrainz_selection=true;
-            ListView_SetItemState(state->metadata_list,-1,0,LVIS_SELECTED);
-            state->updating_musicbrainz_selection=false;
-            state->cue_inspection_mode=false;
-            state->cue_candidate_comparison_mode=false;
-            state->search_attempt_notice=
-                L"MusicBrainz query "+std::to_wstring(state->search_attempt_index+1)+
-                L"/"+std::to_wstring(strategy_count)+L" - "+
-                from_utf8(strategy)+L": "+
-                std::to_wstring(result.candidates.size())+
-                L" result(s). "+
-                (result.candidates.empty() && state->search_attempt_index+1<strategy_count
-                    ? L"Click Search again to try the next, broader strategy."
-                    : result.candidates.empty()
-                    ? L"No more search variants. Edit the title to retry."
-                    : L"Compare recording, artist and version. None is approved for writing.");
-            update_metadata_table(*state);
+            PendingMusicBrainzContext request;
+            request.operation=PendingMusicBrainzContext::Kind::Search;
+            request.source_index=state->selected_track_index;
+            request.kind=kind;
+            request.cue_mode=cue_mode;
+            request.cue_before=std::move(cue_before);
+            request.originals=std::move(original_tags);
+            request.local_title=std::move(local_title);
+            request.local_artist=std::move(local_artist);
+            request.strategy=std::move(strategy);
+            request.attempt_index=state->search_attempt_index;
+            request.total=strategy_count;
+            begin_musicbrainz_network(dialog,*state,std::move(path),
+                                      std::move(request));
             return TRUE;
         }
         if (id == IDC_METADATA_MB_LOAD_RELEASE && HIWORD(wp)==BN_CLICKED) {
+            if(state->musicbrainz_request || state->discogs_request)
+                throw std::runtime_error("Wait for the current provider lookup.");
             if(state->discogs_live_view) {
                 perform_discogs_load(dialog,*state);
                 return TRUE;
@@ -3719,22 +3874,16 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             SetDlgItemTextW(dialog,IDC_BATCH_HINT,
                 L"Retrieving the selected MusicBrainz release tracklist (read-only)...");
             RedrawWindow(dialog,nullptr,nullptr,RDW_INVALIDATE|RDW_UPDATENOW);
-            const auto reply=fetch_musicbrainz_json_readonly(
-                djmeta::online::musicbrainz::make_release_lookup_path(mbid));
-            const auto release=
-                djmeta::online::musicbrainz::parse_release_lookup(reply,mbid);
-            verify_snapshot(entry);
-            verify_rules_snapshot(state->captured_rules);
-            if (read_cue_raw_on_demand(entry.handle,entry.input.source_path).raw_text
-                !=raw.raw_text)
-                throw std::runtime_error("CUE changed during lookup; discard stale results.");
-            auto grouped=group_musicbrainz_release_rows(
-                musicbrainz_cue_release_rows(cue,release));
-            state->candidate_rows=std::move(grouped.summary);
-            state->musicbrainz_detail_groups=std::move(grouped.detail);
-            state->musicbrainz_release_loaded=true;
-            ListView_SetItemState(state->metadata_list,-1,0,LVIS_SELECTED);
-            update_metadata_table(*state);
+            PendingMusicBrainzContext request;
+            request.operation=PendingMusicBrainzContext::Kind::Release;
+            request.source_index=state->selected_track_index;
+            request.kind=djmeta::online::musicbrainz::SearchKind::Release;
+            request.cue_mode=true;
+            request.cue_before=raw.raw_text;
+            request.release_mbid=mbid;
+            begin_musicbrainz_network(dialog,*state,
+                djmeta::online::musicbrainz::make_release_lookup_path(mbid),
+                std::move(request));
             return TRUE;
         }
         if (id == IDC_METADATA_INSPECT_CUE && HIWORD(wp) == BN_CLICKED) {
@@ -3987,7 +4136,7 @@ void show_batch_preview_dialog(
             auto* existing = reinterpret_cast<PreviewState*>(
                 GetWindowLongPtrW(g_workspace,GWLP_USERDATA));
             const bool same = existing && same_workspace_selection(*existing,handles);
-            if (existing) existing->discogs_close_requested=false;
+            if (existing) existing->online_close_requested=false;
             if (IsIconic(g_workspace)) ShowWindow(g_workspace,SW_RESTORE);
             ShowWindow(g_workspace,SW_SHOW);
             SetForegroundWindow(g_workspace);
