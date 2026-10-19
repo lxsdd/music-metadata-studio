@@ -154,7 +154,6 @@ struct PreviewState {
     std::optional<PendingDiscogsContext> discogs_context;
     bool online_close_requested=false;
     ReadOnlyContextVersion online_context_version;
-    std::uint64_t discogs_fallback_version=0; // delayed, one-shot next search
     bool discogs_provider_selected = false; // visible runtime-only source selector
     bool discogs_live_view = false; // last response, never inferred from combo
     bool discogs_search_was_cue = false;
@@ -202,13 +201,10 @@ struct PreviewState {
 // CreateDialogParamW failure before WM_INITDIALOG takes ownership.
 HWND g_workspace = nullptr;
 PreviewState* g_pending_state = nullptr;
-constexpr UINT_PTR kDiscogsFallbackTimer=0x5D22;
-constexpr UINT kDiscogsFallbackDelayMs=1800; // > native 1600 ms Discogs guard
 
 // Edited search context cancels pending results without ever joining on UI.
 void invalidate_online_request(PreviewState& state) {
     state.online_context_version.invalidate();
-    if(state.dialog) KillTimer(state.dialog,kDiscogsFallbackTimer);
     if(state.discogs_request)
         request_readonly_network_stop(*state.discogs_request);
     if(state.musicbrainz_request)
@@ -2720,17 +2716,10 @@ void publish_discogs_search(HWND dialog, PreviewState& state,
         publish_discogs_release(dialog,state,exact_request,
                                 *state.discogs_direct_edition);
     } else if(broaden_empty) {
-        // Schedule one continuation without blocking foobar or colliding
-        // with the provider's 1.6 s native rate-limit gate. The previously
-        // deliberate Search authorizes only this bounded search plan.
-        // Source/query/provider edits and Close cancel the timer.
-        state.discogs_fallback_version=state.online_context_version.current();
-        if(!SetTimer(dialog,kDiscogsFallbackTimer,kDiscogsFallbackDelayMs,nullptr)) {
-            state.search_attempt_notice=L"Discogs continuation could not be scheduled. "
-                L"Click Search again after the provider interval.";
-            SetDlgItemTextW(dialog,IDC_BATCH_HINT,
-                            state.search_attempt_notice.c_str());
-        }
+        // Each request remains isolated, cancelable, token-header-only and
+        // snapshot-checked. Stop on the first nonempty page or an error.
+        // No provider call occurs without the initiating Search click.
+        perform_discogs_search(dialog,state);
     }
 }
 
@@ -3237,7 +3226,6 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
     if (!state) return FALSE;
 
     if (message == WM_NCDESTROY) {
-        KillTimer(dialog,kDiscogsFallbackTimer);
         // No SDK or DLL code outlives the native workspace lifetime.
         // WinHTTP timeouts bound the shutdown join; workers never detach.
         // Forced host teardown can bypass Close; stop before joining.
@@ -3274,7 +3262,6 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         return TRUE;
     }
     if (message == WM_CLOSE) {
-        KillTimer(dialog,kDiscogsFallbackTimer);
         // Closing the modeless workspace must not freeze foobar while an
         // in-flight HTTPS request finishes. Hide, then destroy on completion.
         if((state->discogs_request &&
@@ -3293,29 +3280,6 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         }
         if(state->help_tooltips) SendMessageW(state->help_tooltips,TTM_POP,0,0);
         DestroyWindow(dialog);
-        return TRUE;
-    }
-    if (message == WM_TIMER && wp == kDiscogsFallbackTimer) {
-        KillTimer(dialog,kDiscogsFallbackTimer); // no recurring provider timer
-        const bool same_source=state->show_candidate &&
-            state->discogs_provider_selected && state->discogs_live_view &&
-            state->selected_track_index<state->entries.size() &&
-            state->selected_track_index==state->candidate_source_index &&
-            !state->online_close_requested &&
-            !state->stale && !state->refreshing;
-        if(readonly_discogs_broaden_ready(
-            state->online_context_version,state->discogs_fallback_version,
-            same_source,state->discogs_results.empty(),
-            !state->discogs_request && !state->musicbrainz_request)) {
-            try {
-                perform_discogs_search(dialog,*state);
-            } catch(const std::exception& error) {
-                state->search_attempt_notice=L"Discogs continuation stopped: "+
-                    from_utf8(error.what())+L" No files changed.";
-                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
-                                state->search_attempt_notice.c_str());
-            }
-        }
         return TRUE;
     }
     if ((message == WM_MOVE || message == WM_SIZE || message == WM_ENTERSIZEMOVE)
@@ -3888,7 +3852,6 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             if (state->stale) return TRUE;
         }
         if (id == IDC_METADATA_MB_SEARCH && HIWORD(wp) == BN_CLICKED) {
-            KillTimer(dialog,kDiscogsFallbackTimer); // manual click supersedes auto stage
             if(state->musicbrainz_request || state->discogs_request)
                 throw std::runtime_error("Wait for the current provider lookup.");
             if(state->discogs_provider_selected) {
