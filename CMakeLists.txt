@@ -377,6 +377,19 @@ else()
     target_compile_options(djmeta_precision_cue_embedded_stage_dryrun_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+# Create-only recovery backup preparation for an eventual embedded CUE
+# transaction. Only synthetic fixtures use this backend; there is no host
+# write, replace-original, recovery, or automatic rollback entry point.
+add_executable(djmeta_precision_cue_embedded_recovery_backup_tests
+    tests/precision_cue_embedded_recovery_backup_tests.cpp)
+target_link_libraries(djmeta_precision_cue_embedded_recovery_backup_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_precision_cue_embedded_recovery_backup_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_precision_cue_embedded_recovery_backup_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_precision_cue_embedded_recovery_backup_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 add_executable(djmeta_precision_cue_match_tests tests/precision_cue_match_tests.cpp)
 target_link_libraries(djmeta_precision_cue_match_tests PRIVATE djmeta_core)
 target_compile_features(djmeta_precision_cue_match_tests PRIVATE cxx_std_20)
@@ -404,6 +417,7 @@ add_test(NAME djmeta_precision_cue_flac_patch_tests COMMAND djmeta_precision_cue
 add_test(NAME djmeta_precision_cue_sha256_stream_tests COMMAND djmeta_precision_cue_sha256_stream_tests)
 add_test(NAME djmeta_precision_cue_full_file_snapshot_tests COMMAND djmeta_precision_cue_full_file_snapshot_tests)
 add_test(NAME djmeta_precision_cue_embedded_stage_dryrun_tests COMMAND djmeta_precision_cue_embedded_stage_dryrun_tests)
+add_test(NAME djmeta_precision_cue_embedded_recovery_backup_tests COMMAND djmeta_precision_cue_embedded_recovery_backup_tests)
 add_test(NAME djmeta_precision_cue_tests COMMAND djmeta_precision_cue_tests)
 add_test(NAME djmeta_write_guard_tests COMMAND djmeta_write_guard_tests)
 add_test(NAME djmeta_physical_selection_tests COMMAND djmeta_physical_selection_tests)
