@@ -329,6 +329,17 @@ else()
     target_compile_options(djmeta_beatport_provider_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+# User-initiated Beatport JSON clipboard -> complete read-only field comparison.
+# No provider network access, scraper, credentials or write capability.
+add_executable(djmeta_beatport_manual_intake_tests tests/beatport_manual_intake_tests.cpp)
+target_link_libraries(djmeta_beatport_manual_intake_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_beatport_manual_intake_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_beatport_manual_intake_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_beatport_manual_intake_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 # Official MusicBrainz WS/2 offline fixture parser and request policy, no network I/O.
 add_executable(djmeta_musicbrainz_provider_tests tests/musicbrainz_provider_tests.cpp)
 target_link_libraries(djmeta_musicbrainz_provider_tests PRIVATE djmeta_core)
@@ -361,6 +372,7 @@ endif()
 
 enable_testing()
 add_test(NAME djmeta_beatport_provider_tests COMMAND djmeta_beatport_provider_tests)
+add_test(NAME djmeta_beatport_manual_intake_tests COMMAND djmeta_beatport_manual_intake_tests)
 add_test(NAME djmeta_discogs_provider_tests COMMAND djmeta_discogs_provider_tests)
 add_test(NAME djmeta_discogs_release_review_tests COMMAND djmeta_discogs_release_review_tests)
 add_test(NAME djmeta_musicbrainz_provider_tests COMMAND djmeta_musicbrainz_provider_tests)

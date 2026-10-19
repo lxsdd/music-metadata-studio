@@ -269,6 +269,10 @@ for label, token in (
     ("bounded manual parser", "djmeta::online::parse_manual_candidate(text)"),
     ("CUE candidate scope identity", "state->cue_candidate_comparison_mode"),
     ("CUE candidate manual review", "djmeta::online::review_manual_cue_candidate("),
+    ("Beatport intentional clipboard import", "is_beatport_user_json_clipboard(text)"),
+    ("Beatport bounded user JSON parser", "parse_beatport_user_json_clipboard(text)"),
+    ("Beatport physical identity guard", "review_beatport_user_track("),
+    ("Beatport refuses virtual CUE assignment", "Beatport track JSON has no qualified CUE ordinal"),
     ("MusicBrainz result group detail", "group_musicbrainz_release_rows("),
     ("MusicBrainz one row per hit", "state->candidate_rows=std::move(rows.summary)"),
     ("MusicBrainz separate field details", "refresh_musicbrainz_detail_rows(state)"),
@@ -335,6 +339,20 @@ if r'L"\nProvider ID: "' not in batch_table_dialog or \
    r'L"\nScope: "' not in batch_table_dialog or \
    r'L"\nDate meaning: "' not in batch_table_dialog:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: source provenance tooltip lacks multiline details")
+
+# User-supplied Beatport JSON is parsed OFFLINE. It must not acquire an
+# unauthorized live fetcher, a cached token or a virtual CUE write route.
+beatport_manual = (root / "include" / "djmeta" / "beatport_manual_intake.h").read_text(encoding="utf-8")
+for token in ("@beatport-track-json", "parse_track_object(root)",
+              "manual_beatport_identity_unverified",
+              "online_evidence_origin_label"):
+    if token == "online_evidence_origin_label":
+        if token not in (root / "include" / "djmeta" / "online_fields.h").read_text(encoding="utf-8"):
+            raise SystemExit("STATIC FOOBAR AUDIT FAIL: manual Beatport origin guard missing")
+    elif token not in beatport_manual:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: manual Beatport safety missing: " + token)
+if "fetch_beatport" in batch_table_dialog:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: unauthorized Beatport network client")
 
 # Explicit trusted-host read-only transport is permitted; generic web scraping
 # or transport in core is NOT. Do not overfit the previous offline-only policy.
