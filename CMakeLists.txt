@@ -336,6 +336,24 @@ else()
     target_compile_options(djmeta_precision_cue_flac_patch_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+# Full-file SHA256 and immutable physical audio snapshot prerequisites for
+# future transaction/rollback, with no productive media-write API.
+add_executable(djmeta_precision_cue_sha256_stream_tests
+    tests/precision_cue_sha256_stream_tests.cpp)
+target_link_libraries(djmeta_precision_cue_sha256_stream_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_precision_cue_sha256_stream_tests PRIVATE cxx_std_20)
+add_executable(djmeta_precision_cue_full_file_snapshot_tests
+    tests/precision_cue_full_file_snapshot_tests.cpp)
+target_link_libraries(djmeta_precision_cue_full_file_snapshot_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_precision_cue_full_file_snapshot_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_precision_cue_sha256_stream_tests PRIVATE /W4 /WX /permissive-)
+    target_compile_options(djmeta_precision_cue_full_file_snapshot_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_precision_cue_sha256_stream_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    target_compile_options(djmeta_precision_cue_full_file_snapshot_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 add_executable(djmeta_precision_cue_match_tests tests/precision_cue_match_tests.cpp)
 target_link_libraries(djmeta_precision_cue_match_tests PRIVATE djmeta_core)
 target_compile_features(djmeta_precision_cue_match_tests PRIVATE cxx_std_20)
@@ -359,6 +377,8 @@ add_test(NAME djmeta_precision_cue_match_tests COMMAND djmeta_precision_cue_matc
 add_test(NAME djmeta_precision_cue_embedded_probe_tests COMMAND djmeta_precision_cue_embedded_probe_tests)
 add_test(NAME djmeta_precision_cue_id3_patch_tests COMMAND djmeta_precision_cue_id3_patch_tests)
 add_test(NAME djmeta_precision_cue_flac_patch_tests COMMAND djmeta_precision_cue_flac_patch_tests)
+add_test(NAME djmeta_precision_cue_sha256_stream_tests COMMAND djmeta_precision_cue_sha256_stream_tests)
+add_test(NAME djmeta_precision_cue_full_file_snapshot_tests COMMAND djmeta_precision_cue_full_file_snapshot_tests)
 add_test(NAME djmeta_precision_cue_tests COMMAND djmeta_precision_cue_tests)
 add_test(NAME djmeta_write_guard_tests COMMAND djmeta_write_guard_tests)
 add_test(NAME djmeta_physical_selection_tests COMMAND djmeta_physical_selection_tests)
