@@ -259,7 +259,7 @@ int main() {
                        {"type":"Barcode","value":"001234567890"},
                        {"type":"Barcode","value":" 123 456 "},
                        {"type":"Matrix / Runout","value":"not a barcode"},
-                       {"type":"Barcode","value":"Bad\\nCode"}],
+                       {"type":"Barcode","value":"Bad\nCode"}],
         "tracklist":[{"position":"1","title":"Track"}]
     })DJ",901);
     const auto edition_field=[](const ReleaseEdition& release,
@@ -293,8 +293,8 @@ int main() {
     }
     const auto mismatch=parse_release(R"DJ({
         "id":903,"title":"Conflicting year","year":2022,
-        "released":"2024-01-01","country":"Bad\\nCountry",
-        "identifiers":[{"type":"Barcode","value":"Bad\\nCode"}],
+        "released":"2024-01-01","country":"Bad\nCountry",
+        "identifiers":[{"type":"Barcode","value":"Bad\nCode"}],
         "tracklist":[{"title":"Track"}]
     })DJ",903);
     check(!edition_field(mismatch,"RELEASEDATE") &&
