@@ -65,6 +65,16 @@ struct PrecisionCueExternalCreateRequest {
 };
 
 namespace precision_cue_external_detail {
+inline std::filesystem::path utf8_path(std::string_view text) {
+    // C++20 filesystem::u8path is deprecated on current Linux compilers.
+    // Explicit byte-to-char8_t conversion preserves all valid UTF-8 bytes.
+    std::u8string encoded;
+    encoded.reserve(text.size());
+    for (const unsigned char byte : text)
+        encoded.push_back(static_cast<char8_t>(byte));
+    return std::filesystem::path(encoded);
+}
+
 inline bool write_new_stage(const std::filesystem::path& path,
                             std::string_view bytes) noexcept {
 #ifdef _WIN32
@@ -181,7 +191,7 @@ inline PrecisionCueExternalCreateResult create_new_precision_cue_external(
         std::filesystem::canonical(parent, ec) != parent || ec)
         return {Status::Rejected, "CUE_TARGET_DIRECTORY_UNQUALIFIED"};
 
-    const auto target = parent / std::filesystem::u8path(
+    const auto target = parent / precision_cue_external_detail::utf8_path(
         export_plan.target_cue_basename);
     if (target.parent_path() != parent)
         return {Status::Rejected, "CUE_TARGET_PATH_UNQUALIFIED"};
@@ -224,7 +234,7 @@ inline PrecisionCueExternalCreateResult create_new_precision_cue_external(
             PrecisionCueWriteDecision::ReadyForExplicitWrite)
             return {Status::ReviewRequired, "CUE_SOURCE_OR_TARGET_STALE"};
 
-        const auto stage = parent / std::filesystem::u8path(
+        const auto stage = parent / precision_cue_external_detail::utf8_path(
             ".precision-cue-" +
             precision_cue_external_detail::random_suffix() + ".tmp");
         // CREATE_NEW / O_EXCL: never truncate a preexisting stage.
