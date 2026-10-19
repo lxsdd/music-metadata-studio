@@ -11,10 +11,13 @@
 #include "djmeta/precision_cue_apple_link.h"
 #include "djmeta/precision_cue_filename.h"
 #include "djmeta/precision_cue_write_preflight.h"
+#include "djmeta/precision_cue_foobar_path.h"
+#include "djmeta/precision_cue_external_create.h"
 
 #include <atomic>
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -34,6 +37,8 @@ HWND g_precision_workspace = nullptr; // Only accessed from foobar's UI thread.
 struct LocalFile {
     std::string basename;
     std::int64_t duration_ms = 0;
+    std::filesystem::path physical_absolute_path;
+    djmeta::precision_cue_external_detail::PhysicalSourceFingerprint snapshot;
 };
 
 struct LookupJob {
@@ -154,18 +159,29 @@ std::vector<LocalFile> capture_files(metadb_handle_list_cref handles) {
         const auto& handle = handles[index];
         if (handle->get_subsong_index() != 0)
             throw std::invalid_argument("Select physical MP3 files, not virtual CUE subsongs");
-        const std::string path = handle->get_path();
-        if (path.rfind("file://", 0) != 0)
-            throw std::invalid_argument("Precision CUE preview requires local physical MP3 files");
-        const auto last_sep = path.find_last_of("/\\");
-        const std::string name = path.substr(last_sep == std::string::npos ? 0 : last_sep + 1);
-        if (!djmeta::precision_cue_safe_mp3_basename(name))
-            throw std::invalid_argument("An MP3 filename is unsafe or not supported");
+        const auto parsed = djmeta::precision_cue_foobar_local_windows_mp3_path(
+            handle->get_path());
+        if (!parsed)
+            throw std::invalid_argument(
+                "Precision CUE requires a physical local drive MP3 path, "
+                "not a virtual, remote or ambiguous file URL");
+        const auto source_path = djmeta::precision_cue_external_detail::utf8_path(*parsed);
+        std::error_code ec;
+        const auto canonical = std::filesystem::canonical(source_path, ec);
+        if (ec || canonical != source_path.lexically_normal())
+            throw std::invalid_argument(
+                "Physical MP3 path could not be qualified (symlinks/aliases unsupported)");
+        const auto last_sep = parsed->find_last_of("/\\");
+        const std::string name = parsed->substr(last_sep + 1);
+        const auto physical = djmeta::precision_cue_external_detail::physical_source_snapshot(
+            canonical, canonical.parent_path(), name);
+        if (!physical)
+            throw std::invalid_argument("Physical MP3 identity could not be verified");
         const double seconds = handle->get_length();
         const auto duration = std::isfinite(seconds) && seconds > 0 &&
             seconds < 24 * 60 * 60
             ? static_cast<std::int64_t>(std::llround(seconds * 1000.0)) : 0;
-        out.push_back({name, duration});
+        out.push_back({name, duration, canonical, *physical});
     }
     // Deterministic ordering; this is a PROPOSAL and never a verified
     // disc-to-file mapping. The UI must display each chosen basename.
@@ -207,6 +223,15 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
         throw std::invalid_argument(
             "Selected physical MP3 count differs from provider disc count. "
             "Select all disc MP3s; no partial CUE proposal was produced");
+    }
+    // Read-only source identity recheck: never derive a new approval from
+    // a stale foobar selection or provider response.
+    for (const auto& file : state.files) {
+        if (!djmeta::precision_cue_external_detail::physical_source_unchanged(
+                file.snapshot, file.physical_absolute_path,
+                file.physical_absolute_path.parent_path(), file.basename))
+            throw std::invalid_argument(
+                "Selected physical MP3 changed since capture; reselect the file");
     }
     const auto totals = provider_disc_totals(release, count);
     std::vector<djmeta::PrecisionCuePhysicalDisc> physicals;
@@ -396,6 +421,15 @@ void copy_reviewed_disc_cue(Workspace& state) {
     if (!state.reviewed_preview_ready || !state.release ||
         IsDlgButtonChecked(state.dialog, IDC_PRECISION_EDITION_CONFIRMED) != BST_CHECKED)
         throw std::invalid_argument("Review disc mapping and confirm the exact mix edition first");
+    for (const auto& file : state.files) {
+        if (!djmeta::precision_cue_external_detail::physical_source_unchanged(
+                file.snapshot, file.physical_absolute_path,
+                file.physical_absolute_path.parent_path(), file.basename)) {
+            invalidate_cue_copy(state);
+            throw std::invalid_argument(
+                "Physical MP3 changed since reviewed preview; reopen Precision CUE");
+        }
+    }
     const auto selection = SendDlgItemMessageW(state.dialog, IDC_PRECISION_DISC_PICKER,
                                                CB_GETCURSEL, 0, 0);
     if (selection == CB_ERR || static_cast<std::size_t>(selection) >= state.reviewed_cues.size())

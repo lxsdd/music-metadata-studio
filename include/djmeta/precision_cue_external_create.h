@@ -172,6 +172,8 @@ inline bool exact_existing_bytes(const std::filesystem::path& target,
 struct PhysicalSourceFingerprint {
     std::uintmax_t length = 0;
     std::filesystem::file_time_type last_write{};
+    std::uint64_t volume_id = 0;
+    std::uint64_t file_id = 0; // Reject replaced files even with same size/mtime.
 };
 inline std::optional<PhysicalSourceFingerprint> physical_source_snapshot(
     const std::filesystem::path& path, const std::filesystem::path& parent,
@@ -184,11 +186,37 @@ inline std::optional<PhysicalSourceFingerprint> physical_source_snapshot(
         fs::is_symlink(path, ec) || ec ||
         !fs::is_regular_file(path, ec) || ec ||
         fs::canonical(path, ec) != path || ec) return std::nullopt;
-    const auto length = fs::file_size(path, ec);
-    if (ec || length == 0) return std::nullopt;
+    std::uintmax_t length = 0;
+    std::uint64_t volume = 0, identity = 0;
+#ifdef _WIN32
+    const HANDLE handle = CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+        OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) return std::nullopt;
+    BY_HANDLE_FILE_INFORMATION info{};
+    const bool valid = GetFileInformationByHandle(handle, &info) != 0 &&
+        (info.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT |
+                                 FILE_ATTRIBUTE_DIRECTORY)) == 0;
+    const bool closed = CloseHandle(handle) != 0;
+    if (!valid || !closed) return std::nullopt;
+    length = (static_cast<std::uint64_t>(info.nFileSizeHigh) << 32) |
+             static_cast<std::uint64_t>(info.nFileSizeLow);
+    volume = info.dwVolumeSerialNumber;
+    identity = (static_cast<std::uint64_t>(info.nFileIndexHigh) << 32) |
+                static_cast<std::uint64_t>(info.nFileIndexLow);
+#else
+    struct stat info{};
+    if (::lstat(path.c_str(), &info) != 0 ||
+        !S_ISREG(info.st_mode) || info.st_size <= 0) return std::nullopt;
+    length = static_cast<std::uintmax_t>(info.st_size);
+    volume = static_cast<std::uint64_t>(info.st_dev);
+    identity = static_cast<std::uint64_t>(info.st_ino);
+#endif
+    if (length == 0 || fs::file_size(path, ec) != length || ec)
+        return std::nullopt;
     const auto modified = fs::last_write_time(path, ec);
     if (ec) return std::nullopt;
-    return PhysicalSourceFingerprint{length, modified};
+    return PhysicalSourceFingerprint{length, modified, volume, identity};
 }
 inline bool physical_source_unchanged(
     const PhysicalSourceFingerprint& previous,
@@ -196,7 +224,9 @@ inline bool physical_source_unchanged(
     std::string_view mp3_basename) {
     const auto now = physical_source_snapshot(path, parent, mp3_basename);
     return now && previous.length == now->length &&
-           previous.last_write == now->last_write;
+           previous.last_write == now->last_write &&
+           previous.volume_id == now->volume_id &&
+           previous.file_id == now->file_id;
 }
 } // namespace precision_cue_external_detail
 

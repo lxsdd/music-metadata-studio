@@ -1,5 +1,6 @@
 #include "djmeta/precision_cue_write_preflight.h"
 #include "djmeta/precision_cue_external_create.h"
+#include "djmeta/precision_cue_foobar_path.h"
 
 #ifdef NDEBUG
 #undef NDEBUG
@@ -288,6 +289,26 @@ void commit_revalidation_fail_closed_matrix() {
 }
 
 
+void foobar_local_windows_path_regressions() {
+    const auto verify_path = [](std::string_view uri, std::string_view expected) {
+        const auto result = precision_cue_foobar_local_windows_mp3_path(uri);
+        VERIFY(result && *result == expected);
+    };
+    verify_path("file://C:\\Music\\Mix.mp3", "C:\\Music\\Mix.mp3");
+    verify_path("file:///Z:/Music/Disc Über 東京.mp3",
+                "Z:\\Music\\Disc Über 東京.mp3");
+    verify_path("file://d:/Album/CD2.MP3", "d:\\Album\\CD2.MP3");
+    for (const auto invalid : {
+        "https://example.com/Mix.mp3", "file://server/share/Mix.mp3",
+        "file:////server/share/Mix.mp3", "file://C:relative.mp3",
+        "file:///C:/../Mix.mp3", "file://C:\\Folder\\.\\Mix.mp3",
+        "file://C:\\Folder\\\\Mix.mp3", "file://C:\\Folder\\Mix.mp3:extra",
+        "file://C:\\Folder\\COM1.mp3", "file://C:\\Folder\\Mix.cue",
+        "file://C:\\Folder\\Mix.mp3?query",
+        "file://C:\\Folder\\Mix.mp3\\"
+    }) VERIFY(!precision_cue_foobar_local_windows_mp3_path(invalid));
+}
+
 void create_only_external_writer_regressions() {
     namespace fs = std::filesystem;
     using Status = PrecisionCueExternalCreateStatus;
@@ -442,6 +463,29 @@ void create_only_external_writer_regressions() {
         VERIFY(content == "existing CUE must survive");
     }
 
+    // A same-size/same-time replacement has a distinct physical file ID.
+    const auto before = precision_cue_external_detail::physical_source_snapshot(
+        physical_source, req.qualified_sibling_directory, req.mp3_basename);
+    VERIFY(before.has_value());
+    const auto alternate = sandbox / "replacement-source.tmp";
+    {
+        std::ofstream stream(alternate, std::ios::binary);
+        stream << std::string(static_cast<std::size_t>(before->length), 'x');
+    }
+    fs::last_write_time(alternate, before->last_write);
+    const auto preserved = sandbox / "original-source.keep";
+    fs::rename(physical_source, preserved);
+    fs::rename(alternate, physical_source);
+    const auto after = precision_cue_external_detail::physical_source_snapshot(
+        physical_source, req.qualified_sibling_directory, req.mp3_basename);
+    VERIFY(after.has_value());
+    VERIFY(after->length == before->length);
+    VERIFY(after->last_write == before->last_write);
+    VERIFY(after->file_id != before->file_id ||
+           after->volume_id != before->volume_id);
+    VERIFY(!precision_cue_external_detail::physical_source_unchanged(
+        *before, physical_source, req.qualified_sibling_directory, req.mp3_basename));
+
     // Host-parent path resolution must fail closed on a symlink alias.
 #ifndef _WIN32
     const auto alias = sandbox.parent_path() /
@@ -467,6 +511,7 @@ int main() {
         preflight_fail_closed_matrix();
         sha256_exact_byte_regressions();
         commit_revalidation_fail_closed_matrix();
+        foobar_local_windows_path_regressions();
         create_only_external_writer_regressions();
         return 0;
     } catch (const std::exception& e) {
