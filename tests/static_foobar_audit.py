@@ -217,6 +217,16 @@ for token in (
 ):
     if token not in precision:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: Precision CUE mapping not wired: " + token)
+# The native UI must validate before committing a proposed selection.
+assign_body = precision.split("void assign_selected_disc(Workspace& state) {", 1)[-1].split(
+    "void start_lookup(Workspace& state)", 1)[0]
+if ("validate_precision_cue_partial_disc_mapping(" not in assign_body or
+        "provider_disc_totals(*state.release, proposed.size())" not in assign_body or
+        assign_body.find("validate_precision_cue_partial_disc_mapping(") >
+        assign_body.find("state.reviewed_mapping = std::move(proposed);")):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: partial mapping not validated before mutation")
+if "if (validation.state != djmeta::PrecisionCueMatchState::Review)" not in assign_body:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: partial mapping rejection gate missing")
 for token in (
     "COMBOBOX        IDC_PRECISION_DISC_PICKER",
     "COMBOBOX        IDC_PRECISION_MP3_PICKER",

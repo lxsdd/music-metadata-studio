@@ -170,14 +170,10 @@ std::vector<LocalFile> capture_files(metadb_handle_list_cref handles) {
     return out;
 }
 
-void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release,
-                    const std::vector<std::size_t>* reviewed = nullptr) {
-    const auto count = release.tracks.empty() ? 0u : release.tracks.back().disc_number;
-    if (count == 0 || count != state.files.size()) {
-        throw std::invalid_argument(
-            "Selected physical MP3 count differs from provider disc count. "
-            "Select all disc MP3s; no partial CUE proposal was produced");
-    }
+std::vector<std::int64_t> provider_disc_totals(
+    const djmeta::PrecisionCueRelease& release, std::size_t count) {
+    if (count == 0 || count > 8)
+        throw std::invalid_argument("Invalid provider disc count");
     std::vector<std::int64_t> totals(count, 0);
     for (const auto& track : release.tracks) {
         if (track.disc_number == 0 || track.disc_number > count ||
@@ -186,6 +182,18 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
             throw std::invalid_argument("Invalid provider disc duration");
         totals[track.disc_number - 1] += track.duration_ms;
     }
+    return totals;
+}
+
+void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release,
+                    const std::vector<std::size_t>* reviewed = nullptr) {
+    const auto count = release.tracks.empty() ? 0u : release.tracks.back().disc_number;
+    if (count == 0 || count != state.files.size()) {
+        throw std::invalid_argument(
+            "Selected physical MP3 count differs from provider disc count. "
+            "Select all disc MP3s; no partial CUE proposal was produced");
+    }
+    const auto totals = provider_disc_totals(release, count);
     std::vector<djmeta::PrecisionCuePhysicalDisc> physicals;
     for (const auto& file : state.files)
         physicals.push_back({file.basename, file.duration_ms});
@@ -304,7 +312,26 @@ void assign_selected_disc(Workspace& state) {
         if (d != static_cast<std::size_t>(disc) &&
             state.reviewed_mapping[d] == static_cast<std::size_t>(file))
             throw std::invalid_argument("This MP3 is already assigned to another disc");
-    state.reviewed_mapping[static_cast<std::size_t>(disc)] = static_cast<std::size_t>(file);
+    // Validate a copy before committing the UI choice; partial matches may
+    // consume the only file compatible with another disc.
+    auto proposed = state.reviewed_mapping;
+    proposed[static_cast<std::size_t>(disc)] = static_cast<std::size_t>(file);
+    const auto totals = provider_disc_totals(*state.release, proposed.size());
+    std::vector<djmeta::PrecisionCuePhysicalDisc> physicals;
+    physicals.reserve(state.files.size());
+    for (const auto& physical : state.files)
+        physicals.push_back({physical.basename, physical.duration_ms});
+    const auto validation = djmeta::validate_precision_cue_partial_disc_mapping(
+        totals, physicals, proposed);
+    if (validation.state != djmeta::PrecisionCueMatchState::Review) {
+        if (std::find(validation.diagnostics.begin(), validation.diagnostics.end(),
+                      "PARTIAL_DISC_MAPPING_NO_COMPLETION") != validation.diagnostics.end())
+            throw std::invalid_argument(
+                "This choice leaves no complete duration-compatible disc assignment");
+        throw std::invalid_argument(
+            "Disc assignment rejected: duplicate, invalid or incompatible MP3");
+    }
+    state.reviewed_mapping = std::move(proposed);
     const bool complete = std::all_of(state.reviewed_mapping.begin(),
         state.reviewed_mapping.end(),
         [&state](std::size_t index) { return index < state.files.size(); });

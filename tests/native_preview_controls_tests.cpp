@@ -429,6 +429,26 @@ int main() {
     check((static_cast<DWORD>(GetWindowLongPtrW(cue_lookup, GWL_STYLE)) &
            WS_DISABLED) == 0,
           "Lookup action is enabled before an explicitly user-initiated request");
+    HWND cue_disc = GetDlgItem(cue_dialog, IDC_PRECISION_DISC_PICKER);
+    HWND cue_mp3 = GetDlgItem(cue_dialog, IDC_PRECISION_MP3_PICKER);
+    HWND cue_assign = GetDlgItem(cue_dialog, IDC_PRECISION_ASSIGN_DISC);
+    HWND cue_review = GetDlgItem(cue_dialog, IDC_PRECISION_PREVIEW_ASSIGNED);
+    check(cue_disc && cue_mp3 && cue_assign && cue_review,
+          "Precision CUE native manual disc mapping controls exist");
+    for (HWND picker : {cue_disc, cue_mp3})
+        check((static_cast<DWORD>(GetWindowLongPtrW(picker, GWL_STYLE)) & 0x3u)
+                  == CBS_DROPDOWNLIST,
+              "native disc and MP3 choices are non-editable");
+    check(SendMessageW(cue_disc, CB_ADDSTRING, 0,
+                       reinterpret_cast<LPARAM>(L"Disc 1")) == 0 &&
+          SendMessageW(cue_mp3, CB_ADDSTRING, 0,
+                       reinterpret_cast<LPARAM>(L"Example.mp3")) == 0,
+          "native disc and MP3 controls accept synthetic test labels");
+    check(SendMessageW(cue_disc, CB_SETCURSEL, 0, 0) == 0 &&
+          SendMessageW(cue_mp3, CB_SETCURSEL, 0, 0) == 0 &&
+          SendMessageW(cue_disc, CB_GETCURSEL, 0, 0) == 0 &&
+          SendMessageW(cue_mp3, CB_GETCURSEL, 0, 0) == 0,
+          "native disc and MP3 choices roundtrip on real HWNDs");
     DestroyWindow(cue_dialog);
 
     DestroyWindow(dialog);
