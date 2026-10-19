@@ -215,10 +215,12 @@ inline std::vector<CueCandidateFieldReview> review_cue_edition_track_fields(
         cue, track_ordinal, edition_track.fields, true);
     if (edition_track.fields.empty()) return rows;
     const auto& identity = edition_track.fields.front().source_id;
-    // Mixed provider identities cannot describe one selected edition track.
-    bool consistent = valid_evidence_origin(identity, 512);
+    const auto& provider = edition_track.fields.front().provider;
+    // Equal IDs across different providers do not establish provenance.
+    bool consistent = valid_evidence_origin(identity, 512) &&
+                      valid_evidence_origin(provider, 128);
     for (const auto& field : edition_track.fields)
-        if (field.source_id != identity ||
+        if (field.source_id != identity || field.provider != provider ||
             field.scope != EvidenceScope::Edition) consistent = false;
     if (!consistent)
         for (auto& row : rows) {

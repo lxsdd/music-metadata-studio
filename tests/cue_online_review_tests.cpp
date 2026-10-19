@@ -1,4 +1,4 @@
-#include "djmeta/cue_online_review.h"
+#include "djmeta/cue_release_review.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -217,5 +217,89 @@ int main() {
         check(row.state == FieldReviewState::Blocked &&
               row.reason == "cue_edition_track_identity_unqualified",
               "mixed edition-track source identities fail closed");
+
+    // Exact Discogs edition -> immutable CUE inventory -> qualified track
+    // comparison. The unmatched second track must never borrow first-track
+    // credits, even though title and artist happen to agree.
+    const std::string release_cue =
+        "TITLE Release\nPERFORMER \"Various Artists\"\n"
+        "FILE \"mix.flac\" WAVE\n"
+        "TRACK 01 AUDIO\nTITLE \"Solar (Extended Mix)\"\n"
+        "PERFORMER \"Artist A\"\nISRC GBABC2600001\n"
+        "INDEX 01 00:00:00\n"
+        "TRACK 02 AUDIO\nTITLE Lunar\nPERFORMER \"Artist B\"\n"
+        "INDEX 01 04:00:00\n";
+    const auto release_inventory = inspect_cue_metadata(
+        release_cue, CueCarrierKind::ExternalText);
+    ReleaseEdition edition{
+        "discogs", "881",
+        {item("ALBUM", {"Release"}, EvidenceScope::Edition,
+              DateMeaning::NotDate, "881")},
+        {
+            {"2", {"Lunar", "Artist B", "", MixKind::Unknown, "", -1},
+             -1, 2, {item("TITLE", {"Lunar"}, EvidenceScope::Edition,
+                          DateMeaning::NotDate, "881/track/1")}},
+            {"1", {"Solar (Extended Mix)", "Artist A", "",
+                    MixKind::Unknown, "GBABC2600001", -1},
+             -1, 1, {
+                 item("TITLE", {"Solar (Extended Mix)"}, EvidenceScope::Edition,
+                      DateMeaning::NotDate, "881/track/2"),
+                 item("SONGWRITER", {"Writer A"}, EvidenceScope::Edition,
+                      DateMeaning::NotDate, "881/track/2")
+             }}
+        }
+    };
+    const auto reviewed = review_cue_release_edition(release_inventory, edition);
+    check(reviewed.eligible && reviewed.album_fields.size() == 1 &&
+          reviewed.album_fields[0].state == FieldReviewState::Unchanged &&
+          reviewed.tracks.size() == 2 &&
+          reviewed.tracks[0].edition_track_index == 1 &&
+          reviewed.tracks[0].decision == MatchDecision::Suggested &&
+          reviewed.tracks[0].fields.size() == 2 &&
+          reviewed.tracks[0].fields[0].state == FieldReviewState::Unchanged &&
+          reviewed.tracks[0].fields[1].cue_field == "SONGWRITER" &&
+          reviewed.tracks[0].fields[1].state == FieldReviewState::NeedsReview,
+          "exact Discogs edition credits map to one CUE ordinal");
+    check(reviewed.tracks[1].decision == MatchDecision::Review &&
+          reviewed.tracks[1].fields.empty() &&
+          !reviewed.tracks[1].reasons.empty(),
+          "uncertain CUE match cannot receive edition track credits");
+
+    auto foreign_album = edition;
+    foreign_album.fields[0].source_id = "another-edition";
+    const auto refused_album = review_cue_release_edition(
+        release_inventory, foreign_album);
+    check(!refused_album.eligible && refused_album.album_fields.empty() &&
+          refused_album.tracks.empty(),
+          "foreign edition album provenance blocks all comparisons");
+
+    auto foreign_track = edition;
+    foreign_track.tracks[1].fields[1].provider = "musicbrainz";
+    const auto refused_track = review_cue_release_edition(
+        release_inventory, foreign_track);
+    check(refused_track.eligible && refused_track.tracks[0].fields.empty() &&
+          !refused_track.tracks[0].reasons.empty(),
+          "mixed provider track credits cannot enter CUE comparison");
+    const auto direct_mixed = review_cue_edition_track_fields(
+        release_inventory, 0, foreign_track.tracks[1]);
+    check(direct_mixed.size() == 2 &&
+          direct_mixed[0].state == FieldReviewState::Blocked &&
+          direct_mixed[1].state == FieldReviewState::Blocked,
+          "direct track review also blocks mixed provider provenance");
+
+    auto forged = edition;
+    forged.tracks[1].fields[0].source_id = "881/track/999";
+    forged.tracks[1].fields[1].source_id = "881/track/999";
+    const auto refused_id = review_cue_release_edition(
+        release_inventory, forged);
+    check(refused_id.tracks[0].fields.empty() &&
+          !refused_id.tracks[0].reasons.empty(),
+          "Discogs track provenance must match selected edition row");
+
+    const auto broken_cue = inspect_cue_metadata(
+        "FILE x.flac WAVE\nTRACK 01 AUDIO\nTITLE \"broken\n",
+        CueCarrierKind::ExternalText);
+    check(!review_cue_release_edition(broken_cue, edition).eligible,
+          "invalid CUE cannot enter edition comparison");
     std::cout << "PASS: CUE field scope, inheritance impact, no-op, unknown-field guards\n";
 }
