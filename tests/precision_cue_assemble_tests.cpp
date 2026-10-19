@@ -229,6 +229,43 @@ void impossible_partial_completion_regression() {
     assert(complete.physical_index_by_disc.size() == 3);
 }
 
+
+void eight_disc_end_to_end_read_only_preview() {
+    auto request = fixture();
+    request.reference.tracks.clear();
+    request.candidates[0].tracks.clear();
+    request.physical_discs.clear();
+    for (unsigned disc = 1; disc <= 8; ++disc) {
+        const std::int64_t track_ms = 1000 + 137 * disc;
+        for (unsigned track = 1; track <= 99; ++track) {
+            const PrecisionCueReleaseTrack entry{
+                disc, track, "Synthetic Mixed Track", "Synthetic DJ", track_ms};
+            request.reference.tracks.push_back(entry);
+            request.candidates[0].tracks.push_back(entry);
+        }
+        request.physical_discs.push_back({
+            "Synthetic Disc " + std::to_string(disc) + ".mp3", 99 * track_ms});
+    }
+    const auto preview = make_precision_cue_release_preview(request);
+    assert(preview.state == PrecisionCueMatchState::Review);
+    assert(!preview.preview_qualified && preview.discs.size() == 8);
+    for (unsigned disc = 1; disc <= 8; ++disc) {
+        const auto& plan = preview.discs[disc - 1];
+        assert(plan.boundaries.size() == 99);
+        assert(plan.boundaries.front().cue_frame == 0);
+        assert(plan.total_duration_ms == 99 * (1000 + 137 * disc));
+        assert(plan.external_cue_utf8.find(
+            "REM DISCNUMBER " + std::to_string(disc) + "\n") != std::string::npos);
+        assert(plan.external_cue_utf8.find(
+            "FILE \"Synthetic Disc " + std::to_string(disc) + ".mp3\" WAVE") !=
+            std::string::npos);
+    }
+
+    request.candidates[0].tracks[99].disc_number = 1;
+    const auto invalid = make_precision_cue_release_preview(request);
+    assert(invalid.state == PrecisionCueMatchState::Rejected && invalid.discs.empty());
+}
+
 int main() {
     selected_two_discs();
     fail_closed();
@@ -237,5 +274,6 @@ int main() {
     explicitly_reviewed_disc_mapping();
     partial_disc_mapping_validation();
     impossible_partial_completion_regression();
+    eight_disc_end_to_end_read_only_preview();
     return 0;
 }

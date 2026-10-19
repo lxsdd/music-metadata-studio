@@ -73,12 +73,13 @@ bool valid_release(const PrecisionCueRelease& release, bool reference) {
         !valid_field(release.album_performer, false) ||
         !valid_field(release.provider, false) ||
         !valid_field(release.provider_release_id, false) ||
-        release.tracks.empty() || release.tracks.size() > 500) return false;
+        release.tracks.empty() || release.tracks.size() > 8u * 99u) return false;
     unsigned previous_disc = 0;
     unsigned previous_track = 0;
+    std::int64_t cumulative_disc_ms = 0;
     for (const auto& track : release.tracks) {
         if (!valid_field(track.title) || !valid_field(track.performer, false) ||
-            track.disc_number == 0 || track.disc_number > 99 ||
+            track.disc_number == 0 || track.disc_number > 8 ||
             track.track_number == 0 || track.track_number > 99 ||
             track.duration_ms < 0 || track.duration_ms > kMaximumTrackMs ||
             (!reference && track.duration_ms == 0)) return false;
@@ -86,7 +87,11 @@ bool valid_release(const PrecisionCueRelease& release, bool reference) {
             if (track.track_number != previous_track + 1) return false;
         } else if (track.disc_number != previous_disc + 1 || track.track_number != 1) {
             return false;
+        } else {
+            cumulative_disc_ms = 0;
         }
+        if (track.duration_ms > kMaximumTrackMs - cumulative_disc_ms) return false;
+        cumulative_disc_ms += track.duration_ms;
         previous_disc = track.disc_number;
         previous_track = track.track_number;
     }

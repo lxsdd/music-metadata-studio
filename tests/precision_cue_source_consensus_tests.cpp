@@ -146,5 +146,19 @@ int main() {
     apple.release.tracks.push_back({9, 1, "Ninth Disc", "Artist", 1000});
     assert(audit_precision_cue_source_consensus({apple}).state ==
            PrecisionCueConsensusState::Rejected);
+
+    apple = source("apple", 1);
+    constexpr std::int64_t twelve_hours = 12LL * 60 * 60 * 1000;
+    apple.release.tracks[0].duration_ms = twelve_hours;
+    apple.release.tracks[1].duration_ms = twelve_hours;
+    assert(audit_precision_cue_source_consensus({apple}).state ==
+           PrecisionCueConsensusState::SingleHighResolutionSource);
+    ++apple.release.tracks[1].duration_ms;
+    assert(audit_precision_cue_source_consensus({apple}).state ==
+           PrecisionCueConsensusState::Rejected);
+    apple.release.tracks[1].disc_number = 2;
+    apple.release.tracks[1].track_number = 1;
+    assert(audit_precision_cue_source_consensus({apple}).state ==
+           PrecisionCueConsensusState::SingleHighResolutionSource);
     return 0;
 }

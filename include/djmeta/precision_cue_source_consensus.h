@@ -61,6 +61,8 @@ inline bool valid_release_structure(const PrecisionCueRelease& r) {
         r.tracks.empty() || r.tracks.size() > 8u * 99u) return false;
     unsigned current_disc = 1;
     unsigned current_track = 0;
+    std::int64_t cumulative_disc_ms = 0;
+    constexpr std::int64_t kMaximumDiscMs = 24LL * 3600 * 1000;
     for (const auto& t : r.tracks) {
         if (t.disc_number != current_disc) {
             if (t.disc_number != current_disc + 1 ||
@@ -68,11 +70,14 @@ inline bool valid_release_structure(const PrecisionCueRelease& r) {
                 return false;
             current_disc = t.disc_number;
             current_track = 0;
+            cumulative_disc_ms = 0;
         }
         if (t.track_number != ++current_track || current_track > 99 ||
             t.title.empty() || t.performer.empty() ||
-            t.duration_ms <= 0 || t.duration_ms > 24LL * 3600 * 1000)
+            t.duration_ms <= 0 ||
+            t.duration_ms > kMaximumDiscMs - cumulative_disc_ms)
             return false;
+        cumulative_disc_ms += t.duration_ms;
     }
     return true;
 }

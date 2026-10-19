@@ -139,6 +139,74 @@ void normalization_preserves_mix_versions() {
     assert(djmeta::match_precision_cue_releases(source, {apple}).state == PrecisionCueMatchState::Rejected);
 }
 
+
+void eight_disc_99_track_contract() {
+    auto reference = release("deezer", "synthetic-maximum");
+    auto candidate = release("apple", "synthetic-maximum");
+    reference.tracks.clear();
+    candidate.tracks.clear();
+    for (unsigned disc = 1; disc <= 8; ++disc) {
+        for (unsigned track = 1; track <= 99; ++track) {
+            reference.tracks.push_back({disc, track, "Synthetic Mix Track",
+                                        "Synthetic Performer", 1000});
+            candidate.tracks.push_back({disc, track, "Synthetic Mix Track",
+                                        "Synthetic Performer", 1000});
+        }
+    }
+    const auto maximum = djmeta::match_precision_cue_releases(reference, {candidate});
+    assert(maximum.state == PrecisionCueMatchState::Selected);
+    assert(maximum.selected_candidate_index == 0);
+    assert(reference.tracks.size() == 792);
+
+    auto malformed = reference;
+    malformed.tracks[98].track_number = 100;
+    assert(djmeta::match_precision_cue_releases(malformed, {candidate}).state ==
+           PrecisionCueMatchState::Rejected);
+    malformed = candidate;
+    malformed.tracks[98].track_number = 100;
+    assert(djmeta::match_precision_cue_releases(reference, {malformed}).state ==
+           PrecisionCueMatchState::Rejected);
+
+    reference.tracks.clear();
+    candidate.tracks.clear();
+    for (unsigned disc = 1; disc <= 9; ++disc) {
+        reference.tracks.push_back({disc, 1, "Synthetic Track", "Performer", 1000});
+        candidate.tracks.push_back({disc, 1, "Synthetic Track", "Performer", 1000});
+    }
+    assert(djmeta::match_precision_cue_releases(reference, {candidate}).state ==
+           PrecisionCueMatchState::Rejected);
+
+    reference.tracks.pop_back();
+    candidate.tracks.pop_back();
+    candidate.tracks[7].disc_number = 7;
+    assert(djmeta::match_precision_cue_releases(reference, {candidate}).state ==
+           PrecisionCueMatchState::Rejected);
+}
+
+void release_cumulative_24h_contract() {
+    auto reference = release("deezer", "synthetic-long-reference");
+    auto candidate = release("apple", "synthetic-long-candidate");
+    reference.tracks = {
+        {1, 1, "Long First", "Artist", 12LL * 3600 * 1000},
+        {1, 2, "Long Second", "Artist", 12LL * 3600 * 1000}
+    };
+    candidate.tracks = reference.tracks;
+    assert(djmeta::match_precision_cue_releases(reference, {candidate}).state ==
+           PrecisionCueMatchState::Selected);
+    ++candidate.tracks[1].duration_ms;
+    assert(djmeta::match_precision_cue_releases(reference, {candidate}).state ==
+           PrecisionCueMatchState::Rejected);
+    reference.tracks[1].duration_ms += 1;
+    candidate.tracks = reference.tracks;
+    assert(djmeta::match_precision_cue_releases(reference, {candidate}).state ==
+           PrecisionCueMatchState::Rejected);
+    reference.tracks[1].disc_number = 2;
+    reference.tracks[1].track_number = 1;
+    candidate.tracks = reference.tracks;
+    assert(djmeta::match_precision_cue_releases(reference, {candidate}).state ==
+           PrecisionCueMatchState::Selected);
+}
+
 } // namespace
 
 int main() {
@@ -148,5 +216,7 @@ int main() {
     incomplete_or_conflicting_evidence_review();
     malformed_provider_data_fail_closed();
     normalization_preserves_mix_versions();
+    eight_disc_99_track_contract();
+    release_cumulative_24h_contract();
     return 0;
 }

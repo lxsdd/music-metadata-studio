@@ -70,7 +70,7 @@ PrecisionCuePlan make_precision_cue(const PrecisionCueDisc& disc) {
         throw std::invalid_argument("audio file must be an MP3 basename, not a path");
     }
     if (disc.disc_number == 0 || disc.total_discs == 0 ||
-        disc.disc_number > disc.total_discs || disc.total_discs > 99) {
+        disc.disc_number > disc.total_discs || disc.total_discs > 8) {
         throw std::invalid_argument("disc numbering is invalid");
     }
     if (disc.tracks.empty() || disc.tracks.size() > 99) {

@@ -299,6 +299,23 @@ void test_physical_cue_index_bounds_and_create_gate() {
     }
 }
 
+
+void test_eight_disc_99_track_plan() {
+    auto disc = synthetic_disc();
+    disc.disc_number = 8;
+    disc.total_discs = 8;
+    disc.tracks = std::vector<djmeta::PrecisionCueTrack>(
+        99, {"Synthetic", "Performer", 1000});
+    const auto plan = djmeta::make_precision_cue(disc);
+    assert(plan.boundaries.size() == 99);
+    assert(plan.boundaries.front().cue_frame == 0);
+    assert(plan.boundaries.back().cue_frame == 98 * 75);
+    assert(plan.external_cue_utf8.find("REM TOTALDISCS 8") != std::string::npos);
+    disc.total_discs = 9;
+    disc.disc_number = 9;
+    must_reject([&] { (void)djmeta::make_precision_cue(disc); });
+}
+
 } // namespace
 
 int main() {
@@ -310,5 +327,6 @@ int main() {
     test_boundary_audit_multidisc_synthetic();
     test_invalid_input_fail_closed();
     test_generated_utf8_validation();
+    test_eight_disc_99_track_plan();
     return 0;
 }
