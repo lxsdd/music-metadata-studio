@@ -100,6 +100,23 @@ int main() {
     GetWindowTextW(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH),caption,96);
     check(std::wcscmp(caption,L"Search MusicBrainz")==0,
           "search button names its online source");
+    HWND provider=GetDlgItem(dialog,IDC_METADATA_ONLINE_PROVIDER);
+    HWND token=GetDlgItem(dialog,IDC_METADATA_DISCOGS_TOKEN);
+    HWND token_label=GetDlgItem(dialog,IDC_METADATA_DISCOGS_TOKEN_LABEL);
+    check(provider && token && token_label &&
+          (GetWindowLongPtrW(provider,GWL_STYLE)&0x3u)==CBS_DROPDOWNLIST &&
+          (GetWindowLongPtrW(token,GWL_STYLE)&ES_PASSWORD)!=0,
+          "production provider selector and non-echoing Discogs token field exist");
+    RECT provider_rect{}, token_rect{}, query_rect{}, track_rect{};
+    check(GetWindowRect(provider,&provider_rect) &&
+          GetWindowRect(token,&token_rect) &&
+          GetWindowRect(GetDlgItem(dialog,IDC_METADATA_MB_QUERY),&query_rect) &&
+          GetWindowRect(GetDlgItem(dialog,IDC_METADATA_TRACK_LIST),&track_rect) &&
+          provider_rect.right<token_rect.left &&
+          provider_rect.top<query_rect.top &&
+          token_rect.bottom<=query_rect.top &&
+          query_rect.bottom<track_rect.top,
+          "provider/token row and search row are distinct and never cover tracks");
     GetWindowTextW(GetDlgItem(dialog,IDC_METADATA_MB_LOAD_RELEASE),caption,96);
     check(std::wcscmp(caption,L"Inspect release tracks")==0,
           "release action is clearly read-only inspection");

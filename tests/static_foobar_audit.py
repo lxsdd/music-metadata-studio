@@ -279,6 +279,14 @@ for label, token in (
     ("user clicked official MusicBrainz search", "id == IDC_METADATA_MB_SEARCH && HIWORD(wp) == BN_CLICKED"),
     ("official lookup is separate user action", "id == IDC_METADATA_MB_LOAD_RELEASE && HIWORD(wp)==BN_CLICKED"),
     ("fixed-host reader", "fetch_musicbrainz_json_readonly(path)"),
+    ("official Discogs search action", "perform_discogs_search(dialog,*state)"),
+    ("official Discogs release action", "perform_discogs_load(dialog,*state)"),
+    ("Discogs auth only from runtime password field", "read_control(dialog,IDC_METADATA_DISCOGS_TOKEN)"),
+    ("Discogs URL constructed by provider", "release_path(direct_id)"),
+    ("Discogs source rank separation", "discogs_live_master_not_exact_edition"),
+    ("Discogs CUE edition matcher", "review_cue_release_edition(cue,edition)"),
+    ("Discogs CUE stale check", "CUE changed during Discogs release lookup."),
+    ("Discogs physical track assignment blocked", "discogs_live_release_track_unassigned"),
     ("official MusicBrainz parser", "djmeta::online::musicbrainz::parse_search(reply,kind)"),
     ("no stale online match", "CUE changed during online search"),
     ("source verified only via HTTP reason", 'item.reason.starts_with("musicbrainz_live_")'),
@@ -300,7 +308,8 @@ for label, token in (
 ):
     if token not in batch_table_dialog:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing read-only candidate gate: " + label)
-for token in ("IDC_METADATA_MB_QUERY", "IDC_METADATA_MB_SEARCH", "IDC_METADATA_MB_LOAD_RELEASE"):
+for token in ("IDC_METADATA_MB_QUERY", "IDC_METADATA_MB_SEARCH", "IDC_METADATA_MB_LOAD_RELEASE",
+              "IDC_METADATA_ONLINE_PROVIDER", "IDC_METADATA_DISCOGS_TOKEN"):
     if token not in resources:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing official MusicBrainz control: " + token)
 # Explicit trusted-host read-only transport is permitted; generic web scraping
