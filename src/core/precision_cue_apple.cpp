@@ -341,6 +341,8 @@ PrecisionCueRelease parse_apple_precision_cue_lookup(
     release.provider_release_id = std::to_string(id);
     std::map<std::pair<unsigned, unsigned>, PrecisionCueReleaseTrack> positions;
     std::map<unsigned, unsigned> counts;
+    // Reject an overlong release disc before it reaches the native preview.
+    std::map<unsigned, std::int64_t> elapsed_by_disc;
     unsigned disc_count = 0, album_count = 0;
     bool found_album = false, saw_track_count = false;
     for (const auto& row : list) {
@@ -377,7 +379,12 @@ PrecisionCueRelease parse_apple_precision_cue_lookup(
         const auto disc = position(row, "discNumber");
         const auto track = position(row, "trackNumber");
         const auto ms = number(row, "trackTimeMillis");
-        if (ms > 24LL * 60 * 60 * 1000) reject("implausible Apple track duration");
+        if (disc > 8) reject("Apple release exceeds eight supported discs");
+        auto& elapsed = elapsed_by_disc[disc];
+        constexpr std::int64_t kMaximumDiscMs = 24LL * 60 * 60 * 1000;
+        if (ms > kMaximumDiscMs - elapsed)
+            reject("Apple disc cumulative duration exceeds 24 hours");
+        elapsed += ms;
         if (const auto* dc = row.find("discCount")) {
             if (dc->type != JsonValue::Type::Number) reject("invalid Apple disc count");
             const auto d = position(row, "discCount");
@@ -466,6 +473,7 @@ PrecisionCueRelease parse_deezer_precision_cue_album(
     release.album_performer = text(album_artist, "name");
     std::map<std::pair<unsigned, unsigned>, PrecisionCueReleaseTrack> ordered;
     std::map<std::int64_t, bool> unique_ids;
+    std::map<unsigned, std::int64_t> elapsed_by_disc;
     for (const auto& row : data) {
         if (row.type != JsonValue::Type::Object)
             reject("Invalid Deezer track object");
@@ -476,12 +484,16 @@ PrecisionCueRelease parse_deezer_precision_cue_album(
         const auto index = position(row, "track_position");
         if (disc > 8) reject("Deezer disc exceeds CUE limit");
         const auto seconds = number(row, "duration");
-        if (seconds > 24LL * 3600)
-            reject("Implausible Deezer track duration");
+        constexpr std::int64_t kMaximumDiscMs = 24LL * 3600 * 1000;
+        const auto duration_ms = seconds * 1000;
+        auto& elapsed = elapsed_by_disc[disc];
+        if (duration_ms > kMaximumDiscMs - elapsed)
+            reject("Deezer disc cumulative duration exceeds 24 hours");
+        elapsed += duration_ms;
         const auto& artist = get(row, "artist", JsonValue::Type::Object);
         PrecisionCueReleaseTrack track{
             disc, index, text(row, "title"), text(artist, "name"),
-            seconds * 1000
+            duration_ms
         };
         if (!ordered.emplace(std::make_pair(disc, index),
                              std::move(track)).second)

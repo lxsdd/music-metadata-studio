@@ -63,6 +63,13 @@ int main() {
     CHECK(id_at!=std::string::npos);
     wrong_id.replace(id_at,10,"1071045033");
     rejects(wrong_id);
+    // Whole-second Deezer metadata must respect each 24-hour disc clock.
+    const auto exact_day = album(row(11,1,1,"43200")+","+row(12,1,2,"43200"));
+    CHECK(parse_deezer_precision_cue_album(exact_day,"1071045032").tracks.size()==2);
+    rejects(album(row(11,1,1,"43200")+","+row(12,1,2,"43201")));
+    // Two valid 24-hour discs must not be rejected as a 48-hour album.
+    const auto two_days = album(row(11,1,1,"86400")+","+row(12,2,1,"86400"));
+    CHECK(parse_deezer_precision_cue_album(two_days,"1071045032").tracks.size()==2);
     CHECK(parsed.tracks[0].duration_ms % 1000 == 0);
     std::puts("PASS: strict Deezer read-only complete album/edition/seconds fixtures");
 }

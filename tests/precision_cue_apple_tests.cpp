@@ -173,6 +173,27 @@ void lookup_synthetic_thirty() {
     });
 }
 
+
+void lookup_disc_clock_bounds() {
+    // Import enforces each disc's independent 24-hour clock before preview.
+    auto exact = replace_once(valid, "\"trackTimeMillis\":164307",
+                                    "\"trackTimeMillis\":43200000");
+    exact = replace_once(exact, "\"trackTimeMillis\":280867",
+                               "\"trackTimeMillis\":43200000");
+    const auto boundary = djmeta::parse_apple_precision_cue_lookup(exact, "12345");
+    assert(boundary.tracks.size() == 4);
+    // +1 ms on disc one must be rejected even though each track is <24h.
+    rejects([&] {
+        (void)djmeta::parse_apple_precision_cue_lookup(
+            replace_once(exact, "\"trackTimeMillis\":43200000",
+                               "\"trackTimeMillis\":43200001"), "12345");
+    });
+    rejects([&] {
+        (void)djmeta::parse_apple_precision_cue_lookup(
+            replace_once(valid, "\"discNumber\":2", "\"discNumber\":9"), "12345");
+    });
+}
+
 void album_search() {
     const std::string sample = R"JSON({"resultCount":2,"results":[{"wrapperType":"collection","collectionId":12345,"collectionName":"Mix (DJ Mix)","artistName":"Various Artists","trackCount":30},{"wrapperType":"collection","collectionId":67890,"collectionName":"Mix (Original)","artistName":"Various Artists","trackCount":15}]})JSON";
     const auto albums = djmeta::parse_apple_precision_cue_album_search(sample);
@@ -230,6 +251,7 @@ int main() {
     lookup_positive();
     selection_lookup_binding();
     lookup_synthetic_thirty();
+    lookup_disc_clock_bounds();
     album_search();
     lookup_negative();
 }
