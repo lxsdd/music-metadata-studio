@@ -2,6 +2,7 @@
 #include "djmeta/precision_cue_external_create.h"
 #include "djmeta/precision_cue_foobar_path.h"
 #include "djmeta/precision_cue_external_inspect.h"
+#include "djmeta/precision_cue_external_host_review.h"
 
 #ifdef NDEBUG
 #undef NDEBUG
@@ -521,6 +522,77 @@ void create_only_external_writer_regressions() {
 #endif
 }
 
+void native_host_review_and_create_regressions() {
+    namespace fs = std::filesystem;
+    using Status = PrecisionCueExternalCreateStatus;
+    const auto root = fs::canonical(fs::temp_directory_path()) /
+        ("precision-cue-host-" +
+         precision_cue_external_detail::random_suffix());
+    VERIFY(fs::create_directory(root));
+    struct Remove {
+        fs::path path;
+        ~Remove() { std::error_code ec; fs::remove_all(path, ec); }
+    } remove{root};
+    const auto plan = synthetic_plan("Disc Über 東京.mp3");
+    const auto mp3 = root /
+        precision_cue_external_detail::utf8_path("Disc Über 東京.mp3");
+    {
+        std::ofstream dummy(mp3, std::ios::binary);
+        dummy << "synthetic read-only source; no actual MP3 audio";
+    }
+    const auto initial = precision_cue_external_detail::physical_source_snapshot(
+        mp3, root, "Disc Über 東京.mp3");
+    VERIFY(initial.has_value());
+    const auto captured = capture_precision_cue_external_review(
+        plan, mp3, "Disc Über 東京.mp3", *initial);
+    VERIFY(captured.has_value());
+    VERIFY(captured->request.reviewed_source_snapshot_token != 0);
+    VERIFY(captured->request.reviewed_target_snapshot_token != 0);
+    VERIFY(!captured->request.reviewed_preflight.explicit_user_approval);
+    VERIFY(create_confirmed_precision_cue_external(*captured).status ==
+           Status::Rejected);
+    VERIFY(observe_precision_cue_external_review(*captured).source_snapshot_token ==
+           captured->request.reviewed_source_snapshot_token);
+    VERIFY(observe_precision_cue_external_review(*captured).target_snapshot_token ==
+           captured->request.reviewed_target_snapshot_token);
+
+    auto confirmed = *captured;
+    confirmed.request.explicitly_approved_for_external_create = true;
+    confirmed.request.reviewed_preflight.explicit_user_approval = true;
+    const auto target = root /
+        precision_cue_external_detail::utf8_path("Disc Über 東京.cue");
+    const auto created = create_confirmed_precision_cue_external(confirmed);
+    VERIFY(created.status == Status::Created);
+    VERIFY(fs::exists(target));
+    VERIFY(create_confirmed_precision_cue_external(confirmed).status != Status::Created);
+    VERIFY(!capture_precision_cue_external_review(
+        plan, mp3, "Disc Über 東京.mp3", *initial)); // Target exists now.
+
+    fs::remove(target);
+    const auto newReview = capture_precision_cue_external_review(
+        plan, mp3, "Disc Über 東京.mp3", *initial);
+    VERIFY(newReview.has_value());
+    // A stale original review may not be used after source replacement,
+    // even if the file size and modification timestamp are unchanged.
+    const auto sourceFingerprint = precision_cue_external_detail::physical_source_snapshot(
+        mp3, root, "Disc Über 東京.mp3");
+    VERIFY(sourceFingerprint.has_value());
+    const auto replacement = root / "replacement.txt";
+    {
+        std::ofstream dummy(replacement, std::ios::binary);
+        dummy << std::string(static_cast<std::size_t>(sourceFingerprint->length), 'x');
+    }
+    fs::last_write_time(replacement, sourceFingerprint->last_write);
+    fs::rename(mp3, root / "old-source.dat");
+    fs::rename(replacement, mp3);
+    auto stale = *newReview;
+    stale.request.explicitly_approved_for_external_create = true;
+    stale.request.reviewed_preflight.explicit_user_approval = true;
+    VERIFY(!observe_precision_cue_external_review(stale).preflight.source_snapshot_current);
+    VERIFY(create_confirmed_precision_cue_external(stale).status != Status::Created);
+    VERIFY(!fs::exists(target));
+}
+
 int main() {
     // MSVC aborts unhandled exceptions without producing usable CTest output.
     // Surface unexpected runtime validation errors across all CI platforms.
@@ -533,6 +605,7 @@ int main() {
         commit_revalidation_fail_closed_matrix();
         foobar_local_windows_path_regressions();
         create_only_external_writer_regressions();
+        native_host_review_and_create_regressions();
         return 0;
     } catch (const std::exception& e) {
         std::fprintf(stderr, "PRECISION_CUE_TEST_EXCEPTION: %s\n", e.what());

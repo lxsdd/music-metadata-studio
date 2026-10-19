@@ -14,6 +14,7 @@
 #include "djmeta/precision_cue_write_preflight.h"
 #include "djmeta/precision_cue_foobar_path.h"
 #include "djmeta/precision_cue_external_inspect.h"
+#include "djmeta/precision_cue_external_host_review.h"
 #include "djmeta/precision_cue_external_create.h"
 
 #include <atomic>
@@ -90,6 +91,7 @@ struct Workspace {
     std::optional<djmeta::PrecisionCueRelease> release;
     std::vector<std::size_t> reviewed_mapping; // file-count sentinel = unassigned
     std::vector<std::string> reviewed_cues; // Only after manual mapping preview.
+    std::vector<std::optional<djmeta::PrecisionCueReviewedExternalCreate>> reviewed_exports;
     std::string lookup_url; // Input bound to the asynchronous provider request.
     std::string search_query;
     std::vector<djmeta::ApplePrecisionCueAlbumHit> search_hits;
@@ -214,8 +216,23 @@ std::vector<std::int64_t> provider_disc_totals(
 
 void invalidate_cue_copy(Workspace& state) {
     state.reviewed_cues.clear();
+    state.reviewed_exports.clear();
     state.reviewed_preview_ready = false;
     EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_COPY_CUE), FALSE);
+    EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_SAVE_CUE), FALSE);
+}
+
+void update_reviewed_actions(Workspace& state) {
+    const bool approved = state.reviewed_preview_ready &&
+        IsDlgButtonChecked(state.dialog, IDC_PRECISION_EDITION_CONFIRMED) == BST_CHECKED;
+    EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_COPY_CUE), approved);
+    const auto chosen = SendDlgItemMessageW(state.dialog, IDC_PRECISION_DISC_PICKER,
+                                            CB_GETCURSEL, 0, 0);
+    const bool saveable = approved && chosen != CB_ERR &&
+        static_cast<std::size_t>(chosen) < state.reviewed_exports.size() &&
+        state.reviewed_exports[static_cast<std::size_t>(chosen)].has_value();
+    EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_SAVE_CUE),
+                 saveable ? TRUE : FALSE);
 }
 
 void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release,
@@ -250,6 +267,7 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
     std::vector<djmeta::PrecisionCuePlan> plans;
     std::vector<djmeta::PrecisionCueExternalExportPlan> exports;
     std::vector<std::string> validated_cues;
+    std::vector<std::optional<djmeta::PrecisionCueReviewedExternalCreate>> reviewed_exports;
     std::wstring details;
     bool duration_warning = mapping.state != djmeta::PrecisionCueMatchState::Selected;
     for (unsigned d = 1; d <= count; ++d) {
@@ -305,6 +323,12 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
         const auto& file = state.files[mapping.physical_index_by_disc[i]];
         const auto inspection = djmeta::inspect_precision_cue_existing_target(
             plans[i], file.physical_absolute_path, file.basename);
+        if (reviewed) {
+            reviewed_exports.push_back(
+                djmeta::capture_precision_cue_external_review(
+                    plans[i], file.physical_absolute_path, file.basename,
+                    file.snapshot));
+        }
         using TargetState = djmeta::PrecisionCueExistingTargetState;
         switch (inspection.state) {
         case TargetState::Absent:
@@ -334,9 +358,9 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
     show_text(state.dialog, details);
     if (reviewed) {
         state.reviewed_cues = std::move(validated_cues);
+        state.reviewed_exports = std::move(reviewed_exports);
         state.reviewed_preview_ready = true;
-        EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_COPY_CUE),
-            IsDlgButtonChecked(state.dialog, IDC_PRECISION_EDITION_CONFIRMED) == BST_CHECKED);
+        update_reviewed_actions(state);
     }
 }
 
@@ -478,6 +502,73 @@ void copy_reviewed_disc_cue(Workspace& state) {
     if (!copied) { GlobalFree(memory); throw std::runtime_error("Could not copy CUE text"); }
     const auto status = L"Reviewed CUE copied (Unicode). Save manually as UTF-8 .cue; no files changed.";
     SetDlgItemTextW(state.dialog, IDC_PRECISION_SOURCE_HINT, status);
+}
+
+// Only this explicit user action can authorize one new external .cue.
+// No overwrite path or audio/tag/embedded write API is used.
+void save_reviewed_disc_cue(Workspace& state) {
+    if (!state.reviewed_preview_ready || !state.release ||
+        IsDlgButtonChecked(state.dialog, IDC_PRECISION_EDITION_CONFIRMED) != BST_CHECKED)
+        throw std::invalid_argument("Verify the exact edition and review the disc mapping");
+    const auto chosen = SendDlgItemMessageW(state.dialog, IDC_PRECISION_DISC_PICKER,
+                                            CB_GETCURSEL, 0, 0);
+    if (chosen == CB_ERR ||
+        static_cast<std::size_t>(chosen) >= state.reviewed_exports.size() ||
+        !state.reviewed_exports[static_cast<std::size_t>(chosen)])
+        throw std::invalid_argument(
+            "Only a reviewed disc with an absent sibling CUE can be saved");
+    const auto& original = *state.reviewed_exports[static_cast<std::size_t>(chosen)];
+    // The preview and target-absence evidence must still be current BEFORE
+    // showing a confirmation containing the final fully qualified path.
+    const auto fresh = djmeta::observe_precision_cue_external_review(original);
+    if (!fresh.preflight.source_snapshot_current ||
+        !fresh.preflight.target_snapshot_current ||
+        fresh.source_snapshot_token != original.request.reviewed_source_snapshot_token ||
+        fresh.target_snapshot_token != original.request.reviewed_target_snapshot_token) {
+        invalidate_cue_copy(state);
+        throw std::invalid_argument(
+            "Source or target changed after preview. Review the album and disc again");
+    }
+    const auto proposal = djmeta::plan_precision_cue_external_export(
+        original.request.plan, original.request.mp3_basename);
+    if (!proposal.eligible)
+        throw std::invalid_argument("Generated CUE no longer qualifies for export");
+    const auto destination = original.request.qualified_sibling_directory /
+        djmeta::precision_cue_external_detail::utf8_path(proposal.target_cue_basename);
+    const std::wstring message =
+        L"Create ONE new external CUE at:\r\n\r\n" + destination.wstring() +
+        L"\r\n\r\nThis never replaces an existing file and never changes MP3s, "
+        L"ID3 tags, ReplayGain, FLAC, embedded CUEs, or rekordbox.\r\n\r\n"
+        L"The selected mix edition and disc mapping must be correct.\r\n"
+        L"Proceed with this new .cue creation?";
+    if (MessageBoxW(state.dialog, message.c_str(), L"Precision CUE - explicit create",
+                    MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES)
+        return;
+    // A deliberately distinct approval after the explicit modal user choice.
+    // Fresh OS snapshots are collected AGAIN immediately before publication.
+    auto confirmed = original;
+    confirmed.request.explicitly_approved_for_external_create = true;
+    confirmed.request.reviewed_preflight.explicit_user_approval = true;
+    const auto created = djmeta::create_confirmed_precision_cue_external(
+        std::move(confirmed));
+    using Status = djmeta::PrecisionCueExternalCreateStatus;
+    switch (created.status) {
+    case Status::Created:
+        invalidate_cue_copy(state);
+        SetDlgItemTextW(state.dialog, IDC_PRECISION_SOURCE_HINT,
+            L"New external CUE created. No audio or tags changed. Reopen to review.");
+        break;
+    case Status::NoOp:
+        invalidate_cue_copy(state);
+        SetDlgItemTextW(state.dialog, IDC_PRECISION_SOURCE_HINT,
+            L"Identical existing CUE retained (no-op). No audio or tags changed.");
+        break;
+    default:
+        invalidate_cue_copy(state);
+        throw std::runtime_error(
+            "External CUE NOT created: " + created.diagnostic +
+            ". Refresh the reviewed preview; existing files were not overwritten");
+    }
 }
 
 void start_search(Workspace& state) {
@@ -659,9 +750,12 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
             return TRUE;
         }
         if (LOWORD(wp) == IDC_PRECISION_EDITION_CONFIRMED && HIWORD(wp) == BN_CLICKED) {
-            EnableWindow(GetDlgItem(dialog, IDC_PRECISION_COPY_CUE),
-                state->reviewed_preview_ready &&
-                IsDlgButtonChecked(dialog, IDC_PRECISION_EDITION_CONFIRMED) == BST_CHECKED);
+            update_reviewed_actions(*state);
+            return TRUE;
+        }
+        if (LOWORD(wp) == IDC_PRECISION_SAVE_CUE && HIWORD(wp) == BN_CLICKED) {
+            try { save_reviewed_disc_cue(*state); }
+            catch (const std::exception& error) { show_error(dialog, error.what()); }
             return TRUE;
         }
         if (LOWORD(wp) == IDC_PRECISION_COPY_CUE && HIWORD(wp) == BN_CLICKED) {
@@ -684,6 +778,7 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
             SendDlgItemMessageW(dialog, IDC_PRECISION_MP3_PICKER, CB_SETCURSEL,
                 selected < state->files.size() ? static_cast<WPARAM>(selected)
                                                : static_cast<WPARAM>(-1), 0);
+            update_reviewed_actions(*state);
             return TRUE;
         }
         if (LOWORD(wp) == IDC_PRECISION_ASSIGN_DISC && HIWORD(wp) == BN_CLICKED) {

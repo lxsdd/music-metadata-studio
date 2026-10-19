@@ -463,9 +463,12 @@ int main() {
           "native disc and MP3 choices roundtrip on real HWNDs");
     HWND cue_edition = GetDlgItem(cue_dialog, IDC_PRECISION_EDITION_CONFIRMED);
     HWND cue_copy = GetDlgItem(cue_dialog, IDC_PRECISION_COPY_CUE);
-    check(cue_edition && cue_copy, "native edition confirmation and explicit CUE copy controls exist");
-    check((GetWindowLongPtrW(cue_copy, GWL_STYLE) & WS_DISABLED) != 0,
-          "copy remains disabled before release and disc review");
+    HWND cue_save = GetDlgItem(cue_dialog, IDC_PRECISION_SAVE_CUE);
+    check(cue_edition && cue_copy && cue_save,
+          "native edition confirmation, CUE copy and create-only controls exist");
+    check((GetWindowLongPtrW(cue_copy, GWL_STYLE) & WS_DISABLED) != 0 &&
+          (GetWindowLongPtrW(cue_save, GWL_STYLE) & WS_DISABLED) != 0,
+          "copy and external create stay disabled before exact release/disc review");
     check(IsDlgButtonChecked(cue_dialog, IDC_PRECISION_EDITION_CONFIRMED) == BST_UNCHECKED,
           "edition is never silently confirmed");
     DestroyWindow(cue_dialog);
