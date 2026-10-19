@@ -1,4 +1,5 @@
 #include "djmeta/precision_cue_write_preflight.h"
+#include "djmeta/precision_cue_external_create.h"
 
 #ifdef NDEBUG
 #undef NDEBUG
@@ -6,6 +7,9 @@
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -283,6 +287,141 @@ void commit_revalidation_fail_closed_matrix() {
     VERIFY(revalidate_precision_cue_external_commit(e) == ReviewRequired);
 }
 
+
+void create_only_external_writer_regressions() {
+    namespace fs = std::filesystem;
+    using Status = PrecisionCueExternalCreateStatus;
+
+    // Only synthetic CUE bytes are written, inside a disposable test-owned
+    // directory. No host, physical music or production tag file is accessed.
+    const auto sandbox = fs::canonical(fs::temp_directory_path()) /
+        ("precision-cue-synthetic-" +
+         precision_cue_external_detail::random_suffix());
+    fs::create_directory(sandbox);
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { std::error_code ec; fs::remove_all(path, ec); }
+    } cleanup{sandbox};
+
+    PrecisionCueExternalCreateRequest req;
+    req.plan = synthetic_plan();
+    req.mp3_basename = "Disc Über 東京.mp3";
+    req.qualified_sibling_directory = fs::canonical(sandbox);
+    req.reviewed_preflight = approved();
+    req.reviewed_source_snapshot_token = 101;
+    req.reviewed_target_snapshot_token = 202;
+    req.reviewed_cue_sha256 = precision_cue_sha256(req.plan.external_cue_utf8);
+    req.explicitly_approved_for_external_create = true;
+    const auto target = req.qualified_sibling_directory /
+        fs::u8path("Disc Über 東京.cue");
+
+    std::size_t probes = 0;
+    std::uint64_t current_source = 101;
+    std::uint64_t current_target = 202;
+    auto observe = [&] {
+        ++probes;
+        return PrecisionCueExternalFreshSnapshot{
+            req.reviewed_preflight, current_source, current_target};
+    };
+
+    req.explicitly_approved_for_external_create = false;
+    VERIFY(create_new_precision_cue_external(req, observe).status == Status::Rejected);
+    VERIFY(probes == 0 && !fs::exists(target));
+    req.explicitly_approved_for_external_create = true;
+
+    req.reviewed_cue_sha256 = precision_cue_sha256("incorrect");
+    VERIFY(create_new_precision_cue_external(req, observe).status ==
+           Status::ReviewRequired);
+    VERIFY(probes == 0 && !fs::exists(target));
+    req.reviewed_cue_sha256 = precision_cue_sha256(req.plan.external_cue_utf8);
+
+    req.reviewed_preflight.explicit_user_approval = false;
+    VERIFY(create_new_precision_cue_external(req, observe).status ==
+           Status::ReviewRequired);
+    VERIFY(!fs::exists(target));
+    req.reviewed_preflight = approved();
+
+    req.qualified_sibling_directory = fs::path("relative-unqualified");
+    VERIFY(create_new_precision_cue_external(req, observe).status ==
+           Status::Rejected);
+    req.qualified_sibling_directory = fs::canonical(sandbox);
+
+    current_source = 500;
+    VERIFY(create_new_precision_cue_external(req, observe).status ==
+           Status::ReviewRequired);
+    current_source = 101;
+    current_target = 909;
+    VERIFY(create_new_precision_cue_external(req, observe).status ==
+           Status::ReviewRequired);
+    current_target = 202;
+
+    // A changing source during stage creation must prevent publication and
+    // must clean up the temporary file.
+    probes = 0;
+    auto stale_after_staging = [&] {
+        ++probes;
+        return PrecisionCueExternalFreshSnapshot{
+            approved(), probes == 1 ? 101u : 777u, 202};
+    };
+    VERIFY(create_new_precision_cue_external(req, stale_after_staging).status ==
+           Status::ReviewRequired);
+    VERIFY(!fs::exists(target));
+    VERIFY(fs::directory_iterator(req.qualified_sibling_directory) ==
+           fs::directory_iterator{});
+
+    probes = 0;
+    const auto created = create_new_precision_cue_external(req, observe);
+    VERIFY(created.status == Status::Created);
+    VERIFY(probes == 2 && fs::exists(target));
+    {
+        std::ifstream file(target, std::ios::binary);
+        const std::string bytes((std::istreambuf_iterator<char>(file)),
+                                 std::istreambuf_iterator<char>());
+        VERIFY(bytes == req.plan.external_cue_utf8);
+    }
+    const auto previous_timestamp = fs::last_write_time(target);
+
+    // A repeated "create" request must not truncate or overwrite the target.
+    VERIFY(create_new_precision_cue_external(req, observe).status ==
+           Status::Collision);
+    VERIFY(fs::last_write_time(target) == previous_timestamp);
+
+    // No-op is a verified byte-identical result and never opens a writer.
+    req.reviewed_preflight.target_exists = true;
+    req.reviewed_preflight.existing_content_known = true;
+    req.reviewed_preflight.existing_content_equal = true;
+    VERIFY(create_new_precision_cue_external(req, observe).status == Status::NoOp);
+    VERIFY(fs::last_write_time(target) == previous_timestamp);
+
+    // Even a falsely asserted equality must not produce a NoOp.
+    {
+        std::ofstream tamper(target, std::ios::binary | std::ios::trunc);
+        tamper << "existing CUE must survive";
+    }
+    VERIFY(create_new_precision_cue_external(req, observe).status ==
+           Status::Collision);
+    {
+        std::ifstream file(target, std::ios::binary);
+        std::string content((std::istreambuf_iterator<char>(file)),
+                             std::istreambuf_iterator<char>());
+        VERIFY(content == "existing CUE must survive");
+    }
+
+    // Host-parent path resolution must fail closed on a symlink alias.
+#ifndef _WIN32
+    const auto alias = sandbox.parent_path() /
+        ("precision-cue-alias-" + precision_cue_external_detail::random_suffix());
+    fs::create_directory_symlink(sandbox, alias);
+    struct AliasCleanup {
+        fs::path path;
+        ~AliasCleanup() { std::error_code ec; fs::remove(path, ec); }
+    } alias_cleanup{alias};
+    req.qualified_sibling_directory = alias;
+    VERIFY(create_new_precision_cue_external(req, observe).status ==
+           Status::Rejected);
+#endif
+}
+
 int main() {
     // MSVC aborts unhandled exceptions without producing usable CTest output.
     // Surface unexpected runtime validation errors across all CI platforms.
@@ -293,6 +432,7 @@ int main() {
         preflight_fail_closed_matrix();
         sha256_exact_byte_regressions();
         commit_revalidation_fail_closed_matrix();
+        create_only_external_writer_regressions();
         return 0;
     } catch (const std::exception& e) {
         std::fprintf(stderr, "PRECISION_CUE_TEST_EXCEPTION: %s\n", e.what());
