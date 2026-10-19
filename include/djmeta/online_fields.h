@@ -31,6 +31,41 @@ struct FieldReviewRow {
     std::string reason;
 };
 
+// The UI must not label pasted or unverified evidence as an official HTTPS
+// response merely because a user supplied the provider name. The origin is
+// determined by both the production-set reason and the provider identity.
+inline std::string online_evidence_origin_label(const FieldReviewRow& row) {
+    if (row.reason == "cue_inventory_read_only" ||
+        row.reason == "cue_inventory_unqualified")
+        return "Local CUE";
+    if (row.candidate.provider == "discogs" &&
+        row.reason.starts_with("discogs_live_"))
+        return "Discogs API";
+    if (row.candidate.provider == "musicbrainz" &&
+        row.reason.starts_with("musicbrainz_live_"))
+        return "MusicBrainz API";
+    return "Pasted: " + row.candidate.provider;
+}
+
+inline constexpr std::string_view online_evidence_scope_label(EvidenceScope scope) {
+    switch (scope) {
+        case EvidenceScope::Recording: return "recording";
+        case EvidenceScope::Release: return "release";
+        case EvidenceScope::Edition: return "exact edition";
+    }
+    return "unknown";
+}
+
+inline constexpr std::string_view online_evidence_date_label(DateMeaning meaning) {
+    switch (meaning) {
+        case DateMeaning::NotDate: return "not a date";
+        case DateMeaning::OriginalRelease: return "original release";
+        case DateMeaning::EditionRelease: return "edition release";
+        case DateMeaning::DigitalPublication: return "digital publication";
+    }
+    return "unknown";
+}
+
 inline std::string ascii_upper_field(std::string_view name) {
     std::string result;
     for (unsigned char c : name) {

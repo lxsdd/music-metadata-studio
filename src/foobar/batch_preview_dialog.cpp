@@ -715,7 +715,9 @@ MusicBrainzBrowseRows group_musicbrainz_release_rows(
             summary.candidate.source_id=row.candidate.source_id;
             summary.candidate.field="RELEASE TRACK";
             summary.state=row.state;
-            summary.reason="musicbrainz_live_release_group";
+            summary.reason=row.candidate.provider=="discogs"
+                ? "discogs_live_release_group"
+                : "musicbrainz_live_release_group";
             out.summary.push_back(std::move(summary));
             out.detail.emplace_back();
         }
@@ -830,12 +832,14 @@ std::wstring candidate_cell_text(const djmeta::online::FieldReviewRow& item,
     const bool cue_inventory = item.reason == "cue_inventory_read_only" ||
                                item.reason == "cue_inventory_unqualified";
     if (item.reason.starts_with("musicbrainz_live_candidate_rank_") ||
-        item.reason == "musicbrainz_live_release_group") {
+        item.reason == "musicbrainz_live_release_group" ||
+        item.reason == "discogs_live_release_group") {
         switch(column) {
         case 0: return from_utf8(item.field);
         case 1: return show_field_values(item.original_values);
         case 2: return show_field_values(item.candidate.values);
-        case 3: return L"MusicBrainz API";
+        case 3: return from_utf8(
+            djmeta::online::online_evidence_origin_label(item));
         case 4: {
             if (item.reason.starts_with("musicbrainz_live_candidate_rank_"))
                 return from_utf8(item.candidate.field);
@@ -860,8 +864,8 @@ std::wstring candidate_cell_text(const djmeta::online::FieldReviewRow& item,
     case 0: return from_utf8(item.field);
     case 1: return show_field_values(item.original_values);
     case 2: return show_field_values(item.candidate.values);
-    case 3: return item.reason.starts_with("musicbrainz_live_")
-        ? L"MusicBrainz API" : L"Pasted: " + from_utf8(item.candidate.provider);
+    case 3: return from_utf8(
+        djmeta::online::online_evidence_origin_label(item));
     case 4:
         return item.state == djmeta::online::FieldReviewState::Unchanged
             ? L"No change" :
@@ -975,7 +979,10 @@ void refresh_musicbrainz_detail_rows(PreviewState& state) {
     const std::size_t index=state.candidate_view_order[static_cast<std::size_t>(selected)];
     if (index>=state.musicbrainz_detail_groups.size()) return;
     const auto& detail=state.musicbrainz_detail_groups[index];
-    for (std::size_t i=0;i<detail.size()&&i<50;++i) {
+    // Render a bounded but substantial field inventory. Never silently hide
+    // additional provider/local fields behind the former 50-row cutoff.
+    constexpr std::size_t max_detail_rows=1024;
+    for (std::size_t i=0;i<detail.size()&&i<max_detail_rows;++i) {
         const auto& row=detail[i];
         const auto field=from_utf8(row.field);
         const auto original=show_field_values(row.original_values);
@@ -992,6 +999,14 @@ void refresh_musicbrainz_detail_rows(PreviewState& state) {
         if (!insert_native_preview_detail_row(state.musicbrainz_details,
               static_cast<int>(i),field,original,proposed,status))
             throw std::runtime_error("Native candidate detail columns could not be populated.");
+    }
+    if (detail.size()>max_detail_rows) {
+        const auto count=std::to_wstring(detail.size()-max_detail_rows);
+        if (!insert_native_preview_detail_row(state.musicbrainz_details,
+              static_cast<int>(max_detail_rows),
+              L"Additional fields not displayed",count,L"",
+              L"Limit reached; no writes"))
+            throw std::runtime_error("Native detail overflow warning could not be displayed.");
     }
 }
 
@@ -2961,6 +2976,46 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             }
             return TRUE;
         }
+        // Field-level source identity, evidence scope and date meaning are
+        // available on the real lower native ListView, not just the summary.
+        if (header && header->idFrom == IDC_METADATA_MB_DETAILS &&
+            header->code == LVN_GETINFOTIPW) {
+            auto* tip=reinterpret_cast<NMLVGETINFOTIPW*>(lp);
+            if (tip->iItem>=0 && tip->pszText && tip->cchTextMax>0 &&
+                state->show_candidate && state->musicbrainz_live_view &&
+                state->candidate_source_index==state->selected_track_index) {
+                const int selected=ListView_GetNextItem(
+                    state->metadata_list,-1,LVNI_SELECTED);
+                if (selected>=0 &&
+                    static_cast<std::size_t>(selected)<state->candidate_view_order.size()) {
+                    const auto idx=state->candidate_view_order[
+                        static_cast<std::size_t>(selected)];
+                    if (idx<state->musicbrainz_detail_groups.size()) {
+                        const auto& rows=state->musicbrainz_detail_groups[idx];
+                        const auto row=static_cast<std::size_t>(tip->iItem);
+                        if (row<rows.size() && row<1024) {
+                            const auto& item=rows[row];
+                            const auto label=
+                                L"Source: "+from_utf8(
+                                    djmeta::online::online_evidence_origin_label(item))+
+                                L"\\nProvider ID: "+from_utf8(item.candidate.source_id)+
+                                L"\\nScope: "+from_utf8(
+                                    djmeta::online::online_evidence_scope_label(
+                                        item.candidate.scope))+
+                                L"\\nDate meaning: "+from_utf8(
+                                    djmeta::online::online_evidence_date_label(
+                                        item.candidate.date_meaning))+
+                                L"\\nReason: "+from_utf8(item.reason)+
+                                L"\\nOriginal: "+show_field_values(item.original_values)+
+                                L"\\nEvidence: "+show_field_values(item.candidate.values)+
+                                L"\\nRead-only; no tag or CUE write authorization.";
+                            lstrcpynW(tip->pszText,label.c_str(),tip->cchTextMax);
+                        }
+                    }
+                }
+            }
+            return TRUE;
+        }
         if (header && header->idFrom == IDC_METADATA_LIST &&
             header->code == LVN_GETINFOTIPW) {
             auto* tip = reinterpret_cast<NMLVGETINFOTIPW*>(lp);
@@ -2975,8 +3030,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                             const bool is_cue_inventory =
                                 item.reason == "cue_inventory_read_only" ||
                                 item.reason == "cue_inventory_unqualified";
-                            const bool official_musicbrainz =
-                                item.reason.starts_with("musicbrainz_live_");
+                            const auto official_source=
+                                djmeta::online::online_evidence_origin_label(item);
                             const bool browse_result =
                                 item.reason.starts_with("musicbrainz_live_candidate_rank_");
                             const std::wstring label = browse_result
@@ -2990,7 +3045,9 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                                    L"\nRank is only API search relevance, NOT match confidence.")
                                 : std::wstring(is_cue_inventory
                                     ? L"Source: actual local CUE carrier"
-                                    : official_musicbrainz
+                                    : official_source=="Discogs API"
+                                    ? L"Source: official Discogs HTTPS API (read-only)"
+                                    : official_source=="MusicBrainz API"
                                     ? L"Source: official MusicBrainz HTTPS API (read-only)"
                                     : L"Source: manual paste, provider unverified") +
                                 L"\nDeclared provider: " + from_utf8(item.candidate.provider) +

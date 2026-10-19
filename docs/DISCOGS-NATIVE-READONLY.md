@@ -12,6 +12,11 @@ WinHTTP GET adapter and the existing bounded official catalog/edition parsers.
   `https://www.discogs.com/release/<id>` URL performs one fixed-host
   release lookup directly. Unknown hosts, masters and unqualified IDs cannot
   become exact release metadata.
+- Native result and field detail provenance distinguish official Discogs API,
+  official MusicBrainz API and user-pasted evidence; hovering a field shows
+  exact provider source ID, scope, date meaning and refusal reason. Up to
+  1,024 detail rows are rendered; excessive evidence is explicitly marked,
+  never silently truncated or treated as write approval.
 - Inspect a verified release: full multivalue edition fields are shown
   separately from individual recording/track fields, each preserving source
   IDs. A qualified physical file may compare track-specific fields only when

@@ -290,9 +290,14 @@ for label, token in (
     ("Discogs host physical duration", "info->info().get_length()"),
     ("official MusicBrainz parser", "djmeta::online::musicbrainz::parse_search(reply,kind)"),
     ("no stale online match", "CUE changed during online search"),
-    ("source verified only via HTTP reason", 'item.reason.starts_with("musicbrainz_live_")'),
+    ("provider-origin source label", "online_evidence_origin_label(item)"),
+    ("Discogs edition grouping", '"discogs_live_release_group"'),
+    ("native field provenance tooltip", "header->idFrom == IDC_METADATA_MB_DETAILS &&"),
+    ("native field evidence scope tooltip", "online_evidence_scope_label("),
+    ("native field date meaning tooltip", "online_evidence_date_label("),
+    ("native overflow disclosure", 'L"Additional fields not displayed"'),
 
-    ("pasted provider source label", 'L"Pasted: " + from_utf8(item.candidate.provider)'),
+    ("pasted provider source label", '"Pasted: " + row.candidate.provider'),
     ("unverified provider tooltip", 'L"Source: manual paste, provider unverified"'),
 
     ("CUE source re-read on import", "const auto cue = djmeta::inspect_cue_metadata(raw.raw_text, raw.carrier)"),

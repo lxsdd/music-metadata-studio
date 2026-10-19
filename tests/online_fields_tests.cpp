@@ -140,5 +140,28 @@ int main() {
     check(bounded[0].reason == "unbounded_evidence_values" &&
           bounded[1].reason == "invalid_or_empty_evidence_value",
           "provider field-vector and value bounds prevent unreviewable proposals");
-    std::cout << "PASS: online field provenance, duplicate-origin safety, bounds, no-op and review-only\n";
+    FieldReviewRow discogs_live;
+    discogs_live.candidate.provider="discogs";
+    discogs_live.candidate.source_id="4243/track/1";
+    discogs_live.candidate.scope=EvidenceScope::Edition;
+    discogs_live.candidate.date_meaning=DateMeaning::EditionRelease;
+    discogs_live.reason="discogs_live_release_group";
+    check(online_evidence_origin_label(discogs_live)=="Discogs API" &&
+          online_evidence_scope_label(discogs_live.candidate.scope)=="exact edition" &&
+          online_evidence_date_label(discogs_live.candidate.date_meaning)=="edition release",
+          "verified Discogs track provenance and edition date are visible");
+    discogs_live.reason="manual_candidate_comparison";
+    check(online_evidence_origin_label(discogs_live)=="Pasted: discogs",
+          "pasted Discogs evidence is never relabeled official API");
+    discogs_live.reason="discogs_live_release_group";
+    discogs_live.candidate.provider="musicbrainz";
+    check(online_evidence_origin_label(discogs_live)=="Pasted: musicbrainz",
+          "mismatched provider and origin cannot claim official Discogs");
+    discogs_live.reason="musicbrainz_live_release_group";
+    check(online_evidence_origin_label(discogs_live)=="MusicBrainz API",
+          "verified MusicBrainz source remains distinct");
+    discogs_live.reason="cue_inventory_read_only";
+    check(online_evidence_origin_label(discogs_live)=="Local CUE",
+          "CUE carrier provenance stays separate from online providers");
+    std::cout << "PASS: online field provenance, duplicate-origin safety, bounds, no-op and review-only\\n";
 }
