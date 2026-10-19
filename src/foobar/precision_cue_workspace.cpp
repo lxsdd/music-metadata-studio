@@ -6,6 +6,7 @@
 #include "djmeta/precision_cue.h"
 #include "djmeta/precision_cue_assemble.h"
 #include "djmeta/precision_cue_boundary_audit.h"
+#include "djmeta/precision_cue_physical_bounds.h"
 #include "djmeta/precision_cue_apple.h"
 #include "djmeta/precision_cue_apple_http.h"
 #include "djmeta/precision_cue_apple_link.h"
@@ -306,6 +307,18 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
                 disc.tracks.push_back({track.title, track.performer, track.duration_ms});
         }
         auto plan = djmeta::make_precision_cue(disc);
+        // A valid catalog total is not proof that the final INDEX fits
+        // the selected physical MP3. Uncertain bounds disable create only.
+        const auto bounds = djmeta::audit_precision_cue_physical_bounds(
+            plan, physical.duration_ms);
+        using BoundsState = djmeta::PrecisionCuePhysicalBoundsState;
+        if (bounds.state == BoundsState::Rejected)
+            throw std::invalid_argument(
+                "Generated CUE is incompatible with physical MP3: " +
+                std::string(bounds.diagnostic));
+        const bool bounds_allow_create =
+            bounds.state == BoundsState::QualifiedForExplicitReview;
+        if (!bounds_allow_create) duration_warning = true;
         if (physical.duration_ms <= 0) {
             duration_warning = true;
         } else {
@@ -342,6 +355,11 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
         details += L"Proposed sibling CUE (NOT SAVED): " +
                    from_utf8(exports[i].target_cue_basename) + L"\r\n";
         details += from_utf8(plans[i].external_cue_utf8);
+        details += L"\r\nPHYSICAL INDEX BOUNDS: " +
+            from_utf8(bounds.diagnostic) + L"\r\n";
+        if (!bounds_allow_create)
+            details += L"CREATE BLOCKED: physical duration or final track needs review. "
+                       L"Read-only preview and Copy remain available.\r\n";
         // A textual CUESHEET metadata field, if present, is read-only.
         // Never equate syntax inventory with verified embedded CUE structure.
         switch (file.embedded_text.state) {
@@ -414,7 +432,8 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
         const auto inspection = djmeta::inspect_precision_cue_existing_target(
             plans[i], file.physical_absolute_path, file.basename);
         if (reviewed) {
-            if (file.embedded_crosscheck.state ==
+            if (!bounds_allow_create ||
+                file.embedded_crosscheck.state ==
                     djmeta::PrecisionCueEmbeddedCrosscheckState::ReviewRequired) {
                 // Never turn an unresolved physical tag/container conflict into
                 // an external write just because the edition box was checked.

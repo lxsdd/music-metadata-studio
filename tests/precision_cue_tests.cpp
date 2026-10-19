@@ -1,5 +1,6 @@
 #include "djmeta/precision_cue.h"
 #include "djmeta/precision_cue_boundary_audit.h"
+#include "djmeta/precision_cue_physical_bounds.h"
 
 // GitHub CI uses Release: keep test assertions enabled on every platform.
 #ifdef NDEBUG
@@ -253,10 +254,56 @@ void test_boundary_audit_multidisc_synthetic() {
     }
 }
 
+
+void test_physical_cue_index_bounds_and_create_gate() {
+    using State = djmeta::PrecisionCuePhysicalBoundsState;
+    auto disc = synthetic_disc();
+    disc.tracks = {{"Opening","A",2000},{"Finale","B",1000}};
+    const auto plan = djmeta::make_precision_cue(disc);
+    const auto good = djmeta::audit_precision_cue_physical_bounds(plan,3000);
+    assert(good.state == State::QualifiedForExplicitReview);
+    assert(good.final_index_frame == 150);
+    assert(good.final_track_frames_available == 75);
+    assert(djmeta::audit_precision_cue_physical_bounds(plan,0).state == State::ReviewOnly);
+    assert(djmeta::audit_precision_cue_physical_bounds(plan,1999).state == State::Rejected);
+    assert(djmeta::audit_precision_cue_physical_bounds(plan,2020).state == State::ReviewOnly);
+    assert(djmeta::audit_precision_cue_physical_bounds(plan,4000).state == State::QualifiedForExplicitReview);
+    assert(djmeta::audit_precision_cue_physical_bounds(plan,4001).state == State::ReviewOnly);
+    assert(djmeta::audit_precision_cue_physical_bounds(plan,6001).state == State::Rejected);
+    auto corrupted = plan;
+    corrupted.boundaries[1].cue_frame = 149;
+    assert(djmeta::audit_precision_cue_physical_bounds(corrupted,3000).state == State::Rejected);
+    corrupted = plan;
+    corrupted.boundaries[1].track_number = 3;
+    assert(djmeta::audit_precision_cue_physical_bounds(corrupted,3000).state == State::Rejected);
+    corrupted = plan;
+    corrupted.boundaries[1].elapsed_ms = 3000;
+    assert(djmeta::audit_precision_cue_physical_bounds(corrupted,3000).state == State::Rejected);
+    corrupted = plan;
+    corrupted.boundaries[0].elapsed_ms = 1;
+    assert(djmeta::audit_precision_cue_physical_bounds(corrupted,3000).state == State::Rejected);
+    corrupted = plan;
+    corrupted.boundaries.push_back({3,2999,225});
+    assert(djmeta::audit_precision_cue_physical_bounds(corrupted,3000).state == State::Rejected);
+    // Separate disc clocks, no cumulative multi-disc offsets.
+    disc.disc_number = 1;
+    disc.tracks = {{"First","A",60000},{"Second","B",60000}};
+    const auto first_disc = djmeta::make_precision_cue(disc);
+    disc.disc_number = 2;
+    const auto second_disc = djmeta::make_precision_cue(disc);
+    for (const auto& one_file : {first_disc, second_disc}) {
+        assert(djmeta::audit_precision_cue_physical_bounds(one_file,120000).state ==
+               State::QualifiedForExplicitReview);
+        assert(djmeta::audit_precision_cue_physical_bounds(one_file,59999).state ==
+               State::Rejected);
+    }
+}
+
 } // namespace
 
 int main() {
     test_integer_cumulative_rounding();
+    test_physical_cue_index_bounds_and_create_gate();
     test_long_indices_and_unicode();
     test_frame_classification();
     test_quantization_audit_exact_integer_offsets();
