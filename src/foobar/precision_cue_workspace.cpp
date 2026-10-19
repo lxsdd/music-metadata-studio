@@ -19,6 +19,7 @@
 #include "djmeta/precision_cue_external_create.h"
 #include "djmeta/precision_cue_embedded_inventory.h"
 #include "djmeta/precision_cue_embedded_crosscheck.h"
+#include "djmeta/precision_cue_id3_file_preview.h"
 #include "metadata_adapter.h"
 
 #include <atomic>
@@ -363,9 +364,43 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
         case CrosscheckState::NoCueObserved:
             details += L"PHYSICAL CUE CHECK: No supported embedded cue in either read-only view.\r\n";
             break;
-        case CrosscheckState::TextualAgreementReadOnly:
+        case CrosscheckState::TextualAgreementReadOnly: {
             details += L"PHYSICAL CUE CHECK: Textual tag corroborated. NO embedded write allowed.\r\n";
+            // A read-only feasibility preview; only a bounded ID3 prefix is
+            // acquired. No audio bytes are materialized or written.
+            const auto original_tag = djmeta::read_precision_cue_id3_tag_for_preview(
+                file.physical_absolute_path);
+            if (!original_tag ||
+                !djmeta::precision_cue_external_detail::physical_source_unchanged(
+                    file.snapshot, file.physical_absolute_path,
+                    file.physical_absolute_path.parent_path(), file.basename)) {
+                details += L"EMBEDDED ID3 PATCH: Cannot safely read an unchanged physical ID3 tag.\r\n";
+                break;
+            }
+            const auto patch = djmeta::preview_precision_cue_id3_txxx_patch(
+                *original_tag, plans[i].external_cue_utf8,
+                file.embedded_crosscheck.state);
+            using PatchState = djmeta::PrecisionCueId3PatchState;
+            switch (patch.state) {
+            case PatchState::PreviewReady:
+                details += L"EMBEDDED ID3 PATCH: In-memory size-preserving TXXX postimage "
+                           L"could be reviewed; existing physical frames stay byte-identical.\r\n";
+                break;
+            case PatchState::NoOp:
+                details += L"EMBEDDED ID3 PATCH: CUESHEET is already byte-identical (no-op).\r\n";
+                break;
+            case PatchState::ReviewRequired:
+                details += L"EMBEDDED ID3 PATCH: More review required (" +
+                    from_utf8(patch.diagnostic) + L").\r\n";
+                break;
+            case PatchState::Rejected:
+                details += L"EMBEDDED ID3 PATCH: Unsupported or unsafe source (" +
+                    from_utf8(patch.diagnostic) + L").\r\n";
+                break;
+            }
+            details += L"Embedded postimage is PREVIEW ONLY: no embedded write capability enabled.\r\n";
             break;
+        }
         case CrosscheckState::ProtectedNativeBinary:
             details += L"PHYSICAL CUE CHECK: Binary CUE protected; cannot edit embedded data.\r\n";
             break;
