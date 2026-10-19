@@ -36,9 +36,14 @@ public:
                 return; // Preserve a partially filled block across updates.
             }
         }
-        while (bytes.size()-pos >= 64) {
-            compress(reinterpret_cast<const std::uint8_t*>(bytes.data()+pos));
-            pos += 64;
+        // Route every block through the fixed-size owned buffer: never
+        // hand the compressor a pointer into a potentially tiny string_view.
+        // This also keeps bounds checks explicit for GCC -Warray-bounds.
+        while (pos < bytes.size() && bytes.size()-pos >= buffer_.size()) {
+            for (std::size_t i=0; i<buffer_.size(); ++i)
+                buffer_[i] = static_cast<std::uint8_t>(bytes[pos+i]);
+            compress(buffer_.data());
+            pos += buffer_.size();
         }
         const auto remaining = bytes.size()-pos;
         for (std::size_t i = 0; i < remaining; ++i)
