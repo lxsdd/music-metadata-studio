@@ -42,12 +42,20 @@ PrecisionCuePlan cue(std::string title) {
     PrecisionCueDisc disc;
     disc.album_title=std::move(title);
     disc.album_performer="DJ Example";
-    disc.audio_file_basename="continuous.flac";
+    // The production Precision CUE generator intentionally accepts MP3
+    // basenames only. For a FLAC *metadata* parser test, derive synthetic
+    // text from that verified generator and swap only this fictitious FILE.
+    disc.audio_file_basename="continuous.mp3";
     disc.genre="Electronic";
     disc.release_date="2026";
     disc.tracks.push_back({"Part One","A",119131});
     disc.tracks.push_back({"Part Two","B",125249});
-    return make_precision_cue(disc);
+    auto plan=make_precision_cue(disc);
+    const auto at=plan.external_cue_utf8.find("continuous.mp3");
+    CHECK(at!=std::string::npos);
+    plan.external_cue_utf8.replace(
+        at,std::string_view("continuous.mp3").size(),"continuous.flac");
+    return plan;
 }
 std::string header(std::string cueText,unsigned padding=1500,
                    bool native_type5=false) {
