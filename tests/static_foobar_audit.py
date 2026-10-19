@@ -66,7 +66,8 @@ if batch_rules_guard.count(
         "state.online_context_version.matches(request.context_version)") != 4:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: four provider epoch gates required")
 for token in ("HIWORD(wp)==EN_CHANGE",
-              "state->online_context_version.invalidate()",
+              "invalidate_online_request(*state)",
+              "state.online_context_version.invalidate()",
               "context.context_version=state.online_context_version.current()",
               "ctx.context_version=state.online_context_version.current()"):
     if token not in batch_rules_guard:
