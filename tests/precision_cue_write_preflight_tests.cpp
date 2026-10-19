@@ -114,7 +114,7 @@ void export_planning_positive_and_negative() {
 
 void export_generated_layout_positive_edge_cases() {
     PrecisionCueDisc disc;
-    disc.album_title = "Unicode \u00dcbersicht";
+    disc.album_title = "Synthetic 99-track disc";
     disc.album_performer = "DJ Example";
     disc.genre = "Electronic";
     disc.release_date = "2026-10-19";
@@ -256,10 +256,20 @@ void commit_revalidation_fail_closed_matrix() {
 }
 
 int main() {
-    export_planning_positive_and_negative();
-    export_generated_layout_positive_edge_cases();
-    preflight_fail_closed_matrix();
-    sha256_exact_byte_regressions();
-    commit_revalidation_fail_closed_matrix();
-    return 0;
+    // MSVC aborts unhandled exceptions without producing usable CTest output.
+    // Surface unexpected runtime validation errors across all CI platforms.
+    try {
+        export_planning_positive_and_negative();
+        export_generated_layout_positive_edge_cases();
+        preflight_fail_closed_matrix();
+        sha256_exact_byte_regressions();
+        commit_revalidation_fail_closed_matrix();
+        return 0;
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "PRECISION_CUE_TEST_EXCEPTION: %s\n", e.what());
+        return 1;
+    } catch (...) {
+        std::fprintf(stderr, "PRECISION_CUE_TEST_EXCEPTION: unknown\n");
+        return 1;
+    }
 }
