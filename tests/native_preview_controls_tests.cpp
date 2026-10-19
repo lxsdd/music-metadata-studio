@@ -811,6 +811,26 @@ int main() {
     check(!test_request_context.matches(before_provider_switch),
           "provider away-and-back invalidates the old request");
 
+    // The next official search stage must be asynchronous, timer-bound and
+    // cancelled by any edit, provider/source change or overlapping request.
+    {
+        djmeta_foobar::ReadOnlyContextVersion epoch;
+        const auto snapshot=epoch.current();
+        check(djmeta_foobar::readonly_discogs_broaden_ready(
+                  epoch,snapshot,true,true,true),
+              "zero-hit Discogs stage can continue in unchanged qualified context");
+        check(!djmeta_foobar::readonly_discogs_broaden_ready(
+                  epoch,snapshot,true,false,true) &&
+              !djmeta_foobar::readonly_discogs_broaden_ready(
+                  epoch,snapshot,false,true,true) &&
+              !djmeta_foobar::readonly_discogs_broaden_ready(
+                  epoch,snapshot,true,true,false),
+              "nonempty, foreign and in-flight provider searches cannot auto-continue");
+        epoch.invalidate();
+        check(!djmeta_foobar::readonly_discogs_broaden_ready(
+                  epoch,snapshot,true,true,true),
+              "edited query or source invalidates scheduled provider continuation");
+    }
     // Production request worker primitive: a delayed transport must not
     // block the host dialog thread or perform post-close SDK operations.
     {

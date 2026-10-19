@@ -77,6 +77,16 @@ std::shared_ptr<ReadOnlyNetworkJob> start_readonly_network(
 inline void request_readonly_network_stop(ReadOnlyNetworkJob& job) noexcept {
     job.worker.request_stop();
 }
+// A delayed Discogs continuation is permitted only while the original
+// deliberate search context remains unchanged and no request is pending.
+// This predicate is unit-tested with the same native context epoch.
+inline bool readonly_discogs_broaden_ready(
+    const ReadOnlyContextVersion& active, std::uint64_t scheduled_version,
+    bool source_and_provider_qualified, bool results_empty,
+    bool network_idle) noexcept {
+    return active.matches(scheduled_version) &&
+           source_and_provider_qualified && results_empty && network_idle;
+}
 inline bool readonly_network_finished(const ReadOnlyNetworkJob& job) {
     return job.finished.load(std::memory_order_acquire);
 }
