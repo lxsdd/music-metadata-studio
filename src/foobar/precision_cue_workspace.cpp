@@ -17,6 +17,7 @@
 #include "djmeta/precision_cue_external_host_review.h"
 #include "djmeta/precision_cue_external_create.h"
 #include "djmeta/precision_cue_embedded_inventory.h"
+#include "djmeta/precision_cue_embedded_crosscheck.h"
 #include "metadata_adapter.h"
 
 #include <atomic>
@@ -45,6 +46,7 @@ struct LocalFile {
     std::filesystem::path physical_absolute_path;
     djmeta::precision_cue_external_detail::PhysicalSourceFingerprint snapshot;
     djmeta::PrecisionCueEmbeddedTextObservation embedded_text;
+    djmeta::PrecisionCueEmbeddedCrosscheck embedded_crosscheck;
 };
 
 struct LookupJob {
@@ -194,7 +196,17 @@ std::vector<LocalFile> capture_files(metadb_handle_list_cref handles) {
         const auto info_ref = handle->get_info_ref();
         const auto metadata = metadata_from_file_info(info_ref->info());
         const auto embedded = djmeta::inspect_precision_cue_embedded_text(metadata);
-        out.push_back({name, duration, canonical, *physical, embedded});
+        // Independently inspect only bounded ID3v2/APEv2 metadata. A mismatch
+        // between foobar's physical tag view and the container is review-only.
+        const auto raw_embedded = djmeta::inspect_precision_cue_embedded_file(
+            canonical, djmeta::PrecisionCueEmbeddedCarrier::Mp3);
+        if (!djmeta::precision_cue_external_detail::physical_source_unchanged(
+                *physical, canonical, canonical.parent_path(), name))
+            throw std::invalid_argument(
+                "Physical MP3 changed during metadata inspection; select it again");
+        const auto crosscheck = djmeta::crosscheck_precision_cue_embedded(
+            embedded, raw_embedded);
+        out.push_back({name, duration, canonical, *physical, embedded, crosscheck});
     }
     // Deterministic ordering; this is a PROPOSAL and never a verified
     // disc-to-file mapping. The UI must display each chosen basename.
@@ -344,15 +356,38 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
                        L"malformed or unsupported. NO embedded write is allowed.\r\n";
             break;
         }
+        using CrosscheckState = djmeta::PrecisionCueEmbeddedCrosscheckState;
+        switch (file.embedded_crosscheck.state) {
+        case CrosscheckState::NoCueObserved:
+            details += L"PHYSICAL CUE CHECK: No supported embedded cue in either read-only view.\r\n";
+            break;
+        case CrosscheckState::TextualAgreementReadOnly:
+            details += L"PHYSICAL CUE CHECK: Textual tag corroborated. NO embedded write allowed.\r\n";
+            break;
+        case CrosscheckState::ProtectedNativeBinary:
+            details += L"PHYSICAL CUE CHECK: Binary CUE protected; cannot edit embedded data.\r\n";
+            break;
+        case CrosscheckState::ReviewRequired:
+            details += L"PHYSICAL CUE CHECK: Foobar/tag-container mismatch or unsupported tag; "
+                       L"external creation BLOCKED until review.\r\n";
+            break;
+        }
         // The existing sibling target is inspected read-only and is NEVER
         // opened with write access. Results are only valid at preview time.
         const auto inspection = djmeta::inspect_precision_cue_existing_target(
             plans[i], file.physical_absolute_path, file.basename);
         if (reviewed) {
-            reviewed_exports.push_back(
-                djmeta::capture_precision_cue_external_review(
-                    plans[i], file.physical_absolute_path, file.basename,
-                    file.snapshot));
+            if (file.embedded_crosscheck.state ==
+                    djmeta::PrecisionCueEmbeddedCrosscheckState::ReviewRequired) {
+                // Never turn an unresolved physical tag/container conflict into
+                // an external write just because the edition box was checked.
+                reviewed_exports.emplace_back(std::nullopt);
+            } else {
+                reviewed_exports.push_back(
+                    djmeta::capture_precision_cue_external_review(
+                        plans[i], file.physical_absolute_path, file.basename,
+                        file.snapshot));
+            }
         }
         using TargetState = djmeta::PrecisionCueExistingTargetState;
         switch (inspection.state) {

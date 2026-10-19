@@ -1,4 +1,5 @@
 #include "djmeta/precision_cue_embedded_probe.h"
+#include "djmeta/precision_cue_embedded_crosscheck.h"
 #include <cstdio>
 #include <cstdlib>
 #include <sstream>
@@ -158,10 +159,42 @@ void flac_matrix() {
     CHECK(probe("invalid FLAC",PrecisionCueEmbeddedCarrier::Flac).state ==
           State::Unqualified);
 }
+void crosscheck_matrix() {
+    using Physical = PrecisionCueEmbeddedState;
+    using Exposed = PrecisionCueEmbeddedTextState;
+    using Result = PrecisionCueEmbeddedCrosscheckState;
+    PrecisionCueEmbeddedTextObservation visible;
+    PrecisionCueEmbeddedProbe raw;
+    visible.state = Exposed::Absent;
+    raw.state = Physical::NoneDetected;
+    CHECK(crosscheck_precision_cue_embedded(visible,raw).state == Result::NoCueObserved);
+    raw.state = Physical::TextualPresent;
+    CHECK(crosscheck_precision_cue_embedded(visible,raw).state == Result::ReviewRequired);
+    visible.state = Exposed::SyntaxOnly;
+    CHECK(crosscheck_precision_cue_embedded(visible,raw).state ==
+          Result::TextualAgreementReadOnly);
+    raw.state = Physical::NoneDetected;
+    CHECK(crosscheck_precision_cue_embedded(visible,raw).state == Result::ReviewRequired);
+    visible.state = Exposed::Absent;
+    raw.state = Physical::NativeBinaryPresent;
+    CHECK(crosscheck_precision_cue_embedded(visible,raw).state ==
+          Result::ProtectedNativeBinary);
+    visible.state = Exposed::SyntaxOnly;
+    CHECK(crosscheck_precision_cue_embedded(visible,raw).state == Result::ReviewRequired);
+    raw.state = Physical::MultipleOrConflicting;
+    CHECK(crosscheck_precision_cue_embedded(visible,raw).state == Result::ReviewRequired);
+    raw.state = Physical::Unqualified;
+    CHECK(crosscheck_precision_cue_embedded(visible,raw).state == Result::ReviewRequired);
+    raw.state = Physical::NoneDetected;
+    visible.state = Exposed::NeedsReview;
+    CHECK(crosscheck_precision_cue_embedded(visible,raw).state == Result::ReviewRequired);
+}
+
 } // namespace
 int main() {
     mp3_matrix();
     flac_matrix();
+    crosscheck_matrix();
     std::puts("PASS: bounded read-only ID3v2, APEv2, Vorbis and FLAC Type5 CUE inventory");
     return 0;
 }
