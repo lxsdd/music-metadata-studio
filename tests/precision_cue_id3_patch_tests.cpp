@@ -151,15 +151,15 @@ void encoding_version_gate() {
           State::ReviewRequired);
     CHECK(patch(invalid_v23_utf8,old.external_cue_utf8).state==
           State::ReviewRequired);
-    std::string utf16be(1,'\\2');
+    std::string utf16be(1,'\2');
     for (const char c : std::string_view("CUESHEET")) {
-        utf16be.push_back('\\0');
+        utf16be.push_back('\0');
         utf16be.push_back(c);
     }
-    utf16be += std::string(2,'\\0');
+    utf16be += std::string(2,'\0');
     for (const char c : old.external_cue_utf8) {
         CHECK(static_cast<unsigned char>(c)<128);
-        utf16be.push_back('\\0');
+        utf16be.push_back('\0');
         utf16be.push_back(c);
     }
     const auto invalid_v23_utf16be=tag(frame("TXXX",utf16be,3),3,8192);
