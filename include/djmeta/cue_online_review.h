@@ -57,17 +57,25 @@ inline std::string known_cue_target(std::string_view source_field,
 inline std::vector<CueCandidateFieldReview> review_cue_candidate_fields(
     const CueMetadataInventory& cue,
     std::optional<std::size_t> track_ordinal,
-    const std::vector<FieldEvidence>& evidence) {
+    const std::vector<FieldEvidence>& evidence,
+    bool edition_track_evidence = false) {
     std::vector<CueCandidateFieldReview> output;
     output.reserve(evidence.size());
+    // An explicitly selected release-edition TRACK may carry Edition-scoped
+    // provenance. Only this opt-in review maps such evidence to a CUE track;
+    // ordinary edition fields continue to target the album global scope.
+    const auto target_for = [&](const FieldEvidence& proposed) {
+        return proposed.scope == EvidenceScope::Recording ||
+               (edition_track_evidence && proposed.scope == EvidenceScope::Edition)
+            ? CueReviewTarget::TrackLocal : CueReviewTarget::AlbumGlobal;
+    };
     // Duplicate canonical CUE targets from one source are ambiguous, even
     // when the input uses different case or equivalent field aliases.
     using EvidenceKey = std::tuple<std::string, std::string, std::string,
                                    EvidenceScope>;
     std::map<EvidenceKey, std::size_t> occurrence_count;
     for (const auto& proposed : evidence) {
-        const auto target = proposed.scope == EvidenceScope::Recording
-            ? CueReviewTarget::TrackLocal : CueReviewTarget::AlbumGlobal;
+        const auto target = target_for(proposed);
         const auto canonical = known_cue_target(proposed.field, target);
         if (!canonical.empty())
             ++occurrence_count[{canonical, proposed.provider,
@@ -95,13 +103,24 @@ inline std::vector<CueCandidateFieldReview> review_cue_candidate_fields(
             continue;
         }
         const auto field = ascii_upper_field(proposed.field);
+        if (edition_track_evidence && proposed.scope != EvidenceScope::Edition) {
+            row.reason = "cue_edition_track_scope_mismatch";
+            output.push_back(std::move(row));
+            continue;
+        }
+        // An edition publication date is album evidence, never a local
+        // recording date, even when carried beside track-specific credits.
+        if (edition_track_evidence && field == "DATE") {
+            row.reason = "cue_edition_date_not_track_local";
+            output.push_back(std::move(row));
+            continue;
+        }
         if (field == "DATE" && proposed.date_meaning == DateMeaning::NotDate) {
             row.reason = "cue_date_role_unverified";
             output.push_back(std::move(row));
             continue;
         }
-        row.target = proposed.scope == EvidenceScope::Recording
-            ? CueReviewTarget::TrackLocal : CueReviewTarget::AlbumGlobal;
+        row.target = target_for(proposed);
         row.cue_field = known_cue_target(field, row.target);
         if (!row.cue_field.empty() &&
             occurrence_count[{row.cue_field, proposed.provider,
@@ -183,6 +202,30 @@ inline std::vector<CueCandidateFieldReview> review_cue_candidate_fields(
         output.push_back(std::move(row));
     }
     return output;
+}
+
+// The caller must already have selected and verified the one-to-one CUE to
+// release-track association. This function is read-only: it never changes
+// provenance scope, invents a CUE token, or authorizes an edit.
+inline std::vector<CueCandidateFieldReview> review_cue_edition_track_fields(
+    const CueMetadataInventory& cue,
+    std::optional<std::size_t> track_ordinal,
+    const EditionTrack& edition_track) {
+    auto rows = review_cue_candidate_fields(
+        cue, track_ordinal, edition_track.fields, true);
+    if (edition_track.fields.empty()) return rows;
+    const auto& identity = edition_track.fields.front().source_id;
+    // Mixed provider identities cannot describe one selected edition track.
+    bool consistent = valid_evidence_origin(identity, 512);
+    for (const auto& field : edition_track.fields)
+        if (field.source_id != identity ||
+            field.scope != EvidenceScope::Edition) consistent = false;
+    if (!consistent)
+        for (auto& row : rows) {
+            row.state = FieldReviewState::Blocked;
+            row.reason = "cue_edition_track_identity_unqualified";
+        }
+    return rows;
 }
 
 } // namespace djmeta::online

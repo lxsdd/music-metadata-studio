@@ -171,5 +171,51 @@ int main() {
           edition_date[2].state == FieldReviewState::Unchanged,
           "original/digital dates cannot overwrite edition CUE date");
 
+
+    // Edition-scoped Discogs track credits must remain track-local in CUE,
+    // while the same release's album fields stay global. Source provenance
+    // is never rewritten to Recording just to obtain a CUE target.
+    EditionTrack edition_track;
+    edition_track.source_track_id = "A2";
+    edition_track.fields = {
+        item("TITLE", {"Second (Extended Mix)"}, EvidenceScope::Edition,
+             DateMeaning::NotDate, "881/track/2"),
+        item("SONGWRITER", {"Writer A"}, EvidenceScope::Edition,
+             DateMeaning::NotDate, "881/track/2"),
+        item("REMIXER", {"DJ One"}, EvidenceScope::Edition,
+             DateMeaning::NotDate, "881/track/2"),
+        item("DATE", {"2026"}, EvidenceScope::Edition,
+             DateMeaning::EditionRelease, "881/track/2")
+    };
+    const auto edition_track_rows = review_cue_edition_track_fields(
+        parsed, 1, edition_track);
+    check(edition_track_rows.size() == 4 &&
+          edition_track_rows[0].target == CueReviewTarget::TrackLocal &&
+          edition_track_rows[0].cue_field == "TITLE" &&
+          edition_track_rows[0].track_ordinal == 1 &&
+          edition_track_rows[0].original_values ==
+              std::vector<std::string>({"Second"}) &&
+          edition_track_rows[0].candidate.scope == EvidenceScope::Edition &&
+          edition_track_rows[0].candidate.source_id == "881/track/2" &&
+          edition_track_rows[1].cue_field == "SONGWRITER" &&
+          edition_track_rows[1].state == FieldReviewState::NeedsReview &&
+          edition_track_rows[2].state == FieldReviewState::Blocked &&
+          edition_track_rows[2].reason == "cue_field_not_representable" &&
+          edition_track_rows[3].state == FieldReviewState::Blocked &&
+          edition_track_rows[3].reason == "cue_edition_date_not_track_local",
+          "edition track credits target only the selected CUE track with intact provenance");
+    const auto missing_edition_track = review_cue_edition_track_fields(
+        parsed, std::nullopt, edition_track);
+    check(missing_edition_track[0].state == FieldReviewState::Blocked &&
+          missing_edition_track[0].reason == "cue_track_identity_missing",
+          "no CUE track association means no edition-track proposal");
+    auto mixed_edition_track = edition_track;
+    mixed_edition_track.fields[1].source_id = "881/track/3";
+    const auto mixed_edition_rows = review_cue_edition_track_fields(
+        parsed, 1, mixed_edition_track);
+    for (const auto& row : mixed_edition_rows)
+        check(row.state == FieldReviewState::Blocked &&
+              row.reason == "cue_edition_track_identity_unqualified",
+              "mixed edition-track source identities fail closed");
     std::cout << "PASS: CUE field scope, inheritance impact, no-op, unknown-field guards\n";
 }
