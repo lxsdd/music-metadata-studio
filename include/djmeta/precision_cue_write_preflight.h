@@ -5,6 +5,7 @@
 #include "djmeta/external_cue.h"
 #include "djmeta/precision_cue.h"
 #include "djmeta/precision_cue_filename.h"
+#include "djmeta/precision_cue_sha256.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -164,12 +165,19 @@ struct PrecisionCueWriteCommitEvidence {
     std::uint64_t source_snapshot_token_commit = 0;
     std::uint64_t target_snapshot_token_preview = 0;
     std::uint64_t target_snapshot_token_commit = 0;
+    // Host MUST hash the exact reviewed bytes and the exact bytes handed to
+    // its writer independently. Zero/changed digests fail closed.
+    std::array<std::uint8_t, 32> reviewed_cue_sha256{};
+    std::array<std::uint8_t, 32> at_commit_cue_sha256{};
 };
 
 inline PrecisionCueWriteDecision revalidate_precision_cue_external_commit(
     const PrecisionCueWriteCommitEvidence& e) noexcept {
     if (preflight_precision_cue_external_write(e.preview) !=
             PrecisionCueWriteDecision::ReadyForExplicitWrite)
+        return PrecisionCueWriteDecision::ReviewRequired;
+    if (e.reviewed_cue_sha256 == std::array<std::uint8_t, 32>{} ||
+        e.reviewed_cue_sha256 != e.at_commit_cue_sha256)
         return PrecisionCueWriteDecision::ReviewRequired;
     if (e.source_snapshot_token_preview == 0 ||
         e.target_snapshot_token_preview == 0 ||

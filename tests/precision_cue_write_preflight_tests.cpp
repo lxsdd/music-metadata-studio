@@ -132,6 +132,21 @@ void preflight_fail_closed_matrix() {
 }
 
 
+void sha256_exact_byte_regressions() {
+    assert(precision_cue_sha256_hex("") ==
+           "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    assert(precision_cue_sha256_hex("abc") ==
+           "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    assert(precision_cue_sha256_hex(std::string(64, 'a')) ==
+           "ffe054fe7ae0cb6dc65c3af9b61d5209f439851db43d0ba5997337df154668eb");
+    assert(precision_cue_sha256_hex(
+           "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq") ==
+           "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1");
+    const auto cue = synthetic_plan().external_cue_utf8;
+    assert(precision_cue_sha256(cue) != precision_cue_sha256(cue + " "));
+    assert(precision_cue_sha256(cue) != precision_cue_sha256(cue + "\\0"));
+}
+
 void commit_revalidation_fail_closed_matrix() {
     using enum PrecisionCueWriteDecision;
     PrecisionCueWriteCommitEvidence e;
@@ -141,7 +156,16 @@ void commit_revalidation_fail_closed_matrix() {
     e.source_snapshot_token_commit = 101;
     e.target_snapshot_token_preview = 202;
     e.target_snapshot_token_commit = 202;
+    const auto reviewed = synthetic_plan().external_cue_utf8;
+    e.reviewed_cue_sha256 = precision_cue_sha256(reviewed);
+    e.at_commit_cue_sha256 = precision_cue_sha256(reviewed);
     assert(revalidate_precision_cue_external_commit(e) == ReadyForExplicitWrite);
+    e.at_commit_cue_sha256 = precision_cue_sha256(reviewed + " ");
+    assert(revalidate_precision_cue_external_commit(e) == ReviewRequired);
+    e.at_commit_cue_sha256 = e.reviewed_cue_sha256;
+    e.reviewed_cue_sha256 = {};
+    assert(revalidate_precision_cue_external_commit(e) == ReviewRequired);
+    e.reviewed_cue_sha256 = precision_cue_sha256(reviewed);
     e.source_snapshot_token_commit = 103;
     assert(revalidate_precision_cue_external_commit(e) == ReviewRequired);
     e.source_snapshot_token_commit = 101;
@@ -164,6 +188,7 @@ void commit_revalidation_fail_closed_matrix() {
 int main() {
     export_planning_positive_and_negative();
     preflight_fail_closed_matrix();
+    sha256_exact_byte_regressions();
     commit_revalidation_fail_closed_matrix();
     return 0;
 }
