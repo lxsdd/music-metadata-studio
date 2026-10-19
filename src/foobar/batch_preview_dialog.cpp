@@ -2569,14 +2569,25 @@ void perform_discogs_load(HWND dialog, PreviewState& state) {
     if(cue && read_cue_raw_on_demand(
         entry.handle,entry.input.source_path).raw_text!=cue_before)
         throw std::runtime_error("CUE changed during Discogs release lookup.");
+    // Physical duration is from the qualified host file_info, never CUE.
+    std::int64_t physical_duration_ms=-1;
+    if(!cue) {
+        const auto info=entry.handle->get_info_ref();
+        const double seconds=info->info().get_length();
+        if(seconds>0.0 && seconds<=36000.0)
+            physical_duration_ms=static_cast<std::int64_t>(
+                seconds*1000.0+0.5);
+    }
     auto flat=cue?discogs_cue_release_rows(*cue,*cached):
-        djmeta::online::review_discogs_physical_edition(originals,*cached);
+        djmeta::online::review_discogs_physical_edition(
+            originals,*cached,physical_duration_ms);
     auto grouped=group_musicbrainz_release_rows(flat);
     state.candidate_rows=std::move(grouped.summary);
     state.musicbrainz_detail_groups=std::move(grouped.detail);
     state.musicbrainz_release_loaded=true;
     state.search_attempt_notice=L"Exact Discogs edition "+std::to_wstring(id)+
-        L" loaded. Ambiguous track mappings remain blocked. Read-only.";
+        L" loaded. Only uniquely verified track fields are compared; "
+        L"ambiguous matches remain blocked. Read-only.";
     ListView_SetItemState(state.metadata_list,-1,0,LVIS_SELECTED);
     update_metadata_table(state);
 }

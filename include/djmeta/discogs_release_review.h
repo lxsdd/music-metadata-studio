@@ -6,14 +6,61 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <charconv>
+#include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 namespace djmeta::online {
 
+
+/* A qualified physical file is one local recording, never a virtual CUE
+   subsong. Duplicate identity tags are not arbitrarily flattened. */
+inline std::optional<std::string> unique_discogs_physical_tag(
+    const MetadataDocument& original, std::string_view wanted) {
+    std::optional<std::string> result;
+    for(const auto& tag:original.fields) {
+        if(ascii_upper_field(tag.name)!=wanted) continue;
+        if(result || tag.values.size()!=1) return std::nullopt;
+        result=tag.values.front();
+    }
+    return result;
+}
+inline int discogs_physical_position(const MetadataDocument& original,
+                                     std::string_view wanted) {
+    const auto value=unique_discogs_physical_tag(original,wanted);
+    if(!value || value->empty() || value->size()>3) return -1;
+    int number=0;
+    const auto [end,error]=std::from_chars(
+        value->data(),value->data()+value->size(),number);
+    return error==std::errc{} && end==value->data()+value->size() &&
+           number>0 && number<=256 ? number : -1;
+}
+inline std::optional<LocalReleaseTrack> discogs_physical_identity(
+    const MetadataDocument& original, std::int64_t duration_ms) {
+    const auto title=unique_discogs_physical_tag(original,"TITLE");
+    const auto artist=unique_discogs_physical_tag(original,"ARTIST");
+    if(!title || title->empty() || !artist || artist->empty() ||
+       !valid_evidence_origin(*title,2048) ||
+       !valid_evidence_origin(*artist,2048)) return std::nullopt;
+    LocalReleaseTrack local;
+    local.source_index=0;
+    local.recording.title=*title;
+    local.recording.primary_artist=*artist;
+    if(const auto isrc=unique_discogs_physical_tag(original,"ISRC"))
+        local.recording.isrc=*isrc;
+    if(duration_ms>0 && duration_ms<=36000000)
+        local.recording.duration_ms=duration_ms;
+    local.track_number=discogs_physical_position(original,"TRACKNUMBER");
+    local.disc_number=discogs_physical_position(original,"DISCNUMBER");
+    return local;
+}
+
 inline std::vector<FieldReviewRow> review_discogs_physical_edition(
-    const MetadataDocument& originals, const ReleaseEdition& edition) {
+    const MetadataDocument& originals, const ReleaseEdition& edition,
+    std::int64_t physical_duration_ms=-1) {
     if(edition.provider!="discogs" ||
        !valid_evidence_origin(edition.edition_id,512))
         throw std::invalid_argument("Not a qualified Discogs release edition");
@@ -51,11 +98,38 @@ inline std::vector<FieldReviewRow> review_discogs_physical_edition(
         retained.reason="discogs_local_only_no_provider_value";
         rows.push_back(std::move(retained));
     }
-    // Complete edition tracklist is useful for choosing an edition; however
-    // there is no verified per-file track assignment at this boundary.
+    // Only a unique Suggested association with no conflicts may expose
+    // track-specific fields for comparison. This is NEVER write approval.
+    std::size_t verified_track=no_release_track;
+    if(const auto local=discogs_physical_identity(
+           originals,physical_duration_ms)) {
+        const auto alignment=align_release({*local},edition);
+        if(alignment.tracks.size()==1) {
+            const auto& link=alignment.tracks.front();
+            if(link.decision==MatchDecision::Suggested &&
+               link.conflicts.empty() &&
+               link.edition_track_index<edition.tracks.size())
+                verified_track=link.edition_track_index;
+        }
+    }
     for(std::size_t i=0;i<edition.tracks.size();++i) {
         const auto& track=edition.tracks[i];
         const auto expected=edition.edition_id+"/track/"+std::to_string(i+1);
+        const bool trusted=!track.fields.empty() && std::all_of(
+            track.fields.begin(),track.fields.end(),[&](const auto& field) {
+                return field.provider=="discogs" &&
+                       field.scope==EvidenceScope::Edition &&
+                       field.source_id==expected;
+            });
+        if(i==verified_track && trusted) {
+            auto compared=review_online_fields(originals,track.fields);
+            for(auto& row:compared) {
+                row.field="Release Track "+std::to_string(i+1)+" / "+row.field;
+                row.reason="discogs_live_release_verified_track_"+row.reason;
+                rows.push_back(std::move(row));
+            }
+            continue;
+        }
         for(const auto& field:track.fields) {
             if(rows.size()>=12000)
                 throw std::invalid_argument("Discogs detail display row limit");

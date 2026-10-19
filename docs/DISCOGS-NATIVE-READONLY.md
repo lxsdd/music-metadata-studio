@@ -14,8 +14,12 @@ WinHTTP GET adapter and the existing bounded official catalog/edition parsers.
   become exact release metadata.
 - Inspect a verified release: full multivalue edition fields are shown
   separately from individual recording/track fields, each preserving source
-  IDs. A physical audio file has no automatic edition-track assignment;
-  all track-specific candidates are blocked.
+  IDs. A qualified physical file may compare track-specific fields only when
+  its TITLE, ARTIST, actual foobar duration and optional mix/position/ISRC
+  yield a unique Suggested one-to-one alignment without conflicts.
+  Missing duration, duplicate local identities, ambiguous editions, wrong
+  remix and unverified track provenance remain blocked. No matched field
+  is approved for writing.
 - For a previously inspected qualified CUE, match via
   `review_cue_release_edition`; only source-verified exact edition track
   rows may be compared with CUE metadata. Ambiguity stays blocked.

@@ -78,5 +78,74 @@ int main() {
     require(originals.fields[0].values==std::vector<std::string>({"House","Deep House"}) &&
         originals.fields[1].values==std::vector<std::string>({"-4.50 dB"}),
         "comparison is read-only and leaves originals unchanged");
+
+    const auto exact=parse_release(R"JSON({
+      "id":4243,"title":"Exact EP","artists":[{"name":"Primary Artist"}],
+      "tracklist":[
+        {"position":"1","title":"Track One (Extended Mix)","duration":"4:02",
+         "extraartists":[{"name":"DJ One","role":"Remix"}]},
+        {"position":"2","title":"Track Two (Extended Mix)","duration":"4:02",
+         "extraartists":[{"name":"Other DJ","role":"Remix"}]}
+      ]
+    })JSON",4243);
+    djmeta::MetadataDocument physical;
+    physical.fields.push_back({"TITLE",{"Track One (Extended Mix)"}});
+    physical.fields.push_back({"ARTIST",{"Primary Artist"}});
+    physical.fields.push_back({"TRACKNUMBER",{"1"}});
+    physical.fields.push_back({"REPLAYGAIN_TRACK_GAIN",{"-4.5 dB"}});
+    physical.fields.push_back({"CUSTOM",{"First","Second"}});
+    const auto verified=review_discogs_physical_edition(physical,exact,242000);
+    const auto* matched_title=field(verified,"Release Track 1 / TITLE");
+    const auto* matched_credit=field(verified,"Release Track 1 / REMIXER");
+    const auto* other_title=field(verified,"Release Track 2 / TITLE");
+    require(matched_title && matched_title->state==FieldReviewState::Unchanged &&
+            matched_title->reason=="discogs_live_release_verified_track_exact_noop" &&
+            matched_credit && matched_credit->state==FieldReviewState::NeedsReview &&
+            matched_credit->candidate.values==std::vector<std::string>{"DJ One"} &&
+            matched_credit->candidate.source_id=="4243/track/1" &&
+            other_title && other_title->state==FieldReviewState::Blocked,
+            "qualified physical track compares only its exact edition row");
+    require(field(verified,"Album / CUSTOM") &&
+            field(verified,"Album / CUSTOM")->original_values==
+                std::vector<std::string>({"First","Second"}) &&
+            field(verified,"Album / REPLAYGAIN_TRACK_GAIN") &&
+            physical.fields[3].values==std::vector<std::string>{"-4.5 dB"},
+            "matching preserves original custom multivalues and ReplayGain");
+    const auto no_duration=review_discogs_physical_edition(physical,exact);
+    require(field(no_duration,"Release Track 1 / REMIXER")->state==
+                FieldReviewState::Blocked,
+            "title, artist and position alone never verify a mix");
+    auto wrong_mix=physical;
+    wrong_mix.fields[0].values={"Track One (Radio Edit)"};
+    const auto wrong=review_discogs_physical_edition(wrong_mix,exact,242000);
+    require(field(wrong,"Release Track 1 / REMIXER")->state==
+                FieldReviewState::Blocked,
+            "wrong mix never inherits a Discogs remix credit");
+    auto ambiguous=exact;
+    ambiguous.tracks[1]=ambiguous.tracks[0];
+    ambiguous.tracks[1].source_track_id="B1";
+    ambiguous.tracks[1].track_number=-1;
+    for(auto& item:ambiguous.tracks[1].fields)
+        item.source_id="4243/track/2";
+    ambiguous.tracks[0].source_track_id="A1";
+    ambiguous.tracks[0].track_number=-1;
+    auto no_position=physical;
+    no_position.fields[2].values={"A1"};
+    const auto tied=review_discogs_physical_edition(no_position,ambiguous,242000);
+    require(field(tied,"Release Track 1 / REMIXER")->state==
+                FieldReviewState::Blocked,
+            "equal edition candidates cannot be arbitrarily assigned");
+    auto duplicated=physical;
+    duplicated.fields.push_back({"title",{"Track One (Extended Mix)"}});
+    const auto duplicate=review_discogs_physical_edition(duplicated,exact,242000);
+    require(field(duplicate,"Release Track 1 / REMIXER")->state==
+                FieldReviewState::Blocked,
+            "duplicate physical identity tags fail closed");
+    auto tainted=exact;
+    tainted.tracks[0].fields.front().source_id="4243/track/99";
+    const auto unsafe=review_discogs_physical_edition(physical,tainted,242000);
+    require(field(unsafe,"Release Track 1 / REMIXER")->state==
+                FieldReviewState::Blocked,
+            "tainted track field provenance blocks all track comparisons");
     std::cout<<"Discogs read-only physical edition review PASS\n";
 }
