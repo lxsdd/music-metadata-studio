@@ -59,9 +59,13 @@ WinHTTP GET adapter and the existing bounded official catalog/edition parsers.
   Discogs tracklist adapter does not provide verified track ISRC: any
   local ISRC remains visible but is not used as remote identity evidence.
   No matched field is approved for writing.
-- For a previously inspected qualified CUE, match via
-  `review_cue_release_edition`; only source-verified exact edition track
-  rows may be compared with CUE metadata. Ambiguity stays blocked.
+- For an inspected qualified CUE, `review_cue_release_edition` separates
+  verified track candidates from weaker evidence. Missing independent
+  duration/ISRC no longer hides all useful exact-edition fields: when an
+  otherwise unique title/artist track association is under-corroborated, its
+  provider fields are shown next to original CUE values exclusively as
+  **BLOCKED, non-actionable evidence**. Wrong remix, ambiguous alignment,
+  forged source IDs and unverified track provenance cannot borrow credits.
 - The existing source/rules snapshot and CUE post-read guards run before
   publishing any result. The online page remains a **read-only comparison**:
   no accepting online metadata as a write operation, audio modification,

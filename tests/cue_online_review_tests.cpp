@@ -1,4 +1,5 @@
 #include "djmeta/cue_release_review.h"
+#include "djmeta/discogs_provider.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -301,5 +302,59 @@ int main() {
         CueCarrierKind::ExternalText);
     check(!review_cue_release_edition(broken_cue, edition).eligible,
           "invalid CUE cannot enter edition comparison");
+    // End-to-end: official Discogs edition JSON -> CUE text -> one-to-one
+    // association -> comparison. Missing CUE runtime/ISRC must show BLOCKED
+    // per-field evidence, not falsely accepted metadata.
+    const std::string no_duration_cue=
+        "TITLE \"Night EP\"\nPERFORMER \"Example\"\n"
+        "FILE \"mix.flac\" WAVE\n"
+        "TRACK 01 AUDIO\nTITLE \"Home (Extended Mix)\"\n"
+        "INDEX 01 00:00:00\n"
+        "TRACK 02 AUDIO\nTITLE \"Away (Extended Mix)\"\n"
+        "INDEX 01 06:10:00\n";
+    const auto no_duration_inventory=inspect_cue_metadata(
+        no_duration_cue,CueCarrierKind::ExternalText);
+    const auto official_edition=discogs::parse_release(R"({
+        "id":38012673,"title":"Night EP",
+        "artists":[{"name":"Example"}],
+        "tracklist":[
+            {"position":"1","title":"Home (Extended Mix)","duration":"6:10",
+             "extraartists":[{"name":"Remixer","role":"Remix"}]},
+            {"position":"2","title":"Away (Extended Mix)","duration":"5:20"}
+        ]
+    })",38012673);
+    const auto evidence_only=review_cue_release_edition(
+        no_duration_inventory,official_edition);
+    check(evidence_only.eligible && evidence_only.tracks.size()==2 &&
+          evidence_only.tracks[0].decision==MatchDecision::Review &&
+          evidence_only.tracks[0].fields.empty() &&
+          evidence_only.tracks[0].unverified_fields.size()>=2,
+          "missing CUE duration does not fabricate a qualified track match");
+    const auto& preview=evidence_only.tracks[0].unverified_fields.front();
+    check(preview.cue_field=="TITLE" &&
+          preview.original_values==std::vector<std::string>{"Home (Extended Mix)"} &&
+          preview.candidate.source_id=="38012673/track/1" &&
+          preview.state==FieldReviewState::Blocked &&
+          preview.reason.starts_with("cue_unverified_alignment_evidence_only_"),
+          "blocked Discogs track review preserves exact edition provenance and original");
+    for(const auto& track:evidence_only.tracks)
+        for(const auto& candidate:track.unverified_fields)
+            check(candidate.state==FieldReviewState::Blocked,
+                  "weak edition fields never become actionable");
+    auto forged_edition=official_edition;
+    forged_edition.tracks[0].fields[0].source_id="38012673/track/99";
+    const auto forged_review=review_cue_release_edition(
+        no_duration_inventory,forged_edition);
+    check(forged_review.tracks[0].fields.empty() &&
+          forged_review.tracks[0].unverified_fields.empty(),
+          "forged Discogs track provenance cannot enter blocked display");
+    auto wrong_remix=official_edition;
+    wrong_remix.tracks[0].recording.title="Home (Radio Edit)";
+    const auto incompatible=review_cue_release_edition(
+        no_duration_inventory,wrong_remix);
+    check(incompatible.tracks[0].unverified_fields.empty(),
+          "wrong remix never receives provisional track field evidence");
+    check(no_duration_inventory.source_bytes==no_duration_cue.size(),
+          "read-only release review never patches CUE bytes");
     std::cout << "PASS: CUE field scope, inheritance impact, no-op, unknown-field guards\n";
 }

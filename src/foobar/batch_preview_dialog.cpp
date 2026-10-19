@@ -748,6 +748,10 @@ std::vector<djmeta::online::FieldReviewRow> discogs_cue_release_rows(
             if(row.candidate.values.empty())
                 row.candidate.values={"No uniquely verified edition track"};
             rows.push_back(std::move(row));
+            // Native read-only field details: uncertain assignments are
+            // displayed exclusively as blocked evidence with original values.
+            for(const auto& field:item.unverified_fields)
+                append(prefix,field);
         } else for(const auto& field:item.fields)
             append(prefix,field);
     }

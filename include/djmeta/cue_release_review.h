@@ -3,6 +3,7 @@
 #include "djmeta/cue_online_bridge.h"
 #include "djmeta/cue_online_review.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <limits>
 #include <string>
@@ -16,6 +17,9 @@ struct CueEditionTrackReview {
     MatchDecision decision = MatchDecision::Review;
     std::vector<std::string> reasons;
     std::vector<CueCandidateFieldReview> fields;
+    // Separate blocked-only display facts from verified candidate fields.
+    // These cannot authorize CUE track edits or any carrier writer.
+    std::vector<CueCandidateFieldReview> unverified_fields;
 };
 
 struct CueEditionReview {
@@ -62,12 +66,10 @@ inline CueEditionReview review_cue_release_edition(
         row.edition_track_index = match.edition_track_index;
         row.decision = match.decision;
         row.reasons = match.conflicts;
-        // Review-only/ambiguous matches retain diagnostics, but must not
-        // attach edition credits to an unverified local CUE ordinal.
+        // Never attribute provider fields without an individual, qualified
+        // source-row identity; no guessing from an album-wide release.
         if (match.edition_track_index == no_release_track ||
-            match.edition_track_index >= edition.tracks.size() ||
-            match.decision != MatchDecision::Suggested ||
-            !match.conflicts.empty()) {
+            match.edition_track_index >= edition.tracks.size()) {
             row.reasons.push_back("cue_track_match_requires_confirmation");
             result.tracks.push_back(std::move(row));
             continue;
@@ -91,7 +93,36 @@ inline CueEditionReview review_cue_release_edition(
             result.tracks.push_back(std::move(row));
             continue;
         }
-        row.fields = review_cue_edition_track_fields(cue, row.cue_ordinal, remote);
+        if (match.decision != MatchDecision::Suggested ||
+            !match.conflicts.empty()) {
+            row.reasons.push_back("cue_track_match_requires_confirmation");
+            // INDEX positions do not qualify sample-accurate durations.
+            // A unique alignment with exact title and artist can still show
+            // source-authenticated, explicitly BLOCKED candidate facts.
+            const bool weak_only=std::all_of(
+                match.conflicts.begin(),match.conflicts.end(),
+                [](const std::string& reason) {
+                    return reason=="mix_identity_unverified" ||
+                           reason=="isrc_missing_on_one_side" ||
+                           reason=="named_mix_missing_on_one_side";
+                });
+            const bool exact_names=std::find(match.evidence.begin(),
+                match.evidence.end(),"title_exact")!=match.evidence.end() &&
+                std::find(match.evidence.begin(),match.evidence.end(),
+                    "primary_artist_exact")!=match.evidence.end();
+            if(match.decision==MatchDecision::Review &&
+               weak_only && exact_names) {
+                row.unverified_fields=review_cue_edition_track_fields(
+                    cue,row.cue_ordinal,remote);
+                for(auto& field:row.unverified_fields) {
+                    field.state=FieldReviewState::Blocked;
+                    field.reason="cue_unverified_alignment_evidence_only_"+field.reason;
+                }
+            }
+            result.tracks.push_back(std::move(row));
+            continue;
+        }
+        row.fields=review_cue_edition_track_fields(cue,row.cue_ordinal,remote);
         result.tracks.push_back(std::move(row));
     }
     return result;

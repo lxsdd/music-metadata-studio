@@ -383,6 +383,16 @@ for token in ("request_spacing_wait_ms(", "std::this_thread::sleep_for(",
 if "Discogs rate limit: try again after the request interval." in discogs_http:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: zero-hit fallback still self-rejects")
 
+# Unconfirmed CUE/Discogs track alignments render source-verified evidence
+# only in a separately BLOCKED lane, not qualified candidate fields.
+cue_release_review=(root / "include" / "djmeta" / "cue_release_review.h").read_text(encoding="utf-8")
+for token in ("unverified_fields", "cue_unverified_alignment_evidence_only_",
+              "field.state=FieldReviewState::Blocked"):
+    if token not in cue_release_review:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing blocked CUE evidence guard: "+token)
+if "item.unverified_fields" not in batch_table_dialog:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing native blocked CUE evidence")
+
 # The fallback is implemented in the shared review-row provenance helper.
 # The UI must not need an obsolete inline "Pasted:" concatenation.
 origin_model=(root / "include" / "djmeta" / "online_fields.h").read_text(encoding="utf-8")
