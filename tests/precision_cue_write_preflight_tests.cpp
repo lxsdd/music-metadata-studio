@@ -3,6 +3,7 @@
 #include "djmeta/precision_cue_foobar_path.h"
 #include "djmeta/precision_cue_external_inspect.h"
 #include "djmeta/precision_cue_external_host_review.h"
+#include "djmeta/precision_cue_embedded_inventory.h"
 
 #ifdef NDEBUG
 #undef NDEBUG
@@ -593,6 +594,51 @@ void native_host_review_and_create_regressions() {
     VERIFY(!fs::exists(target));
 }
 
+void embedded_textual_cuesheet_readonly_inventory_regressions() {
+    using State = PrecisionCueEmbeddedTextState;
+    MetadataDocument metadata;
+    metadata.fields = {{"ARTIST", {"Synthetic Artist"}},
+                       {"REPLAYGAIN_TRACK_GAIN", {"-7.25 dB"}}};
+    const auto original = metadata;
+    VERIFY(inspect_precision_cue_embedded_text(metadata).state == State::Absent);
+    VERIFY(metadata == original);
+    const std::string cue =
+        "PERFORMER \"Various Artists\"\r\n"
+        "FILE \"Mix Über 東京.mp3\" MP3\r\n"
+        "  TRACK 01 AUDIO\r\n"
+        "    TITLE \"Synthetic\"\r\n"
+        "    INDEX 01 00:00:00\r\n";
+    metadata.fields.push_back({"cUeShEeT", {cue}});
+    const auto with_cue = metadata;
+    const auto good = inspect_precision_cue_embedded_text(metadata);
+    VERIFY(good.state == State::SyntaxOnly);
+    VERIFY(good.file_reference_count == 1);
+    VERIFY(metadata == with_cue); // All physical fields preserved byte-for-byte.
+    VERIFY(!precision_cue_embedded_tag_name("CUESHEET_URL"));
+    VERIFY(!precision_cue_embedded_tag_name("CUE SHEET"));
+
+    metadata.fields.push_back({"CUESHEET", {cue}});
+    VERIFY(inspect_precision_cue_embedded_text(metadata).state == State::NeedsReview);
+    metadata = with_cue;
+    metadata.fields.back().values.push_back(cue);
+    VERIFY(inspect_precision_cue_embedded_text(metadata).state == State::NeedsReview);
+    metadata = with_cue;
+    metadata.fields.back().values = {""};
+    VERIFY(inspect_precision_cue_embedded_text(metadata).state == State::NeedsReview);
+    metadata.fields.back().values = {"FILE \"mix.mp3\" MP3\n\xff"};
+    VERIFY(inspect_precision_cue_embedded_text(metadata).state == State::NeedsReview);
+    metadata.fields.back().values = {std::string("\xff\xfeF\0I\0L\0E\0", 10)};
+    VERIFY(inspect_precision_cue_embedded_text(metadata).state == State::NeedsReview);
+    metadata.fields.back().values = {"FILE \"../ambiguous.mp3\" MP3\n"};
+    VERIFY(inspect_precision_cue_embedded_text(metadata).state == State::SyntaxOnly);
+    // Even a syntactically recognized FILE is NOT host path or audio identity proof.
+    metadata.fields.back().values = {std::string(8u * 1024u * 1024u + 1u, 'x')};
+    VERIFY(inspect_precision_cue_embedded_text(metadata).state == State::NeedsReview);
+    metadata.fields.back().values = {cue};
+    VERIFY(inspect_precision_cue_embedded_text(metadata).state == State::SyntaxOnly);
+    VERIFY(metadata.fields[1].values.front() == "-7.25 dB");
+}
+
 int main() {
     // MSVC aborts unhandled exceptions without producing usable CTest output.
     // Surface unexpected runtime validation errors across all CI platforms.
@@ -606,6 +652,7 @@ int main() {
         foobar_local_windows_path_regressions();
         create_only_external_writer_regressions();
         native_host_review_and_create_regressions();
+        embedded_textual_cuesheet_readonly_inventory_regressions();
         return 0;
     } catch (const std::exception& e) {
         std::fprintf(stderr, "PRECISION_CUE_TEST_EXCEPTION: %s\n", e.what());

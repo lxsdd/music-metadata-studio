@@ -16,6 +16,8 @@
 #include "djmeta/precision_cue_external_inspect.h"
 #include "djmeta/precision_cue_external_host_review.h"
 #include "djmeta/precision_cue_external_create.h"
+#include "djmeta/precision_cue_embedded_inventory.h"
+#include "metadata_adapter.h"
 
 #include <atomic>
 #include <cmath>
@@ -42,6 +44,7 @@ struct LocalFile {
     std::int64_t duration_ms = 0;
     std::filesystem::path physical_absolute_path;
     djmeta::precision_cue_external_detail::PhysicalSourceFingerprint snapshot;
+    djmeta::PrecisionCueEmbeddedTextObservation embedded_text;
 };
 
 struct LookupJob {
@@ -186,7 +189,12 @@ std::vector<LocalFile> capture_files(metadb_handle_list_cref handles) {
         const auto duration = std::isfinite(seconds) && seconds > 0 &&
             seconds < 24 * 60 * 60
             ? static_cast<std::int64_t>(std::llround(seconds * 1000.0)) : 0;
-        out.push_back({name, duration, canonical, *physical});
+        // Read the physical file_info metadata, never a virtual CUE subsong.
+        // The inventory is diagnostic only; no embedded writer is reachable.
+        const auto info_ref = handle->get_info_ref();
+        const auto metadata = metadata_from_file_info(info_ref->info());
+        const auto embedded = djmeta::inspect_precision_cue_embedded_text(metadata);
+        out.push_back({name, duration, canonical, *physical, embedded});
     }
     // Deterministic ordering; this is a PROPOSAL and never a verified
     // disc-to-file mapping. The UI must display each chosen basename.
@@ -318,6 +326,23 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
         details += L"Proposed sibling CUE (NOT SAVED): " +
                    from_utf8(exports[i].target_cue_basename) + L"\r\n";
         details += from_utf8(plans[i].external_cue_utf8);
+        // A textual CUESHEET metadata field, if present, is read-only.
+        // Never equate syntax inventory with verified embedded CUE structure.
+        switch (file.embedded_text.state) {
+        case djmeta::PrecisionCueEmbeddedTextState::Absent:
+            details += L"\r\nEMBEDDED TEXT CUESHEET: no textual field exposed by foobar. "
+                       L"This does not inspect other embedded/binary formats.\r\n";
+            break;
+        case djmeta::PrecisionCueEmbeddedTextState::SyntaxOnly:
+            details += L"\r\nEMBEDDED TEXT CUESHEET: present (syntax-only; " +
+                std::to_wstring(file.embedded_text.file_reference_count) +
+                L" FILE reference(s)). NOT verified or modified.\r\n";
+            break;
+        case djmeta::PrecisionCueEmbeddedTextState::NeedsReview:
+            details += L"\r\nEMBEDDED TEXT CUESHEET: present but ambiguous, "
+                       L"malformed or unsupported. NO embedded write is allowed.\r\n";
+            break;
+        }
         // The existing sibling target is inspected read-only and is NEVER
         // opened with write access. Results are only valid at preview time.
         const auto& file = state.files[mapping.physical_index_by_disc[i]];
