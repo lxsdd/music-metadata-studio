@@ -206,6 +206,51 @@ int main() {
           !allowed_readonly_path("/releases/42/notes") &&
           !allowed_readonly_path("/releases/042"),
           "native Discogs host rejects foreign endpoints, tokens, control escapes and extra pages");
+    // One native search action can turn a canonical master URL into concrete
+    // release candidates, but never turn its master ID into a tag identity.
+    check(master_id_from_url(
+              "https://www.discogs.com/master/782-The-KLF")==782 &&
+          master_id_from_url("https://discogs.com/masters/782")==782 &&
+          master_id_from_url("https://www.discogs.com/release/782")==0 &&
+          master_id_from_url("https://www.discogs.com.evil/master/782")==0 &&
+          master_id_from_url("http://www.discogs.com/master/782")==0 &&
+          master_versions_path(782)=="/masters/782/versions?page=1&per_page=20" &&
+          allowed_readonly_path(master_versions_path(782)) &&
+          !allowed_readonly_path("/masters/782/versions?page=2&per_page=20") &&
+          !allowed_readonly_path("/masters/782/versions?page=1&per_page=200") &&
+          !allowed_readonly_path("/masters/0782/versions?page=1&per_page=20") &&
+          !allowed_readonly_path("/masters/782/versions?token=abc&page=1&per_page=20"),
+          "canonical master URL only permits official, bounded edition discovery");
+    const auto versions=parse_master_versions(R"DJ({
+       "pagination":{"page":1,"per_page":20,"pages":3,"items":48},
+       "versions":[
+         {"id":38012673,"title":"Via Balearia","country":"Germany",
+          "released":"2026-10-02","label":"Label A","catno":"00-123",
+          "format":"File, MP3"},
+         {"id":37332711,"title":"1000 Years","released":"2026"},
+         {"id":38012673,"title":"duplicate"},
+         {"id":0,"title":"invalid"}]
+    })DJ",782);
+    check(versions.hits.size()==2 &&
+          versions.hits[0].kind==EntityKind::Release &&
+          versions.hits[0].id==38012673 &&
+          versions.hits[0].year=="2026" &&
+          versions.hits[0].label=="Label A" &&
+          versions.hits[0].catalog_number=="00-123" &&
+          versions.hits[0].format=="File, MP3" &&
+          versions.hits[0].canonical_url==
+              "https://www.discogs.com/release/38012673" &&
+          selected_exact_release_id("release:38012673",versions.hits[0].id) &&
+          !selected_exact_release_id("master:782",versions.hits[0].id),
+          "master versions yield distinct concrete releases and edition provenance");
+    rejects([]{(void)parse_master_versions(
+        R"({"pagination":{"page":2,"per_page":20,"pages":3},"versions":[]})",782);},
+        "foreign master page refused");
+    rejects([]{(void)parse_master_versions(
+        R"({"pagination":{"page":1,"per_page":200,"pages":3},"versions":[]})",782);},
+        "unbounded master page refused");
+    rejects([]{(void)parse_master_versions(R"({"versions":[]})",782);},
+        "missing pagination refused");
     const auto hits=parse_search(R"DJ({
         "pagination":{"page":1,"pages":200,"items":99999},
         "results":[

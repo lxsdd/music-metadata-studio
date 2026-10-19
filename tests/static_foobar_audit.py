@@ -60,6 +60,16 @@ for token in (
     if token not in batch_rules_guard:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing shared rules stale-input gate: " + token)
 
+# Official master URL discovery reaches the native worker, then concrete
+# release selection. A master ID never becomes a release-detail write source.
+for token in (
+    "master_id_from_url(term)", "master_versions_path(master_id)",
+    "parse_master_versions(reply,request.master_id)",
+    "context.master_id=master_id",
+):
+    if token not in batch_rules_guard:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: master edition route missing "+token)
+
 # Search and release completion for BOTH providers must reject context
 # mutations even if the visible query returns to the original text.
 if batch_rules_guard.count(

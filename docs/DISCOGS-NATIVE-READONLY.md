@@ -36,8 +36,14 @@ WinHTTP GET adapter and the existing bounded official catalog/edition parsers.
   for the 1.6-second request interval without blocking foobar, and closing
   can cancel that wait. A canonical
   `https://www.discogs.com/release/<id>` URL performs one fixed-host
-  release lookup directly. Unknown hosts, masters and unqualified IDs cannot
-  become exact release metadata.
+  release lookup directly. A canonical
+  `https://www.discogs.com/master/<id>` instead requests the documented
+  master versions **first page** on the same official token-header transport.
+  It displays at most 20 concrete release editions, including documented
+  format/label/country/catalog/year where present. This is explicitly
+  **non-exhaustive** and neither the master nor its versions list supplies
+  exact edition tag fields. Select a release and **Load release** separately.
+  Noncanonical pagination, unknown hosts and unqualified IDs are rejected.
 - **Local physical** original-only tags appear in a separate native Physical
   section, not as part of the inspected Discogs edition. A provider-absent
   custom/ReplayGain/multivalue tag is kept intact and explicitly displays

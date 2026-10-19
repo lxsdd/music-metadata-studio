@@ -79,6 +79,7 @@ struct PendingDiscogsContext {
     std::string cue_before;
     djmeta::MetadataDocument originals;
     std::uint64_t release_id=0;
+    std::uint64_t master_id=0; // versions are candidates only
     std::string plan_identity;
     std::string strategy;
     std::size_t attempt_index=0;
@@ -601,6 +602,10 @@ MusicBrainzBrowseRows discogs_search_rows(
         if(!hit.country.empty()) add("COUNTRY",{hit.country});
         add("GENRE",hit.genres);
         add("STYLE",hit.styles);
+        if(!hit.label.empty()) add("EDITION LABEL",{hit.label});
+        if(!hit.catalog_number.empty())
+            add("EDITION CATALOG NUMBER",{hit.catalog_number});
+        if(!hit.format.empty()) add("EDITION FORMAT",{hit.format});
         add("CANONICAL URL (read-only)",{hit.canonical_url});
         if(master) add("EDITION REQUIRED",{"Select a concrete Discogs release"});
         // Search previews are evidence, not confirmed edition fields. Show
@@ -2384,7 +2389,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_BATCH_TABS,L"1. Search online and compare. 2. Review local rule-based suggestions. 3. Preview file locations. These previews do not write files."},
         {IDC_BATCH_GUIDE,L"Follow the steps from left to right. A MusicBrainz match is evidence, not an approved tag edit."},
         {IDC_METADATA_TRACK_LIST,L"Choose a track. Double-click in Find to search online; double-click in Review to switch to Find."},
-        {IDC_METADATA_MB_QUERY,L"TITLE, album or official Discogs release URL. Editing a query never contacts a provider."},
+        {IDC_METADATA_MB_QUERY,L"TITLE, album or official Discogs release/master URL. Master editions: page 1 only. No automatic network calls."},
         {IDC_METADATA_ONLINE_PROVIDER,L"Select MusicBrainz (free read-only) or Discogs (your authorized personal token required)."},
         {IDC_METADATA_DISCOGS_TOKEN_LABEL,L"Discogs token only lives in this password control."},
         {IDC_METADATA_DISCOGS_TOKEN,L"Personal Discogs API token. Not saved, logged, embedded or copied into URLs."},
@@ -2571,8 +2576,10 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
     if(token.empty()) throw std::invalid_argument(
         "Discogs needs an authorized personal access token (not saved).");
     const auto direct_id=release_id_from_url(term);
-    if(term.starts_with("https://") && !direct_id)
-        throw std::invalid_argument("Only a canonical HTTPS Discogs release URL is accepted.");
+    const auto master_id=master_id_from_url(term);
+    if(term.starts_with("https://") && !direct_id && !master_id)
+        throw std::invalid_argument(
+            "Only canonical HTTPS Discogs release/master URLs are accepted.");
     std::string path,strategy,identity;
     std::size_t total=1;
     std::size_t attempt_index=0;
@@ -2580,6 +2587,11 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
         path=release_path(direct_id);
         strategy="Exact release URL";
         identity="discogs|direct|"+std::to_string(direct_id)+"|"+
+            entry.input.source_path;
+    } else if(master_id) {
+        path=master_versions_path(master_id);
+        strategy="Master edition candidates (page 1 only)";
+        identity="discogs|master|"+std::to_string(master_id)+"|"+
             entry.input.source_path;
     } else {
         const auto plan=track_search_plan(
@@ -2616,6 +2628,7 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
     context.cue_before=std::move(cue_before);
     context.originals=std::move(originals);
     context.release_id=direct_id;
+    context.master_id=master_id;
     context.plan_identity=std::move(identity);
     context.strategy=std::move(strategy);
     context.attempt_index=attempt_index;
@@ -2648,7 +2661,9 @@ void publish_discogs_search(HWND dialog, PreviewState& state,
         throw std::runtime_error("CUE changed during Discogs lookup. Retry.");
     SearchResults result;
     std::optional<ReleaseEdition> direct_edition;
-    if(request.release_id) {
+    if(request.master_id) {
+        result=parse_master_versions(reply,request.master_id);
+    } else if(request.release_id) {
         direct_edition=parse_release(reply,request.release_id);
         SearchHit hit;
         hit.kind=EntityKind::Release;
@@ -2683,10 +2698,14 @@ void publish_discogs_search(HWND dialog, PreviewState& state,
     state.cue_candidate_comparison_mode=false;
     state.search_plan_identity=request.plan_identity;
     state.search_attempt_index=request.attempt_index;
-    const bool broaden_empty=!request.release_id &&
+    const bool broaden_empty=!request.release_id && !request.master_id &&
         state.discogs_results.empty() && request.attempt_index+1<request.total;
-    state.search_attempt_notice=
-        L"Discogs query "+std::to_wstring(request.attempt_index+1)+L"/"+
+    state.search_attempt_notice=request.master_id
+        ? L"Discogs master "+std::to_wstring(request.master_id)+L": "+
+          std::to_wstring(state.discogs_results.size())+
+          L" release editions shown from PAGE 1 ONLY (non-exhaustive). "
+          L"Select the exact edition, then Load release. No tags written."
+        : L"Discogs query "+std::to_wstring(request.attempt_index+1)+L"/"+
         std::to_wstring(request.total)+L" - "+from_utf8(request.strategy)+L": "+
         std::to_wstring(state.discogs_results.size())+L" result(s). "+
         (broaden_empty
