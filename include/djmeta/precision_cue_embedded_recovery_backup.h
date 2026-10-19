@@ -35,6 +35,12 @@ struct PrecisionCueRecoveryBackupResult {
     std::filesystem::path verified_backup_path;
     std::array<std::uint8_t,32> verified_sha256{};
     std::uintmax_t bytes = 0;
+    // Explicit constructors avoid GCC -Wmissing-field-initializers under -Werror.
+    // Unspecified paths, digests and lengths remain their safe empty defaults.
+    PrecisionCueRecoveryBackupResult() = default;
+    PrecisionCueRecoveryBackupResult(
+        PrecisionCueRecoveryBackupStatus new_status, const char* reason)
+        : status(new_status), diagnostic(reason) {}
 };
 enum class PrecisionCueRecoveryBackupCheckpoint {
     AfterPendingClone,
