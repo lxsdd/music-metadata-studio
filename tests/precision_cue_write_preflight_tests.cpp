@@ -16,7 +16,7 @@ using namespace djmeta;
         std::fprintf(stderr, "PRECISION_CUE_TEST_FAILURE line %d: %s\n",       \
                      __LINE__, #condition);                                    \
         std::fflush(stderr);                                                   \
-        std::exit(1); // Normal nonzero exit keeps diagnostics in Windows CTest logs.                                                          \
+        std::exit(1);                                                          \
     }                                                                          \
 } while (false)
 
