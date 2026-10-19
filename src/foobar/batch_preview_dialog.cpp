@@ -1277,8 +1277,9 @@ void update_metadata_table(PreviewState& state) {
             : !state.candidate_view_order.empty()
             ? L"Pasted evidence (provider unverified). No change / Review / Blocked are "
               L"comparison statuses, not write approvals. No tags were written."
-            : L"Copy a structured candidate and click Import clipboard. Required: "
-              L"@provider=discogs, @id=release:123 and FIELD=VALUE. No tags are written.";
+            : L"Copy a structured manual candidate or @beatport-track-facts "
+              L"with @provider=beatport, @id=track:NNN, TITLE, ARTIST, VERSION "
+              L"and DURATION=MM:SS. Import clipboard compares only; no writes.";
         SetDlgItemTextW(state.dialog, IDC_BATCH_HINT, hint.c_str());
         return;
     }
@@ -2406,7 +2407,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_METADATA_MB_SEARCH,L"One deliberate official HTTPS lookup; no automatic retries and no tag writes."},
         {IDC_METADATA_MB_LOAD_RELEASE,L"Inspect a verified exact release; unmatched Discogs track credits remain blocked."},
         {IDC_METADATA_INSPECT_CUE,L"Read the source CUE and show its album/track fields. Embedded and external CUE are never written here."},
-        {IDC_METADATA_IMPORT_CANDIDATE,L"Compare structured manual evidence or @beatport-track-json + authorized JSON. Offline, unverified, read-only; requires exact physical match."},
+        {IDC_METADATA_IMPORT_CANDIDATE,L"Import manual facts with @beatport-track-facts or lawfully supplied @beatport-track-json. Offline, unverified, read-only; requires physical match."},
         {IDC_METADATA_LIST,L"Select a candidate or proposed change to inspect its source and status."},
         {IDC_METADATA_MB_DETAILS,L"Field-by-field evidence for the selected online candidate. REVIEW is not a tag-write authorization."},
         {IDC_METADATA_FILTER,L"Limit the local normalization review to music, extended or all tags."},
@@ -2467,7 +2468,10 @@ void show_workspace_help(HWND dialog) {
         L"on the first line, followed by track JSON already lawfully supplied "
         L"to you. No Beatport login or network request is made. "
         L"Physical title, artist, version, ISRC and duration are compared. "
-        L"Mismatches are blocked and CUE ordinals are never guessed.\n\n"
+        L"Alternatively @beatport-track-facts accepts explicitly typed "
+         L"TITLE/ARTIST/VERSION/DURATION=MM:SS and other visible factual "
+         L"fields with @provider=beatport and @id=track:NNN. "
+         L"Mismatches are blocked and CUE ordinals are never guessed.\n\n"
         L"3. Plan file locations\n"
         L"Choose a routing profile, destination and naming expression, then "
         L"preview the proposed paths. Neither moves nor renames are enabled.\n\n"
@@ -4118,14 +4122,16 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             const auto text = read_manual_clipboard_text(dialog);
             const bool beatport_user_json =
                 djmeta::online::is_beatport_user_json_clipboard(text);
+            const bool beatport_user_facts =
+                djmeta::online::is_beatport_user_facts_clipboard(text);
             std::optional<djmeta::online::ManualCandidate> user_candidate;
-            if(!beatport_user_json)
+            if(!beatport_user_json && !beatport_user_facts)
                 user_candidate=djmeta::online::parse_manual_candidate(text);
             std::vector<djmeta::online::FieldReviewRow> rows;
             if (compare_cue) {
-                if(beatport_user_json)
+                if(beatport_user_json || beatport_user_facts)
                     throw std::invalid_argument(
-                        "Beatport track JSON has no qualified CUE ordinal. "
+                        "Beatport track import has no qualified CUE ordinal. "
                         "Use structured @cue_track_ordinal evidence instead.");
                 // Dedicated CUE reader: exact external bytes or a qualified
                 // physical subsong-0 CUESHEET. A generic virtual file_info
@@ -4146,9 +4152,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                         "@cue_track_ordinal applies only to CUE comparison.");
                 const auto ref = entry.handle->get_info_ref();
                 const auto original = metadata_from_file_info(ref->info());
-                if(beatport_user_json) {
-                    const auto beatport_track =
-                        djmeta::online::parse_beatport_user_json_clipboard(text);
+                if(beatport_user_json || beatport_user_facts) {
+                    const auto beatport_track = beatport_user_json
+                        ? djmeta::online::parse_beatport_user_json_clipboard(text)
+                        : djmeta::online::parse_beatport_user_facts_clipboard(text);
                     const double seconds=ref->info().get_length();
                     std::int64_t duration_ms=-1;
                     if(seconds>0.0 && seconds<=36000.0)

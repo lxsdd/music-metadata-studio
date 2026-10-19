@@ -224,3 +224,51 @@ Separation:
 **German legal risk:** Database-maker rights (UrhG §§87b–87e) are not simply waived for a private project; even repeated extraction of many individually small database parts may be restricted. §87c's private-copy exception excludes certain electronically individually accessible databases. This is a product risk note, **not legal advice**. See https://www.gesetze-im-internet.de/urhg/__87b.html and https://www.gesetze-im-internet.de/urhg/__87c.html .
 
 **Conclusion:** A capable zero-cost private tagger with Discogs/MusicBrainz and manual/public-data fallbacks is technically feasible. Automatic full Beatport/Spotify scraping without app approval cannot presently be claimed lawful or reliably supported. The MVP must not be blocked waiting for their APIs. All online retrieval remains disabled pending per-provider qualification, while the candidate core/UI and local import contract can proceed independently.
+
+
+### User-initiated Beatport factual track comparison (offline, no API key)
+
+The native **Import clipboard** command accepts a second, explicitly marked
+format in addition to authorized JSON. The user manually enters factual
+information visible on a lawfully accessed Beatport track page; Studio does
+**not** fetch, automate the page, access an unofficial API, store a credential,
+or claim provider-side authentication. First copy the prepared plain text:
+
+```text
+@beatport-track-facts
+@provider=beatport
+@id=track:321
+@scope=recording
+TITLE=Home
+ARTIST=DJ Example
+VERSION=Extended Mix
+DURATION=6:42
+REMIXER=Mixer Q
+ISRC=GBXYZ2601234
+GENRE=Progressive House
+BPM=128
+KEY=Gm
+RELEASE_ID=987
+ALBUM=Home EP
+LABEL=Demo Label
+DATE@edition=2026-10-16
+```
+
+Replace every sample value with **actual, verified track-specific facts**.
+\`@id\` is the **numeric Beatport track ID** (not a release or master ID).
+\`VERSION\` is the explicitly shown mix/remix name, and \`DURATION\` is
+visible \`MM:SS\` (or \`H:MM:SS\`); minute/second display resolution is
+not a sample-accurate CUE index. \`DATE@edition\` explicitly means the edition
+release date, not the composition or first recording date. All additional
+fields are optional and must be omitted if not present or verified.
+Unknown/unqualified fields and incomplete core identity fail closed.
+
+Studio maps these text facts through the **same conservative Beatport
+recording matcher** already used by the structured JSON route, including
+local physical duration, TITLE, ARTIST, VERSION, available ISRC, Remix and
+edition provenance checks. A wrong mix, ambiguous local identity or missing
+duration blocks all proposals. Original custom/multivalue/ReplayGain tags
+stay untouched. CUE ordinal is never inferred; this track-specific path
+remains disabled in CUE comparison. Every result is labelled user-supplied
+and **read-only**; there is no automatic write or officially authorized
+Beatport API capability implied by this fallback.

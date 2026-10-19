@@ -284,6 +284,8 @@ for label, token in (
     ("CUE candidate manual review", "djmeta::online::review_manual_cue_candidate("),
     ("Beatport intentional clipboard import", "is_beatport_user_json_clipboard(text)"),
     ("Beatport bounded user JSON parser", "parse_beatport_user_json_clipboard(text)"),
+    ("Beatport visible fact paste", "is_beatport_user_facts_clipboard(text)"),
+    ("Beatport bounded fact parser", "parse_beatport_user_facts_clipboard(text)"),
     ("Beatport physical identity guard", "review_beatport_user_track("),
     ("Beatport refuses virtual CUE assignment", "Beatport track JSON has no qualified CUE ordinal"),
     ("MusicBrainz result group detail", "group_musicbrainz_release_rows("),

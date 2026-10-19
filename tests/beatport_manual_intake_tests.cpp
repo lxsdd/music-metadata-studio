@@ -105,6 +105,92 @@ int main() {
     rejects([]{(void)parse_beatport_user_json_clipboard(
         std::string("@beatport-track-json\n")+std::string(65536,'x'));},
         "oversized user JSON rejected before parsing");
+    // User can explicitly type facts visible on a lawful Beatport track
+    // page. No developer key, JSON response, scraping or host file write.
+    const std::string fact_text =
+        "@beatport-track-facts\n"
+        "@provider=beatport\n"
+        "@id=track:321\n"
+        "@scope=recording\n"
+        "TITLE=Home\n"
+        "ARTIST=DJ Example\n"
+        "VERSION=Extended Mix\n"
+        "DURATION=6:42\n"
+        "REMIXER=Mixer Q\n"
+        "ISRC=GBXYZ2601234\n"
+        "GENRE=Progressive House\n"
+        "BPM=128\n"
+        "KEY=Gm\n"
+        "RELEASE_ID=987\n"
+        "ALBUM=Home EP\n"
+        "LABEL=Demo Label\n"
+        "DATE@edition=2026-10-16\n";
+    check(is_beatport_user_facts_clipboard(fact_text) &&
+          !is_beatport_user_facts_clipboard(raw),
+          "factual Beatport header is explicit and separate from API JSON");
+    const auto facts=parse_beatport_user_facts_clipboard(fact_text);
+    check(facts.id==321 && facts.release_id==987 &&
+          facts.title=="Home" && facts.mix_name=="Extended Mix" &&
+          facts.duration_ms==402000 && facts.bpm==128 &&
+          facts.musical_key=="Gm" &&
+          facts.label_name=="Demo Label" &&
+          facts.release_date=="2026-10-16",
+          "typed Beatport facts retain exact track/mix/edition field identities");
+    const auto fact_review=review_beatport_user_track(original,402500,facts);
+    check(fact_review.identity==MatchDecision::Suggested &&
+          find(fact_review.fields,"GENRE")->state==FieldReviewState::NeedsReview &&
+          find(fact_review.fields,"DATE")->candidate.date_meaning==
+              DateMeaning::EditionRelease &&
+          find(fact_review.fields,"MYTAG")->state==FieldReviewState::Unchanged,
+          "typed visible Beatport facts reach qualified, read-only complete physical review");
+    const auto wrong_fact_review=review_beatport_user_track(
+        wrong,402500,facts);
+    check(wrong_fact_review.identity==MatchDecision::Rejected &&
+          find(wrong_fact_review.fields,"GENRE")->state==FieldReviewState::Blocked,
+          "same Beatport facts never override a conflicting mix");
+    const auto fact_change=[&](std::string old, std::string replacement) {
+        auto edited=fact_text;
+        const auto pos=edited.find(old);
+        check(pos!=std::string::npos,"fixture replacement exists");
+        edited.replace(pos,old.size(),replacement);
+        return edited;
+    };
+    rejects([&]{(void)parse_beatport_user_facts_clipboard(
+        fact_change("VERSION=Extended Mix\n",""));},
+        "missing mix identity blocks plain Beatport facts");
+    rejects([&]{(void)parse_beatport_user_facts_clipboard(
+        fact_change("DURATION=6:42","DURATION=6:99"));},
+        "incorrect seconds never produce synthetic duration");
+    rejects([&]{(void)parse_beatport_user_facts_clipboard(
+        fact_change("DURATION=6:42","DURATION=bad"));},
+        "free-text guessed duration is rejected");
+    rejects([&]{(void)parse_beatport_user_facts_clipboard(
+        fact_change("@id=track:321","@id=track:00321"));},
+        "noncanonical track ID cannot masquerade as exact Beatport identity");
+    rejects([&]{(void)parse_beatport_user_facts_clipboard(
+        fact_change("@provider=beatport","@provider=discogs"));},
+        "Beatport fact importer cannot reuse foreign-provider evidence");
+    rejects([&]{(void)parse_beatport_user_facts_clipboard(
+        fact_change("@scope=recording","@scope=edition"));},
+        "Beatport track facts must remain recording-scoped");
+    rejects([&]{(void)parse_beatport_user_facts_clipboard(
+        fact_change("BPM=128","BPM=900"));},
+        "unsafe BPM is never silently normalized");
+    rejects([&]{(void)parse_beatport_user_facts_clipboard(
+        fact_change("DATE@edition=2026-10-16","DATE@edition=2026-02-30"));},
+        "unqualified calendar dates do not become release dates");
+    rejects([&]{(void)parse_beatport_user_facts_clipboard(
+        fact_change("KEY=Gm","SURPRISE=arbitrary"));},
+        "unrecognized Beatport fact fields fail closed");
+    rejects([&]{(void)parse_beatport_user_facts_clipboard(
+        fact_change("VERSION=Extended Mix\n",
+                    "VERSION=Extended Mix\nVERSION=Radio Edit\n"));},
+        "ambiguous supplied versions do not produce track suggestions");
+    const std::string crlf_facts="@beatport-track-facts\r\n"+
+        fact_text.substr(fact_text.find('\n')+1);
+    check(parse_beatport_user_facts_clipboard(crlf_facts).id==321,
+          "Windows CRLF Beatport fact marker accepted without changing evidence");
+
     const std::string windows="@beatport-track-json\r\n"+
         raw.substr(raw.find('\n')+1);
     check(parse_beatport_user_json_clipboard(windows).id==321,
