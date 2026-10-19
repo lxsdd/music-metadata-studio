@@ -202,6 +202,15 @@ struct PreviewState {
 HWND g_workspace = nullptr;
 PreviewState* g_pending_state = nullptr;
 
+// Edited search context cancels pending results without ever joining on UI.
+void invalidate_online_request(PreviewState& state) {
+    state.online_context_version.invalidate();
+    if(state.discogs_request)
+        request_readonly_network_stop(*state.discogs_request);
+    if(state.musicbrainz_request)
+        request_readonly_network_stop(*state.musicbrainz_request);
+}
+
 // External CUE files may appear as top-level physical handles in foobar. They
 // are not audio-file tag targets. Never trust subsong == 0 alone here.
 bool is_external_cue_locator(std::string_view path) {
@@ -2849,6 +2858,11 @@ void consume_discogs_network(HWND dialog, PreviewState& state) {
     }
     EnableWindow(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH),TRUE);
     try {
+        if(context && !state.online_context_version.matches(context->context_version)) {
+            // Context changes deliberately cancel this reply, without a popup.
+            update_metadata_table(state);
+            return;
+        }
         if(!context)
             throw std::runtime_error("Discogs request lost its source context.");
         if(!job->error.empty())
@@ -2860,11 +2874,10 @@ void consume_discogs_network(HWND dialog, PreviewState& state) {
                 djmeta::online::discogs::parse_release(
                     job->response,context->release_id));
     } catch(const std::exception& error) {
-        state.search_attempt_notice=L"Discogs lookup failed or became stale. "+
+        state.search_attempt_notice=L"Discogs read-only lookup failed: "+
             from_utf8(error.what())+L" No changes were made.";
         update_metadata_table(state);
-        MessageBoxW(dialog,from_utf8(error.what()).c_str(),
-                    L"Discogs read-only lookup",MB_OK|MB_ICONWARNING);
+        SetDlgItemTextW(dialog,IDC_BATCH_HINT,state.search_attempt_notice.c_str());
     }
 }
 
@@ -3002,6 +3015,10 @@ void consume_musicbrainz_network(HWND dialog, PreviewState& state) {
     }
     EnableWindow(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH),TRUE);
     try {
+        if(request && !state.online_context_version.matches(request->context_version)) {
+            update_metadata_table(state); // stale responses cannot interrupt foobar
+            return;
+        }
         if(!request)
             throw std::runtime_error("MusicBrainz request lost its context.");
         if(!job->error.empty())throw std::runtime_error(job->error);
@@ -3010,11 +3027,10 @@ void consume_musicbrainz_network(HWND dialog, PreviewState& state) {
         else
             publish_musicbrainz_release(state,*request,job->response);
     } catch(const std::exception& error) {
-        state.search_attempt_notice=L"MusicBrainz lookup failed or became stale. "+
+        state.search_attempt_notice=L"MusicBrainz read-only lookup failed: "+
             from_utf8(error.what())+L" No files were changed.";
         update_metadata_table(state);
-        MessageBoxW(dialog,from_utf8(error.what()).c_str(),
-                    L"MusicBrainz read-only lookup",MB_OK|MB_ICONWARNING);
+        SetDlgItemTextW(dialog,IDC_BATCH_HINT,state.search_attempt_notice.c_str());
     }
 }
 
@@ -3282,7 +3298,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         if (header && header->idFrom == IDC_BATCH_TABS &&
             header->code == TCN_SELCHANGE) {
             if(state->help_tooltips) SendMessageW(state->help_tooltips,TTM_POP,0,0);
-            state->online_context_version.invalidate();
+            invalidate_online_request(*state);
             const int selected_tab = TabCtrl_GetCurSel(state->tabs);
             show_preview_page(dialog, *state, selected_tab != 2, selected_tab == 0);
             return TRUE;
@@ -3306,7 +3322,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             }
             if (row<0 || static_cast<std::size_t>(row)>=state->track_view_order.size())
                 return TRUE;
-            state->online_context_version.invalidate();
+            invalidate_online_request(*state);
             state->selected_track_index =
                 state->track_view_order[static_cast<std::size_t>(row)];
             const bool already_searching = state->show_candidate;
@@ -3372,7 +3388,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             if (const auto track = native_selected_track_change(
                     *changed, state->track_view_order, state->updating_track_selection)) {
                 if(*track!=state->selected_track_index)
-                    state->online_context_version.invalidate();
+                    invalidate_online_request(*state);
                 state->selected_track_index = *track;
                 prefill_musicbrainz_query(*state,true);
                 update_metadata_table(*state);
@@ -3426,7 +3442,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 if (changed && (changed->uChanged & LVIF_STATE) &&
                     ((changed->uNewState & LVIS_SELECTED) !=
                      (changed->uOldState & LVIS_SELECTED))) {
-                    state->online_context_version.invalidate();
+                    invalidate_online_request(*state);
                     refresh_musicbrainz_detail_rows(*state);
                     update_online_release_load_button(*state);
                 }
@@ -3763,12 +3779,12 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
     try {
         if(id==IDC_METADATA_MB_QUERY && HIWORD(wp)==EN_CHANGE) {
             // A delayed response must fail closed even after edit-and-restore.
-            state->online_context_version.invalidate();
+            invalidate_online_request(*state);
             state->search_plan_identity.clear();
             return TRUE;
         }
         if(id==IDC_METADATA_ONLINE_PROVIDER && HIWORD(wp)==CBN_SELCHANGE) {
-            state->online_context_version.invalidate();
+            invalidate_online_request(*state);
             state->discogs_provider_selected=
                 SendDlgItemMessageW(dialog,IDC_METADATA_ONLINE_PROVIDER,
                     CB_GETCURSEL,0,0)==1;
@@ -3796,7 +3812,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             return TRUE;
         }
         if (id == IDC_BATCH_REFRESH && HIWORD(wp) == BN_CLICKED) {
-            state->online_context_version.invalidate();
+            invalidate_online_request(*state);
             refresh_workspace_snapshot(*state);
             return TRUE;
         }
@@ -3989,7 +4005,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             return TRUE;
         }
         if (id == IDC_METADATA_INSPECT_CUE && HIWORD(wp) == BN_CLICKED) {
-            state->online_context_version.invalidate();
+            invalidate_online_request(*state);
             if (!state->show_candidate ||
                 state->selected_track_index >= state->entries.size())
                 throw std::invalid_argument("Select one audio/CUE source to inspect.");
@@ -4074,7 +4090,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             return TRUE;
         }
         if (id == IDC_METADATA_IMPORT_CANDIDATE && HIWORD(wp) == BN_CLICKED) {
-            state->online_context_version.invalidate();
+            invalidate_online_request(*state);
             if (!state->show_candidate ||
                 state->selected_track_index >= state->entries.size())
                 throw std::invalid_argument("Select a track before importing a candidate.");

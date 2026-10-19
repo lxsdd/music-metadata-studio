@@ -865,7 +865,8 @@ int main() {
               "network errors are captured without crashing the dialog thread");
         if(failure->worker.joinable()) failure->worker.join();
         failure.reset();
-        // A modeless close requests cancellation without blocking UI.
+        // An edited query cancels the old reply without blocking UI.
+        const auto pending_context=test_request_context.current();
         std::atomic<bool> saw_cancel{false};
         auto pending=djmeta_foobar::start_readonly_network(dialog,
             [&](std::stop_token cancel) -> std::string {
@@ -877,8 +878,10 @@ int main() {
                 }
                 return "uncancelled request";
             });
-        check(SendMessageW(dialog,WM_NULL,0,0)==0,
-              "native UI dispatch continues during cancellable transport");
+        check(SendMessageW(dialog,WM_NULL,0,0)==0 &&
+              SetWindowTextW(mb_query,L"New query cancels pending provider")!=FALSE &&
+              !test_request_context.matches(pending_context),
+              "real native edit invalidates pending transport without blocking UI");
         djmeta_foobar::request_readonly_network_stop(*pending);
         for(int n=0;n<200 && !djmeta_foobar::readonly_network_finished(*pending);++n)
             Sleep(5);
