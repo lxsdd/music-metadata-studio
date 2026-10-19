@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <optional>
 #include <random>
 #include <string>
 #include <string_view>
@@ -57,6 +58,10 @@ struct PrecisionCueExternalCreateRequest {
     // Caller has already qualified this directory against the actual local
     // physical MP3 using host file handles, not a playlist virtual subsong.
     std::filesystem::path qualified_sibling_directory;
+    // Absolute canonical path of the physical file selected in foobar; never
+    // a virtual CUE subsong. The filename must match FILE and share the target
+    // directory. It is opened for read-only metadata inspection only.
+    std::filesystem::path physical_mp3_absolute_path;
     PrecisionCueWritePreflight reviewed_preflight;
     std::uint64_t reviewed_source_snapshot_token = 0;
     std::uint64_t reviewed_target_snapshot_token = 0;
@@ -160,6 +165,39 @@ inline bool exact_existing_bytes(const std::filesystem::path& target,
         return false;
     return actual == expected && source.peek() == std::char_traits<char>::eof();
 }
+
+// Additional independent physical-source guard. This does not replace the
+// caller's OS-handle identity and immutable snapshot evidence: mtime/size
+// alone cannot prove content identity against malicious concurrent writers.
+struct PhysicalSourceFingerprint {
+    std::uintmax_t length = 0;
+    std::filesystem::file_time_type last_write{};
+};
+inline std::optional<PhysicalSourceFingerprint> physical_source_snapshot(
+    const std::filesystem::path& path, const std::filesystem::path& parent,
+    std::string_view mp3_basename) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    if (!path.is_absolute() || path != path.lexically_normal() ||
+        path.parent_path() != parent ||
+        path.filename() != utf8_path(mp3_basename) ||
+        fs::is_symlink(path, ec) || ec ||
+        !fs::is_regular_file(path, ec) || ec ||
+        fs::canonical(path, ec) != path || ec) return std::nullopt;
+    const auto length = fs::file_size(path, ec);
+    if (ec || length == 0) return std::nullopt;
+    const auto modified = fs::last_write_time(path, ec);
+    if (ec) return std::nullopt;
+    return PhysicalSourceFingerprint{length, modified};
+}
+inline bool physical_source_unchanged(
+    const PhysicalSourceFingerprint& previous,
+    const std::filesystem::path& path, const std::filesystem::path& parent,
+    std::string_view mp3_basename) {
+    const auto now = physical_source_snapshot(path, parent, mp3_basename);
+    return now && previous.length == now->length &&
+           previous.last_write == now->last_write;
+}
 } // namespace precision_cue_external_detail
 
 // The observer must independently re-read both physical-source identity and
@@ -191,6 +229,13 @@ inline PrecisionCueExternalCreateResult create_new_precision_cue_external(
         std::filesystem::canonical(parent, ec) != parent || ec)
         return {Status::Rejected, "CUE_TARGET_DIRECTORY_UNQUALIFIED"};
 
+    // Reject a missing, virtual, symlinked, renamed or different-directory
+    // source even if upstream evidence incorrectly claims it is qualified.
+    const auto physical_start = precision_cue_external_detail::physical_source_snapshot(
+        request.physical_mp3_absolute_path, parent, request.mp3_basename);
+    if (!physical_start)
+        return {Status::Rejected, "CUE_PHYSICAL_SOURCE_PATH_UNQUALIFIED"};
+
     const auto target = parent / precision_cue_external_detail::utf8_path(
         export_plan.target_cue_basename);
     if (target.parent_path() != parent)
@@ -212,6 +257,10 @@ inline PrecisionCueExternalCreateResult create_new_precision_cue_external(
 
     try {
         auto evidence = inspect();
+        if (!precision_cue_external_detail::physical_source_unchanged(
+                *physical_start, request.physical_mp3_absolute_path,
+                parent, request.mp3_basename))
+            return {Status::ReviewRequired, "CUE_PHYSICAL_SOURCE_STALE"};
         // No-op NEVER opens a write handle. Confirm the exact existing bytes,
         // not just a flag supplied by an upstream provider or foobar handle.
         if (preflight_precision_cue_external_write(evidence.preview) ==
@@ -253,6 +302,10 @@ inline PrecisionCueExternalCreateResult create_new_precision_cue_external(
         // Prevent publishing bytes whose reviewed source/target identity
         // changed while the temporary file was being written and flushed.
         evidence = inspect();
+        if (!precision_cue_external_detail::physical_source_unchanged(
+                *physical_start, request.physical_mp3_absolute_path,
+                parent, request.mp3_basename))
+            return {Status::ReviewRequired, "CUE_PHYSICAL_SOURCE_CHANGED_DURING_STAGE"};
         if (revalidate_precision_cue_external_commit(evidence) !=
             PrecisionCueWriteDecision::ReadyForExplicitWrite) {
             return {Status::ReviewRequired, "CUE_CHANGED_DURING_STAGING"};
