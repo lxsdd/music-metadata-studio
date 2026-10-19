@@ -287,7 +287,7 @@ for label, token in (
     ("Beatport visible fact paste", "is_beatport_user_facts_clipboard(text)"),
     ("Beatport bounded fact parser", "parse_beatport_user_facts_clipboard(text)"),
     ("Beatport physical identity guard", "review_beatport_user_track("),
-    ("Beatport refuses virtual CUE assignment", "Beatport track JSON has no qualified CUE ordinal"),
+    ("Beatport refuses virtual CUE assignment", "Beatport track import has no qualified CUE ordinal"),
     ("MusicBrainz result group detail", "group_musicbrainz_release_rows("),
     ("MusicBrainz one row per hit", "state.candidate_rows=std::move(rows.summary)"),
     ("MusicBrainz separate field details", "refresh_musicbrainz_detail_rows(state)"),
