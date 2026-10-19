@@ -45,7 +45,7 @@ inline bool precision_cue_strict_generated_layout(
     std::size_t cursor = 0;
     while (cursor < text.size()) {
         const auto end = text.find('\n', cursor);
-        if (end == std::string_view::npos || lines.size() >= 305) return false;
+        if (end == std::string_view::npos || lines.size() >= 410) return false;
         lines.push_back(text.substr(cursor, end - cursor));
         cursor = end + 1;
     }
