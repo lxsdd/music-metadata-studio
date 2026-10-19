@@ -26,6 +26,9 @@ struct PrecisionCueRelease {
     std::string album_performer;
     // Disc and track positions must be consecutive, starting at 1.
     std::vector<PrecisionCueReleaseTrack> tracks;
+    // Only populated when official album-level catalog data supplies them.
+    std::string genre;
+    std::string release_date; // YYYY-MM-DD; never a physical tag write.
 };
 
 enum class PrecisionCueMatchState {

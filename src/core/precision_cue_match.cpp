@@ -73,6 +73,8 @@ bool valid_release(const PrecisionCueRelease& release, bool reference) {
         !valid_field(release.album_performer, false) ||
         !valid_field(release.provider, false) ||
         !valid_field(release.provider_release_id, false) ||
+        !valid_field(release.genre, false) ||
+        !valid_field(release.release_date, false) ||
         release.tracks.empty() || release.tracks.size() > 8u * 99u) return false;
     unsigned previous_disc = 0;
     unsigned previous_track = 0;
@@ -101,6 +103,7 @@ bool valid_release(const PrecisionCueRelease& release, bool reference) {
 bool same_payload(const PrecisionCueRelease& a, const PrecisionCueRelease& b) {
     if (a.provider != b.provider || a.provider_release_id != b.provider_release_id ||
         a.album_title != b.album_title || a.album_performer != b.album_performer ||
+        a.genre != b.genre || a.release_date != b.release_date ||
         a.tracks.size() != b.tracks.size()) return false;
     for (std::size_t i = 0; i < a.tracks.size(); ++i) {
         const auto& x = a.tracks[i];
@@ -178,6 +181,12 @@ PrecisionCueCandidateMatch assess(
         canonical(reference.album_performer) != canonical(candidate.album_performer)) {
         result.state = PrecisionCueMatchState::Review;
         result.diagnostics.emplace_back("ALBUM_PERFORMER_REVIEW");
+    }
+    // Conflicting known dates are edition evidence requiring human review.
+    if (!reference.release_date.empty() && !candidate.release_date.empty() &&
+        reference.release_date != candidate.release_date) {
+        result.state = PrecisionCueMatchState::Review;
+        result.diagnostics.emplace_back("RELEASE_DATE_REVIEW");
     }
     if (reference.provider.empty() || reference.provider_release_id.empty()) {
         result.state = PrecisionCueMatchState::Review;

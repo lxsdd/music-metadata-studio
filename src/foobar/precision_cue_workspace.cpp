@@ -300,6 +300,8 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
         djmeta::PrecisionCueDisc disc;
         disc.album_title = release.album_title;
         disc.album_performer = release.album_performer;
+        disc.genre = release.genre;
+        disc.release_date = release.release_date;
         disc.audio_file_basename = physical.basename;
         disc.disc_number = d;
         disc.total_discs = count;
@@ -345,6 +347,10 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
     details += L"Nothing has been written to audio, tags, the clipboard or CUE files.\r\n";
     details += L"Album: " + from_utf8(release.album_title) + L"\r\n";
     details += L"Provider: Apple / collection " + from_utf8(release.provider_release_id) + L"\r\n";
+    if (!release.release_date.empty())
+        details += L"Apple catalog DATE: " + from_utf8(release.release_date) + L"\r\n";
+    if (!release.genre.empty())
+        details += L"Apple catalog GENRE: " + from_utf8(release.genre) + L"\r\n";
     if (duration_warning)
         details += L"WARNING: At least one local duration is unknown or requires review.\r\n";
     details += reviewed

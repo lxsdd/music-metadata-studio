@@ -255,6 +255,33 @@ unsigned track_count(const JsonValue& v) {
     return static_cast<unsigned>(n);
 }
 
+// Accept only a supported ISO catalog date; never infer a missing DATE.
+std::string apple_album_release_date(std::string_view s) {
+    if (s.size() != 10 && s.size() != 20)
+        reject("unsupported Apple release date");
+    const auto digit = [&](std::size_t i) {
+        if (s[i] < '0' || s[i] > '9') reject("invalid Apple date digit");
+        return static_cast<unsigned>(s[i] - '0');
+    };
+    if (s[4] != '-' || s[7] != '-') reject("invalid Apple date separators");
+    const unsigned year = 1000 * digit(0) + 100 * digit(1) + 10 * digit(2) + digit(3);
+    const unsigned month = 10 * digit(5) + digit(6);
+    const unsigned day = 10 * digit(8) + digit(9);
+    const bool leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    constexpr unsigned days[] = {0,31,28,31,30,31,30,31,31,30,31,30,31};
+    if (year == 0 || month == 0 || month > 12 || day == 0 ||
+        day > days[month] + (month == 2 && leap ? 1u : 0u))
+        reject("invalid Apple calendar date");
+    if (s.size() == 20) {
+        if (s[10] != 'T' || s[13] != ':' || s[16] != ':' || s[19] != 'Z' ||
+            10 * digit(11) + digit(12) > 23 ||
+            10 * digit(14) + digit(15) > 59 ||
+            10 * digit(17) + digit(18) > 59)
+            reject("invalid Apple UTC date");
+    }
+    return std::string(s.substr(0, 10));
+}
+
 std::string country(std::string_view code) {
     if (code.size() != 2) reject("invalid Apple storefront");
     std::string result;
@@ -360,6 +387,17 @@ PrecisionCueRelease parse_apple_precision_cue_lookup(
             release.album_title = album;
             release.album_performer = artist;
             album_count = track_count(row);
+            if (const auto* date = row.find("releaseDate")) {
+                if (date->type != JsonValue::Type::String)
+                    reject("invalid Apple album release date type");
+                release.release_date =
+                    apple_album_release_date(text(row, "releaseDate"));
+            }
+            if (const auto* genre = row.find("primaryGenreName")) {
+                if (genre->type != JsonValue::Type::String)
+                    reject("invalid Apple genre type");
+                release.genre = text(row, "primaryGenreName");
+            }
             continue;
         }
         if (wrapper != "track" || text(row, "kind") != "song")

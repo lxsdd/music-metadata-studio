@@ -38,6 +38,29 @@ void strong_match_and_rounded_reference() {
     assert(report.candidates[0].diagnostics.empty());
 }
 
+
+void sourced_edition_date_review() {
+    auto source = release("deezer", "synthetic-ref");
+    auto apple = release("apple", "synthetic-collection");
+    apple.genre = "Electronic";
+    apple.release_date = "2026-10-16";
+    assert(djmeta::match_precision_cue_releases(source, {apple}).state ==
+           PrecisionCueMatchState::Selected);
+    source.release_date = "2026-10-15";
+    assert(djmeta::match_precision_cue_releases(source, {apple}).state ==
+           PrecisionCueMatchState::Review);
+    source.release_date = "2026-10-16";
+    assert(djmeta::match_precision_cue_releases(source, {apple}).state ==
+           PrecisionCueMatchState::Selected);
+    auto conflicting = apple;
+    conflicting.genre = "Downtempo";
+    assert(djmeta::match_precision_cue_releases(source, {apple, conflicting}).state ==
+           PrecisionCueMatchState::Ambiguous);
+    apple.genre = "Electronic\nInjected";
+    assert(djmeta::match_precision_cue_releases(source, {apple}).state ==
+           PrecisionCueMatchState::Rejected);
+}
+
 void exact_duplicate_deduplicates_only_same_id() {
     const auto source = release("deezer", "ref-1");
     const auto apple = release("apple", "680000001");
@@ -212,6 +235,7 @@ void release_cumulative_24h_contract() {
 int main() {
     strong_match_and_rounded_reference();
     exact_duplicate_deduplicates_only_same_id();
+    sourced_edition_date_review();
     mix_identity_and_disc_gates();
     incomplete_or_conflicting_evidence_review();
     malformed_provider_data_fail_closed();

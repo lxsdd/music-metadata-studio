@@ -194,6 +194,47 @@ void lookup_disc_clock_bounds() {
     });
 }
 
+
+void sourced_apple_album_metadata() {
+    // Collection-row metadata flows to external CUE REM fields, never tags.
+    const auto enriched = replace_once(valid, "\"trackCount\":4}",
+        "\"releaseDate\":\"2026-10-16T07:00:00Z\",\"primaryGenreName\":\"Electronic\",\"trackCount\":4}");
+    const auto release = djmeta::parse_apple_precision_cue_lookup(enriched, "12345");
+    assert(release.genre == "Electronic" && release.release_date == "2026-10-16");
+    const auto unknown = djmeta::parse_apple_precision_cue_lookup(valid, "12345");
+    assert(unknown.genre.empty() && unknown.release_date.empty());
+    djmeta::PrecisionCueDisc disc;
+    disc.album_title = release.album_title;
+    disc.album_performer = release.album_performer;
+    disc.audio_file_basename = "Synthetic Disc 1.mp3";
+    disc.genre = release.genre;
+    disc.release_date = release.release_date;
+    disc.disc_number = 1;
+    disc.total_discs = 2;
+    for (const auto& track : release.tracks)
+        if (track.disc_number == 1)
+            disc.tracks.push_back({track.title, track.performer, track.duration_ms});
+    const auto plan = djmeta::make_precision_cue(disc);
+    assert(plan.external_cue_utf8.find("REM DATE \"2026-10-16\"") != std::string::npos);
+    assert(plan.external_cue_utf8.find("REM GENRE \"Electronic\"") != std::string::npos);
+    const auto leap = replace_once(enriched, "2026-10-16T07:00:00Z",
+                                            "2024-02-29T07:00:00Z");
+    assert(djmeta::parse_apple_precision_cue_lookup(leap, "12345").release_date ==
+           "2024-02-29");
+    for (const auto bad : {"2026-02-30T07:00:00Z", "2026-13-16T07:00:00Z",
+                           "2026-10-16T25:00:00Z", "2026-10-16T07:00:00+02:00"}) {
+        rejects([&] {
+            (void)djmeta::parse_apple_precision_cue_lookup(
+                replace_once(enriched, "2026-10-16T07:00:00Z", bad), "12345");
+        });
+    }
+    rejects([&] {
+        (void)djmeta::parse_apple_precision_cue_lookup(
+            replace_once(enriched, "\"primaryGenreName\":\"Electronic\"",
+                          "\"primaryGenreName\":null"), "12345");
+    });
+}
+
 void album_search() {
     const std::string sample = R"JSON({"resultCount":2,"results":[{"wrapperType":"collection","collectionId":12345,"collectionName":"Mix (DJ Mix)","artistName":"Various Artists","trackCount":30},{"wrapperType":"collection","collectionId":67890,"collectionName":"Mix (Original)","artistName":"Various Artists","trackCount":15}]})JSON";
     const auto albums = djmeta::parse_apple_precision_cue_album_search(sample);
@@ -252,6 +293,7 @@ int main() {
     selection_lookup_binding();
     lookup_synthetic_thirty();
     lookup_disc_clock_bounds();
+    sourced_apple_album_metadata();
     album_search();
     lookup_negative();
 }
