@@ -70,18 +70,32 @@ inline BeatportUserReview review_beatport_user_track(
     BeatportUserReview output;
     auto proposed=beatport::fields(track);
     output.fields=review_online_fields(originals,proposed);
+    const auto has_field=[&](std::string_view name) {
+        return std::any_of(originals.fields.begin(),originals.fields.end(),
+            [&](const auto& f){return ascii_upper_field(f.name)==name;});
+    };
+    const auto version=unique_beatport_local_value(originals,"VERSION");
+    const auto isrc=unique_beatport_local_value(originals,"ISRC");
     if(!title || !artist) {
         output.conflicts={"local_recording_identity_unqualified"};
+    } else if(duration_ms<=0 || duration_ms>36000000) {
+        output.conflicts={"physical_audio_duration_unavailable"};
+    } else if(has_field("VERSION") && (!version ||
+              !valid_evidence_origin(*version,512))) {
+        output.conflicts={"local_version_ambiguous"};
+    } else if(has_field("ISRC") && (!isrc ||
+              !valid_evidence_origin(*isrc,128))) {
+        output.conflicts={"local_isrc_ambiguous"};
     } else {
         RecordingIdentity local;
         local.title=*title;
         local.primary_artist=*artist;
-        if(const auto version=unique_beatport_local_value(originals,"VERSION"))
+        if(version) {
             local.mix_name=*version;
-        if(const auto isrc=unique_beatport_local_value(originals,"ISRC"))
-            local.isrc=*isrc;
-        if(duration_ms>0 && duration_ms<=36000000)
-            local.duration_ms=duration_ms;
+            local.mix=classify_mix_annotation(*version);
+        }
+        if(isrc) local.isrc=*isrc;
+        local.duration_ms=duration_ms;
         const auto match=compare(local,beatport::to_candidate(track));
         output.identity=match.decision;
         output.conflicts=match.conflicts;

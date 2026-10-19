@@ -45,10 +45,22 @@ inline std::optional<LocalReleaseTrack> discogs_physical_identity(
     if(!title || title->empty() || !artist || artist->empty() ||
        !valid_evidence_origin(*title,2048) ||
        !valid_evidence_origin(*artist,2048)) return std::nullopt;
+    // A separate VERSION is recording identity. Conflicting/multivalue
+    // versions cannot be ignored in favor of an apparently matching TITLE.
+    const auto version=unique_discogs_physical_tag(original,"VERSION");
+    const bool has_version=std::any_of(original.fields.begin(),original.fields.end(),
+        [](const auto& tag){return ascii_upper_field(tag.name)=="VERSION";});
+    if(has_version && (!version || version->empty() ||
+                       !valid_evidence_origin(*version,512)))
+        return std::nullopt;
     LocalReleaseTrack local;
     local.source_index=0;
     local.recording.title=*title;
     local.recording.primary_artist=*artist;
+    if(version) {
+        local.recording.mix_name=*version;
+        local.recording.mix=classify_mix_annotation(*version);
+    }
     // Discogs release tracklists do not expose independently verified ISRC
     // in this adapter. A one-sided local ISRC must not falsely veto a
     // duration-and-mix-qualified association; it stays in original tags.
