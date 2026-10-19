@@ -2527,7 +2527,7 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
          (state.cue_inspection_mode || state.cue_candidate_comparison_mode ||
           (state.discogs_live_view && state.discogs_search_was_cue)));
     djmeta::MetadataDocument originals;
-    std::string local_title,local_artist,cue_before;
+    std::string local_title,local_artist,local_album,cue_before;
     std::string local_barcode,local_catalog_number;
     if(cue_mode) {
         const auto raw=read_cue_raw_on_demand(entry.handle,entry.input.source_path);
@@ -2536,6 +2536,7 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
             throw std::invalid_argument("Discogs CUE search needs a qualified CUE inventory.");
         local_title=unique_cue_album_value(cue,"TITLE");
         local_artist=unique_cue_album_value(cue,"PERFORMER");
+        local_album=local_title; // Qualified CUE-global album, not a virtual tag.
         cue_before=raw.raw_text;
     } else {
         if(!entry.input.physical_source_qualified)
@@ -2544,6 +2545,18 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
         originals=metadata_from_file_info(info->info());
         local_title=unique_metadata_value(originals,"TITLE");
         local_artist=unique_metadata_value(originals,"ARTIST");
+        // ALBUM is an independent release-search hint, never a track identity.
+        // Malformed/oversize/ambiguous local album data cannot block a valid
+        // track-title search and must never become a guessed edition.
+        const auto tagged_album=unique_metadata_value(originals,"ALBUM");
+        if(!tagged_album.empty()) {
+            try {
+                (void)validated_term(tagged_album);
+                local_album=tagged_album;
+            } catch(const std::invalid_argument&) {
+                // Ignore only this optional search hint, not the source tags.
+            }
+        }
         // Only one intact value is sufficiently qualified. Duplicate or
         // multivalue edition identifiers are ignored, not guessed.
         const auto barcode=djmeta::online::unique_discogs_physical_tag(
@@ -2579,12 +2592,14 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
         const auto plan=track_search_plan(
             term,auto_query?local_artist:std::string{},
             auto_query?local_barcode:std::string{},
-            auto_query?local_catalog_number:std::string{});
+            auto_query?local_catalog_number:std::string{},
+            auto_query?local_album:std::string{});
         identity="discogs|"+entry.input.source_path+"|"+
             std::to_string(state.selected_track_index)+"|"+term+"|"+
             (auto_query?local_artist:"")+"|"+
             (auto_query?local_barcode:"")+"|"+
-            (auto_query?local_catalog_number:"");
+            (auto_query?local_catalog_number:"")+"|"+
+            (auto_query?local_album:"");
         // Only the last PUBLISHED response advances the plan. A network
         // failure does not consume a strategy; even irrelevant nonempty
         // hits can be broadened by another deliberate Search click.

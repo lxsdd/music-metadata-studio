@@ -76,6 +76,31 @@ int main() {
     rejects([]{(void)edition_identifier_search_path("catno",std::string(151,'x'));},
             "catalog identifiers are bounded");
 
+    const auto tagged_album=track_search_plan(
+        "Only You (Extended Mix)","Matt Fax",{},{},"Contrast EP");
+    check(tagged_album.size()==6 &&
+          tagged_album[0].label=="Tagged album release title" &&
+          tagged_album[0].path==release_title_search_path("Contrast EP","Matt Fax") &&
+          tagged_album[1].path==search_path("Only You (Extended Mix)","Matt Fax") &&
+          tagged_album[2].path==track_search_path("Only You (Extended Mix)","Matt Fax"),
+          "independent physical ALBUM search precedes recording-title fallback");
+    const auto cue_album=track_search_plan(
+        "A Continuous Mix","DJ Example",{},{},"A Continuous Mix");
+    check(cue_album[0].path==
+              release_title_search_path("A Continuous Mix","DJ Example") &&
+          cue_album[1].path==search_path("A Continuous Mix","DJ Example"),
+          "CUE-global album uses official release_title filter even if title matches");
+    const auto album_no_artist=track_search_plan(
+        "Side A",{}, {}, {}, "Various Artists Collection");
+    check(album_no_artist[0].path==
+              release_title_search_path("Various Artists Collection") &&
+          album_no_artist[1].path==search_path("Side A"),
+          "artist-free album search remains distinct from track title");
+    rejects([]{(void)track_search_plan("Valid",{}, {}, {}, "bad\nheader");},
+            "malformed album hint cannot cross the native provider boundary");
+    rejects([]{(void)release_title_search_path(std::string(151,'x'));},
+            "album release title search is bounded");
+
     const auto staged=track_search_plan(
         "1000 Years (DJ Version)", "Kyau & Albert x Maywave");
     check(staged.size()==5 &&
@@ -138,6 +163,8 @@ int main() {
     check(allowed_readonly_path(search_path("Via Balearia","Estiva")) &&
           allowed_readonly_path(track_search_path("1000 Years")) &&
           allowed_readonly_path(track_search_path("Only You","Matt Fax")) &&
+          allowed_readonly_path(release_title_search_path("Contrast EP","Matt Fax")) &&
+          allowed_readonly_path(release_title_search_path("A Continuous Mix")) &&
           allowed_readonly_path(release_path(38012673)) &&
           allowed_readonly_path(edition_identifier_search_path(
               "barcode","004299999998")) &&
@@ -154,6 +181,9 @@ int main() {
           !allowed_readonly_path("/database/search?barcode=123&type=release&artist=Any&page=1&per_page=20") &&
           !allowed_readonly_path("/database/search?catno=XYZ&type=release&token=secret&page=1&per_page=20") &&
           !allowed_readonly_path("/database/search?isrc=USABC2601234&type=release&page=1&per_page=20") &&
+          !allowed_readonly_path("/database/search?release_title=EP&type=release&token=secret&page=1&per_page=20") &&
+          !allowed_readonly_path("/database/search?release_title=EP&type=release&artist=Any&page=2&per_page=20") &&
+          !allowed_readonly_path("/database/search?release_title=EP%0D&type=release&page=1&per_page=20") &&
           !allowed_readonly_path("/database/search?barcode=%30%30&type=release&page=1&per_page=20") &&
           !allowed_readonly_path("/database/search?barcode=0%0A&type=release&page=1&per_page=20") &&
           !allowed_readonly_path("/releases/0") &&

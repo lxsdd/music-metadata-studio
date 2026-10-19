@@ -24,6 +24,12 @@ WinHTTP GET adapter and the existing bounded official catalog/edition parsers.
   edited queries bypass these automatic local identifier filters.
   The provider search hit is still only a candidate until the exact release
   detail is inspected; a barcode cannot authorize tag writes.
+- A qualified single-value physical **ALBUM** (or a parsed CUE-global
+  **TITLE**) adds an independent official `release_title` search stage,
+  before TITLE-based release/track fallback. The original track TITLE stays
+  unchanged, and a missing/ambiguous/malformed album is not guessed.
+  Explicitly edited search text does not silently mix in local ALBUM.
+  This is a candidate-discovery hint, never proof of the exact edition.
 - Search begins only with a deliberate user action. After zero hits its
   bounded official strategies automatically broaden; a nonempty result
   requires another deliberate Search click. The joined network worker waits
