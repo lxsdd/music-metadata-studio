@@ -211,6 +211,21 @@ void test_mp3_dryrun_stale_rollback() {
     CHECK(stages(sandbox)==0);
     CHECK(readall(physical)==before);
 }
+void test_exclusive_stage_creation_never_overwrites() {
+    Sandbox sandbox;
+    const auto source=fs::canonical(sandbox.path)/"synthetic.mp3";
+    const auto sentinel=sandbox.path/".precision-cue-stage-existing.tmp";
+    save(source,"synthetic audio bytes");
+    save(sentinel,"SENTINEL MUST NEVER CHANGE");
+    precision_cue_embedded_stage_detail::ScopedTemporaryFile owned(sentinel);
+    CHECK(!precision_cue_embedded_stage_detail::clone_to_owned_new_stage(
+        source,owned,fs::file_size(source)));
+    CHECK(!owned.owned);
+    CHECK(readall(sentinel)=="SENTINEL MUST NEVER CHANGE");
+    CHECK(readall(source)=="synthetic audio bytes");
+    // A failed attempt must neither acquire ownership nor delete the
+    // preexisting file; its caller is responsible only for owned stages.
+}
 void test_flac_dryrun_preserves_audio() {
     using Status=PrecisionCueEmbeddedStageStatus;
     Sandbox sandbox;
@@ -250,6 +265,7 @@ void test_flac_dryrun_preserves_audio() {
 int main() {
     test_mp3_dryrun_stale_rollback();
     test_flac_dryrun_preserves_audio();
+    test_exclusive_stage_creation_never_overwrites();
     std::puts("PASS: embedded dry-run clones preserve suffix bytes, reject stale sources, clean all stages");
     return 0;
 }

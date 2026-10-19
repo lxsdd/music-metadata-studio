@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -21,6 +22,10 @@
 #include <type_traits>
 #include <utility>
 #include <variant>
+#ifndef _WIN32
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 namespace djmeta {
 
@@ -58,6 +63,70 @@ struct ScopedTemporaryFile {
     ScopedTemporaryFile& operator=(const ScopedTemporaryFile&)=delete;
     explicit ScopedTemporaryFile(std::filesystem::path p):name(std::move(p)) {}
 };
+// Exclusive ownership is acquired BEFORE copying a single byte. Every
+// partial write belongs to ScopedTemporaryFile and is removed on failure.
+// Unlike copy_file(), ownership of an incomplete clone is unambiguous.
+inline bool clone_to_owned_new_stage(const std::filesystem::path& source,
+                                     ScopedTemporaryFile& stage,
+                                     std::uintmax_t expected_bytes) {
+    std::ifstream input(source,std::ios::binary);
+    if (!input) return false;
+#ifdef _WIN32
+    HANDLE handle=CreateFileW(stage.name.c_str(),GENERIC_WRITE,0,nullptr,
+        CREATE_NEW,FILE_ATTRIBUTE_TEMPORARY|FILE_FLAG_OPEN_REPARSE_POINT,nullptr);
+    if (handle==INVALID_HANDLE_VALUE) return false;
+#else
+    int flags=O_WRONLY|O_CREAT|O_EXCL;
+#ifdef O_CLOEXEC
+    flags|=O_CLOEXEC;
+#endif
+#ifdef O_NOFOLLOW
+    flags|=O_NOFOLLOW;
+#endif
+    const int handle=::open(stage.name.c_str(),flags,0600);
+    if (handle<0) return false;
+#endif
+    stage.owned=true;
+    std::array<char,64*1024> buffer{};
+    std::uintmax_t copied=0;
+    bool okay=true;
+    while (copied<expected_bytes) {
+        const auto n=static_cast<std::size_t>(
+            (std::min)(std::uintmax_t(buffer.size()),expected_bytes-copied));
+        input.read(buffer.data(),static_cast<std::streamsize>(n));
+        if (input.gcount()!=static_cast<std::streamsize>(n)) {
+            okay=false; break;
+        }
+        std::size_t offset=0;
+        while (offset<n) {
+#ifdef _WIN32
+            DWORD written=0;
+            if (!WriteFile(handle,buffer.data()+offset,
+                    static_cast<DWORD>(n-offset),&written,nullptr) ||
+                written==0) { okay=false; break; }
+            offset+=written;
+#else
+            const auto written=::write(handle,buffer.data()+offset,n-offset);
+            if (written<0 && errno==EINTR) continue;
+            if (written<=0) { okay=false; break; }
+            offset+=static_cast<std::size_t>(written);
+#endif
+        }
+        if (!okay) break;
+        copied+=n;
+    }
+    char extra=0;
+    if (okay && input.get(extra)) okay=false; // Detect a growing source.
+#ifdef _WIN32
+    if (okay && !FlushFileBuffers(handle)) okay=false;
+    if (!CloseHandle(handle)) okay=false;
+#else
+    if (okay && ::fsync(handle)!=0) okay=false;
+    if (::close(handle)!=0) okay=false;
+#endif
+    return okay;
+}
+
 inline std::string random_suffix() {
     std::random_device random;
     constexpr char digits[]="0123456789abcdef";
@@ -166,10 +235,9 @@ verify_precision_cue_embedded_staged_candidate(
         precision_cue_embedded_stage_detail::ScopedTemporaryFile temp(
             parent / (".precision-cue-stage-" +
                 precision_cue_embedded_stage_detail::random_suffix() + ".tmp"));
-        if (!std::filesystem::copy_file(reviewed.canonical_path,temp.name,
-                std::filesystem::copy_options::none,ec) || ec)
+        if (!precision_cue_embedded_stage_detail::clone_to_owned_new_stage(
+                reviewed.canonical_path,temp,reviewed.physical.bytes))
             return {Status::IoError,"EMBEDDED_CREATE_ONLY_CLONE_FAILED"};
-        temp.owned=true;
         if (test_checkpoint)
             test_checkpoint(PrecisionCueEmbeddedStageCheckpoint::AfterClone,
                             temp.name);
