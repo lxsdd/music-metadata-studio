@@ -59,8 +59,9 @@ inline bool precision_cue_strict_generated_layout(
         if (pos == lines.size()) return false;
         const auto line = lines[pos];
         if (!line.starts_with(prefix) || line.size() <= prefix.size() + 2 ||
-            line.back() != '"') return false;
-        const auto value = line.substr(prefix.size(), line.size() - prefix.size() - 1);
+            line[prefix.size()] != '"' || line.back() != '"') return false;
+        const auto value = line.substr(prefix.size() + 1,
+                                       line.size() - prefix.size() - 2);
         if (value.find('"') != std::string_view::npos) return false;
         for (const unsigned char c : value)
             if (c < 0x20 || c == 0x7f) return false;
