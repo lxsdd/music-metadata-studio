@@ -12,6 +12,7 @@
 #include "djmeta/precision_cue_filename.h"
 #include "djmeta/precision_cue_write_preflight.h"
 #include "djmeta/precision_cue_foobar_path.h"
+#include "djmeta/precision_cue_external_inspect.h"
 #include "djmeta/precision_cue_external_create.h"
 
 #include <atomic>
@@ -297,6 +298,27 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
         details += L"Proposed sibling CUE (NOT SAVED): " +
                    from_utf8(exports[i].target_cue_basename) + L"\r\n";
         details += from_utf8(plans[i].external_cue_utf8);
+        // The existing sibling target is inspected read-only and is NEVER
+        // opened with write access. Results are only valid at preview time.
+        const auto& file = state.files[mapping.physical_index_by_disc[i]];
+        const auto inspection = djmeta::inspect_precision_cue_existing_target(
+            plans[i], file.physical_absolute_path, file.basename);
+        using TargetState = djmeta::PrecisionCueExistingTargetState;
+        switch (inspection.state) {
+        case TargetState::Absent:
+            details += L"\r\nTARGET CHECK: No existing sibling CUE at preview time.\r\n";
+            break;
+        case TargetState::Identical:
+            details += L"\r\nTARGET CHECK: Existing CUE is byte-identical (NO-OP; keep file).\r\n";
+            break;
+        case TargetState::Different:
+            details += L"\r\nTARGET CHECK: Existing DIFFERENT CUE; NEVER overwrite it.\r\n";
+            break;
+        case TargetState::Unqualified:
+            details += L"\r\nTARGET CHECK: Existing target or path is not safely qualified.\r\n";
+            break;
+        }
+        details += L"Target inspection is read-only and must be repeated before writing.\r\n";
         details += L"\r\n75-FPS QUANTIZATION AUDIT (catalog timing, NOT audio-verified):\r\n";
         for (const auto& boundary : plans[i].boundaries) {
             const auto offset_us = djmeta::precision_cue_quantization_offset_microseconds(boundary);

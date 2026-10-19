@@ -1,6 +1,7 @@
 #include "djmeta/precision_cue_write_preflight.h"
 #include "djmeta/precision_cue_external_create.h"
 #include "djmeta/precision_cue_foobar_path.h"
+#include "djmeta/precision_cue_external_inspect.h"
 
 #ifdef NDEBUG
 #undef NDEBUG
@@ -343,6 +344,10 @@ void create_only_external_writer_regressions() {
     req.explicitly_approved_for_external_create = true;
     const auto target = req.qualified_sibling_directory /
         precision_cue_external_detail::utf8_path("Disc Über 東京.cue");
+    using ExistingState = PrecisionCueExistingTargetState;
+    VERIFY(inspect_precision_cue_existing_target(
+        req.plan, req.physical_mp3_absolute_path, req.mp3_basename).state ==
+        ExistingState::Absent);
 
     std::size_t probes = 0;
     std::uint64_t current_source = 101;
@@ -429,6 +434,9 @@ void create_only_external_writer_regressions() {
     const auto created = create_new_precision_cue_external(req, observe);
     VERIFY(created.status == Status::Created);
     VERIFY(probes == 2 && fs::exists(target));
+    VERIFY(inspect_precision_cue_existing_target(
+        req.plan, req.physical_mp3_absolute_path, req.mp3_basename).state ==
+        ExistingState::Identical);
     {
         std::ifstream file(target, std::ios::binary);
         const std::string bytes((std::istreambuf_iterator<char>(file)),
@@ -454,6 +462,9 @@ void create_only_external_writer_regressions() {
         std::ofstream tamper(target, std::ios::binary | std::ios::trunc);
         tamper << "existing CUE must survive";
     }
+    VERIFY(inspect_precision_cue_existing_target(
+        req.plan, req.physical_mp3_absolute_path, req.mp3_basename).state ==
+        ExistingState::Different);
     VERIFY(create_new_precision_cue_external(req, observe).status ==
            Status::Collision);
     {
@@ -486,6 +497,15 @@ void create_only_external_writer_regressions() {
     VERIFY(!precision_cue_external_detail::physical_source_unchanged(
         *before, physical_source, req.qualified_sibling_directory, req.mp3_basename));
 
+    // An existing CUE symlink is not a file eligible for safe no-op/export.
+#ifndef _WIN32
+    fs::remove(target);
+    fs::create_symlink(physical_source, target);
+    VERIFY(inspect_precision_cue_existing_target(
+        req.plan, req.physical_mp3_absolute_path, req.mp3_basename).state ==
+        ExistingState::Unqualified);
+    fs::remove(target);
+#endif
     // Host-parent path resolution must fail closed on a symlink alias.
 #ifndef _WIN32
     const auto alias = sandbox.parent_path() /
