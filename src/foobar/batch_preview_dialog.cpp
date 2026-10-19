@@ -744,6 +744,9 @@ std::vector<djmeta::online::FieldReviewRow> discogs_cue_release_rows(
             row.candidate.source_id=edition.edition_id;
             row.state=FieldReviewState::Blocked;
             row.reason="discogs_live_release_unverified_track_assignment";
+            row.candidate.values=item.reasons;
+            if(row.candidate.values.empty())
+                row.candidate.values={"No uniquely verified edition track"};
             rows.push_back(std::move(row));
         } else for(const auto& field:item.fields)
             append(prefix,field);
@@ -2448,7 +2451,10 @@ void show_workspace_help(HWND dialog) {
     MessageBoxW(dialog,
         L"1. Find & compare\n"
         L"Select a track on the left. Its TITLE is already in the search box. "
-        L"Choose Discogs or MusicBrainz and click Search (one deliberate lookup). "
+        L"Choose Discogs or MusicBrainz and click Search. Discogs tries "
+        L"the next bounded official strategy automatically only on zero hits; "
+        L"click Search again to broaden even when results are present. "
+        L"Paste an exact HTTPS Discogs release URL to inspect its edition directly. "
         L"Discogs search and release lookups use an isolated network worker, "
         L"so browsing and playback remain responsive during HTTPS. "
         L"Select a result to compare original and suggested fields below. "
@@ -2500,7 +2506,8 @@ void begin_discogs_network(HWND dialog, PreviewState& state,
 
 // Official Discogs requests share the existing foobar snapshot/rules guards.
 // Token is entered in a password-style control and never persisted or logged.
-// One deliberate button activation issues at most one HTTPS GET.
+// One deliberate Search starts a bounded official plan: zero-hit responses
+// may advance automatically, while nonempty hits require an explicit click.
 void perform_discogs_search(HWND dialog, PreviewState& state) {
     using namespace djmeta::online;
     using namespace djmeta::online::discogs;
@@ -2558,13 +2565,12 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
         throw std::invalid_argument("Only a canonical HTTPS Discogs release URL is accepted.");
     std::string path,strategy,identity;
     std::size_t total=1;
-    std::optional<ReleaseEdition> direct_edition;
+    std::size_t attempt_index=0;
     if(direct_id) {
         path=release_path(direct_id);
         strategy="Exact release URL";
         identity="discogs|direct|"+std::to_string(direct_id)+"|"+
             entry.input.source_path;
-        state.search_attempt_index=0;
     } else {
         const auto plan=track_search_plan(
             term,auto_query?local_artist:std::string{},
@@ -2575,21 +2581,20 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
             (auto_query?local_artist:"")+"|"+
             (auto_query?local_barcode:"")+"|"+
             (auto_query?local_catalog_number:"");
-        if(identity!=state.search_plan_identity)
-            state.search_attempt_index=0;
-        else if(state.discogs_live_view && state.discogs_results.empty() &&
-                state.search_attempt_index+1<plan.size())
-            ++state.search_attempt_index;
-        else if(!state.discogs_results.empty())
-            state.search_attempt_index=0;
+        // Only the last PUBLISHED response advances the plan. A network
+        // failure does not consume a strategy; even irrelevant nonempty
+        // hits can be broadened by another deliberate Search click.
+        attempt_index=next_search_attempt(
+            state.search_plan_identity,identity,
+            state.search_attempt_index,plan.size());
         total=plan.size();
-        const auto& attempt=plan.at(state.search_attempt_index);
+        const auto& attempt=plan.at(attempt_index);
         path=attempt.path;
         strategy=attempt.label;
     }
     SetDlgItemTextW(dialog,IDC_BATCH_HINT,
         (L"Discogs official HTTPS (read-only): "+from_utf8(strategy)+L" ["+
-         std::to_wstring(state.search_attempt_index+1)+L"/"+
+         std::to_wstring(attempt_index+1)+L"/"+
          std::to_wstring(total)+L"]...").c_str());
     RedrawWindow(dialog,nullptr,nullptr,RDW_INVALIDATE|RDW_UPDATENOW);
     PendingDiscogsContext context;
@@ -2601,7 +2606,7 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
     context.release_id=direct_id;
     context.plan_identity=std::move(identity);
     context.strategy=std::move(strategy);
-    context.attempt_index=state.search_attempt_index;
+    context.attempt_index=attempt_index;
     context.total=total;
     begin_discogs_network(dialog,state,std::move(path),std::move(token),
                           std::move(context));
@@ -2666,14 +2671,19 @@ void publish_discogs_search(HWND dialog, PreviewState& state,
     state.cue_candidate_comparison_mode=false;
     state.search_plan_identity=request.plan_identity;
     state.search_attempt_index=request.attempt_index;
+    const bool broaden_empty=!request.release_id &&
+        state.discogs_results.empty() && request.attempt_index+1<request.total;
     state.search_attempt_notice=
         L"Discogs query "+std::to_wstring(request.attempt_index+1)+L"/"+
         std::to_wstring(request.total)+L" - "+from_utf8(request.strategy)+L": "+
         std::to_wstring(state.discogs_results.size())+L" result(s). "+
-        (state.discogs_results.empty() && request.attempt_index+1<request.total
-            ? L"Click Search again for the next, broader official query."
-            : L"Select an exact release, then Inspect release tracks. "
-              L"Master results cannot supply edition evidence.");
+        (broaden_empty
+            ? L"No hits; trying the next bounded official query automatically."
+            : state.discogs_results.empty()
+                ? L"No release found. Paste an exact HTTPS Discogs release URL."
+                : request.attempt_index+1<request.total
+                    ? L"Select an exact release, or click Search to broaden."
+                    : L"Select an exact release; Search restarts the plan.");
     ListView_SetItemState(state.metadata_list,-1,0,LVIS_SELECTED);
     update_metadata_table(state);
     if(state.discogs_direct_edition) {
@@ -2701,6 +2711,11 @@ void publish_discogs_search(HWND dialog, PreviewState& state,
         exact_request.context_version=state.online_context_version.current();
         publish_discogs_release(dialog,state,exact_request,
                                 *state.discogs_direct_edition);
+    } else if(broaden_empty) {
+        // Each request remains isolated, cancelable, token-header-only and
+        // snapshot-checked. Stop on the first nonempty page or an error.
+        // No provider call occurs without the initiating Search click.
+        perform_discogs_search(dialog,state);
     }
 }
 

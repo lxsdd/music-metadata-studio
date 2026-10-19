@@ -293,7 +293,8 @@ inline std::vector<SearchAttempt> track_search_plan(
     if(!catalog_number.empty())
         add("Exact edition catalog number",
             edition_identifier_search_path("catno",catalog_number));
-    // Then broaden by staged release / track search on explicit clicks.
+    // Then broaden by staged release / track search on deliberate user
+    // initiation; empty responses can advance within the same bounded plan.
     add("Release title with artist", search_path(title,artist));
     add("Exact track in release", track_search_path(title,artist));
     if (!artist.empty())
@@ -302,6 +303,19 @@ inline std::vector<SearchAttempt> track_search_plan(
         add("Track without mix suffix",track_search_path(core));
     add("Broad catalog keywords",search_path(core));
     return plan;
+}
+// Advance only after a successfully published search response. Failed
+// HTTPS requests must retry the same stage, never silently skip it.
+// An unchanged query with nonempty hits can still be broadened explicitly.
+inline std::size_t next_search_attempt(
+    std::string_view completed_identity, std::string_view requested_identity,
+    std::size_t completed_index, std::size_t plan_size) {
+    if(plan_size==0 || plan_size>16)
+        throw std::invalid_argument("Unqualified Discogs search plan");
+    if(completed_identity!=requested_identity) return 0;
+    if(completed_index>=plan_size)
+        throw std::invalid_argument("Expired Discogs search stage");
+    return completed_index+1==plan_size?0:completed_index+1;
 }
 // Canonical pasted Discogs URLs can directly select a release, bypassing the
 // search index. Never fetch the supplied URL: only extract an integer ID and

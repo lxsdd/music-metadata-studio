@@ -80,6 +80,15 @@ int main() {
           staged[4].path==search_path("1000 Years") &&
           staged[0].label!=staged[2].label,
           "tiered Discogs queries broaden artist, track and version constraints");
+    check(next_search_attempt("old","new",3,5)==0 &&
+          next_search_attempt("same","same",0,5)==1 &&
+          next_search_attempt("same","same",3,5)==4 &&
+          next_search_attempt("same","same",4,5)==0,
+          "completed Discogs searches advance even with hits and wrap safely");
+    rejects([]{(void)next_search_attempt("x","x",0,0);},
+            "empty Discogs stage plan is not executable");
+    rejects([]{(void)next_search_attempt("x","x",7,5);},
+            "stale stage index is never silently reused");
     const auto simple_plan=track_search_plan("Via Balearia","Estiva");
     check(simple_plan.size()==4 &&
           simple_plan[2].path==track_search_path("Via Balearia") &&
