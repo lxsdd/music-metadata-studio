@@ -2455,13 +2455,14 @@ void begin_discogs_network(HWND dialog, PreviewState& state,
     if(state.discogs_request || state.musicbrainz_request)
         throw std::runtime_error("An official provider request is already active.");
     // A worker-owned token is wiped whether WinHTTP succeeds or throws.
-    auto transport=[route=std::move(path),secret=std::move(token)]() mutable {
+    auto transport=[route=std::move(path),secret=std::move(token)](
+        std::stop_token cancel) mutable {
         struct Wipe {
             std::string& value;
             ~Wipe(){ if(!value.empty())
                 SecureZeroMemory(value.data(),value.size()); }
         } wipe{secret};
-        return fetch_discogs_json_readonly(route,secret);
+        return fetch_discogs_json_readonly(route,secret,cancel);
     };
     context.context_version=state.online_context_version.current();
     auto job=start_readonly_network(dialog,std::move(transport));
@@ -2832,7 +2833,9 @@ void begin_musicbrainz_network(HWND dialog, PreviewState& state,
         throw std::runtime_error("Another official provider request is active.");
     ctx.context_version=state.online_context_version.current();
     auto job=start_readonly_network(dialog,
-        [route=std::move(path)] {return fetch_musicbrainz_json_readonly(route);});
+        [route=std::move(path)](std::stop_token cancel) {
+            return fetch_musicbrainz_json_readonly(route,cancel);
+        });
     state.musicbrainz_context.emplace(std::move(ctx));
     state.musicbrainz_request=std::move(job);
     EnableWindow(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH),FALSE);
@@ -3147,6 +3150,11 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
     if (message == WM_NCDESTROY) {
         // No SDK or DLL code outlives the native workspace lifetime.
         // WinHTTP timeouts bound the shutdown join; workers never detach.
+        // Forced host teardown can bypass Close; stop before joining.
+        if(state->musicbrainz_request)
+            request_readonly_network_stop(*state->musicbrainz_request);
+        if(state->discogs_request)
+            request_readonly_network_stop(*state->discogs_request);
         state->musicbrainz_request.reset();
         state->musicbrainz_context.reset();
         state->discogs_request.reset();
@@ -3183,6 +3191,12 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
            (state->musicbrainz_request &&
             !readonly_network_finished(*state->musicbrainz_request))) {
             state->online_close_requested=true;
+            if(state->discogs_request)
+                request_readonly_network_stop(*state->discogs_request);
+            if(state->musicbrainz_request)
+                request_readonly_network_stop(*state->musicbrainz_request);
+            // Keep HWND alive for the worker's completion notification;
+            // a blocking WinHTTP call still observes its fixed timeouts.
             ShowWindow(dialog,SW_HIDE);
             return TRUE;
         }

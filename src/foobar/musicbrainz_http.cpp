@@ -68,13 +68,19 @@ bool safe_path(std::string_view path) {
     }
     return false;
 }
+void reject_cancelled(std::stop_token cancel) {
+    if(cancel.stop_requested())
+        throw std::runtime_error("Provider request cancelled.");
+}
 std::mutex request_clock_mutex;
 std::uint64_t last_request_tick = 0;
 } // namespace
 
-std::string fetch_musicbrainz_json_readonly(std::string_view path) {
+std::string fetch_musicbrainz_json_readonly(
+    std::string_view path, std::stop_token cancel) {
     if (!safe_path(path))
         throw std::invalid_argument("Invalid official MusicBrainz request path.");
+    reject_cancelled(cancel);
     {
         std::lock_guard<std::mutex> lock(request_clock_mutex);
         const auto tick=GetTickCount64();
@@ -85,6 +91,7 @@ std::string fetch_musicbrainz_json_readonly(std::string_view path) {
     }
     // Synchronous, explicit user click only. WinHTTP respects OS proxy, TLS
     // certificate validation and OS trust. No authorization or session state.
+    reject_cancelled(cancel);
     WinHttpHandle session(WinHttpOpen(
         L"MusicMetadataStudio/0.1 (+https://github.com/lxsdd/music-metadata-studio)",
         WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
@@ -115,8 +122,10 @@ std::string fetch_musicbrainz_json_readonly(std::string_view path) {
     must(WinHttpSendRequest(request.get(),WINHTTP_NO_ADDITIONAL_HEADERS,0,
         WINHTTP_NO_REQUEST_DATA,0,0,0)!=FALSE,
         "MusicBrainz HTTPS request failed.");
+    reject_cancelled(cancel);
     must(WinHttpReceiveResponse(request.get(),nullptr)!=FALSE,
         "MusicBrainz did not provide a response.");
+    reject_cancelled(cancel);
     DWORD status=0;
     DWORD status_size=sizeof(status);
     must(WinHttpQueryHeaders(request.get(),WINHTTP_QUERY_STATUS_CODE |
@@ -133,6 +142,7 @@ std::string fetch_musicbrainz_json_readonly(std::string_view path) {
     std::string response;
     constexpr std::size_t maximum=2u*1024u*1024u;
     while (true) {
+        reject_cancelled(cancel);
         DWORD pending=0;
         must(WinHttpQueryDataAvailable(request.get(),&pending)!=FALSE,
              "Cannot read MusicBrainz response.");
@@ -147,7 +157,9 @@ std::string fetch_musicbrainz_json_readonly(std::string_view path) {
             "Incomplete MusicBrainz response.");
         if (received==0) throw std::runtime_error("Truncated MusicBrainz response.");
         response.resize(current+received);
+        reject_cancelled(cancel);
     }
+    reject_cancelled(cancel);
     if (response.empty())
         throw std::runtime_error("MusicBrainz returned an empty response.");
     return response;

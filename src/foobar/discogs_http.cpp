@@ -34,17 +34,23 @@ bool valid_personal_token(std::string_view token) {
             return false;
     return true;
 }
+void reject_cancelled(std::stop_token cancel) {
+    if(cancel.stop_requested())
+        throw std::runtime_error("Provider request cancelled.");
+}
 std::mutex request_mutex;
 std::uint64_t last_request_tick = 0;
 } // namespace
 
 std::string fetch_discogs_json_readonly(
-    std::string_view path, std::string_view user_token) {
+    std::string_view path, std::string_view user_token,
+    std::stop_token cancel) {
     if(!djmeta::online::discogs::allowed_readonly_path(path))
         throw std::invalid_argument("Invalid official Discogs request path.");
     if(!valid_personal_token(user_token))
         throw std::invalid_argument(
             "Discogs requires a separately configured authorized user token.");
+    reject_cancelled(cancel);
     // Conservative single process limit, provider-local. Do not block foobar's
     // UI thread waiting for rate limits or retry in the background.
     {
@@ -55,6 +61,7 @@ std::string fetch_discogs_json_readonly(
                 "Discogs rate limit: try again after the request interval.");
         last_request_tick=tick;
     }
+    reject_cancelled(cancel);
     NativeHandle session(WinHttpOpen(
         L"MusicMetadataStudio/0.1 (+https://github.com/lxsdd/music-metadata-studio)",
         WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
@@ -79,18 +86,29 @@ std::string fetch_discogs_json_readonly(
         WINHTTP_DEFAULT_ACCEPT_TYPES,WINHTTP_FLAG_SECURE));
     must(request.get()!=nullptr,"Cannot initialize Discogs read-only request.");
     std::wstring headers=L"Accept: application/json\r\nAuthorization: Discogs token=";
+    struct SecureHeaderCleanup {
+        std::wstring& text;
+        ~SecureHeaderCleanup() {
+            if(!text.empty())
+                SecureZeroMemory(text.data(),text.size()*sizeof(wchar_t));
+        }
+    } secure_headers{headers};
     for (unsigned char c:user_token) headers.push_back(static_cast<wchar_t>(c));
     headers+=L"\r\n";
     must(WinHttpAddRequestHeaders(request.get(),headers.c_str(),
          static_cast<DWORD>(-1),WINHTTP_ADDREQ_FLAG_ADD)!=FALSE,
          "Cannot set authorized Discogs request headers.");
-    // The full header is never printed or persisted; clear our temporary.
+    // Scrub the temporary immediately after WinHTTP accepts the header;
+    // the scope guard also wipes on failed header setup.
     SecureZeroMemory(headers.data(),headers.size()*sizeof(wchar_t));
+    reject_cancelled(cancel);
     must(WinHttpSendRequest(request.get(),WINHTTP_NO_ADDITIONAL_HEADERS,0,
          WINHTTP_NO_REQUEST_DATA,0,0,0)!=FALSE,
          "Discogs HTTPS request failed.");
+    reject_cancelled(cancel);
     must(WinHttpReceiveResponse(request.get(),nullptr)!=FALSE,
          "Discogs did not return a response.");
+    reject_cancelled(cancel);
     DWORD status=0;
     DWORD status_size=sizeof(status);
     must(WinHttpQueryHeaders(request.get(),WINHTTP_QUERY_STATUS_CODE |
@@ -110,6 +128,7 @@ std::string fetch_discogs_json_readonly(
     std::string response;
     constexpr std::size_t maximum=2u*1024u*1024u;
     for(;;) {
+        reject_cancelled(cancel);
         DWORD available=0;
         must(WinHttpQueryDataAvailable(request.get(),&available)!=FALSE,
              "Cannot read Discogs response.");
@@ -124,7 +143,9 @@ std::string fetch_discogs_json_readonly(
         if(received==0)
             throw std::runtime_error("Truncated Discogs response.");
         response.resize(start+received);
+        reject_cancelled(cancel);
     }
+    reject_cancelled(cancel);
     if(response.empty())
         throw std::runtime_error("Discogs returned an empty catalog response.");
     return response;

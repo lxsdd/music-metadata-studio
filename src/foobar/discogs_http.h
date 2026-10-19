@@ -2,6 +2,7 @@
 
 #include <string>
 #include <string_view>
+#include <stop_token>
 
 namespace djmeta_foobar {
 
@@ -14,6 +15,7 @@ namespace djmeta_foobar {
 // have been qualified; absence of credentials is a provider-local blocker.
 std::string fetch_discogs_json_readonly(
     std::string_view canonical_api_path,
-    std::string_view personal_access_token);
+    std::string_view personal_access_token,
+    std::stop_token cancel = {});
 
 } // namespace djmeta_foobar

@@ -2,6 +2,7 @@
 
 #include <string>
 #include <string_view>
+#include <stop_token>
 
 namespace djmeta_foobar {
 
@@ -10,6 +11,7 @@ namespace djmeta_foobar {
 // scraping, persistent cache, background tasks or write-capable file I/O.
 // Caller MUST construct path using musicbrainz_provider.h's bounded builders.
 // A one-request-per-second guard rejects fast repeats rather than blocking UI.
-std::string fetch_musicbrainz_json_readonly(std::string_view official_api_path);
+std::string fetch_musicbrainz_json_readonly(
+    std::string_view official_api_path, std::stop_token cancel = {});
 
 } // namespace djmeta_foobar

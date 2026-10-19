@@ -12,6 +12,7 @@
 #include <utility>
 #include <future>
 #include <atomic>
+#include <chrono>
 #include <thread>
 #include <stdexcept>
 
@@ -791,7 +792,7 @@ int main() {
         auto gate=release.get_future().share();
         std::atomic<int> calls{0};
         const auto request_version=test_request_context.current();
-        auto job=djmeta_foobar::start_readonly_network(dialog,[&] {
+        auto job=djmeta_foobar::start_readonly_network(dialog,[&](std::stop_token) {
             ++calls;
             gate.wait();
             return std::string("synthetic read-only JSON");
@@ -822,12 +823,12 @@ int main() {
         bool rejected=false;
         try {
             (void)djmeta_foobar::start_readonly_network(
-                nullptr,[] {return std::string("not allowed");});
+                nullptr,[](std::stop_token) {return std::string("not allowed");});
         } catch(const std::invalid_argument&) {
             rejected=true;
         }
         check(rejected,"native worker rejects missing callback HWND");
-        auto failure=djmeta_foobar::start_readonly_network(dialog,[]() -> std::string {
+        auto failure=djmeta_foobar::start_readonly_network(dialog,[](std::stop_token) -> std::string {
             throw std::runtime_error("synthetic provider outage");
         });
         for(int n=0;n<200 && !djmeta_foobar::readonly_network_finished(*failure);++n)
@@ -838,6 +839,30 @@ int main() {
               "network errors are captured without crashing the dialog thread");
         if(failure->worker.joinable()) failure->worker.join();
         failure.reset();
+        // A modeless close requests cancellation without blocking UI.
+        std::atomic<bool> saw_cancel{false};
+        auto pending=djmeta_foobar::start_readonly_network(dialog,
+            [&](std::stop_token cancel) -> std::string {
+                for(int i=0;i<250 && !cancel.stop_requested();++i)
+                    Sleep(2);
+                if(cancel.stop_requested()) {
+                    saw_cancel.store(true,std::memory_order_release);
+                    throw std::runtime_error("synthetic cancellation");
+                }
+                return "uncancelled request";
+            });
+        check(SendMessageW(dialog,WM_NULL,0,0)==0,
+              "native UI dispatch continues during cancellable transport");
+        djmeta_foobar::request_readonly_network_stop(*pending);
+        for(int n=0;n<200 && !djmeta_foobar::readonly_network_finished(*pending);++n)
+            Sleep(5);
+        check(djmeta_foobar::readonly_network_finished(*pending) &&
+              saw_cancel.load(std::memory_order_acquire) &&
+              pending->response.empty() &&
+              pending->error=="Provider request cancelled.",
+              "close cancellation prevents stale provider reply");
+        if(pending->worker.joinable()) pending->worker.join();
+        pending.reset();
         while(PeekMessageW(&notification,dialog,
                            djmeta_foobar::kReadOnlyNetworkDoneMessage,
                            djmeta_foobar::kReadOnlyNetworkDoneMessage,PM_REMOVE))

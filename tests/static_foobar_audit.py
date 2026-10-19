@@ -294,7 +294,7 @@ for label, token in (
 
     ("user clicked official MusicBrainz search", "id == IDC_METADATA_MB_SEARCH && HIWORD(wp) == BN_CLICKED"),
     ("official lookup is separate user action", "id == IDC_METADATA_MB_LOAD_RELEASE && HIWORD(wp)==BN_CLICKED"),
-    ("fixed-host reader", "fetch_musicbrainz_json_readonly(route)"),
+    ("fixed-host reader", "fetch_musicbrainz_json_readonly(route,cancel)"),
     ("MusicBrainz background request", "begin_musicbrainz_network(dialog,*state"),
     ("MusicBrainz main-thread completion", "consume_musicbrainz_network(dialog,*state)"),
     ("MusicBrainz source revalidation", "publish_musicbrainz_search(state,*request,job->response)"),

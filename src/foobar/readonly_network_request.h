@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <memory>
 #include <stdexcept>
+#include <stop_token>
 #include <string>
 #include <thread>
 #include <utility>
@@ -52,13 +53,18 @@ std::shared_ptr<ReadOnlyNetworkJob> start_readonly_network(
     auto job=std::make_shared<ReadOnlyNetworkJob>();
     auto* target=job.get();
     job->worker=std::jthread(
-        [target,notify,task=std::move(fetch)](std::stop_token) mutable {
+        [target,notify,task=std::move(fetch)](std::stop_token stop) mutable {
             try {
-                target->response=task();
+                // Always invoke task to wipe captured provider credentials.
+                target->response=task(stop);
             } catch(const std::exception& error) {
                 target->error=error.what();
             } catch(...) {
                 target->error="Provider request failed without details.";
+            }
+            if(stop.stop_requested()) {
+                target->response.clear();
+                target->error="Provider request cancelled.";
             }
             // Release/acquire makes response/error immutable to the UI.
             target->finished.store(true,std::memory_order_release);
@@ -67,6 +73,9 @@ std::shared_ptr<ReadOnlyNetworkJob> start_readonly_network(
             (void)PostMessageW(notify,kReadOnlyNetworkDoneMessage,0,0);
         });
     return job;
+}
+inline void request_readonly_network_stop(ReadOnlyNetworkJob& job) noexcept {
+    job.worker.request_stop();
 }
 inline bool readonly_network_finished(const ReadOnlyNetworkJob& job) {
     return job.finished.load(std::memory_order_acquire);
