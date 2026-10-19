@@ -286,7 +286,8 @@ for label, token in (
     ("Discogs source rank separation", "discogs_live_master_not_exact_edition"),
     ("Discogs CUE edition matcher", "review_cue_release_edition(cue,edition)"),
     ("Discogs CUE stale check", "CUE changed during Discogs release lookup."),
-    ("Discogs production physical comparison", "review_discogs_physical_edition(originals,*cached)"),
+    ("Discogs production physical comparison", "originals,*cached,physical_duration_ms)"),
+    ("Discogs host physical duration", "info->info().get_length()"),
     ("official MusicBrainz parser", "djmeta::online::musicbrainz::parse_search(reply,kind)"),
     ("no stale online match", "CUE changed during online search"),
     ("source verified only via HTTP reason", 'item.reason.starts_with("musicbrainz_live_")'),
@@ -326,7 +327,10 @@ discogs_physical = (root / "include" / "djmeta" / "discogs_release_review.h").re
 for token in ("review_online_fields(originals,edition.fields)",
               "discogs_local_only_no_provider_value",
               "discogs_live_release_track_unassigned",
-              "discogs_live_release_unverified_track_provenance"):
+              "discogs_live_release_unverified_track_provenance",
+              "discogs_live_release_verified_track_",
+              "link.decision==MatchDecision::Suggested",
+              "link.conflicts.empty()"):
     if token not in discogs_physical:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing Discogs physical review safety: " + token)
 if "IDC_METADATA_INSPECT_CUE" not in resources:

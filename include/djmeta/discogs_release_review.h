@@ -49,8 +49,9 @@ inline std::optional<LocalReleaseTrack> discogs_physical_identity(
     local.source_index=0;
     local.recording.title=*title;
     local.recording.primary_artist=*artist;
-    if(const auto isrc=unique_discogs_physical_tag(original,"ISRC"))
-        local.recording.isrc=*isrc;
+    // Discogs release tracklists do not expose independently verified ISRC
+    // in this adapter. A one-sided local ISRC must not falsely veto a
+    // duration-and-mix-qualified association; it stays in original tags.
     if(duration_ms>0 && duration_ms<=36000000)
         local.recording.duration_ms=duration_ms;
     local.track_number=discogs_physical_position(original,"TRACKNUMBER");

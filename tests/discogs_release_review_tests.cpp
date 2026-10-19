@@ -111,6 +111,15 @@ int main() {
             field(verified,"Album / REPLAYGAIN_TRACK_GAIN") &&
             physical.fields[3].values==std::vector<std::string>{"-4.5 dB"},
             "matching preserves original custom multivalues and ReplayGain");
+    auto with_isrc=physical;
+    with_isrc.fields.push_back({"ISRC",{"USABC2601234"}});
+    const auto isrc_not_in_catalog=review_discogs_physical_edition(
+        with_isrc,exact,242000);
+    require(field(isrc_not_in_catalog,"Release Track 1 / REMIXER")->state==
+                FieldReviewState::NeedsReview &&
+            field(isrc_not_in_catalog,"Album / ISRC")->original_values==
+                std::vector<std::string>{"USABC2601234"},
+            "one-sided local ISRC is retained but not treated as Discogs evidence");
     const auto no_duration=review_discogs_physical_edition(physical,exact);
     require(field(no_duration,"Release Track 1 / REMIXER")->state==
                 FieldReviewState::Blocked,
@@ -141,9 +150,10 @@ int main() {
     require(field(duplicate,"Release Track 1 / REMIXER")->state==
                 FieldReviewState::Blocked,
             "duplicate physical identity tags fail closed");
-    auto tainted=exact;
-    tainted.tracks[0].fields.front().source_id="4243/track/99";
-    const auto unsafe=review_discogs_physical_edition(physical,tainted,242000);
+    auto tainted_edition=exact;
+    tainted_edition.tracks[0].fields.front().source_id="4243/track/99";
+    const auto unsafe=review_discogs_physical_edition(
+        physical,tainted_edition,242000);
     require(field(unsafe,"Release Track 1 / REMIXER")->state==
                 FieldReviewState::Blocked,
             "tainted track field provenance blocks all track comparisons");
