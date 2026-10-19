@@ -309,6 +309,8 @@ for label, token in (
     ("no stale online match", "CUE changed during online search"),
     ("provider-origin source label", "online_evidence_origin_label(item)"),
     ("Discogs edition grouping", '"discogs_live_release_group"'),
+    ("Discogs async exact release selection", "selected_exact_release_id("),
+    ("Discogs stale candidate rejection", "Discogs release selection changed during lookup."),
     ("native field provenance tooltip", "header->idFrom == IDC_METADATA_MB_DETAILS &&"),
     ("native field evidence scope tooltip", "online_evidence_scope_label("),
     ("native field date meaning tooltip", "online_evidence_date_label("),

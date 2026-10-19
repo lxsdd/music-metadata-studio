@@ -18,7 +18,10 @@ Provider rate limits and fixed-host WinHTTP validation remain unchanged.
   or DLL code can be destroyed; no detached threads survive foobar shutdown.
 - The main UI thread parses provider JSON, rechecks original source and rule
   snapshots and CUE bytes, verifies the same selected file/provider/release
-  identity, and then replaces only the read-only candidate rows.
+  identity **including the still-selected exact Discogs release row**, and
+  then replaces only the read-only candidate rows. Changing the highlighted
+  release while its detail request is running discards that response, even
+  though the physical file and provider are unchanged.
 - Only **one** official provider network request may be active in the
   workspace. Search/load commands remain disabled until a response arrives.
   A source change, provider switch, refresh or altered CUE discards results.

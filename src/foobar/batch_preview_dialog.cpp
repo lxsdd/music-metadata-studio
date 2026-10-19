@@ -2725,6 +2725,23 @@ void publish_discogs_release(HWND dialog, PreviewState& state,
        edition.provider!="discogs" ||
        edition.edition_id!=std::to_string(request.release_id))
         throw std::runtime_error("Discogs edition discarded: source or release changed.");
+    // The highlighted release can change while HTTPS runs even when the
+    // local source and provider remain unchanged. Never present a response
+    // under a different selected candidate's field provenance.
+    const int selected=ListView_GetNextItem(
+        state.metadata_list,-1,LVNI_SELECTED);
+    if(selected<0 ||
+       static_cast<std::size_t>(selected)>=state.candidate_view_order.size())
+        throw std::runtime_error(
+            "Discogs release selection changed during lookup.");
+    const auto row=state.candidate_view_order[
+        static_cast<std::size_t>(selected)];
+    if(row>=state.candidate_rows.size() ||
+       !djmeta::online::discogs::selected_exact_release_id(
+           state.candidate_rows[row].candidate.source_id,
+           request.release_id))
+        throw std::runtime_error(
+            "Discogs release selection changed during lookup.");
     const auto& entry=state.entries[request.source_index];
     verify_snapshot(entry);
     verify_rules_snapshot(state.captured_rules);

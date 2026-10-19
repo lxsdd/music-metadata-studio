@@ -35,6 +35,16 @@ int main() {
             "reject unbounded query");
     rejects([]{(void)release_path(0);},"no zero release ID");
     check(release_path(2442)=="/releases/2442", "release lookup is canonical");
+    check(selected_exact_release_id("release:38012673",38012673) &&
+          selected_exact_release_id("release:37332711",37332711) &&
+          !selected_exact_release_id("release:38012673",37332711) &&
+          !selected_exact_release_id("release:0",38012673) &&
+          !selected_exact_release_id("release:038012673",38012673) &&
+          !selected_exact_release_id("release:38012673/track/1",38012673) &&
+          !selected_exact_release_id("master:38012673",38012673) &&
+          !selected_exact_release_id("release:38012673\n",38012673) &&
+          !selected_exact_release_id("release:9999999999999",38012673),
+          "async Discogs release detail requires unchanged exact selected release");
 
     const auto edition_first=track_search_plan(
         "Home (Extended Mix)","DJ Example","004299999998","CAT 007/A");

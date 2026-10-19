@@ -337,6 +337,21 @@ inline std::uint64_t release_id_from_url(std::string_view url) {
     return error==std::errc{} && end==digits.data()+digits.size() &&
            id>0 && id<=999999999999ULL ? id : 0;
 }
+// Selection verification is pure and can be tested without an installed
+// foobar HWND. A release response belongs only to its still-highlighted
+// exact edition, never merely to the original source file or search batch.
+inline bool selected_exact_release_id(
+    std::string_view selected_source_id, std::uint64_t expected_id) {
+    if(!expected_id || expected_id>999999999999ULL ||
+       !selected_source_id.starts_with("release:")) return false;
+    const auto digits=selected_source_id.substr(8);
+    if(digits.empty() || digits.size()>12 || digits.front()=='0') return false;
+    std::uint64_t id=0;
+    const auto [end,error]=std::from_chars(
+        digits.data(),digits.data()+digits.size(),id);
+    return error==std::errc{} && end==digits.data()+digits.size() &&
+           id==expected_id;
+}
 inline std::string release_path(std::uint64_t id) {
     if(!id || id>999999999999ULL)
         throw std::invalid_argument("Unqualified Discogs release identifier");
