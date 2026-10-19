@@ -445,6 +445,14 @@ void create_only_external_writer_regressions() {
                                  std::istreambuf_iterator<char>());
         VERIFY(bytes == req.plan.external_cue_utf8);
     }
+    // Post-publication readback is independent from successful staging.
+    VERIFY(precision_cue_external_detail::verify_published_external_cue(
+        target, req.plan.external_cue_utf8));
+    VERIFY(!precision_cue_external_detail::verify_published_external_cue(
+        target, req.plan.external_cue_utf8 + "X"));
+    VERIFY(!precision_cue_external_detail::verify_published_external_cue(
+        req.qualified_sibling_directory / "missing.cue",
+        req.plan.external_cue_utf8));
     const auto previous_timestamp = fs::last_write_time(target);
 
     // A repeated "create" request must not truncate or overwrite the target.
@@ -467,6 +475,8 @@ void create_only_external_writer_regressions() {
     VERIFY(inspect_precision_cue_existing_target(
         req.plan, req.physical_mp3_absolute_path, req.mp3_basename).state ==
         ExistingState::Different);
+    VERIFY(!precision_cue_external_detail::verify_published_external_cue(
+        target, req.plan.external_cue_utf8)); // Preserve corrupted target.
     VERIFY(create_new_precision_cue_external(req, observe).status ==
            Status::Collision);
     {

@@ -684,6 +684,18 @@ void save_reviewed_disc_cue(Workspace& state) {
         SetDlgItemTextW(state.dialog, IDC_PRECISION_SOURCE_HINT,
             L"Identical existing CUE retained (no-op). No audio or tags changed.");
         break;
+    case Status::PublishedNeedsReview:
+        invalidate_cue_copy(state);
+        // A generic "nothing changed" error would be false after publish.
+        show_text(state.dialog,
+            L"WARNING: A new external CUE MAY ALREADY EXIST at the reviewed path.\r\n"
+            L"Post-publication verification failed. Preserve the published target.\r\n"
+            L"Do not delete, overwrite or automatically restore it.\r\n"
+            L"Inspect the sibling .cue and physical MP3 manually.\r\n"
+            L"No MP3, ID3, ReplayGain or embedded CUE write was attempted.");
+        SetDlgItemTextW(state.dialog, IDC_PRECISION_SOURCE_HINT,
+            L"CUE publication uncertain; preserve the target and inspect it.");
+        break;
     default:
         invalidate_cue_copy(state);
         throw std::runtime_error(

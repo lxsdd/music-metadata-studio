@@ -38,7 +38,8 @@ enum class PrecisionCueExternalCreateStatus {
     Collision,
     ReviewRequired,
     Rejected,
-    IoError
+    IoError,
+    PublishedNeedsReview // New file may exist; NEVER auto-delete or roll back.
 };
 
 struct PrecisionCueExternalCreateResult {
@@ -164,6 +165,14 @@ inline bool exact_existing_bytes(const std::filesystem::path& target,
     if (!source.read(actual.data(), static_cast<std::streamsize>(actual.size())))
         return false;
     return actual == expected && source.peek() == std::char_traits<char>::eof();
+}
+
+// Read-only post-publication byte check. This is not a general "create"
+// permission. A failed check means the published target must be preserved
+// for explicit inspection, never silently deleted or replaced.
+inline bool verify_published_external_cue(
+    const std::filesystem::path& target, std::string_view reviewed_bytes) {
+    return exact_existing_bytes(target, reviewed_bytes);
 }
 
 // Additional independent physical-source guard. This does not replace the
@@ -347,7 +356,26 @@ inline PrecisionCueExternalCreateResult create_new_precision_cue_external(
                 return {Status::Collision, "CUE_TARGET_APPEARED_DURING_PUBLISH"};
             return {Status::IoError, "CUE_ATOMIC_PUBLISH_FAILED"};
         }
-        return {Status::Created, "CUE_CREATE_NEW_ONLY"};
+        // Publishing a stage is not proof that the destination still
+        // contains the reviewed bytes. A failed post-check MUST retain
+        // the published target and explicitly report uncertain outcome.
+        bool postverified = false;
+        try {
+            postverified =
+                precision_cue_external_detail::verify_published_external_cue(
+                    target, request.plan.external_cue_utf8) &&
+                precision_cue_external_detail::physical_source_unchanged(
+                    *physical_start, request.physical_mp3_absolute_path,
+                    parent, request.mp3_basename);
+        } catch (...) {
+            // The destination may already exist. Never downgrade an
+            // uncertain post-publish exception to a "nothing created" error.
+            postverified = false;
+        }
+        if (!postverified)
+            return {Status::PublishedNeedsReview,
+                    "CUE_PUBLISHED_BUT_POSTVERIFY_FAILED_RETAIN_TARGET"};
+        return {Status::Created, "CUE_CREATE_NEW_VERIFIED"};
     } catch (const std::exception&) {
         return {Status::IoError, "CUE_FILESYSTEM_OR_SNAPSHOT_ERROR"};
     }
