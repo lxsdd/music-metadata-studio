@@ -313,6 +313,10 @@ inline PrecisionCueId3Patch preview_precision_cue_id3_txxx_patch(
                 encode_size(cue_frame,static_cast<std::uint32_t>(payload.size()),
                             version == 4);
                 cue_frame += payload;
+            } else {
+                // All unrelated TXXX values, including ReplayGain and
+                // custom multivalues, remain byte-for-byte untouched.
+                ++result.untouched_frames;
             }
         } else {
             ++result.untouched_frames;
