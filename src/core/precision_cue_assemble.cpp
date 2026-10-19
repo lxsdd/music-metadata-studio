@@ -144,6 +144,30 @@ PrecisionCueDiscMapping validate_precision_cue_partial_disc_mapping(
             return result;
         }
     }
+    // A locally valid selection may still consume the only MP3 that another
+    // disc can use. Prove that at least one complete permutation remains.
+    // The bounded search has at most 8! leaves and never chooses for the user.
+    std::function<bool(std::size_t)> completion_exists = [&](std::size_t disc) {
+        if (disc == count) return true;
+        if (chosen_physical_index_by_disc[disc] != count)
+            return completion_exists(disc + 1);
+        for (std::size_t file = 0; file < count; ++file) {
+            if (seen[file]) continue;
+            const auto measured = physical_discs[file].measured_duration_ms;
+            if (measured != 0 &&
+                duration_difference(provider_disc_durations_ms[disc], measured) >
+                    static_cast<std::uint64_t>(kRejectDeltaMs)) continue;
+            seen[file] = true;
+            const bool possible = completion_exists(disc + 1);
+            seen[file] = false;
+            if (possible) return true;
+        }
+        return false;
+    };
+    if (!completion_exists(0)) {
+        result.diagnostics.emplace_back("PARTIAL_DISC_MAPPING_NO_COMPLETION");
+        return result;
+    }
     result.state = PrecisionCueMatchState::Review;
     if (incomplete) {
         result.diagnostics.emplace_back("PARTIAL_DISC_MAPPING_INCOMPLETE");
