@@ -38,6 +38,12 @@ WinHTTP GET adapter and the existing bounded official catalog/edition parsers.
   `https://www.discogs.com/release/<id>` URL performs one fixed-host
   release lookup directly. Unknown hosts, masters and unqualified IDs cannot
   become exact release metadata.
+- **Local physical** original-only tags appear in a separate native Physical
+  section, not as part of the inspected Discogs edition. A provider-absent
+  custom/ReplayGain/multivalue tag is kept intact and explicitly displays
+  **Keep original**, without a fabricated remote source/edition ID. The
+  same carrier-origin separation applies to MusicBrainz search and manually
+  entered Beatport review; edition evidence retains its real source ID.
 - Native result and field detail provenance distinguish official Discogs API,
   official MusicBrainz API and user-pasted evidence; hovering a field shows
   exact provider source ID, scope, date meaning and refusal reason. Up to

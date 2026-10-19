@@ -100,15 +100,9 @@ inline std::vector<FieldReviewRow> review_discogs_physical_edition(
                 return ascii_upper_field(evidence.field)==name;
             });
         if(supplied) continue;
-        FieldReviewRow retained;
-        retained.field="Album / "+original.name;
-        retained.original_values=original.values;
-        retained.candidate.field=original.name;
-        retained.candidate.provider="discogs";
-        retained.candidate.source_id=edition.edition_id;
-        retained.candidate.scope=EvidenceScope::Edition;
-        retained.state=FieldReviewState::Unchanged;
-        retained.reason="discogs_local_only_no_provider_value";
+        auto retained=make_local_physical_original(
+            original,"discogs_local_only_no_provider_value");
+        retained.field="Physical / "+original.name;
         rows.push_back(std::move(retained));
     }
     // Only a unique Suggested association with no conflicts may expose

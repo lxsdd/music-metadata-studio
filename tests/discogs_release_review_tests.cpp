@@ -44,16 +44,21 @@ int main() {
         genre->state==FieldReviewState::NeedsReview &&
         genre->candidate.source_id=="4242",
         "edition GENRE preserves multivalues and exact provider identity");
-    const auto* custom=field(rows,"Album / MY CUSTOM TAG");
-    const auto* gain=field(rows,"Album / REPLAYGAIN_TRACK_GAIN");
+    const auto* custom=field(rows,"Physical / MY CUSTOM TAG");
+    const auto* gain=field(rows,"Physical / REPLAYGAIN_TRACK_GAIN");
     require(custom && gain &&
         custom->original_values==std::vector<std::string>({"Original","Other"}) &&
         gain->original_values==std::vector<std::string>({"-4.50 dB"}) &&
         custom->candidate.values.empty() && gain->candidate.values.empty() &&
         custom->state==FieldReviewState::Unchanged &&
         gain->state==FieldReviewState::Unchanged &&
-        custom->reason=="discogs_local_only_no_provider_value",
-        "original-only custom/multivalue and ReplayGain fields are kept, not deleted");
+        custom->reason=="discogs_local_only_no_provider_value" &&
+        custom->candidate.provider=="local-physical" &&
+        custom->candidate.source_id=="physical-original" &&
+        online_evidence_origin_label(*custom)=="Local physical" &&
+        gain->candidate.provider=="local-physical" &&
+        !field(rows,"Album / MY CUSTOM TAG"),
+        "original custom/multivalue and ReplayGain keep local provenance");
     const auto* remix=field(rows,"Release Track 1 / REMIXER");
     const auto* title=field(rows,"Release Track 2 / TITLE");
     require(remix && title && remix->state==FieldReviewState::Blocked &&
@@ -105,10 +110,10 @@ int main() {
             matched_credit->candidate.source_id=="4243/track/1" &&
             other_title && other_title->state==FieldReviewState::Blocked,
             "qualified physical track compares only its exact edition row");
-    require(field(verified,"Album / CUSTOM") &&
-            field(verified,"Album / CUSTOM")->original_values==
+    require(field(verified,"Physical / CUSTOM") &&
+            field(verified,"Physical / CUSTOM")->original_values==
                 std::vector<std::string>({"First","Second"}) &&
-            field(verified,"Album / REPLAYGAIN_TRACK_GAIN") &&
+            field(verified,"Physical / REPLAYGAIN_TRACK_GAIN") &&
             physical.fields[3].values==std::vector<std::string>{"-4.5 dB"},
             "matching preserves original custom multivalues and ReplayGain");
     const auto* diagnosis=field(verified,"Release Track 1 / MATCH");
@@ -127,7 +132,7 @@ int main() {
         with_isrc,exact,242000);
     require(field(isrc_not_in_catalog,"Release Track 1 / REMIXER")->state==
                 FieldReviewState::NeedsReview &&
-            field(isrc_not_in_catalog,"Album / ISRC")->original_values==
+            field(isrc_not_in_catalog,"Physical / ISRC")->original_values==
                 std::vector<std::string>{"USABC2601234"},
             "one-sided local ISRC is retained but not treated as Discogs evidence");
     const auto no_duration=review_discogs_physical_edition(physical,exact);

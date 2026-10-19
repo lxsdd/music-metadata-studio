@@ -281,15 +281,8 @@ inline BeatportUserReview review_beatport_user_track(
         if(std::any_of(proposed.begin(),proposed.end(),[&](const auto& item) {
             return ascii_upper_field(item.field)==ascii_upper_field(field.name);
         })) continue;
-        FieldReviewRow row;
-        row.field=field.name;
-        row.original_values=field.values;
-        row.candidate.field=field.name;
-        row.candidate.provider="beatport";
-        row.candidate.source_id=std::to_string(track.id);
-        row.state=FieldReviewState::Unchanged;
-        row.reason="manual_beatport_local_only_no_provider_value";
-        output.fields.push_back(std::move(row));
+        output.fields.push_back(make_local_physical_original(
+            field,"manual_beatport_local_only_no_provider_value"));
     }
     return output;
 }

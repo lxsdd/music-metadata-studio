@@ -165,5 +165,29 @@ int main() {
     discogs_live.reason="cue_inventory_read_only";
     check(online_evidence_origin_label(discogs_live)=="Local CUE",
           "CUE carrier provenance stays separate from online providers");
+    // Source-only physical fields do not inherit remote provider IDs.
+    const MetadataField physical_tag{"MY CUSTOM",{"A","B"}};
+    for(const auto& reason:{"discogs_local_only_no_provider_value",
+                            "musicbrainz_local_only_no_provider_value",
+                            "manual_beatport_local_only_no_provider_value"}) {
+        const auto original_only=make_local_physical_original(physical_tag,reason);
+        check(is_local_physical_original(original_only) &&
+              online_evidence_origin_label(original_only)=="Local physical" &&
+              original_only.candidate.provider=="local-physical" &&
+              original_only.candidate.source_id=="physical-original" &&
+              original_only.candidate.values.empty() &&
+              original_only.original_values==physical_tag.values &&
+              original_only.state==FieldReviewState::Unchanged,
+              "original-only multivalues cannot borrow official/typed source identity");
+        auto forged_provider=original_only;
+        forged_provider.candidate.provider="discogs";
+        check(!is_local_physical_original(forged_provider) &&
+              online_evidence_origin_label(forged_provider)=="Pasted: discogs",
+              "provider-only relabeling never claims local physical origin");
+    }
+    const auto physical_group=make_local_physical_original(
+        physical_tag,"local_physical_group");
+    check(online_evidence_origin_label(physical_group)=="Local physical",
+          "group header retains local carrier provenance");
     std::cout << "PASS: online field provenance, duplicate-origin safety, bounds, no-op and review-only\\n";
 }

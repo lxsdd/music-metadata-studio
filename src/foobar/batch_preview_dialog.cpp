@@ -563,15 +563,8 @@ MusicBrainzBrowseRows musicbrainz_search_rows(
                     supplied=true;break;
                 }
             if(supplied) continue;
-            FieldReviewRow retained;
-            retained.field=field.name;
-            retained.original_values=field.values;
-            retained.candidate.field=field.name;
-            retained.candidate.provider="musicbrainz";
-            retained.candidate.source_id=hit.mbid;
-            retained.reason="musicbrainz_local_only_no_provider_value";
-            retained.state=FieldReviewState::Unchanged;
-            detail.push_back(std::move(retained));
+            detail.push_back(make_local_physical_original(
+                field,"musicbrainz_local_only_no_provider_value"));
         }
         result.detail.push_back(std::move(detail));
     }
@@ -622,15 +615,8 @@ MusicBrainzBrowseRows discogs_search_rows(
         if(master) add("EDITION REQUIRED",{"Select a concrete Discogs release"});
         for(const auto& field:originals.fields) {
             if(details.size()>=50) break;
-            FieldReviewRow retained;
-            retained.field=field.name;
-            retained.original_values=field.values;
-            retained.candidate.field=field.name;
-            retained.candidate.provider="discogs";
-            retained.candidate.source_id=id;
-            retained.reason="discogs_local_only_no_provider_value";
-            retained.state=FieldReviewState::Unchanged;
-            details.push_back(std::move(retained));
+            details.push_back(make_local_physical_original(
+                field,"discogs_local_only_no_provider_value"));
         }
         out.detail.push_back(std::move(details));
     }
@@ -774,11 +760,14 @@ MusicBrainzBrowseRows group_musicbrainz_release_rows(
             summary.field=name;
             summary.candidate.provider=row.candidate.provider;
             summary.candidate.source_id=row.candidate.source_id;
-            summary.candidate.field="RELEASE TRACK";
+            const bool physical=is_local_physical_original(row);
+            summary.candidate.field=physical
+                ? "LOCAL PHYSICAL SOURCE" : "RELEASE TRACK";
             summary.state=row.state;
-            summary.reason=row.candidate.provider=="discogs"
-                ? "discogs_live_release_group"
-                : "musicbrainz_live_release_group";
+            summary.reason=physical ? "local_physical_group" :
+                row.candidate.provider=="discogs"
+                    ? "discogs_live_release_group"
+                    : "musicbrainz_live_release_group";
             out.summary.push_back(std::move(summary));
             out.detail.emplace_back();
         }
@@ -894,7 +883,8 @@ std::wstring candidate_cell_text(const djmeta::online::FieldReviewRow& item,
                                item.reason == "cue_inventory_unqualified";
     if (item.reason.starts_with("musicbrainz_live_candidate_rank_") ||
         item.reason == "musicbrainz_live_release_group" ||
-        item.reason == "discogs_live_release_group") {
+        item.reason == "discogs_live_release_group" ||
+        item.reason == "local_physical_group") {
         switch(column) {
         case 0: return from_utf8(item.field);
         case 1: return show_field_values(item.original_values);
@@ -904,6 +894,7 @@ std::wstring candidate_cell_text(const djmeta::online::FieldReviewRow& item,
         case 4: {
             if (item.reason.starts_with("musicbrainz_live_candidate_rank_"))
                 return from_utf8(item.candidate.field);
+            if (item.reason=="local_physical_group") return L"Keep original";
             return item.state==djmeta::online::FieldReviewState::Blocked
                 ? L"Unmatched" : L"Review";
         }
@@ -1047,14 +1038,13 @@ void refresh_musicbrainz_detail_rows(PreviewState& state) {
         const auto& row=detail[i];
         const auto field=from_utf8(row.field);
         const auto original=show_field_values(row.original_values);
-        const auto proposed=(row.reason=="musicbrainz_local_only_no_provider_value" ||
-            row.reason=="discogs_local_only_no_provider_value")
+        const bool local_original=djmeta::online::is_local_physical_original(row);
+        const auto proposed=local_original
             ? L"(not supplied)" : show_field_values(row.candidate.values);
         const std::wstring status=row.candidate.field=="MATCH_DIAGNOSTIC"
             ? (row.state==djmeta::online::FieldReviewState::Unchanged
                 ? L"Suggested identity only" : L"Not safely matched") :
-            (row.reason=="musicbrainz_local_only_no_provider_value" ||
-             row.reason=="discogs_local_only_no_provider_value") ? L"Keep original" :
+            local_original ? L"Keep original" :
             row.state==
             djmeta::online::FieldReviewState::Blocked ? L"Blocked"
             : row.state==djmeta::online::FieldReviewState::Unchanged
@@ -3510,13 +3500,18 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                         const auto row=static_cast<std::size_t>(tip->iItem);
                         if (row<rows.size() && row<1024) {
                             const auto& item=rows[row];
+                            const bool physical_source=
+                                djmeta::online::is_local_physical_original(item);
                             const auto label=
                                 L"Source: "+from_utf8(
                                     djmeta::online::online_evidence_origin_label(item))+
-                                L"\nProvider ID: "+from_utf8(item.candidate.source_id)+
-                                L"\nScope: "+from_utf8(
-                                    djmeta::online::online_evidence_scope_label(
-                                        item.candidate.scope))+
+                                L"\nProvider ID: "+(physical_source
+                                    ? std::wstring(L"(not supplied; original local tag)")
+                                    : from_utf8(item.candidate.source_id))+
+                                L"\nScope: "+(physical_source
+                                    ? std::wstring(L"physical audio metadata")
+                                    : from_utf8(djmeta::online::online_evidence_scope_label(
+                                        item.candidate.scope)))+
                                 L"\nDate meaning: "+from_utf8(
                                     djmeta::online::online_evidence_date_label(
                                         item.candidate.date_meaning))+

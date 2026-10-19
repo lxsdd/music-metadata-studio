@@ -31,10 +31,35 @@ struct FieldReviewRow {
     std::string reason;
 };
 
+// A provider-absent original is a physical tag, not a remote response.
+// Keep carrier provenance distinct from edition or recording evidence.
+inline bool is_local_physical_original(const FieldReviewRow& row) {
+    if(row.candidate.provider!="local-physical") return false;
+    return row.reason=="discogs_local_only_no_provider_value" ||
+           row.reason=="musicbrainz_local_only_no_provider_value" ||
+           row.reason=="manual_beatport_local_only_no_provider_value" ||
+           row.reason=="local_physical_group";
+}
+inline FieldReviewRow make_local_physical_original(
+    const djmeta::MetadataField& source,std::string reason) {
+    FieldReviewRow row;
+    row.field=source.name;
+    row.original_values=source.values;
+    row.candidate.field=source.name;
+    // Logical physical snapshot carrier; not a remote catalogue identity.
+    row.candidate.provider="local-physical";
+    row.candidate.source_id="physical-original";
+    row.candidate.scope=EvidenceScope::Recording;
+    row.state=FieldReviewState::Unchanged;
+    row.reason=std::move(reason);
+    return row;
+}
+
 // The UI must not label pasted or unverified evidence as an official HTTPS
 // response merely because a user supplied the provider name. The origin is
 // determined by both the production-set reason and the provider identity.
 inline std::string online_evidence_origin_label(const FieldReviewRow& row) {
+    if(is_local_physical_original(row)) return "Local physical";
     if (row.reason == "cue_inventory_read_only" ||
         row.reason == "cue_inventory_unqualified")
         return "Local CUE";

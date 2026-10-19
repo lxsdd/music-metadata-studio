@@ -393,6 +393,21 @@ for token in ("unverified_fields", "cue_unverified_alignment_evidence_only_",
 if "item.unverified_fields" not in batch_table_dialog:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing native blocked CUE evidence")
 
+# Never relabel original-only physical source fields as provider evidence
+# in Discogs/MusicBrainz/Beatport comparison or native release grouping.
+origin_header=(root / "include" / "djmeta" / "online_fields.h").read_text(encoding="utf-8")
+for token in ("make_local_physical_original(", "is_local_physical_original(",
+              'return "Local physical"', '"physical-original"'):
+    if token not in origin_header:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: physical source provenance missing: "+token)
+discogs_review=(root / "include" / "djmeta" / "discogs_release_review.h").read_text(encoding="utf-8")
+if 'retained.field="Physical / "' not in discogs_review:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: physical tags mixed with edition group")
+for token in ("local_physical_group", "is_local_physical_original(row)",
+              "is_local_physical_original(item)", "make_local_physical_original("):
+    if token not in batch_table_dialog:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: native local source grouping missing: "+token)
+
 # The fallback is implemented in the shared review-row provenance helper.
 # The UI must not need an obsolete inline "Pasted:" concatenation.
 origin_model=(root / "include" / "djmeta" / "online_fields.h").read_text(encoding="utf-8")
