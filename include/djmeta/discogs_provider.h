@@ -127,6 +127,45 @@ inline std::string year_field(const musicbrainz::Json& node) {
        year<1850 || year>2200) return {};
     return v->text; // Edition year only, never an original-recording date.
 }
+// A full release date describes this edition, never the first recording date.
+inline std::string released_full_date(const musicbrainz::Json& node) {
+    const auto value=string_field(node,"released");
+    if(value.size()!=10 || value[4]!='-' || value[7]!='-') return {};
+    for(std::size_t i=0;i<value.size();++i)
+        if(i!=4 && i!=7 && (value[i]<'0' || value[i]>'9')) return {};
+    const auto number=[&](std::size_t pos,std::size_t len) {
+        int result=0;
+        const auto [end,error]=std::from_chars(
+            value.data()+pos,value.data()+pos+len,result);
+        return error==std::errc{} && end==value.data()+pos+len?result:-1;
+    };
+    const int year=number(0,4),month=number(5,2),day=number(8,2);
+    if(year<1850 || year>2200 || month<1 || month>12) return {};
+    constexpr int days[]={31,28,31,30,31,30,31,31,30,31,30,31};
+    const bool leap=year%4==0 && (year%100!=0 || year%400==0);
+    if(day<1 || day>days[month-1]+(month==2 && leap?1:0)) return {};
+    const auto declared_year=year_field(node);
+    if(!declared_year.empty() && declared_year!=value.substr(0,4))
+        return {};
+    return value;
+}
+// Barcodes are textual identities; keep leading zeros and supplied spacing.
+inline std::vector<std::string> edition_barcodes(const musicbrainz::Json& node) {
+    std::vector<std::string> values;
+    const auto* ids=node.get("identifiers");
+    if(!ids || ids->type!=musicbrainz::Json::Type::Array ||
+       ids->array.size()>256) return values;
+    for(const auto& id:ids->array) {
+        if(id.type!=musicbrainz::Json::Type::Object ||
+           string_field(id,"type")!="Barcode") continue;
+        const auto value=string_field(id,"value");
+        if(!catalog_label(value,128)) continue;
+        if(std::find(values.begin(),values.end(),value)==values.end())
+            values.push_back(value);
+        if(values.size()>=64) break;
+    }
+    return values;
+}
 inline std::vector<std::string> string_array(
     const musicbrainz::Json& node,std::string_view key,std::size_t max=32) {
     std::vector<std::string> out;
@@ -409,6 +448,13 @@ inline ReleaseEdition parse_release(std::string_view json,std::uint64_t expected
     add("ALBUM",{title});
     add("DATE",year_field(root).empty()?std::vector<std::string>{}:
         std::vector<std::string>{year_field(root)},DateMeaning::EditionRelease);
+    // Distinguish exact edition date from the existing year-only DATE field.
+    const auto full_date=released_full_date(root);
+    if(!full_date.empty())
+        add("RELEASEDATE",{full_date},DateMeaning::EditionRelease);
+    const auto country=string_field(root,"country");
+    if(catalog_label(country,128)) add("COUNTRY",{country});
+    add("BARCODE",edition_barcodes(root));
     add("GENRE",string_array(root,"genres"));
     add("STYLE",string_array(root,"styles"));
     // Preserve a Discogs collaboration as one credited artist. Multiple

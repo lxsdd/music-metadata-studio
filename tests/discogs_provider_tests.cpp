@@ -252,6 +252,56 @@ int main() {
           year && year->values.size()==1 && year->values[0]=="2003" &&
           year->date_meaning==DateMeaning::EditionRelease,
           "multi-value genre/style/catalog and edition year are lossless, never first-recording date");
+    const auto detailed=parse_release(R"DJ({
+        "id":901,"title":"Edition details","year":2024,
+        "released":"2024-02-29","country":"DE",
+        "identifiers":[{"type":"Barcode","value":"001234567890"},
+                       {"type":"Barcode","value":"001234567890"},
+                       {"type":"Barcode","value":" 123 456 "},
+                       {"type":"Matrix / Runout","value":"not a barcode"},
+                       {"type":"Barcode","value":"Bad\\nCode"}],
+        "tracklist":[{"position":"1","title":"Track"}]
+    })DJ",901);
+    const auto edition_field=[](const ReleaseEdition& release,
+                                std::string_view name)->const FieldEvidence* {
+        for(const auto& field:release.fields)
+            if(field.field==name) return &field;
+        return nullptr;
+    };
+    const auto* released=edition_field(detailed,"RELEASEDATE");
+    const auto* country=edition_field(detailed,"COUNTRY");
+    const auto* barcodes=edition_field(detailed,"BARCODE");
+    check(released && released->values==std::vector<std::string>{"2024-02-29"} &&
+          released->date_meaning==DateMeaning::EditionRelease &&
+          released->source_id=="901" &&
+          released->scope==EvidenceScope::Edition &&
+          country && country->values==std::vector<std::string>{"DE"} &&
+          barcodes && barcodes->values==
+              std::vector<std::string>({"001234567890"," 123 456 "}) &&
+          !track_field(detailed.tracks[0],"BARCODE") &&
+          !track_field(detailed.tracks[0],"COUNTRY"),
+          "edition date, country and multivalue barcodes preserve provenance");
+    for(const auto invalid:{"2023-02-29","2024-04-31","2024-00-12",
+                            "2024-13-01","2024-02-00","2024-02-30",
+                            "2024-2-29","2024-02","2024-02-29T00:00:00",
+                            "2024-02-2X"}) {
+        auto payload=std::string(R"DJ({"id":902,"title":"Invalid date","released":"DATE_VALUE","tracklist":[{"title":"Track"}]})DJ");
+        payload.replace(payload.find("DATE_VALUE"),10,invalid);
+        const auto parsed=parse_release(payload,902);
+        check(!edition_field(parsed,"RELEASEDATE"),
+              "invalid or partial release date cannot become evidence");
+    }
+    const auto mismatch=parse_release(R"DJ({
+        "id":903,"title":"Conflicting year","year":2022,
+        "released":"2024-01-01","country":"Bad\\nCountry",
+        "identifiers":[{"type":"Barcode","value":"Bad\\nCode"}],
+        "tracklist":[{"title":"Track"}]
+    })DJ",903);
+    check(!edition_field(mismatch,"RELEASEDATE") &&
+          !edition_field(mismatch,"COUNTRY") &&
+          !edition_field(mismatch,"BARCODE") &&
+          edition_field(mismatch,"DATE"),
+          "conflicting year and control characters cannot supply edition fields");
     check(duration_ms("4:02")==242000 &&
           duration_ms("1:02:03")==3723000 &&
           duration_ms("4:2")==-1 && duration_ms("4:60")==-1 &&
