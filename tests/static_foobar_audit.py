@@ -60,6 +60,18 @@ for token in (
     if token not in batch_rules_guard:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing shared rules stale-input gate: " + token)
 
+# Search and release completion for BOTH providers must reject context
+# mutations even if the visible query returns to the original text.
+if batch_rules_guard.count(
+        "state.online_context_version.matches(request.context_version)") != 4:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: four provider epoch gates required")
+for token in ("HIWORD(wp)==EN_CHANGE",
+              "state->online_context_version.invalidate()",
+              "context.context_version=state.online_context_version.current()",
+              "ctx.context_version=state.online_context_version.current()"):
+    if token not in batch_rules_guard:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: online epoch wiring missing " + token)
+
 preview = (foobar / "preview.cpp").read_text(encoding="utf-8")
 for token in [
     "item.result.input_fingerprint",

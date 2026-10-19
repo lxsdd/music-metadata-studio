@@ -7,6 +7,7 @@
 #include <windows.h>
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -16,6 +17,19 @@
 namespace djmeta_foobar {
 
 inline constexpr UINT kReadOnlyNetworkDoneMessage = WM_APP + 0x351;
+
+// UI-thread-only request identity; text edits and restoration must not
+// resurrect a pending provider reply.
+class ReadOnlyContextVersion {
+public:
+    std::uint64_t current() const noexcept { return value_; }
+    void invalidate() noexcept { ++value_; }
+    bool matches(std::uint64_t captured) const noexcept {
+        return captured == value_;
+    }
+private:
+    std::uint64_t value_=1;
+};
 
 struct ReadOnlyNetworkJob {
     // Join before response/error/atomic members are destroyed. Worker never

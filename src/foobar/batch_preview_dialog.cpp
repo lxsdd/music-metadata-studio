@@ -73,6 +73,7 @@ struct PendingDiscogsContext {
     enum class Kind { Search, Release };
     Kind kind=Kind::Search;
     std::size_t source_index=0;
+    std::uint64_t context_version=0;
     bool cue_mode=false;
     std::string cue_before;
     djmeta::MetadataDocument originals;
@@ -87,6 +88,7 @@ struct PendingMusicBrainzContext {
     enum class Kind { Search, Release };
     Kind operation=Kind::Search;
     std::size_t source_index=0;
+    std::uint64_t context_version=0;
     djmeta::online::musicbrainz::SearchKind kind =
         djmeta::online::musicbrainz::SearchKind::Recording;
     bool cue_mode=false;
@@ -151,6 +153,7 @@ struct PreviewState {
     std::shared_ptr<ReadOnlyNetworkJob> discogs_request;
     std::optional<PendingDiscogsContext> discogs_context;
     bool online_close_requested=false;
+    ReadOnlyContextVersion online_context_version;
     bool discogs_provider_selected = false; // visible runtime-only source selector
     bool discogs_live_view = false; // last response, never inferred from combo
     bool discogs_search_was_cue = false;
@@ -2460,6 +2463,7 @@ void begin_discogs_network(HWND dialog, PreviewState& state,
         } wipe{secret};
         return fetch_discogs_json_readonly(route,secret);
     };
+    context.context_version=state.online_context_version.current();
     auto job=start_readonly_network(dialog,std::move(transport));
     state.discogs_context.emplace(std::move(context));
     state.discogs_request=std::move(job);
@@ -2582,7 +2586,8 @@ void publish_discogs_search(HWND dialog, PreviewState& state,
     (void)dialog;
     using namespace djmeta::online;
     using namespace djmeta::online::discogs;
-    if(state.stale || state.refreshing ||
+    if(!state.online_context_version.matches(request.context_version) ||
+       state.stale || state.refreshing ||
        !state.show_candidate || !state.discogs_provider_selected ||
        state.selected_track_index!=request.source_index ||
        request.source_index>=state.entries.size())
@@ -2701,6 +2706,7 @@ void perform_discogs_load(HWND dialog, PreviewState& state) {
     context.release_id=id;
     context.cue_mode=state.discogs_search_was_cue;
     context.cue_before=std::move(cue_before);
+    context.context_version=state.online_context_version.current();
     if(cached) {
         publish_discogs_release(dialog,state,context,*cached);
     } else {
@@ -2716,7 +2722,8 @@ void publish_discogs_release(HWND dialog, PreviewState& state,
                              const PendingDiscogsContext& request,
                              const djmeta::online::ReleaseEdition& edition) {
     (void)dialog;
-    if(state.stale || state.refreshing ||
+    if(!state.online_context_version.matches(request.context_version) ||
+       state.stale || state.refreshing ||
        !state.show_candidate || !state.discogs_provider_selected ||
        !state.discogs_live_view || state.musicbrainz_release_loaded ||
        state.candidate_source_index!=request.source_index ||
@@ -2823,6 +2830,7 @@ void begin_musicbrainz_network(HWND dialog, PreviewState& state,
                                std::string path, PendingMusicBrainzContext ctx) {
     if(state.discogs_request || state.musicbrainz_request)
         throw std::runtime_error("Another official provider request is active.");
+    ctx.context_version=state.online_context_version.current();
     auto job=start_readonly_network(dialog,
         [route=std::move(path)] {return fetch_musicbrainz_json_readonly(route);});
     state.musicbrainz_context.emplace(std::move(ctx));
@@ -2834,7 +2842,8 @@ void begin_musicbrainz_network(HWND dialog, PreviewState& state,
 void publish_musicbrainz_search(
     PreviewState& state, const PendingMusicBrainzContext& request,
     const std::string& reply) {
-    if(state.stale || state.refreshing || !state.show_candidate ||
+    if(!state.online_context_version.matches(request.context_version) ||
+       state.stale || state.refreshing || !state.show_candidate ||
        state.discogs_provider_selected ||
        state.selected_track_index!=request.source_index ||
        request.source_index>=state.entries.size())
@@ -2885,7 +2894,8 @@ void publish_musicbrainz_search(
 void publish_musicbrainz_release(
     PreviewState& state,const PendingMusicBrainzContext& request,
     const std::string& reply) {
-    if(state.stale || state.refreshing || !state.show_candidate ||
+    if(!state.online_context_version.matches(request.context_version) ||
+       state.stale || state.refreshing || !state.show_candidate ||
        state.discogs_provider_selected ||
        !state.musicbrainz_live_view || state.musicbrainz_release_loaded ||
        state.musicbrainz_kind!=
@@ -3215,6 +3225,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         if (header && header->idFrom == IDC_BATCH_TABS &&
             header->code == TCN_SELCHANGE) {
             if(state->help_tooltips) SendMessageW(state->help_tooltips,TTM_POP,0,0);
+            state->online_context_version.invalidate();
             const int selected_tab = TabCtrl_GetCurSel(state->tabs);
             show_preview_page(dialog, *state, selected_tab != 2, selected_tab == 0);
             return TRUE;
@@ -3238,6 +3249,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             }
             if (row<0 || static_cast<std::size_t>(row)>=state->track_view_order.size())
                 return TRUE;
+            state->online_context_version.invalidate();
             state->selected_track_index =
                 state->track_view_order[static_cast<std::size_t>(row)];
             const bool already_searching = state->show_candidate;
@@ -3302,6 +3314,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             const auto* changed = reinterpret_cast<const NMLISTVIEW*>(lp);
             if (const auto track = native_selected_track_change(
                     *changed, state->track_view_order, state->updating_track_selection)) {
+                if(*track!=state->selected_track_index)
+                    state->online_context_version.invalidate();
                 state->selected_track_index = *track;
                 prefill_musicbrainz_query(*state,true);
                 update_metadata_table(*state);
@@ -3353,8 +3367,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 const auto* changed=reinterpret_cast<const NMLISTVIEW*>(lp);
                 if (changed && (changed->uChanged & LVIF_STATE) &&
                     ((changed->uNewState & LVIS_SELECTED) !=
-                     (changed->uOldState & LVIS_SELECTED)))
+                     (changed->uOldState & LVIS_SELECTED))) {
+                    state->online_context_version.invalidate();
                     refresh_musicbrainz_detail_rows(*state);
+                }
             }
             return TRUE;
         }
@@ -3686,7 +3702,14 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
     const int id = LOWORD(wp);
     const auto native_command = native_preview_command(message, wp);
     try {
+        if(id==IDC_METADATA_MB_QUERY && HIWORD(wp)==EN_CHANGE) {
+            // A delayed response must fail closed even after edit-and-restore.
+            state->online_context_version.invalidate();
+            state->search_plan_identity.clear();
+            return TRUE;
+        }
         if(id==IDC_METADATA_ONLINE_PROVIDER && HIWORD(wp)==CBN_SELCHANGE) {
+            state->online_context_version.invalidate();
             state->discogs_provider_selected=
                 SendDlgItemMessageW(dialog,IDC_METADATA_ONLINE_PROVIDER,
                     CB_GETCURSEL,0,0)==1;
@@ -3714,6 +3737,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             return TRUE;
         }
         if (id == IDC_BATCH_REFRESH && HIWORD(wp) == BN_CLICKED) {
+            state->online_context_version.invalidate();
             refresh_workspace_snapshot(*state);
             return TRUE;
         }
@@ -3906,6 +3930,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             return TRUE;
         }
         if (id == IDC_METADATA_INSPECT_CUE && HIWORD(wp) == BN_CLICKED) {
+            state->online_context_version.invalidate();
             if (!state->show_candidate ||
                 state->selected_track_index >= state->entries.size())
                 throw std::invalid_argument("Select one audio/CUE source to inspect.");
@@ -3990,6 +4015,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             return TRUE;
         }
         if (id == IDC_METADATA_IMPORT_CANDIDATE && HIWORD(wp) == BN_CLICKED) {
+            state->online_context_version.invalidate();
             if (!state->show_candidate ||
                 state->selected_track_index >= state->entries.size())
                 throw std::invalid_argument("Select a track before importing a candidate.");

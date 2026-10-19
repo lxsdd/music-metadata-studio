@@ -16,6 +16,11 @@ Provider rate limits and fixed-host WinHTTP validation remain unchanged.
   payload. `std::atomic` release/acquire publishes the bounded JSON or a
   provider-local error. `std::jthread` is joined before the response storage
   or DLL code can be destroyed; no detached threads survive foobar shutdown.
+- Each search/release request captures a UI-thread-only context version.
+  Query edits (even edit-and-restore), provider switches (even switch-back),
+  track/release selection, tab changes, refresh, CUE inspection and clipboard
+  imports invalidate it. Both providers fail closed before publishing stale
+  search or release responses.
 - The main UI thread parses provider JSON, rechecks original source and rule
   snapshots and CUE bytes, verifies the same selected file/provider/release
   identity **including the still-selected exact Discogs release row**, and
@@ -36,7 +41,8 @@ Provider rate limits and fixed-host WinHTTP validation remain unchanged.
 ## Qualification and remaining gates
 
 The Windows native RC/HWND regression test exercises delayed network worker
-completion, event dispatch while waiting, error delivery and joined teardown
+completion, native query-edit and edit-restore staleness, event dispatch
+while waiting, error delivery and joined teardown
 without any real network or user credentials. Static source audits verify
 that production UI handlers call the worker rather than blocking in WinHTTP.
 Linux and Windows core and foobar Win32/x64 exact-HEAD CI must pass.

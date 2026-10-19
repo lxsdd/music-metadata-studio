@@ -30,7 +30,15 @@ int notified_find_row = -99;
 std::vector<std::wstring> active_track_names;
 bool rebuilding_master = false;
 int read_only_worker_notifications = 0;
+int query_edit_events = 0;
+djmeta_foobar::ReadOnlyContextVersion test_request_context;
 INT_PTR CALLBACK test_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
+    if(message==WM_COMMAND && LOWORD(wp)==IDC_METADATA_MB_QUERY &&
+       HIWORD(wp)==EN_CHANGE) {
+        ++query_edit_events;
+        test_request_context.invalidate();
+        return TRUE;
+    }
     if(message==djmeta_foobar::kReadOnlyNetworkDoneMessage) {
         ++read_only_worker_notifications;
         return TRUE;
@@ -758,12 +766,31 @@ int main() {
           GetDlgItem(dialog, IDC_BATCH_APPLY_SELECTED),
           "preview actions exist in production resource");
 
+    // Real native EDIT notifications invalidate a captured request even
+    // when the operator restores the identical query before completion.
+    const auto old_query_version=test_request_context.current();
+    check(SetWindowTextW(mb_query,L"First edition search")!=FALSE &&
+          query_edit_events>0 &&
+          !test_request_context.matches(old_query_version),
+          "native query edit invalidates pending request context");
+    const auto captured_query_version=test_request_context.current();
+    check(SetWindowTextW(mb_query,L"Second edition search")!=FALSE &&
+          SetWindowTextW(mb_query,L"First edition search")!=FALSE &&
+          !test_request_context.matches(captured_query_version),
+          "edit-and-restore cannot revive a stale response");
+    const auto before_provider_switch=test_request_context.current();
+    test_request_context.invalidate();
+    test_request_context.invalidate();
+    check(!test_request_context.matches(before_provider_switch),
+          "provider away-and-back invalidates the old request");
+
     // Production request worker primitive: a delayed transport must not
     // block the host dialog thread or perform post-close SDK operations.
     {
         std::promise<void> release;
         auto gate=release.get_future().share();
         std::atomic<int> calls{0};
+        const auto request_version=test_request_context.current();
         auto job=djmeta_foobar::start_readonly_network(dialog,[&] {
             ++calls;
             gate.wait();
@@ -773,6 +800,9 @@ int main() {
               "network request remains pending before synthetic reply");
         check(SendMessageW(dialog,WM_NULL,0,0)==0,
               "modeless host dispatch remains responsive during provider wait");
+        check(SetWindowTextW(mb_query,L"Changed while transport waits")!=FALSE &&
+              !test_request_context.matches(request_version),
+              "late worker response is stale after a real Win32 query edit");
         release.set_value();
         for(int n=0;n<200 && !djmeta_foobar::readonly_network_finished(*job);++n)
             Sleep(5);
