@@ -64,6 +64,7 @@
     <ClCompile Include="src\core\external_cue.cpp" />
     <ClCompile Include="src\core\precision_cue_apple.cpp" />
     <ClCompile Include="src\core\precision_cue_apple_http_win.cpp" />
+    <ClCompile Include="src\core\precision_cue_deezer_http_win.cpp" />
     <ClCompile Include="src\core\write_guard.cpp" />
     <ClCompile Include="src\core\physical_selection.cpp" />
     <ClCompile Include="src\core\staging.cpp" />

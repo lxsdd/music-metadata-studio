@@ -10,6 +10,10 @@
 #include "djmeta/precision_cue_apple.h"
 #include "djmeta/precision_cue_apple_http.h"
 #include "djmeta/precision_cue_apple_link.h"
+#include "djmeta/precision_cue_deezer.h"
+#include "djmeta/precision_cue_deezer_link.h"
+#include "djmeta/precision_cue_deezer_http.h"
+#include "djmeta/precision_cue_match.h"
 #include "djmeta/precision_cue_apple_selection.h"
 #include "djmeta/precision_cue_request_revision.h"
 #include "djmeta/precision_cue_filename.h"
@@ -52,12 +56,15 @@ struct LocalFile {
     djmeta::PrecisionCueEmbeddedCrosscheck embedded_crosscheck;
 };
 
+enum class PrecisionCueJobKind { AppleSearch, AppleLookup, DeezerSearch };
+
 struct LookupJob {
     std::atomic<bool> ready{false};
     djmeta::PrecisionCueRelease release;
     std::vector<djmeta::ApplePrecisionCueAlbumHit> hits;
     std::optional<djmeta::ApplePrecisionCueAlbumHit> selected_album;
-    djmeta::ApplePrecisionCueHttpKind kind = djmeta::ApplePrecisionCueHttpKind::AlbumLookup;
+    PrecisionCueJobKind kind = PrecisionCueJobKind::AppleLookup;
+    std::optional<djmeta::PrecisionCueRelease> deezer_reference;
     std::string error;
     std::jthread worker;
 };
@@ -104,6 +111,7 @@ struct Workspace {
     std::string lookup_url; // Input bound to the asynchronous provider request.
     std::string search_query;
     std::vector<djmeta::ApplePrecisionCueAlbumHit> search_hits;
+    std::optional<djmeta::PrecisionCueRelease> deezer_reference;
     bool reviewed_preview_ready = false;
     djmeta::PrecisionCueRequestRevision input_revision;
 };
@@ -347,6 +355,10 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
     details += L"Nothing has been written to audio, tags, the clipboard or CUE files.\r\n";
     details += L"Album: " + from_utf8(release.album_title) + L"\r\n";
     details += L"Provider: Apple / collection " + from_utf8(release.provider_release_id) + L"\r\n";
+    if (state.deezer_reference)
+        details += L"Reference: Deezer / album " +
+            from_utf8(state.deezer_reference->provider_release_id) +
+            L" (edition and tracklist cross-matched; whole-second durations only).\r\n";
     if (!release.release_date.empty())
         details += L"Apple catalog DATE: " + from_utf8(release.release_date) + L"\r\n";
     if (!release.genre.empty())
@@ -717,8 +729,7 @@ void start_search(Workspace& state) {
     if (query.find("://") != std::string::npos)
         throw std::invalid_argument(
             "Search requires artist and album text, not a provider URL. "
-            "For an Apple album URL use Look up selected; a Deezer URL "
-            "is only an identity hint, not an authorized metadata API.");
+            "For an Apple or Deezer album URL use Look up selected.");
     djmeta::ApplePrecisionCueHttpRequest request;
     request.kind = djmeta::ApplePrecisionCueHttpKind::AlbumSearch;
     request.parameter = query;
@@ -728,8 +739,9 @@ void start_search(Workspace& state) {
     reap_finished_jobs();
     reset_disc_controls(state);
     clear_search_results(state);
+    state.deezer_reference.reset();
     auto job = std::make_shared<LookupJob>();
-    job->kind = request.kind;
+    job->kind = PrecisionCueJobKind::AppleSearch;
     job->worker = std::jthread([job, request] {
         try {
             const auto json = djmeta::fetch_apple_precision_cue_json(request);
@@ -760,7 +772,69 @@ void start_lookup(Workspace& state) {
     request.kind = djmeta::ApplePrecisionCueHttpKind::AlbumLookup;
     request.user_initiated = true;
     std::optional<djmeta::ApplePrecisionCueAlbumHit> selected_album;
-    if (input.starts_with("https://")) {
+    const bool deezer_link =
+        input.starts_with("https://www.deezer.com/") ||
+        input.starts_with("https://deezer.com/");
+    if (deezer_link && (!state.deezer_reference ||
+        state.search_query != input || state.search_hits.empty())) {
+        djmeta::DeezerPrecisionCueHttpRequest deezer_request;
+        deezer_request.album_id = djmeta::deezer_precision_cue_album_id(input);
+        deezer_request.user_initiated = true;
+        (void)djmeta::deezer_precision_cue_http_path(deezer_request);
+        reap_finished_jobs();
+        reset_disc_controls(state);
+        clear_search_results(state);
+        state.deezer_reference.reset();
+        auto job = std::make_shared<LookupJob>();
+        job->kind = PrecisionCueJobKind::DeezerSearch;
+        job->worker = std::jthread([job, deezer_request] {
+            try {
+                const auto json = djmeta::fetch_deezer_precision_cue_json(deezer_request);
+                auto reference = djmeta::parse_deezer_precision_cue_album(
+                    json, deezer_request.album_id);
+                djmeta::ApplePrecisionCueHttpRequest apple_search;
+                apple_search.kind = djmeta::ApplePrecisionCueHttpKind::AlbumSearch;
+                apple_search.parameter = reference.album_title;
+                apple_search.storefront = "DE";
+                apple_search.user_initiated = true;
+                const auto apple_json = djmeta::fetch_apple_precision_cue_json(apple_search);
+                job->hits = djmeta::parse_apple_precision_cue_album_search(apple_json);
+                job->deezer_reference = std::move(reference);
+            } catch (const std::exception& error) {
+                job->error = error.what();
+            } catch (...) {
+                job->error = "Deezer/Apple official catalog lookup failed";
+            }
+            job->ready.store(true, std::memory_order_release);
+        });
+        state.lookup_url = input;
+        state.input_revision.begin_request();
+        g_lookup_pool.jobs.push_back(job);
+        state.job = std::move(job);
+        EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_SEARCH), FALSE);
+        EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_LOOKUP), FALSE);
+        show_text(state.dialog,
+            L"Reading the official Deezer album identity, then searching Apple's "
+            L"high-resolution duration catalog. No audio is downloaded.\\r\\n"
+            L"Choose the exact matching Apple edition before preview.");
+        SetTimer(state.dialog, kPollTimer, 250, nullptr);
+        return;
+    }
+    if (deezer_link) {
+        // Deezer's whole-second durations never supply frame-accurate markers.
+        // A user must choose one Apple candidate, and the complete lookup must
+        // match the independent Deezer tracklist before preview is allowed.
+        (void)djmeta::deezer_precision_cue_album_id(input);
+        const auto choice = SendDlgItemMessageW(state.dialog,
+            IDC_PRECISION_ALBUM_RESULTS, CB_GETCURSEL, 0, 0);
+        if (choice == CB_ERR ||
+            static_cast<std::size_t>(choice) >= state.search_hits.size())
+            throw std::invalid_argument("Choose one Apple edition for the Deezer album");
+        const auto& hit = state.search_hits[static_cast<std::size_t>(choice)];
+        request.parameter = hit.collection_id;
+        selected_album = hit;
+        request.storefront = "DE";
+    } else if (input.starts_with("https://")) {
         const auto parsed = djmeta::parse_apple_precision_cue_album_link(input);
         request.parameter = parsed.collection_id;
         request.storefront = parsed.storefront.empty() ? "DE" : parsed.storefront;
@@ -784,8 +858,9 @@ void start_lookup(Workspace& state) {
     reap_finished_jobs();
     reset_disc_controls(state);
     auto job = std::make_shared<LookupJob>();
-    job->kind = request.kind;
+    job->kind = PrecisionCueJobKind::AppleLookup;
     job->selected_album = std::move(selected_album);
+    if (deezer_link) job->deezer_reference = state.deezer_reference;
     job->worker = std::jthread([job, request] {
         try {
             const auto json = djmeta::fetch_apple_precision_cue_json(request);
@@ -796,6 +871,15 @@ void start_lookup(Workspace& state) {
                 throw std::invalid_argument(
                     "Selected Apple album changed between search and lookup "
                     "(title, artist, release ID or track count); search again");
+            if (job->deezer_reference) {
+                const auto match = djmeta::match_precision_cue_releases(
+                    *job->deezer_reference, {looked_up});
+                if (match.state != djmeta::PrecisionCueMatchState::Selected)
+                    throw std::invalid_argument(
+                        "Deezer/Apple edition or track durations differ: "
+                        "review exact album, mix version, track positions and durations; "
+                        "CUE preview blocked");
+            }
             job->release = std::move(looked_up);
         } catch (const std::exception& error) {
             job->error = error.what();
@@ -826,7 +910,7 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
         state->registered = true;
         g_precision_workspace = dialog;
         reset_disc_controls(*state);
-        show_text(dialog, L"Paste an Apple Music album URL, or enter artist and album terms and Search albums.\r\n"
+        show_text(dialog, L"Paste an Apple Music or Deezer album URL, or enter artist and album terms and Search albums.\r\n"
                           L"Select the exact candidate before Look up selected. All local files are read only.");
         return TRUE;
     }
@@ -844,7 +928,9 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
                     clear_search_results(*state);
                     show_error(dialog, "Album text or selected release changed during provider request; retry");
                 } else if (!state->job->error.empty()) show_error(dialog, state->job->error);
-                else if (state->job->kind == djmeta::ApplePrecisionCueHttpKind::AlbumSearch) {
+                else if (state->job->kind != PrecisionCueJobKind::AppleLookup) {
+                    if (state->job->kind == PrecisionCueJobKind::DeezerSearch)
+                        state->deezer_reference = std::move(state->job->deezer_reference);
                     clear_search_results(*state);
                     state->search_hits = std::move(state->job->hits);
                     state->search_query = state->lookup_url;
@@ -857,10 +943,14 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
                             throw std::runtime_error("Could not populate Apple candidates");
                     }
                     show_text(dialog, state->search_hits.empty()
-                        ? L"No Apple albums found. Refine the artist and album search."
-                        : L"Choose the exact Apple album candidate in the list, then click "
-                          L"Look up selected. The full tracklist must still pass review. "
-                          L"Wait 3.1 seconds between Apple requests.");
+                        ? L"No Apple albums found. Refine the album search or use an Apple link."
+                        : state->deezer_reference
+                            ? L"Deezer album identity loaded (seconds only). Choose the exact "
+                              L"Apple edition and click Look up selected. Full tracklist, "
+                              L"disc order, mix versions and durations must cross-match."
+                            : L"Choose the exact Apple album candidate in the list, then click "
+                              L"Look up selected. The full tracklist must still pass review. "
+                              L"Wait 3.1 seconds between Apple requests.");
                 } else {
                     state->release = std::move(state->job->release);
                     initialize_disc_controls(*state);
@@ -886,6 +976,7 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
             state->input_revision.input_changed();
             reset_disc_controls(*state);
             clear_search_results(*state);
+            state->deezer_reference.reset();
             return TRUE;
         }
         if (LOWORD(wp) == IDC_PRECISION_ALBUM_RESULTS && HIWORD(wp) == CBN_SELCHANGE) {
@@ -1007,7 +1098,7 @@ public:
                 {0x9c, 0xe3, 0x62, 0x98, 0xb8, 0x2a, 0x68, 0xf4}};
     }
     bool get_item_description(unsigned, pfc::string_base& output) override {
-        output = "Search or look up an Apple Music continuous mix and preview its CUE timing "
+        output = "Look up Deezer or Apple album metadata and preview continuous-mix CUE timing "
                  "for selected local MP3s. Read-only, independent review required.";
         return true;
     }

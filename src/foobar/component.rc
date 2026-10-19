@@ -59,10 +59,10 @@ STYLE DS_SETFONT | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIM
 CAPTION "Precision CUE - Album Preview (No Writes)"
 FONT 9, "Segoe UI"
 BEGIN
-    LTEXT           "Apple URL or artist + album:", -1, 10, 12, 137, 12
+    LTEXT           "Apple/Deezer URL or album:", -1, 10, 12, 137, 12
     EDITTEXT        IDC_PRECISION_APPLE_LINK, 148, 9, 355, 16, ES_AUTOHSCROLL | WS_TABSTOP
     PUSHBUTTON      "Search albums", IDC_PRECISION_SEARCH, 510, 9, 90, 18, WS_TABSTOP
-    LTEXT           "Apple album candidate:", -1, 10, 35, 137, 12
+    LTEXT           "Apple duration candidate:", -1, 10, 35, 137, 12
     COMBOBOX        IDC_PRECISION_ALBUM_RESULTS, 148, 32, 355, 130, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     PUSHBUTTON      "Look up selected", IDC_PRECISION_LOOKUP, 510, 32, 90, 18, WS_TABSTOP
     LTEXT           "Preview only. Verify the exact DJ mix edition; no audio, tags or CUE files are changed.", IDC_PRECISION_SOURCE_HINT, 10, 59, 589, 20
