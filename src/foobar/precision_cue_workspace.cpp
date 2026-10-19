@@ -79,6 +79,9 @@ struct Workspace {
     std::shared_ptr<LookupJob> job;
     std::optional<djmeta::PrecisionCueRelease> release;
     std::vector<std::size_t> reviewed_mapping; // file-count sentinel = unassigned
+    std::vector<std::string> reviewed_cues; // Only after manual mapping preview.
+    std::string lookup_url; // Link bound to the asynchronous lookup.
+    bool reviewed_preview_ready = false;
 };
 Workspace* g_pending_workspace = nullptr; // Only main thread, owned until WM_INITDIALOG.
 
@@ -185,8 +188,15 @@ std::vector<std::int64_t> provider_disc_totals(
     return totals;
 }
 
+void invalidate_cue_copy(Workspace& state) {
+    state.reviewed_cues.clear();
+    state.reviewed_preview_ready = false;
+    EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_COPY_CUE), FALSE);
+}
+
 void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release,
                     const std::vector<std::size_t>* reviewed = nullptr) {
+    invalidate_cue_copy(state);
     const auto count = release.tracks.empty() ? 0u : release.tracks.back().disc_number;
     if (count == 0 || count != state.files.size()) {
         throw std::invalid_argument(
@@ -206,6 +216,7 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
         throw std::invalid_argument("Local MP3s incompatible with provider disc durations");
     std::vector<djmeta::PrecisionCuePlan> plans;
     std::vector<djmeta::PrecisionCueExternalExportPlan> exports;
+    std::vector<std::string> validated_cues;
     std::wstring details;
     bool duration_warning = mapping.state != djmeta::PrecisionCueMatchState::Selected;
     for (unsigned d = 1; d <= count; ++d) {
@@ -234,6 +245,7 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
         if (!export_plan.eligible)
             throw std::invalid_argument("Generated external CUE export proposal failed validation");
         exports.push_back(std::move(export_plan));
+        validated_cues.push_back(plan.external_cue_utf8);
         plans.push_back(std::move(plan));
     }
     if (!djmeta::precision_cue_export_targets_unique(exports))
@@ -257,10 +269,18 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
         details += from_utf8(plans[i].external_cue_utf8);
     }
     show_text(state.dialog, details);
+    if (reviewed) {
+        state.reviewed_cues = std::move(validated_cues);
+        state.reviewed_preview_ready = true;
+        EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_COPY_CUE),
+            IsDlgButtonChecked(state.dialog, IDC_PRECISION_EDITION_CONFIRMED) == BST_CHECKED);
+    }
 }
 
 
 void reset_disc_controls(Workspace& state) {
+    invalidate_cue_copy(state);
+    CheckDlgButton(state.dialog, IDC_PRECISION_EDITION_CONFIRMED, BST_UNCHECKED);
     state.release.reset();
     state.reviewed_mapping.clear();
     SendDlgItemMessageW(state.dialog, IDC_PRECISION_DISC_PICKER, CB_RESETCONTENT, 0, 0);
@@ -331,6 +351,7 @@ void assign_selected_disc(Workspace& state) {
         throw std::invalid_argument(
             "Disc assignment rejected: duplicate, invalid or incompatible MP3");
     }
+    invalidate_cue_copy(state);
     state.reviewed_mapping = std::move(proposed);
     const bool complete = std::all_of(state.reviewed_mapping.begin(),
         state.reviewed_mapping.end(),
@@ -349,6 +370,36 @@ void assign_selected_disc(Workspace& state) {
         ? L"All discs assigned. Preview reviewed mapping to validate durations."
         : L"Assign each disc before previewing the mapping.";
     show_text(state.dialog, summary);
+}
+
+void copy_reviewed_disc_cue(Workspace& state) {
+    if (!state.reviewed_preview_ready || !state.release ||
+        IsDlgButtonChecked(state.dialog, IDC_PRECISION_EDITION_CONFIRMED) != BST_CHECKED)
+        throw std::invalid_argument("Review disc mapping and confirm the exact mix edition first");
+    const auto selection = SendDlgItemMessageW(state.dialog, IDC_PRECISION_DISC_PICKER,
+                                               CB_GETCURSEL, 0, 0);
+    if (selection == CB_ERR || static_cast<std::size_t>(selection) >= state.reviewed_cues.size())
+        throw std::invalid_argument("Choose a reviewed disc to copy");
+    const auto& cue = state.reviewed_cues[static_cast<std::size_t>(selection)];
+    const auto wide = from_utf8(cue);
+    if (wide.empty() || wide.size() > (std::numeric_limits<std::size_t>::max() / sizeof(wchar_t)) - 1)
+        throw std::runtime_error("CUE clipboard text is invalid");
+    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, (wide.size() + 1) * sizeof(wchar_t));
+    if (!memory) throw std::runtime_error("Clipboard allocation failed");
+    auto* buffer = static_cast<wchar_t*>(GlobalLock(memory));
+    if (!buffer) { GlobalFree(memory); throw std::runtime_error("Clipboard lock failed"); }
+    std::copy(wide.begin(), wide.end(), buffer);
+    buffer[wide.size()] = L'\0';
+    GlobalUnlock(memory);
+    if (!OpenClipboard(state.dialog)) {
+        GlobalFree(memory);
+        throw std::runtime_error("Clipboard is busy; nothing was copied");
+    }
+    const bool copied = EmptyClipboard() && SetClipboardData(CF_UNICODETEXT, memory);
+    CloseClipboard();
+    if (!copied) { GlobalFree(memory); throw std::runtime_error("Could not copy CUE text"); }
+    const auto status = L"Reviewed CUE copied (Unicode). Save manually as UTF-8 .cue; no files changed.";
+    SetDlgItemTextW(state.dialog, IDC_PRECISION_SOURCE_HINT, status);
 }
 
 void start_lookup(Workspace& state) {
@@ -377,6 +428,7 @@ void start_lookup(Workspace& state) {
         }
         job->ready.store(true, std::memory_order_release);
     });
+    state.lookup_url = url;
     g_lookup_pool.jobs.push_back(job);
     state.job = std::move(job);
     EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_LOOKUP), FALSE);
@@ -408,7 +460,10 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
             KillTimer(dialog, kPollTimer);
             EnableWindow(GetDlgItem(dialog, IDC_PRECISION_LOOKUP), TRUE);
             try {
-                if (!state->job->error.empty()) show_error(dialog, state->job->error);
+                if (to_utf8(url_entry(dialog)) != state->lookup_url) {
+                    reset_disc_controls(*state);
+                    show_error(dialog, "Apple album URL changed during lookup; retry");
+                } else if (!state->job->error.empty()) show_error(dialog, state->job->error);
                 else {
                     state->release = std::move(state->job->release);
                     initialize_disc_controls(*state);
@@ -430,6 +485,21 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
         return TRUE;
     }
     if (message == WM_COMMAND) {
+        if (LOWORD(wp) == IDC_PRECISION_APPLE_LINK && HIWORD(wp) == EN_CHANGE) {
+            reset_disc_controls(*state);
+            return TRUE;
+        }
+        if (LOWORD(wp) == IDC_PRECISION_EDITION_CONFIRMED && HIWORD(wp) == BN_CLICKED) {
+            EnableWindow(GetDlgItem(dialog, IDC_PRECISION_COPY_CUE),
+                state->reviewed_preview_ready &&
+                IsDlgButtonChecked(dialog, IDC_PRECISION_EDITION_CONFIRMED) == BST_CHECKED);
+            return TRUE;
+        }
+        if (LOWORD(wp) == IDC_PRECISION_COPY_CUE && HIWORD(wp) == BN_CLICKED) {
+            try { copy_reviewed_disc_cue(*state); }
+            catch (const std::exception& error) { show_error(dialog, error.what()); }
+            return TRUE;
+        }
         if (LOWORD(wp) == IDC_PRECISION_LOOKUP && HIWORD(wp) == BN_CLICKED) {
             try { start_lookup(*state); }
             catch (const std::exception& error) { show_error(dialog, error.what()); }

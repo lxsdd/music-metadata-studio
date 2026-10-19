@@ -71,5 +71,7 @@ BEGIN
     PUSHBUTTON      "Preview reviewed mapping", IDC_PRECISION_PREVIEW_ASSIGNED, 10, 82, 175, 18, WS_TABSTOP
     LTEXT           "Each disc must be assigned explicitly; previews never authorize writes.", -1, 198, 85, 402, 14
     EDITTEXT        IDC_PRECISION_PREVIEW_TEXT, 10, 108, 590, 312, ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL | WS_HSCROLL | ES_AUTOHSCROLL | WS_TABSTOP
+    AUTOCHECKBOX    "I verified the exact mix / edition", IDC_PRECISION_EDITION_CONFIRMED, 10, 428, 249, 18, WS_TABSTOP
+    PUSHBUTTON      "Copy selected disc CUE", IDC_PRECISION_COPY_CUE, 270, 429, 243, 18, WS_TABSTOP | WS_DISABLED
     PUSHBUTTON      "Close", IDCANCEL, 529, 429, 71, 18, WS_TABSTOP
 END

@@ -60,6 +60,18 @@ for token in (
     if token not in batch_rules_guard:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing shared rules stale-input gate: " + token)
 
+precision = (foobar / "precision_cue_workspace.cpp").read_text(encoding="utf-8")
+for token in (
+    "invalidate_cue_copy(state)",
+    "state.reviewed_preview_ready",
+    "IDC_PRECISION_EDITION_CONFIRMED",
+    "IDC_PRECISION_COPY_CUE",
+    "CF_UNICODETEXT",
+    "state.lookup_url",
+):
+    if token not in precision:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: precision CUE copy review gate missing " + token)
+
 preview = (foobar / "preview.cpp").read_text(encoding="utf-8")
 for token in [
     "item.result.input_fingerprint",
