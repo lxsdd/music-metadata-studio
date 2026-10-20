@@ -274,9 +274,9 @@ int main() {
     // for an unrelated edition, even if the pasted release has a plausible
     // album name. All album changes require complete one-to-one tracks.
     auto unrelated=edition;
-    for(auto& track:unrelated.tracks) {
-        track.recording.title="Different recording";
-        track.recording.primary_artist="Another Artist";
+    for(auto& edition_track:unrelated.tracks) {
+        edition_track.recording.title="Different recording";
+        edition_track.recording.primary_artist="Another Artist";
     }
     const auto unrelated_review=review_beatport_user_edition_cue(cue,unrelated);
     const auto* unrelated_album=find(unrelated_review,"Album / TITLE");
