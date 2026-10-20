@@ -119,3 +119,15 @@ native summary/detail population, and file integrity. The exact field-level
 agreement/abstention, multivalue and duplicate semantic decisions are checked
 separately by portable in-process core tests. No authenticated provider request,
 productive CUE writer, FLAC Type-5 writer or user-collection access occurs.
+
+## Negative real-host external CUE stale-snapshot gate
+
+After passing the original CUE plus WAV byte/size/timestamp integrity
+checks, the isolated runner deliberately appends a clearly identified
+`QA_ONLY` line to **its own temporary CUE** and changes only that fixture's
+mtime. The production Studio Import action must compare captured physical
+source identity, mark the native workspace `STALE snapshot (Read-only)`,
+disable further clipboard comparison, and preserve the audio WAV. This
+guards against a file changed outside foobar while its metadb info remains
+cached. Mutating the temporary CUE is an intentional **negative test**, not a
+component-initiated metadata or production-media write.
