@@ -194,7 +194,7 @@ int main() {
     // but their aggregate drift makes the generated CUE unsafe.
     for (auto& track : apple.release.tracks) track.duration_ms = 180999;
     assert(match_precision_cue_releases(deezer.release, {apple.release}).state ==
-           PrecisionCueMatchState::Selected);
+           PrecisionCueMatchState::Review);
     const auto cumulative_conflict =
         audit_precision_cue_source_consensus({apple, deezer});
     assert(cumulative_conflict.state == PrecisionCueConsensusState::Review);

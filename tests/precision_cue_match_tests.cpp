@@ -217,6 +217,60 @@ void eight_disc_99_track_contract() {
            PrecisionCueMatchState::Rejected);
 }
 
+void cumulative_mixed_edition_drift_gates() {
+    auto deezer = release("deezer", "synthetic-whole-second");
+    auto apple = release("apple", "synthetic-ms");
+    deezer.tracks.clear();
+    apple.tracks.clear();
+    // Positive fixture: independently rounded seconds may deviate within
+    // the conservative per-disc envelope, without an invented audio claim.
+    for (unsigned disc = 1; disc <= 2; ++disc) {
+        for (unsigned track = 1; track <= 30; ++track) {
+            deezer.tracks.push_back(
+                {disc, track, "Synthetic Mixed", "Artist", 180000});
+            apple.tracks.push_back(
+                {disc, track, "Synthetic Mixed", "Artist", 180500});
+        }
+    }
+    auto report = djmeta::match_precision_cue_releases(deezer, {apple});
+    assert(report.state == PrecisionCueMatchState::Selected);
+    assert(report.selected_candidate_index == 0);
+
+    // Negative fixture: 999ms individually looks acceptable, but cumulative
+    // +2997ms already exceeds the 2500ms allowance at disc 1, track 3.
+    for (auto& track : apple.tracks) track.duration_ms = 180999;
+    report = djmeta::match_precision_cue_releases(deezer, {apple});
+    assert(report.state == PrecisionCueMatchState::Review);
+    assert(!report.selected_candidate_index.has_value());
+    assert(djmeta::describe_precision_cue_match_failure(report, deezer, apple)
+        .find("disc 1, track 3 (candidate minus reference 2997 ms, "
+              "allowed +/-2500 ms)") != std::string::npos);
+
+    // Valid opposing catalog rounding errors cancel instead of accumulating.
+    for (auto& track : apple.tracks)
+        track.duration_ms = track.track_number % 2 ? 180900 : 179100;
+    report = djmeta::match_precision_cue_releases(deezer, {apple});
+    assert(report.state == PrecisionCueMatchState::Selected);
+
+    // Disc 2 starts at zero regardless of the last boundary on disc 1.
+    for (auto& track : apple.tracks)
+        track.duration_ms = track.disc_number == 1 ? 180500 : 180000;
+    for (auto& track : apple.tracks)
+        if (track.disc_number == 2 && track.track_number <= 3)
+            track.duration_ms = 180900;
+    report = djmeta::match_precision_cue_releases(deezer, {apple});
+    assert(report.state == PrecisionCueMatchState::Review);
+    assert(djmeta::describe_precision_cue_match_failure(report, deezer, apple)
+        .find("disc 2, track 3 (candidate minus reference 2700 ms, "
+              "allowed +/-2500 ms)") != std::string::npos);
+
+    // Unknown reference timing is already REVIEW, not a spurious cumulative
+    // rejection fabricated from a missing duration.
+    deezer.tracks[0].duration_ms = 0;
+    report = djmeta::match_precision_cue_releases(deezer, {apple});
+    assert(report.state == PrecisionCueMatchState::Review);
+}
+
 void release_cumulative_24h_contract() {
     auto reference = release("deezer", "synthetic-long-reference");
     auto candidate = release("apple", "synthetic-long-candidate");
@@ -303,5 +357,6 @@ int main() {
     normalization_preserves_mix_versions();
     eight_disc_99_track_contract();
     release_cumulative_24h_contract();
+    cumulative_mixed_edition_drift_gates();
     return 0;
 }

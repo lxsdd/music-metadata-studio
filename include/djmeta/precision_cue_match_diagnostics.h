@@ -2,6 +2,7 @@
 // Pure, bounded, user-facing explanation of a blocked provider match.
 // Never authorizes a CUE, network request, tag change or filesystem write.
 #include "djmeta/precision_cue_match.h"
+#include "djmeta/precision_cue_cumulative_evidence.h"
 #include <algorithm>
 #include <set>
 #include <string>
@@ -115,6 +116,20 @@ inline std::string describe_precision_cue_match_failure(
                        precision_cue_first_track_conflict(code, reference, candidate);
         } else if (code == "ALBUM_PERFORMER_REVIEW") {
             message += "\nAlbum performer differs or is missing.";
+        } else if (code == "CUMULATIVE_DISC_DURATION_REVIEW") {
+            message += "\nCumulative catalog timing drift exceeds the conservative "
+                       "whole-second rounding budget; exact mixed edition is not verified.";
+            if (const auto conflict =
+                    first_precision_cue_cumulative_evidence_conflict(reference, candidate)) {
+                message += " First conflict: disc " +
+                    std::to_string(conflict->disc_number) + ", track " +
+                    std::to_string(conflict->track_number) +
+                    " (candidate minus reference " +
+                    std::to_string(conflict->signed_cumulative_delta_ms) +
+                    " ms, allowed +/-" +
+                    std::to_string(conflict->allowed_cumulative_delta_ms) +
+                    " ms).";
+            }
         } else if (code == "TRACK_DURATION_REVIEW") {
             message += "\nTrack durations require independent review." +
                        precision_cue_first_track_conflict(code, reference, candidate);

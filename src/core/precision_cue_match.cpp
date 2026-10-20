@@ -1,4 +1,5 @@
 #include "djmeta/precision_cue_match.h"
+#include "djmeta/precision_cue_cumulative_evidence.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -171,6 +172,13 @@ PrecisionCueCandidateMatch assess(
             result.state = PrecisionCueMatchState::Review;
             result.diagnostics.emplace_back("TRACK_PERFORMER_REVIEW");
         }
+    }
+    // Per-track +/-1s agreement can conceal a many-second offset by the
+    // end of a continuous mix. Withhold automatic selection at the first
+    // excessive cumulative boundary; the user sees its exact disc/track.
+    if (first_precision_cue_cumulative_evidence_conflict(reference, candidate)) {
+        result.state = PrecisionCueMatchState::Review;
+        result.diagnostics.emplace_back("CUMULATIVE_DISC_DURATION_REVIEW");
     }
     if (canonical(reference.album_title) != canonical(candidate.album_title)) {
         result.state = PrecisionCueMatchState::Review;
