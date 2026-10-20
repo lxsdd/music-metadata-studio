@@ -156,6 +156,17 @@ inline PrecisionCueConsensusReport audit_precision_cue_source_consensus(
             report.diagnostics.emplace_back("DEEZER_SECONDS_NOT_FRAME_PRECISION");
             return report;
         }
+        // Deezer's official album 'duration' is an integer SECOND count.
+        // A caller cannot relabel arbitrary millisecond data as corroborating
+        // coarse Deezer evidence; reject even a one-millisecond fraction.
+        if (provider_key == "deezer" &&
+            std::any_of(release.tracks.begin(), release.tracks.end(),
+                [](const PrecisionCueReleaseTrack& track) {
+                    return track.duration_ms % 1000 != 0;
+                })) {
+            report.diagnostics.emplace_back("DEEZER_DURATION_NOT_WHOLE_SECONDS");
+            return report;
+        }
         if (source.resolution_ms <= 14) ++report.high_resolution_sources;
         if (&source == &sources.front()) continue;
         std::int64_t primary_elapsed = 0;

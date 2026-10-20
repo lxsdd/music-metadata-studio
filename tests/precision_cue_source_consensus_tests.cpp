@@ -16,6 +16,10 @@ static djmeta::PrecisionCueDurationSource source(const char* provider, unsigned 
         {1, 1, "Intro (Mixed)", "Artist One", 61234},
         {1, 2, "Finale (Mixed)", "Artist Two", 123456}
     };
+    if (std::string(provider) == "deezer" || std::string(provider) == "Deezer") {
+        s.release.tracks[0].duration_ms = 61000;
+        s.release.tracks[1].duration_ms = 123000;
+    }
     s.resolution_ms = resolution;
     return s;
 }
@@ -72,6 +76,15 @@ int main() {
     spoof = audit_precision_cue_source_consensus({apple, fake_precision});
     assert(spoof.state == PrecisionCueConsensusState::Rejected);
     assert(spoof.diagnostics[0] == "DEEZER_SECONDS_NOT_FRAME_PRECISION");
+    // One fractional millisecond is sufficient to disqualify alleged Deezer
+    // seconds as independently corroborating provider evidence.
+    auto false_seconds = source("deezer", 1000);
+    false_seconds.release.tracks[0].duration_ms += 1;
+    auto false_seconds_report = audit_precision_cue_source_consensus({apple, false_seconds});
+    assert(false_seconds_report.state == PrecisionCueConsensusState::Rejected);
+    assert(false_seconds_report.diagnostics[0] == "DEEZER_DURATION_NOT_WHOLE_SECONDS");
+    false_seconds_report = audit_precision_cue_source_consensus({false_seconds});
+    assert(false_seconds_report.state == PrecisionCueConsensusState::Rejected);
 
     mb.release.tracks[0].duration_ms += 13;
     auto single_frame = audit_precision_cue_source_consensus({apple, mb});
@@ -187,7 +200,8 @@ int main() {
     // yet produce a badly drifted full-disc CUE.
     deezer = source("deezer", 1000);
     deezer.release.tracks = apple.release.tracks;
-    for (auto& track : deezer.release.tracks) track.duration_ms -= 900;
+    // Use real whole-second Deezer evidence, not synthetic 179100 ms.
+    for (auto& track : deezer.release.tracks) track.duration_ms -= 1000;
     coarse_conflict = audit_precision_cue_source_consensus({apple, deezer});
     assert(coarse_conflict.state == PrecisionCueConsensusState::Review);
     assert(coarse_conflict.diagnostics[0] == "COARSE_REFERENCE_DURATION_CONFLICT");
