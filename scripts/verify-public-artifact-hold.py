@@ -40,6 +40,17 @@ for job in entry["jobs"]:
     gated_line(job + ":")
 if source.count("uses: actions/upload-artifact@") != entry["uploads"]:
     errors.append("new/removed artifact upload action; manual review required")
+if key == "music-metadata-studio":
+    core = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    core_lines = core.splitlines()
+    steps = [i for i, line in enumerate(core_lines)
+             if line.strip() == "- name: Upload Windows integration artifact"]
+    if len(steps) != 1 or core.count("uses: actions/upload-artifact@") != 1:
+        errors.append("core integration artifact upload changed")
+    elif not any(line.strip().startswith("if: false")
+                 for line in core_lines[steps[0]+1:steps[0]+6]):
+        errors.append("native core CI upload is not disabled")
+
 if key == "foo_dj_library_bridge":
     release = (root / ".github/workflows/release-qualified.yml").read_text(encoding="utf-8").splitlines()
     positions = [i for i, line in enumerate(release) if line == "  release:"]
