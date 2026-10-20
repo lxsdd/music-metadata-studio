@@ -32,3 +32,15 @@ Use `scripts/host-acceptance-noop.ps1 -Mode Prepare` from the **same SHA** as th
 The shared `foobar-host-smoke` action is SHA-pinned in `.github/workflows/foobar.yml`. It now drives the actual **Prepare Tracks (Preview)** context command in an isolated official foobar2000 2.26.1 Win32/x64 instance, using only a runner-generated synthetic WAV (never the user's library). It checks that the native Studio modeless window opens, has the expected core HWND controls, responds to the message loop and is reused rather than duplicated on a second invocation. The synthetic WAV SHA256/size/timestamps are checked after actual foobar CLI import and dialog activation. No tag, CUE or media writes are authorized.
 
 **Qualification boundary:** only actual context entry, native window/control presence, modeless reuse, and disposable WAV no-write behavior are covered. Visual DPI alignment, all tab interactions, physical/CUE-specific review, authenticated live Discogs/Beatport/MB providers, release matching, Apply gating and full human acceptance remain **NOT_TESTED** until independently verified. A passing host smoke must not be reported as `HOST_FULL_PASS`.
+
+## Expanded offline native clipboard host path (20 October 2026)
+
+The SHA-pinned shared host runner now opens the actual native modeless Studio
+dialog, activates the production `Import clipboard` button on a disposable
+WAV and verifies that new candidate field rows populate the actual Win32
+ListView. The clipboard contains only deterministic, user-declared synthetic
+Discogs *claims*, **not** authenticated Discogs API results. This is a real
+read-only UI-handler test, not a live provider test and not a substitute for
+checking provenance or comparison values in a final human review. The
+existing same-source workspace reuse and synthetic WAV integrity checks
+remain mandatory. The runner clipboard is cleared after this probe.
