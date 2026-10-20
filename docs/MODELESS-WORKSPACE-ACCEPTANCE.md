@@ -63,35 +63,23 @@ Production music, physical CUE, ReplayGain, artwork and actual writer paths
 are never modified. These focused host passes are not a full provider or
 writer-safety qualification.
 
-## Native evidence content assertions (20 October 2026)
 
-The ordinary secret-free foobar Win32 and x64 host runs no longer accept
-only nonempty candidate/detail ListViews as proof of an exact edition import.
-For a fully invented, user-pasted Beatport two-track release, the shared
-runner queries the **native LVN_GETDISPINFOW display callbacks of the virtual ListView rows** in the disposable
-foobar host using bounded cross-process Win32 scratch memory. Both
-`Release Track 1` and `Release Track 2` must appear once, each labelled
-`Pasted: beatport` and `Unmatched` because the synthetic one-second
-WAV is not an independently verified version of either track. Incomplete
-population, duplicate identities, wrong provider or accidental
-`Review` status fails the host gate. This proves actual display content,
-not just ListView item counts. It does not prove a positive recording match,
-CUE coverage or media write safety. The same action version is pinned by
-the separately protected, manual authorized Discogs path.
+## Additional native review content qualification — blocked, not certified
 
-The Win32 `LVS_OWNERDATA` (virtual ListView) style does **not**
-support `LVM_GETITEMTEXT`. An initial cross-process text query correctly
-returned no content in both architectures, although previous button/row-count
-tests passed. The runner now exercises the same display notification used by
-the real ListView. It reads the callback's text from the isolated host process,
-with 256-character bounds and architecture-specific struct layouts.
-A lack of returned text remains a hard failure, not a skipped assertion.
+On 20 October 2026, three increasingly strict external-host text probes
+demonstrated a Windows testing limitation, not a proven metadata failure.
+Both foobar builds load and render a read-only two-mix Beatport release with
+native release/detail rows and no modified WAV. However, the virtual
+`LVS_OWNERDATA` ListView does not support external `LVM_GETITEMTEXT`;
+cross-process `WM_NOTIFY` is prohibited; Windows UI Automation on the
+current host does not expose `GridPattern` for this control. These
+unqualified experiments are **not** certified PASS, and are deliberately
+unhooked from the production host gate. The ordinary host runner is pinned
+back to the last successful, actual Win32/x64 build/GUI/offline
+edition/stale-source gate.
 
-The native content gate uses **Windows UI Automation**, not unsupported
-cross-process messages. Microsoft's virtual ListView contract prohibits
-`LVM_GETITEMTEXT` under `LVS_OWNERDATA`, and `WM_NOTIFY` cannot cross
-process boundaries. After these two negative test findings, the corrected
-test uses the standard Windows `UIAutomationClient` provider for native
-`SysListView32` in its details/Grid layout. It must return the actual
-visible two-mix source and blocked-status cells. No cross-process memory
-injection is used. UI Automation failure is a hard red, never a false PASS.
+A future *supported* in-process native test must call the same presentation
+function as the production UI and assert both exact mix identities, source
+provenance and blocked/no-op review states; independent full-host acceptance
+remains pending. No debug IPC/backdoor, injected messages, secret access or
+production media writes are justified by the test limitation.

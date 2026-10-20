@@ -769,7 +769,7 @@ for token in (
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing protected live QA guard: " + token)
 if workflow.count(
     "lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@"
-    "727ff6253369bc5b7ac8dd27e54c58b36d2fd846"
+    "48a989c6eced0f530f6f6d38b3391b2a2e099bd7"
 ) != 2:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: mismatched protected/ordinary host pins")
 if workflow.count(
