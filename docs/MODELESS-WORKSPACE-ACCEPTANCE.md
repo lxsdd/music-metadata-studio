@@ -236,3 +236,15 @@ audio in the batch). The alias result is derived from the existing OS
 physical-file-ID and source-guard checks; it is not inferred from
 filename text or an extension. An alias remains a conflict and **never**
 turns the raw target into a qualified File Operations destination.
+
+## Native raw candidate missing-vs-source-alias qualification
+
+The shared Win32 and x64 host now verifies **two separate complete
+UI actions** in the actual File locations tab: using `%filename%`
+produces a synthetic missing raw candidate, whereas
+`%filename_ext%` points back to the same disposable physical WAV
+and must be reported as a *physical source alias conflict*. In both
+cases the native status explicitly says final foobar File Operations
+destinations and CUE dependencies remain unverified. These controls
+and file identity observations are checked with no mutation of the WAV,
+not inferred from a pure-core fixture alone.
