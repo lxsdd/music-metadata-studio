@@ -131,3 +131,18 @@ disable further clipboard comparison, and preserve the audio WAV. This
 guards against a file changed outside foobar while its metadb info remains
 cached. Mutating the temporary CUE is an intentional **negative test**, not a
 component-initiated metadata or production-media write.
+
+## Fixed real-host virtual external CUE stale guard
+
+The negative Win32 host test first revealed that foobar may supply a
+`.cue` as a **virtual subsong**. The preview previously recorded a
+physical source version only for a unique subsong-0 selection, allowing a
+CUE on-disk mutation to escape the cached metadb fingerprint. Source capture
+now observes the immutable physical identity/version of the external
+`.cue` regardless of virtual track index, with one OS probe per distinct
+CUE path even when several virtual tracks were selected. This establishes
+read-only source validation **without** qualifying virtual tracks for writes.
+Both interactive and asynchronous source checks fail closed if an external
+CUE lacks a qualified guard or changes on disk. The runner deliberately
+mutates only a disposable fixture after intact comparison and requires a
+`STALE snapshot` lockdown.

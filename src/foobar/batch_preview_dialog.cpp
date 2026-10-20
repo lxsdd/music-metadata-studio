@@ -2175,6 +2175,10 @@ std::vector<PreviewEntry> capture_preview(
     // migration to a roaming override invalidates existing previews.
     const djmeta::RulesTextSnapshot starting_rules{loaded.json, loaded.source_label};
 
+    // Multiple virtual subsongs from the SAME external CUE all refer to
+    // one physical, read-only carrier. Probe its bytes/version once per
+    // distinct path, never once per subsong or as a writable audio file.
+    std::map<std::string, HostFileObservation> cue_source_probes;
     std::map<std::string, std::size_t> count_per_path;
     for (t_size i = 0; i < handles.get_count(); ++i)
         ++count_per_path[std::string(handles[i]->get_path())];
@@ -2206,9 +2210,18 @@ std::vector<PreviewEntry> capture_preview(
         // independent physical operations.
         const bool candidate = handle->get_subsong_index() == 0 &&
             count_per_path[entry.input.source_path] == 1;
-        if (candidate) {
-            const HostFileObservation probe =
-                probe_host_file_readonly(entry.input.source_path);
+        const bool external_cue = is_external_cue_locator(entry.input.source_path);
+        if (candidate || external_cue) {
+            HostFileObservation probe;
+            if (external_cue) {
+                const auto [it, inserted] =
+                    cue_source_probes.try_emplace(entry.input.source_path);
+                if (inserted)
+                    it->second = probe_host_file_readonly(entry.input.source_path);
+                probe = it->second;
+            } else {
+                probe = probe_host_file_readonly(entry.input.source_path);
+            }
             entry.source_probe_detail = probe.detail;
             if (probe.state == HostFileState::ExistingFile) {
                 entry.observed_physical_key = probe.host_physical_key;
@@ -2282,7 +2295,8 @@ void verify_online_source_snapshot(PreviewState& state, const PreviewEntry& entr
     try {
         verify_snapshot(entry);
         if (!entry.observed_source_guard.empty() ||
-            entry.input.physical_source_qualified) {
+            entry.input.physical_source_qualified ||
+            is_external_cue_locator(entry.input.source_path)) {
             if (entry.observed_source_guard.empty() ||
                 entry.observed_physical_key.empty())
                 throw std::runtime_error("Online source lacks a physical identity guard.");
@@ -2313,8 +2327,16 @@ void revalidate_workspace(PreviewState& state, bool full_source_check = false) {
             // Focus/restore checks the selected disk source; explicit actions
             // verify the entire batch. Avoid a multi-thousand-file OS scan
             // merely because foobar playback or playlist focus changed.
-            if ((!full_source_check && i != state.selected_track_index) ||
-                entry.observed_source_guard.empty()) continue;
+            if (!full_source_check && i != state.selected_track_index)
+                continue;
+            // A virtual external CUE must never bypass stale checks merely
+            // because it is NOT a qualified physical audio/write target.
+            if (entry.observed_source_guard.empty()) {
+                if (is_external_cue_locator(entry.input.source_path))
+                    throw std::runtime_error(
+                        "External CUE lacks a captured physical source guard.");
+                continue;
+            }
             const auto latest = probe_host_file_readonly(entry.input.source_path);
             if (latest.state != HostFileState::ExistingFile ||
                 latest.host_physical_key != entry.observed_physical_key ||

@@ -776,3 +776,18 @@ if workflow.count(
     "github.event_name == 'push' && github.ref == 'refs/heads/main'"
 ) != 2:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: manual QA may publish unqualified DLL")
+
+# An external .cue selected as a virtual foobar subsong must still retain
+# a physical *read-only* carrier guard. This is independent of its status
+# as an ineligible physical audio/tag/CUE write target.
+for token in (
+    "std::map<std::string, HostFileObservation> cue_source_probes;",
+    "const bool external_cue = is_external_cue_locator(entry.input.source_path);",
+    "if (candidate || external_cue)",
+    "cue_source_probes.try_emplace(entry.input.source_path)",
+    "entry.observed_source_guard = probe.source_guard;",
+    "is_external_cue_locator(entry.input.source_path)) {",
+    "External CUE lacks a captured physical source guard.",
+):
+    if token not in batch_rules_guard:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: virtual CUE source guard missing: " + token)
