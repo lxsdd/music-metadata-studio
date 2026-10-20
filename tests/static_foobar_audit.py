@@ -469,11 +469,11 @@ if 'return "Pasted: " + row.candidate.provider;' not in origin_model or \
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing provider-aware origin fallback")
 # Multiline native tooltips must have actual newline escape sequences, not
 # visible backslash-n text from overescaped C++ string literals.
-if r'L"\\nProvider ID: "' in batch_table_dialog or \
+if r'L"\\nSource line / provider ID: "' in batch_table_dialog or \
    r'L"\\nScope: "' in batch_table_dialog or \
    r'L"\\nDate meaning: "' in batch_table_dialog:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: tooltip contains literal backslash-n")
-if r'L"\nProvider ID: "' not in batch_table_dialog or \
+if r'L"\nSource line / provider ID: "' not in batch_table_dialog or \
    r'L"\nScope: "' not in batch_table_dialog or \
    r'L"\nDate meaning: "' not in batch_table_dialog:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: source provenance tooltip lacks multiline details")
