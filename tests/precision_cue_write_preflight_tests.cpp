@@ -319,6 +319,12 @@ void foobar_local_windows_path_regressions() {
     verify_path("file:///Z:/Music/Disc Über 東京.mp3",
                 "Z:\\Music\\Disc Über 東京.mp3");
     verify_path("file://d:/Album/CD2.MP3", "d:\\Album\\CD2.MP3");
+    // Real foobar2000 v2.26.1 host context can pass a raw absolute drive
+    // path, not a file:// URI. This form is still strictly local/absolute.
+    verify_path("C:\\Music\\Mix.mp3", "C:\\Music\\Mix.mp3");
+    verify_path("d:/Album/CD2.MP3", "d:\\Album\\CD2.MP3");
+    verify_path("Z:\\Music\\Disc Über 東京.mp3",
+                "Z:\\Music\\Disc Über 東京.mp3");
     for (const auto invalid : {
         "https://example.com/Mix.mp3", "file://server/share/Mix.mp3",
         "file:////server/share/Mix.mp3", "file://C:relative.mp3",
@@ -326,7 +332,13 @@ void foobar_local_windows_path_regressions() {
         "file://C:\\Folder\\\\Mix.mp3", "file://C:\\Folder\\Mix.mp3:extra",
         "file://C:\\Folder\\COM1.mp3", "file://C:\\Folder\\Mix.cue",
         "file://C:\\Folder\\Mix.mp3?query",
-        "file://C:\\Folder\\Mix.mp3\\"
+        "file://C:\\Folder\\Mix.mp3\\",
+        "C:relative.mp3", ".\\Mix.mp3", "\\\\server\\share\\Mix.mp3",
+        "\\\\?\\C:\\Mix.mp3", "https://example.com/Mix.mp3",
+        "C:\\Folder\\..\\Mix.mp3", "C:\\Folder\\.\\Mix.mp3",
+        "C:\\Folder\\\\Mix.mp3", "C:\\Folder\\Mix.mp3:extra",
+        "C:\\Folder\\CON.mp3", "C:\\Folder\\Mix.cue",
+        "C:\\Folder\\Mix.mp3?query", "C:\\Folder\\Mix.mp3\\"
     }) VERIFY(!precision_cue_foobar_local_windows_mp3_path(invalid));
 }
 
