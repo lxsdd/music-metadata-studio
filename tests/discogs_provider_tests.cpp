@@ -43,7 +43,7 @@ int main() {
           allowed_readonly_path(by_artist) &&
           !allowed_readonly_path("/database/search?artist=Artist&type=master&page=1&per_page=20") &&
           !allowed_readonly_path("/database/search?artist=Artist&type=release&artist=Other&page=1&per_page=20") &&
-          !allowed_readonly_path("/database/search?artist=Artist&type=release&page=2&per_page=20") &&
+          allowed_readonly_path("/database/search?artist=Artist&type=release&page=2&per_page=20") &&
           !allowed_readonly_path("/database/search?artist=Artist&type=release&token=secret&page=1&per_page=20"),
           "artist-only request canonical, bounded and token-free");
     rejects([]{(void)artist_search_path("");},"empty artist rejected");
@@ -286,20 +286,20 @@ int main() {
           allowed_readonly_path("/database/search?q=X&type=master&page=1&per_page=20") &&
           !allowed_readonly_path("/database/search?q=Hi%0D%0ABad&type=release&page=1&per_page=20") &&
           !allowed_readonly_path("/database/search?q=Hi&type=release&token=secret&page=1&per_page=20") &&
-          !allowed_readonly_path("/database/search?q=Hi&type=release&page=2&per_page=20") &&
+          allowed_readonly_path("/database/search?q=Hi&type=release&page=2&per_page=20") &&
           !allowed_readonly_path("/database/search?track=Hi&type=release&page=1&per_page=200") &&
           !allowed_readonly_path("/database/search?barcode=123&type=release&artist=Any&page=1&per_page=20") &&
           !allowed_readonly_path("/database/search?catno=XYZ&type=release&token=secret&page=1&per_page=20") &&
           !allowed_readonly_path("/database/search?isrc=USABC2601234&type=release&page=1&per_page=20") &&
           !allowed_readonly_path("/database/search?release_title=EP&type=release&token=secret&page=1&per_page=20") &&
-          !allowed_readonly_path("/database/search?release_title=EP&type=release&artist=Any&page=2&per_page=20") &&
+          allowed_readonly_path("/database/search?release_title=EP&type=release&artist=Any&page=2&per_page=20") &&
           !allowed_readonly_path("/database/search?release_title=EP%0D&type=release&page=1&per_page=20") &&
           !allowed_readonly_path("/database/search?barcode=%30%30&type=release&page=1&per_page=20") &&
           !allowed_readonly_path("/database/search?barcode=0%0A&type=release&page=1&per_page=20") &&
           !allowed_readonly_path("/releases/0") &&
           !allowed_readonly_path("/releases/42/notes") &&
           !allowed_readonly_path("/releases/042"),
-          "native Discogs host rejects foreign endpoints, tokens, control escapes and extra pages");
+          "native Discogs host permits canonical bounded pages but rejects foreign endpoints, tokens and malformed requests");
     // One native search action can turn a canonical master URL into concrete
     // release candidates, but never turn its master ID into a tag identity.
     check(master_id_from_url(
