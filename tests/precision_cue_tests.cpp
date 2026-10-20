@@ -359,12 +359,12 @@ void test_eight_disc_99_track_plan() {
 void test_foobar_physical_mp3_path_admission() {
     using djmeta::precision_cue_foobar_local_windows_mp3_path;
     using djmeta::precision_cue_foobar_path_form;
-    const std::string local = "D:\\\\Music\\\\Synthetic.mp3";
+    const std::string local = R"(D:\Music\Synthetic.mp3)";
     assert(precision_cue_foobar_local_windows_mp3_path(local) == local);
     assert(precision_cue_foobar_local_windows_mp3_path(
-        "file://D:\\\\Music\\\\Synthetic.mp3") == local);
+        R"(file://D:\Music\Synthetic.mp3)") == local);
     assert(precision_cue_foobar_local_windows_mp3_path(
-        "FILE://D:\\\\Music\\\\Synthetic.mp3") == local);
+        R"(FILE://D:\Music\Synthetic.mp3)") == local);
     assert(precision_cue_foobar_local_windows_mp3_path(
         "file:///D:/Music/Synthetic.mp3") == local);
     assert(precision_cue_foobar_path_form("FILE://D:/Music/Synthetic.mp3") ==
@@ -373,7 +373,7 @@ void test_foobar_physical_mp3_path_admission() {
            "drive-absolute");
     assert(precision_cue_foobar_path_form("synthetic.mp3") ==
            "relative-or-unknown");
-    assert(precision_cue_foobar_path_form("\\\\\\\\?\\\\D:\\\\Music\\\\Synthetic.mp3") ==
+    assert(precision_cue_foobar_path_form(R"(\\?\D:\Music\Synthetic.mp3)") ==
            "extended-device-path");
     for (const auto bad : {
         "Synthetic.mp3", "/Music/Synthetic.mp3",
@@ -382,7 +382,7 @@ void test_foobar_physical_mp3_path_admission() {
         "D:/Music/../Synthetic.mp3", "D:/Music/./Synthetic.mp3",
         "D:/Music/CON.mp3", "D:/Music/bad?.mp3",
         "D:/Music/Synthetic.mp3/", "D:/Music//Synthetic.mp3",
-        "\\\\\\\\server\\\\share\\\\Synthetic.mp3"
+        R"(\\server\share\Synthetic.mp3)"
     }) assert(!precision_cue_foobar_local_windows_mp3_path(bad));
 }
 
