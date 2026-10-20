@@ -337,6 +337,52 @@ int main() {
           !reviewed.tracks[1].reasons.empty(),
           "uncertain CUE match cannot receive edition track credits");
 
+    // Whole-vertical read-only CUE comparison: BOTH CUE tracks match their
+    // provider edition IDs/ISRCs. Album tags are reviewable only while every
+    // remote track carries consistent exact-edition provenance.
+    std::string matched_cue=release_cue;
+    const std::string second_artist="PERFORMER \"Artist B\"\n";
+    const auto second_at=matched_cue.find(second_artist);
+    check(second_at!=std::string::npos,
+          "complete read-only CUE fixture has the second performer");
+    matched_cue.insert(second_at+second_artist.size(),
+                       "ISRC GBABC2600002\n");
+    const auto complete_inventory=inspect_cue_metadata(
+        matched_cue,CueCarrierKind::ExternalText);
+    auto complete_edition=edition;
+    complete_edition.tracks[0].recording.isrc="GBABC2600002";
+    complete_edition.fields[0].values={"Renamed Release"};
+    const auto complete_review=review_cue_release_edition(
+        complete_inventory,complete_edition);
+    check(complete_review.eligible && complete_review.tracks.size()==2 &&
+          complete_review.album_fields.size()==1 &&
+          complete_review.tracks[0].decision==MatchDecision::Suggested &&
+          complete_review.tracks[1].decision==MatchDecision::Suggested &&
+          complete_review.album_fields[0].state==FieldReviewState::NeedsReview,
+          "complete unique CUE alignment permits read-only album proposal");
+
+    // Changing only a provider field ID must withdraw that proposal even
+    // though both recording identities still align perfectly.
+    auto cross_edition=complete_edition;
+    cross_edition.tracks[0].fields[0].source_id="881/track/999";
+    const auto bad_id_review=review_cue_release_edition(
+        complete_inventory,cross_edition);
+    check(bad_id_review.eligible &&
+          bad_id_review.album_fields[0].state==FieldReviewState::Blocked &&
+          bad_id_review.album_fields[0].reason.starts_with(
+              "cue_edition_album_unverified_") &&
+          bad_id_review.tracks[1].fields.empty(),
+          "foreign track ID blocks global album changes and track fields");
+    auto cross_provider=complete_edition;
+    cross_provider.tracks[0].fields[0].provider="musicbrainz";
+    const auto bad_provider_review=review_cue_release_edition(
+        complete_inventory,cross_provider);
+    check(bad_provider_review.album_fields[0].state==FieldReviewState::Blocked &&
+          bad_provider_review.tracks[1].fields.empty(),
+          "mixed provider provenance cannot promote CUE-global changes");
+    check(complete_inventory.source_bytes==matched_cue.size(),
+          "provider review cannot modify CUE bytes");
+
     auto foreign_album = edition;
     foreign_album.fields[0].source_id = "another-edition";
     const auto refused_album = review_cue_release_edition(

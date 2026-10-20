@@ -30,6 +30,27 @@ struct CueEditionReview {
     std::vector<std::string> reasons;
 };
 
+// Validate every candidate track field against the selected exact edition.
+// Alignment uses recording facts, so a plausible title/ISRC match alone must
+// not turn foreign or mismatched provider fields into reviewable album tags.
+inline bool qualified_cue_edition_track_provenance(
+    const ReleaseEdition& edition, std::size_t index) {
+    if(index>=edition.tracks.size()) return false;
+    const auto& track=edition.tracks[index];
+    if(track.fields.empty() || track.fields.size()>64) return false;
+    const auto& identity=track.fields.front().source_id;
+    if(!valid_evidence_origin(identity,512) ||
+       (edition.provider=="discogs" &&
+        identity!=edition.edition_id+"/track/"+std::to_string(index+1)))
+        return false;
+    return std::all_of(track.fields.begin(),track.fields.end(),
+        [&](const FieldEvidence& field) {
+            return field.provider==edition.provider &&
+                   field.scope==EvidenceScope::Edition &&
+                   field.source_id==identity;
+        });
+}
+
 inline CueEditionReview review_cue_release_edition(
     const CueMetadataInventory& cue, const ReleaseEdition& edition) {
     CueEditionReview result;
@@ -95,6 +116,12 @@ inline CueEditionReview review_cue_release_edition(
             seen[match.edition_track_index] = true;
         }
     }
+    // A release may align perfectly by TITLE/ISRC while one of its track
+    // fields belongs to another edition or provider. Treat the whole album
+    // proposal as unverified; individual mismatched tracks stay blocked too.
+    for (std::size_t i=0;i<edition.tracks.size();++i)
+        if(!qualified_cue_edition_track_provenance(edition,i))
+            complete_edition_alignment=false;
     if (!complete_edition_alignment)
         for (auto& row : result.album_fields)
             if (row.state == FieldReviewState::NeedsReview) {
@@ -117,18 +144,8 @@ inline CueEditionReview review_cue_release_edition(
         }
         const auto index = match.edition_track_index;
         const auto& remote = edition.tracks[index];
-        bool valid = !remote.fields.empty();
-        const std::string expected_discogs_id =
-            edition.edition_id + "/track/" + std::to_string(index + 1);
-        const std::string source_id = remote.fields.empty()
-            ? std::string{} : remote.fields.front().source_id;
-        if (!valid_evidence_origin(source_id, 512) ||
-            (edition.provider == "discogs" && source_id != expected_discogs_id))
-            valid = false;
-        for (const auto& field : remote.fields)
-            if (field.provider != edition.provider ||
-                field.scope != EvidenceScope::Edition ||
-                field.source_id != source_id) valid = false;
+        const bool valid=qualified_cue_edition_track_provenance(
+            edition,index);
         if (!valid) {
             row.reasons.push_back("cue_edition_track_provenance_mismatch");
             result.tracks.push_back(std::move(row));
