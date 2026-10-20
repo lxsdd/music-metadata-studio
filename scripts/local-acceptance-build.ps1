@@ -39,8 +39,12 @@ try {
     Invoke-WebRequest -UseBasicParsing -MaximumRedirection 5 -Uri ('https://codeload.github.com/lxsdd/music-metadata-studio/zip/' + $SourceSha) -OutFile $zip
     Expand-Archive -LiteralPath $zip -DestinationPath $sourceDir
     $roots = @(Get-ChildItem -LiteralPath $sourceDir -Directory)
-    if ($roots.Count -ne 1 -or -not $roots[0].Name.EndsWith($SourceSha.Substring(0,7))) {
-        throw 'Source archive root differs from requested pinned Git commit.'
+    if ($roots.Count -ne 1) { throw 'GitHub archive must contain exactly one source directory.' }
+    $expectedName = 'music-metadata-studio-'
+    $actualName = $roots[0].Name
+    if (-not ($actualName -eq ($expectedName + $SourceSha) -or
+               $actualName -eq ($expectedName + $SourceSha.Substring(0,7)))) {
+        throw "Source archive root does not match pinned Git SHA: $actualName"
     }
     $root = $roots[0].FullName
     foreach ($f in @('scripts\build-foobar.ps1','scripts\package-foobar.ps1',
