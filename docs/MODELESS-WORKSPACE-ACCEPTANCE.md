@@ -166,3 +166,19 @@ This qualifies **embedded textual Vorbis-comment CUESHEET observation only**.
 It does not qualify embedded CUE playback, write-safe tag/CUE commits,
 FLAC Type-5 binary CUESHEET block rewriting, artwork, ReplayGain or any
 user-library modifications. These remain blocked until separately proven.
+
+## Real host: dual text/Type-5 FLAC preservation and embedded stale lock
+
+The embedded FLAC fixture now contains both an editable-text **Vorbis
+Comment CUESHEET** and an independent, structurally valid **native FLAC
+Type-5 binary CUESHEET** metadata block. A standalone FLAC 1.5.0 reference
+decoder and `metaflac` parser validate the fixture's 1-second audio and
+three-entry binary cue block. Native Win32/x64 Studio reads the textual
+carrier and stages the synthetic two-mix online comparison, then requires
+*identical SHA-256/byte length/mtime of the entire FLAC*, inherently
+preserving both CUE representations. Afterward the isolated runner
+deliberately alters just its own FLAC's disk bytes and timestamp. The
+open native Studio must enter `STALE snapshot (Read-only)` and disable
+subsequent import actions, including when foobar previously selected a
+virtual embedded-CUE track. Type-5 **writing** remains prohibited and
+unqualified; the test validates *read-only byte preservation* only.
