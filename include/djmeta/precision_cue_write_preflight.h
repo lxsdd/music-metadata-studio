@@ -6,6 +6,7 @@
 #include "djmeta/precision_cue.h"
 #include "djmeta/precision_cue_filename.h"
 #include "djmeta/precision_cue_sha256.h"
+#include "djmeta/precision_cue_unicode_text.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -62,9 +63,9 @@ inline bool precision_cue_strict_generated_layout(
             line[prefix.size()] != '"' || line.back() != '"') return false;
         const auto value = line.substr(prefix.size() + 1,
                                        line.size() - prefix.size() - 2);
-        if (value.find('"') != std::string_view::npos) return false;
-        for (const unsigned char c : value)
-            if (c < 0x20 || c == 0x7f) return false;
+        if (value.find('"') != std::string_view::npos ||
+            !precision_cue_safe_unicode_text(value))
+            return false;
         ++pos;
         return true;
     };

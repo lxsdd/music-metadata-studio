@@ -56,7 +56,7 @@ END
 
 IDD_PRECISION_CUE_PREVIEW DIALOGEX 0, 0, 610, 509
 STYLE DS_SETFONT | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX
-CAPTION "Precision CUE - Album Preview (No Writes)"
+CAPTION "Precision CUE - Preview / External CUE Create"
 FONT 9, "Segoe UI"
 BEGIN
     LTEXT           "Apple/Deezer URL or album:", -1, 10, 12, 137, 12
@@ -65,7 +65,7 @@ BEGIN
     LTEXT           "Apple duration candidate:", -1, 10, 35, 137, 12
     COMBOBOX        IDC_PRECISION_ALBUM_RESULTS, 148, 32, 355, 130, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     PUSHBUTTON      "Look up selected", IDC_PRECISION_LOOKUP, 510, 32, 90, 18, WS_TABSTOP
-    LTEXT           "Preview only. Verify the exact DJ mix edition; no audio, tags or CUE files are changed.", IDC_PRECISION_SOURCE_HINT, 10, 59, 589, 20
+    LTEXT           "Preview changes nothing. A new external .cue is created only after separate confirmation.", IDC_PRECISION_SOURCE_HINT, 10, 59, 589, 20
     LTEXT           "Disc:", -1, 10, 85, 35, 12
     COMBOBOX        IDC_PRECISION_DISC_PICKER, 48, 82, 98, 130, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     LTEXT           "MP3:", -1, 156, 85, 35, 12

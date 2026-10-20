@@ -55,6 +55,24 @@ void export_planning_positive_and_negative() {
     VERIFY(!wrong.eligible);
     wrong = plan_precision_cue_external_export(cue, "CON.mp3");
     VERIFY(!wrong.eligible);
+    // A CUE generated correctly must not become publishable after hidden
+    // Unicode controls are inserted into otherwise valid quoted metadata.
+    for (const auto bad : {
+        "\xC2\x85", "\xE2\x80\xAE", "\xE2\x81\xA6",
+        "\xE2\x80\xA8", "\xEF\xBB\xBF", "\xEF\xB7\x90",
+        "\xED\xA0\x80", "\xC0\xAF"
+    }) {
+        auto doctored = cue;
+        const std::string line = "    TITLE \"Start (Mixed)\"\n";
+        const auto at = doctored.external_cue_utf8.find(line);
+        VERIFY(at != std::string::npos);
+        doctored.external_cue_utf8.insert(at + line.find("Mixed") + 5, bad);
+        VERIFY(!plan_precision_cue_external_export(
+            doctored, "Disc Über 東京.mp3").eligible);
+        const auto bad_filename = std::string("Mix") + bad + ".mp3";
+        VERIFY(!precision_cue_safe_mp3_basename(bad_filename));
+        VERIFY(!plan_precision_cue_external_export(cue, bad_filename).eligible);
+    }
 
     auto altered = cue;
     altered.external_cue_utf8 += "FILE \"unexpected.mp3\" WAVE\n";

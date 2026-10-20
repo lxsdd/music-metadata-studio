@@ -2,6 +2,7 @@
 // Read-only, provider-independent comparison of integer-ms durations.
 // Resolution metadata must be independently verified for each provider.
 #include "djmeta/precision_cue_match.h"
+#include "djmeta/precision_cue_unicode_text.h"
 #include <cstddef>
 #include <cstdint>
 #include <algorithm>
@@ -70,9 +71,20 @@ inline std::string normalized(std::string_view input) {
     return result;
 }
 
+// The matching layer already forbids hidden controls. Re-validate independently
+// at this lower-level consensus boundary: callers may bypass matching.
+inline bool safe_catalog_field(std::string_view value, bool required = true) {
+    return value.size() <= 4096 && precision_cue_safe_unicode_text(value) &&
+        (!required || !normalized(value).empty());
+}
+
 inline bool valid_release_structure(const PrecisionCueRelease& r) {
-    if (r.provider.empty() || r.provider_release_id.empty() ||
-        r.album_title.empty() || r.album_performer.empty() ||
+    if (!safe_catalog_field(r.provider) ||
+        !safe_catalog_field(r.provider_release_id) ||
+        !safe_catalog_field(r.album_title) ||
+        !safe_catalog_field(r.album_performer) ||
+        !safe_catalog_field(r.genre, false) ||
+        !safe_catalog_field(r.release_date, false) ||
         r.tracks.empty() || r.tracks.size() > 8u * 99u ||
         r.tracks.front().disc_number != 1 ||
         r.tracks.front().track_number != 1) return false;
@@ -90,7 +102,8 @@ inline bool valid_release_structure(const PrecisionCueRelease& r) {
             cumulative_disc_ms = 0;
         }
         if (t.track_number != ++current_track || current_track > 99 ||
-            t.title.empty() || t.performer.empty() ||
+            !safe_catalog_field(t.title) ||
+            !safe_catalog_field(t.performer) ||
             t.duration_ms <= 0 ||
             t.duration_ms > kMaximumDiscMs - cumulative_disc_ms)
             return false;

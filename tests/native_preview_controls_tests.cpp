@@ -398,6 +398,12 @@ int main() {
     HWND cue_dialog = CreateDialogParamW(GetModuleHandleW(nullptr),
         MAKEINTRESOURCEW(IDD_PRECISION_CUE_PREVIEW), nullptr, test_dialog_proc, 0);
     check(cue_dialog != nullptr, "Precision CUE production dialog instantiation");
+    // The window must NOT promise "No Writes": explicitly confirmed
+    // create-only external CUE publication is intentionally available.
+    wchar_t precision_title[128]{};
+    GetWindowTextW(cue_dialog, precision_title, 128);
+    check(std::wcsstr(precision_title, L"External CUE Create") != nullptr,
+          "Precision CUE native caption accurately describes external create");
     const DWORD cue_style = static_cast<DWORD>(
         GetWindowLongPtrW(cue_dialog, GWL_STYLE));
     check((cue_style & WS_THICKFRAME) && (cue_style & WS_MINIMIZEBOX) &&

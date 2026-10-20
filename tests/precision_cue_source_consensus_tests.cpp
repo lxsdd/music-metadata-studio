@@ -26,6 +26,40 @@ static djmeta::PrecisionCueDurationSource source(const char* provider, unsigned 
 
 int main() {
     using namespace djmeta;
+    // The consensus API is callable independently of the strict matcher.
+    // Equal-looking but deceptive provider fields must NEVER corroborate
+    // frame timing, even if BOTH alleged sources contain the same bad text.
+    for (const auto bad : {
+        "\xC2\x85", "\xE2\x80\xAE", "\xE2\x81\xA6",
+        "\xE2\x80\xA8", "\xEF\xBB\xBF", "\xEF\xB7\x90",
+        "\xED\xA0\x80", "\xC0\xAF"
+    }) {
+        auto primary = source("apple", 1);
+        auto second = source("musicbrainz", 1);
+        primary.release.album_title += bad;
+        second.release.album_title += bad;
+        assert(audit_precision_cue_source_consensus({primary, second}).state ==
+               PrecisionCueConsensusState::Rejected);
+        primary = source("apple", 1);
+        second = source("musicbrainz", 1);
+        second.release.tracks[1].title += bad;
+        assert(audit_precision_cue_source_consensus({primary, second}).state ==
+               PrecisionCueConsensusState::Rejected);
+        second = source("musicbrainz", 1);
+        second.release.provider_release_id += bad;
+        assert(audit_precision_cue_source_consensus({primary, second}).state ==
+               PrecisionCueConsensusState::Rejected);
+    }
+    auto international_primary = source("apple", 1);
+    auto international_second = source("musicbrainz", 1);
+    international_primary.release.album_title =
+        international_second.release.album_title = "München – 東京";
+    international_primary.release.tracks[0].title =
+        international_second.release.tracks[0].title = "Café 👩‍🎤";
+    assert(audit_precision_cue_source_consensus({
+        international_primary, international_second}).state ==
+        PrecisionCueConsensusState::Agreed);
+
     auto apple = source("apple", 1);
     auto mb = source("musicbrainz", 1);
     auto deezer = source("deezer", 1000);

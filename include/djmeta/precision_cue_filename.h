@@ -1,10 +1,12 @@
 #pragma once
 // Conservative Windows/foobar MP3 FILE basename validation, no I/O.
+#include "djmeta/precision_cue_unicode_text.h"
 #include <cstddef>
 #include <string_view>
 
 namespace djmeta {
 inline bool precision_cue_safe_mp3_basename(std::string_view s) noexcept {
+    if (!precision_cue_safe_unicode_text(s)) return false;
     if (s.size() < 5 || s.size() > 255 || s.front() == ' ' || s.back() == ' ' ||
         s.front() == '.' || s.back() == '.') return false;
     for (unsigned char c : s) {
