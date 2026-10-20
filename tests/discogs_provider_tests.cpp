@@ -226,7 +226,7 @@ int main() {
               "1000 Years (DJ Version)","Kyau & Albert x Maywave"),
           "an already annotated title must not duplicate its mix suffix");
     rejects([]{(void)track_search_plan(
-        "Home","Artist",{}, {}, {}, false,"Bad\\nAuthorization");},
+        "Home","Artist",{}, {}, {}, false,std::string("Bad")+char(10)+"Authorization");},
         "unsafe VERSION is rejected before any provider request");
     const auto oversized_version=track_search_plan(
         std::string(145,'x'),"Artist",{}, {}, {}, false,"Extended Mix");
