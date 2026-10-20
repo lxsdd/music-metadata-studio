@@ -80,6 +80,7 @@ void test_large_batch_one_confirmation() {
         auto item = audio("Track" + std::to_string(i));
         item.target_presence = djmeta::TargetPresence::Existing;
         item.target_guard = "guard-" + std::to_string(i);
+        item.target_physical_id = "target-file-" + std::to_string(i);
         batch.push_back(std::move(item));
     }
     const auto preview = djmeta::review_batch_plan(batch);
@@ -101,8 +102,10 @@ void test_batch_overwrite_once_and_target_guard() {
     auto b = audio("B");
     a.target_presence = djmeta::TargetPresence::Existing;
     a.target_guard = "target-A-content-v1";
+    a.target_physical_id = "existing-file-A";
     b.target_presence = djmeta::TargetPresence::Existing;
     b.target_guard = "target-B-content-v1";
+    b.target_physical_id = "existing-file-B";
     std::vector<djmeta::FilePlanItem> batch = {a, b};
 
     const auto preview = djmeta::review_batch_plan(batch);
@@ -151,6 +154,7 @@ void test_many_individual_overwrite_approvals_are_indexed() {
         auto item = audio("library-" + std::to_string(i));
         item.target_presence = djmeta::TargetPresence::Existing;
         item.target_guard = "inspected-identity-" + std::to_string(i);
+        item.target_physical_id = "target-real-physical-" + std::to_string(i);
         items.push_back(std::move(item));
     }
     const auto first = djmeta::review_batch_plan(items);
@@ -191,6 +195,7 @@ void test_missing_target_guard_and_no_inspection() {
 
     a.target_presence = djmeta::TargetPresence::Existing;
     a.target_guard.clear();
+    a.target_physical_id = "existing-target-observation";
     result = djmeta::review_batch_plan({a});
     require(result.blocked == 1 &&
             has_reason(result.decisions[0], "EXISTING_TARGET_NOT_GUARDED"),
@@ -206,6 +211,7 @@ void test_new_target_after_clean_review_requires_new_consent() {
     // A third party creates the file between the preview and Apply.
     item.target_presence = djmeta::TargetPresence::Existing;
     item.target_guard = "newly-created-target";
+    item.target_physical_id = "new-real-file";
     const auto changed = djmeta::review_batch_plan({item}, &prior);
     require(changed.blocked == 1 && !changed.ready_to_apply &&
             !changed.decisions[0].will_replace_existing_target &&
@@ -290,6 +296,63 @@ void test_intra_batch_conflicts_cannot_be_overridden() {
     preview = djmeta::review_batch_plan({a, b});
     require(has_reason(preview.decisions[0], "TARGET_IS_BATCH_SOURCE"),
             "cannot replace a selected tag-only file by a batch move");
+}
+
+
+void test_existing_target_physical_identity_and_hardlink_alias_gates() {
+    auto a=audio("target-A");
+    auto b=audio("target-B");
+    a.target_presence=djmeta::TargetPresence::Existing;
+    a.target_guard="existing-v1";
+    a.target_physical_id="os-file-123";
+    b.target_presence=djmeta::TargetPresence::Existing;
+    b.target_guard="other-path-existing-v1";
+    b.target_physical_id="os-file-123"; // two paths/hardlinks, SAME target
+    const auto alias=djmeta::review_batch_plan({a,b});
+    require(alias.blocked==2 && !alias.ready_to_apply &&
+            has_reason(alias.decisions[0],"MULTIPLE_TARGETS_SAME_PHYSICAL_FILE") &&
+            has_reason(alias.decisions[1],"MULTIPLE_TARGETS_SAME_PHYSICAL_FILE"),
+            "two distinct destination paths cannot independently overwrite one hardlinked target");
+
+    b.target_physical_id="os-file-456";
+    const auto independent=djmeta::review_batch_plan({a,b});
+    require(independent.blocked==0 && independent.requires_overwrite==2 &&
+            !independent.ready_to_apply,
+            "two truly independent observed target identities require explicit overwrites");
+    const djmeta::BatchApproval approved{independent.plan_fingerprint,true,{}};
+    require(djmeta::review_batch_plan({a,b},&approved).ready_to_apply,
+            "exact source and target identities may enter advisory frozen plan");
+    b.target_physical_id="os-file-789";
+    const auto stale=djmeta::review_batch_plan({a,b},&approved);
+    require(stale.blocked==2 &&
+            has_reason(stale.decisions[0],"STALE_BATCH_APPROVAL"),
+            "target physical file replacement invalidates previously approved plan");
+
+    b.target_physical_id.clear();
+    const auto uninspected=djmeta::review_batch_plan({a,b});
+    require(uninspected.blocked>=1 &&
+            has_reason(uninspected.decisions[1],
+                "EXISTING_TARGET_PHYSICAL_ID_NOT_INSPECTED"),
+            "existing destination cannot be approved without OS physical ID");
+
+    b.target_physical_id=a.physical_id;
+    const auto source_alias=djmeta::review_batch_plan({a,b});
+    require(!source_alias.ready_to_apply &&
+            has_reason(source_alias.decisions[1],
+                "TARGET_IS_SELECTED_PHYSICAL_SOURCE"),
+            "different destination path pointing to selected audio hardlink must be blocked");
+
+    b.target_presence=djmeta::TargetPresence::Missing;
+    const auto impossible=djmeta::review_batch_plan({a,b});
+    require(has_reason(impossible.decisions[1],"TARGET_ID_WITHOUT_EXISTING_FILE"),
+            "missing target cannot still carry a nonempty OS file ID");
+
+    b.target_presence=djmeta::TargetPresence::Existing;
+    b.target_physical_id="os-file-456";
+    b.target_physical_id.push_back('\0');
+    const auto nul=djmeta::review_batch_plan({a,b});
+    require(has_reason(nul.decisions[1],"EMBEDDED_NUL_IN_PLAN_IDENTITY"),
+            "embedded NUL in target physical ID cannot truncate approved identity");
 }
 
 void test_duplicate_subsong_source_and_self_copy() {
@@ -956,6 +1019,7 @@ void test_frozen_approved_snapshot_is_detached_and_non_executing() {
     auto existing = audio("Overwrite");
     existing.target_presence = djmeta::TargetPresence::Existing;
     existing.target_guard = "observed-target-sha256";
+    existing.target_physical_id = "observed-existing-physical-id";
     const auto overwrite_review = djmeta::review_batch_plan({existing});
     const djmeta::BatchApproval not_approved{overwrite_review.plan_fingerprint, false};
     try {
@@ -1196,6 +1260,7 @@ int main() {
     test_source_observation_approval_binding();
     test_mixed_ruleset_revisions_fail_closed();
     test_batch_overwrite_once_and_target_guard();
+    test_existing_target_physical_identity_and_hardlink_alias_gates();
     test_large_batch_one_confirmation();
     test_many_individual_overwrite_approvals_are_indexed();
     test_missing_target_guard_and_no_inspection();

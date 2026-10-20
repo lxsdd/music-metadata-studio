@@ -35,7 +35,7 @@ std::string plan_fingerprint(const std::vector<FilePlanItem>& items) {
             yesno(item.manual_override),
             yesno(item.companion_policy_qualified),
             decimal(static_cast<int>(item.target_presence)),
-            item.target_guard,
+            item.target_guard, item.target_physical_id,
             decimal(static_cast<int>(item.cue_links)),
             item.cue_source_fingerprint, item.cue_postimage_fingerprint,
             yesno(item.cue_references_will_change),
@@ -100,6 +100,7 @@ bool contains_embedded_nul(const FilePlanItem& item) {
         &item.metadata_fingerprint, &item.planned_metadata_fingerprint,
         &item.ruleset_revision, &item.routing_profile,
         &item.naming_expression, &item.target_guard,
+        &item.target_physical_id,
         &item.cue_source_fingerprint, &item.cue_postimage_fingerprint
     };
     for (const auto* field : fields)
@@ -177,6 +178,8 @@ BatchPlanReview review_batch_plan(
     std::map<std::string, std::size_t> source_key_counts;
     std::map<std::string, std::size_t> physical_id_counts;
     std::map<std::string, std::size_t> target_key_counts;
+    std::map<std::string, std::size_t> existing_target_physical_counts;
+    std::set<std::string> all_source_physical_ids;
     std::set<std::string> audio_ids;
     std::map<std::string, CueLinkState> audio_cue_states;
     std::set<std::string> all_source_keys;
@@ -188,6 +191,8 @@ BatchPlanReview review_batch_plan(
 
     for (const FilePlanItem& item : items) {
         if (!item.source_key.empty()) all_source_keys.insert(item.source_key);
+        if (!item.physical_id.empty())
+            all_source_physical_ids.insert(item.physical_id);
         if (item.role == FileRole::ExternalCue)
             for (const auto& id : cue_audio_dependencies(item))
                 ++all_cue_counts[id];
@@ -205,6 +210,10 @@ BatchPlanReview review_batch_plan(
         if (!active_item(item)) continue;
         if (active_file_action(item) && !item.target_key.empty())
             ++target_key_counts[item.target_key];
+        if (active_file_action(item) &&
+            item.target_presence == TargetPresence::Existing &&
+            !item.target_physical_id.empty())
+            ++existing_target_physical_counts[item.target_physical_id];
         if (item.role == FileRole::ExternalCue)
             for (const auto& id : cue_audio_dependencies(item))
                 ++cue_counts[id];
@@ -244,6 +253,9 @@ BatchPlanReview review_batch_plan(
             block(decision, "MIXED_RULESET_REVISIONS");
         if (item.source_guard.empty())
             block(decision, "SOURCE_NOT_INSPECTED");
+        if (item.target_presence != TargetPresence::Existing &&
+            !item.target_physical_id.empty())
+            block(decision, "TARGET_ID_WITHOUT_EXISTING_FILE");
 
         if (item.cue_references_will_change && item.role != FileRole::ExternalCue)
             block(decision, "CUE_REWRITE_ON_NON_CUE_ITEM");
@@ -389,9 +401,17 @@ BatchPlanReview review_batch_plan(
             if (item.target_presence == TargetPresence::Unchecked)
                 block(decision, "TARGET_NOT_INSPECTED");
             else if (item.target_presence == TargetPresence::Existing) {
+                if (item.target_physical_id.empty())
+                    block(decision, "EXISTING_TARGET_PHYSICAL_ID_NOT_INSPECTED");
+                else {
+                    if (all_source_physical_ids.count(item.target_physical_id))
+                        block(decision, "TARGET_IS_SELECTED_PHYSICAL_SOURCE");
+                    if (existing_target_physical_counts[item.target_physical_id] > 1)
+                        block(decision, "MULTIPLE_TARGETS_SAME_PHYSICAL_FILE");
+                }
                 if (item.target_guard.empty()) {
                     block(decision, "EXISTING_TARGET_NOT_GUARDED");
-                } else {
+                } else if (!item.target_physical_id.empty()) {
                     ++review.requires_overwrite;
                     const bool approved_one =
                         individually_approved.count(item.physical_id) != 0;

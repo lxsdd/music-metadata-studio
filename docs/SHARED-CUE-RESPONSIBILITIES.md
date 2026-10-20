@@ -109,3 +109,19 @@ audio sources remains eligible, as do distinct audio/CUE pairs. The
 contract does not guess which CUE should prevail; the eventual user must
 resolve the ambiguity with an explicit selection before physical
 operations can be enabled. No CUE generation or writer is involved.
+
+## Existing-target physical identity gate (October 2026)
+
+An actual existing destination now requires a **separately observed host
+physical file ID** in addition to its canonical path and version guard.
+The approved plan fingerprint binds that ID. Two apparently different
+destination names which are OS hardlinks/aliases of the *same file* are
+blocked, as is an existing destination that physically aliases ANY
+selected source, even under another canonical path. An existing file
+without an observed identity is blocked; an allegedly missing target with
+a nonempty physical ID is contradictory and blocked. Physical ID/version
+changes invalidate the entire frozen approval; blanket overwrite consent
+cannot bypass these tests. All tests are pure/fixture-only and non-writing.
+The native Studio target path remains unqualified until foobar's final
+File Operations target mapping and filesystem readback are separately
+proved; this does not enable a write-capable implementation.

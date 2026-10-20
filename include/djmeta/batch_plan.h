@@ -50,6 +50,10 @@ struct FilePlanItem {
     TargetPresence target_presence = TargetPresence::Unchecked;
     // Host-observed destination identity/stat guard, required if Existing.
     std::string target_guard;
+    // Independent OS/foobar physical identity of an EXISTING destination.
+    // Different canonical paths can be hardlinks/aliases of one real file.
+    // Never derive this from destination strings or file extensions.
+    std::string target_physical_id;
     // An audio file must explicitly report no external cue, or verified cue
     // handling. Unchecked and unresolved dependencies are always blocked.
     CueLinkState cue_links = CueLinkState::Unchecked;
