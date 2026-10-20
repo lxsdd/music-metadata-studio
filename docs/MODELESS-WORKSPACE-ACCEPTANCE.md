@@ -98,3 +98,24 @@ real import and proper stale lockdown. This closes an isolated presentation
 logic coverage gap without falsely claiming that the inaccessible external
 UI automation readback passed. Visual correctness and CUE host workflows
 remain for eventual real foobar acceptance.
+
+## Actual external CUE host boundary (20 October 2026)
+
+The pinned shared Win32/x64 foobar host now attempts an **independent,
+disposable external text-CUE user workflow** after the existing audio-only
+review: it creates a two-track synthetic `.cue` referencing the isolated
+verified 8kHz WAV (the only audio source), closes the modeless workspace,
+reopens the real Prepare Tracks context action on the CUE, invokes **Inspect
+CUE**, and requires a real native CUE original inventory. It then presses the
+production **Import clipboard** button with a complete, fabricated two-mix
+Beatport edition and checks release/track summary and detail controls. It
+verifies both original CUE bytes/timestamp and audio bytes/timestamp remain
+unchanged and returns to the original WAV to retain the independent disk-stale
+gate. The CUE content intentionally contains two global REM GENRE values and
+a custom REM field; no CUE rewrite is ever performed.
+
+The host gate only proves control activation, read-only source inventory,
+native summary/detail population, and file integrity. The exact field-level
+agreement/abstention, multivalue and duplicate semantic decisions are checked
+separately by portable in-process core tests. No authenticated provider request,
+productive CUE writer, FLAC Type-5 writer or user-collection access occurs.
