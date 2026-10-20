@@ -16,13 +16,8 @@ if (-not $sevenZip) {
 if (-not $msbuild -or -not $sevenZip) {
     throw 'Preflight: VS2022 Developer PowerShell with MSBuild and 7-Zip required. No installation attempted.'
 }
-$project = Split-Path -Parent $PSScriptRoot
-foreach ($f in @('scripts\build-foobar.ps1','scripts\package-foobar.ps1',
-                 'scripts\bootstrap-sdk.ps1','VERSION')) {
-    if (-not (Test-Path -LiteralPath (Join-Path $project $f) -PathType Leaf)) {
-        throw "Missing original project file $f"
-    }
-}
+# Runs standalone from any directory, including a single downloaded script
+# under $env:TEMP. Source project files are checked after exact-SHA download.
 if ($PreflightOnly) {
     Write-Host 'LOCAL_ACCEPTANCE_PREFLIGHT=PASS; no download, build, installation or personal data touched.'
     return
