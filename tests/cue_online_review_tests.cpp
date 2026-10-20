@@ -347,11 +347,21 @@ int main() {
           "complete read-only CUE fixture has the second performer");
     matched_cue.insert(second_at+second_artist.size(),
                        "ISRC GBABC2600002\n");
-    const auto complete_inventory=inspect_cue_metadata(
-        matched_cue,CueCarrierKind::ExternalText);
+
     auto complete_edition=edition;
     complete_edition.tracks[0].recording.isrc="GBABC2600002";
+    // TITLE alone, even with a matching ISRC, is insufficient to prove a
+    // generic/unknown mix. Qualify the same named edition on both sides.
+    const std::string old_title="TITLE Lunar\n";
+    const auto title_at=matched_cue.find(old_title);
+    check(title_at!=std::string::npos,
+          "complete fixture contains the second recording title");
+    matched_cue.replace(title_at,old_title.size(),
+                        "TITLE \"Lunar (Extended Mix)\"\n");
+    complete_edition.tracks[0].recording.title="Lunar (Extended Mix)";
     complete_edition.fields[0].values={"Renamed Release"};
+    const auto complete_inventory=inspect_cue_metadata(
+        matched_cue,CueCarrierKind::ExternalText);
     const auto complete_review=review_cue_release_edition(
         complete_inventory,complete_edition);
     check(complete_review.eligible && complete_review.tracks.size()==2 &&
@@ -360,6 +370,23 @@ int main() {
           complete_review.tracks[1].decision==MatchDecision::Suggested &&
           complete_review.album_fields[0].state==FieldReviewState::NeedsReview,
           "complete unique CUE alignment permits read-only album proposal");
+
+    // Independent negative: without a named mix, a matching ISRC is not
+    // enough to authorize an album-global proposal.
+    auto unknown_mix=complete_edition;
+    unknown_mix.tracks[0].recording.title="Lunar";
+    std::string unknown_mix_cue=matched_cue;
+    const std::string known_title="TITLE \"Lunar (Extended Mix)\"\n";
+    const auto known_at=unknown_mix_cue.find(known_title);
+    check(known_at!=std::string::npos,"named mix fixture qualified");
+    unknown_mix_cue.replace(known_at,known_title.size(),"TITLE Lunar\n");
+    const auto unknown_mix_inventory=inspect_cue_metadata(
+        unknown_mix_cue,CueCarrierKind::ExternalText);
+    const auto unknown_review=review_cue_release_edition(
+        unknown_mix_inventory,unknown_mix);
+    check(unknown_review.eligible &&
+          unknown_review.album_fields[0].state==FieldReviewState::Blocked,
+          "matching ISRC cannot override missing mix identity");
 
     // Changing only a provider field ID must withdraw that proposal even
     // though both recording identities still align perfectly.
