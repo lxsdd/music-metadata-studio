@@ -732,16 +732,14 @@ inline ReleaseEdition parse_release(std::string_view json,std::uint64_t expected
     const auto* tracks=root.get("tracklist");
     if(!tracks || tracks->type!=musicbrainz::Json::Type::Array)
         throw std::invalid_argument("Discogs edition is missing tracklist");
-    for(const auto& track:tracks->array) {
+    // Discogs indexed medleys contain real child recordings. Skipping them
+    // silently creates a partial edition with misleading track provenance.
+    const auto append_track=[&](const musicbrainz::Json& track) {
         if(edition.tracks.size()>=256)
             throw std::invalid_argument("Discogs tracklist exceeds safe limit");
-        if(track.type!=musicbrainz::Json::Type::Object) continue;
-        const auto kind=string_field(track,"type_");
-        // Index/heading/subtrack containers are NOT ordinary track rows.
-        // Unknown types are never silently flattened into a false track.
-        if(!kind.empty() && kind!="track") continue;
         const auto track_title=string_field(track,"title");
-        if(!catalog_label(track_title,2048)) continue;
+        if(!catalog_label(track_title,2048))
+            throw std::invalid_argument("Discogs playable track title is unqualified");
         EditionTrack item;
         item.source_track_id=string_field(track,"position");
         if(!item.source_track_id.empty() &&
@@ -788,6 +786,30 @@ inline ReleaseEdition parse_release(std::string_view json,std::uint64_t expected
                     track_source,EvidenceScope::Edition,DateMeaning::NotDate});
         }
         edition.tracks.push_back(std::move(item));
+    };
+    for(const auto& track:tracks->array) {
+        if(track.type!=musicbrainz::Json::Type::Object)
+            throw std::invalid_argument("Discogs tracklist contains an invalid row");
+        const auto kind=string_field(track,"type_");
+        if(kind=="heading" || kind=="video") continue;
+        if(kind=="index") {
+            const auto* children=track.get("sub_tracks");
+            if(!children || children->type!=musicbrainz::Json::Type::Array ||
+               children->array.empty() || children->array.size()>256)
+                throw std::invalid_argument("Discogs index has no qualified subtracks");
+            for(const auto& child:children->array) {
+                if(child.type!=musicbrainz::Json::Type::Object ||
+                   child.get("sub_tracks") ||
+                   (!string_field(child,"type_").empty() &&
+                    string_field(child,"type_")!="track"))
+                    throw std::invalid_argument("Discogs nested track is unqualified");
+                append_track(child);
+            }
+            continue;
+        }
+        if((!kind.empty() && kind!="track") || track.get("sub_tracks"))
+            throw std::invalid_argument("Discogs unknown track type or nesting");
+        append_track(track);
     }
     if(edition.tracks.empty())
         throw std::invalid_argument("Discogs edition has no qualified tracks");

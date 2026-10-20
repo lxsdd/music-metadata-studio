@@ -348,14 +348,18 @@ int main() {
     })DJ";
     const auto edition=parse_release(sample,321);
     check(edition.provider=="discogs" && edition.edition_id=="321" &&
-          edition.tracks.size()==3 &&
+          edition.tracks.size()==4 &&
           edition.tracks[0].source_track_id=="A1" &&
           edition.tracks[0].track_number==-1 &&
           edition.tracks[0].recording.duration_ms==242000 &&
           edition.tracks[0].recording.primary_artist=="Primary Artist" &&
           edition.tracks[1].track_number==2 &&
           edition.tracks[1].recording.primary_artist=="Guest" &&
-          edition.tracks[2].track_number==-1,
+          edition.tracks[2].source_track_id=="B1" &&
+          edition.tracks[2].recording.title=="Part 1" &&
+          edition.tracks[2].track_number==-1 &&
+          edition.tracks[3].source_track_id=="1-03" &&
+          edition.tracks[3].track_number==-1,
           "preserve side/position and direct artist provenance without inventing track numbers");
     const auto track_field=[](const EditionTrack& track,
                               std::string_view name)->const FieldEvidence* {
@@ -545,12 +549,34 @@ int main() {
           !track_field(ambiguous_track.tracks[0],"ARTIST") &&
           track_field(ambiguous_track.tracks[0],"TITLE"),
           "ambiguous explicit track credits are not silently joined");
-    rejects([]{(void)parse_release(R"({
+    const auto medley=parse_release(R"({
         "id":2,"title":"Medley only","tracklist":[
             {"type_":"index","title":"Medley",
-             "sub_tracks":[{"type_":"track","title":"Subtrack"}]},
+             "sub_tracks":[{"type_":"track","position":"B1","title":"Subtrack"}]},
             {"type_":"heading","title":"Side A"}]
-    })",2);}, "nested index and headings cannot masquerade as track rows");
+    })",2);
+    check(medley.tracks.size()==1 &&
+          medley.tracks[0].recording.title=="Subtrack" &&
+          medley.tracks[0].source_track_id=="B1" &&
+          track_field(medley.tracks[0],"TITLE") &&
+          track_field(medley.tracks[0],"TITLE")->source_id=="2/track/1",
+          "indexed subtracks are independent read-only edition evidence");
+    rejects([]{(void)parse_release(R"({
+        "id":3,"title":"Partial medley","tracklist":[
+            {"type_":"track","position":"1","title":"Valid"},
+            {"type_":"index","title":"Broken medley",
+             "sub_tracks":[{"type_":"track","position":"2"}]}]
+    })",3);}, "malformed child cannot silently yield a partial edition");
+    rejects([]{(void)parse_release(R"({
+        "id":4,"title":"Missing index children","tracklist":[
+            {"type_":"track","position":"1","title":"Valid"},
+            {"type_":"index","title":"Medley"}]
+    })",4);}, "incomplete index blocks the whole edition");
+    rejects([]{(void)parse_release(R"({
+        "id":5,"title":"Unknown audio kind","tracklist":[
+            {"type_":"track","position":"1","title":"Valid"},
+            {"type_":"unrecognized","title":"Unmapped"}]
+    })",5);}, "unknown playable kinds cannot disappear from track review");
     const auto unsafe_hits=parse_search(R"({"results":[
         {"type":"release","id":5,"title":"Unsafe\nName"},
         {"type":"release","id":6,"title":"Valid","artist":"Bad\nArtist",

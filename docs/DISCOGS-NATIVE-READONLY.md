@@ -65,6 +65,11 @@ WinHTTP GET adapter and the existing bounded official catalog/edition parsers.
   exact provider source ID, scope, date meaning and refusal reason. Up to
   1,024 detail rows are rendered; excessive evidence is explicitly marked,
   never silently truncated or treated as write approval.
+- Discogs exact-edition tracklists expand qualified `index` `sub_tracks`
+  into independently sourced, display-only recording rows. Headings/videos
+  remain non-audio. Missing index children, malformed nested entries and
+  unknown track types reject the entire edition rather than displaying an
+  incomplete album as verified. No CUE timing or write approval is inferred.
 - Every Discogs edition track now has a protected, display-only MATCH
   diagnostic. Suggested identity displays independent evidence such as
   title, artist, duration and position without implying certainty or write
