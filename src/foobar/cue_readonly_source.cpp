@@ -7,6 +7,7 @@
 #include "djmeta/structural_guard.h"
 
 #include <SDK/filesystem.h>
+#include <SDK/input.h>
 
 #include <climits>
 #include <cstdint>
@@ -101,13 +102,34 @@ CueReadOnlySource read_cue_raw_on_demand(
         result.diagnostic = "External CUE source inspected read-only.";
         return result;
     }
-    if (handle->get_subsong_index() != 0)
-        throw std::invalid_argument(
-            "Embedded CUE requires its physical subsong 0; "
-            "virtual CUE handles cannot supply a writable physical carrier.");
-
-    const auto snapshot = handle->get_info_ref();
-    const auto metadata = metadata_from_file_info(snapshot->info());
+    // A normal playlist entry for an embedded CUE may be a virtual
+    // subsong. Such a handle exposes inherited/track-level file_info,
+    // NOT the physical audio's complete embedded CUESHEET. Reopen the
+    // native decoder for READ-ONLY physical-subsource metadata (index 0).
+    // Never grant the virtual metadb handle physical write eligibility.
+    djmeta::MetadataDocument metadata;
+    if (handle->get_subsong_index() != 0) {
+        const auto before = probe_host_file_readonly(source_path);
+        if (before.state != HostFileState::ExistingFile ||
+            before.source_guard.empty() || before.host_physical_key.empty())
+            throw std::invalid_argument(
+                "Virtual embedded CUE has no qualified physical read-only source.");
+        input_info_reader::ptr reader;
+        input_entry::g_open_for_info_read(
+            reader, nullptr, source_path.c_str(), fb2k::noAbort);
+        file_info_impl physical_info;
+        reader->get_info(0, physical_info, fb2k::noAbort);
+        metadata = metadata_from_file_info(physical_info);
+        const auto after = probe_host_file_readonly(source_path);
+        if (after.state != HostFileState::ExistingFile ||
+            after.host_physical_key != before.host_physical_key ||
+            after.source_guard != before.source_guard)
+            throw std::runtime_error(
+                "Embedded CUE physical source changed during read-only inspection.");
+    } else {
+        const auto snapshot = handle->get_info_ref();
+        metadata = metadata_from_file_info(snapshot->info());
+    }
     const djmeta::MetadataField* cue = nullptr;
     for (const auto& field : metadata.fields) {
         if (!djmeta::is_protected_cue_metadata(field.name)) continue;

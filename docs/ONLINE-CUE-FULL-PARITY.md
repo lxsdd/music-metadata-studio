@@ -106,3 +106,16 @@ one-to-one alignment, candidate album-global **changes** remain `Blocked`.
 Byte-identical global originals remain `Unchanged` and visible. Partial
 recording evidence is available only as explicitly blocked comparison data.
 No physical, embedded or external CUE writes are enabled.
+
+## Virtual-track selection of a physically embedded textual CUESHEET (2026-10-20)
+
+foobar may expose a single physical FLAC with an embedded CUESHEET as
+several *virtual subsong* playlist/context handles. Read-only
+`Inspect CUE` now permits such a selected virtual handle, then obtains
+the original physical source's unique text CUESHEET using the official
+foobar `input_info_reader` **subsong 0** API. It captures and checks the
+on-disk physical identity/version before and after this bounded read and
+lazily records a separate *read-only* source guard for later stale-snapshot
+checks. **It does not convert the virtual handle into a physical tag,
+CUE or filename write candidate.** Any absent, ambiguous, oversized,
+unknown-encoding or changed carrier remains blocked.

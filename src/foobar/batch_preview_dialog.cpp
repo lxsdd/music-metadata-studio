@@ -1182,7 +1182,12 @@ void update_metadata_table(PreviewState& state) {
         const bool cue_readable = selected_valid &&
             (is_external_cue_locator(
                 state.entries[state.selected_track_index].input.source_path) ||
-             (physical && state.entries[state.selected_track_index].handle->get_subsong_index() == 0));
+             (physical && state.entries[state.selected_track_index].handle->get_subsong_index() == 0) ||
+             // A foobar embedded CUE may be selected as a virtual track.
+             // Enable read-only inspection, not physical/tag write access.
+             (!is_external_cue_locator(
+                 state.entries[state.selected_track_index].input.source_path) &&
+              state.entries[state.selected_track_index].handle->get_subsong_index() != 0));
         EnableWindow(GetDlgItem(state.dialog, IDC_METADATA_INSPECT_CUE),
                      cue_readable ? TRUE : FALSE);
         EnableWindow(GetDlgItem(state.dialog, IDC_METADATA_MB_SEARCH),
@@ -4284,9 +4289,25 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             if (!state->show_candidate ||
                 state->selected_track_index >= state->entries.size())
                 throw std::invalid_argument("Select one audio/CUE source to inspect.");
-            const auto& entry = state->entries[state->selected_track_index];
+            auto& entry = state->entries[state->selected_track_index];
             verify_snapshot(entry);
             verify_rules_snapshot(state->captured_rules);
+            // Qualify the physical backing source solely as a READ-ONLY
+            // snapshot guard for virtual audio tracks. Do not touch
+            // physical_source_qualified, which governs actual file writes.
+            if (entry.handle->get_subsong_index() != 0 &&
+                !is_external_cue_locator(entry.input.source_path) &&
+                entry.observed_source_guard.empty()) {
+                const auto observation =
+                    probe_host_file_readonly(entry.input.source_path);
+                if (observation.state != HostFileState::ExistingFile ||
+                    observation.host_physical_key.empty() ||
+                    observation.source_guard.empty())
+                    throw std::invalid_argument(
+                        "Virtual embedded CUE has no qualified on-disk source.");
+                entry.observed_physical_key = observation.host_physical_key;
+                entry.observed_source_guard = observation.source_guard;
+            }
             const auto raw = read_cue_raw_on_demand(entry.handle, entry.input.source_path);
             const auto inventory =
                 djmeta::inspect_cue_metadata(raw.raw_text, raw.carrier);
