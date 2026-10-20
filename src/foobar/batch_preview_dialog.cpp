@@ -35,6 +35,7 @@
 #include "djmeta/cue_online_bridge.h"
 #include "djmeta/physical_selection.h"
 #include "djmeta/review_decisions.h"
+#include "djmeta/review_display.h"
 #include "djmeta/track_review.h"
 #include "djmeta/table_layout.h"
 #include "djmeta/staging.h"
@@ -951,10 +952,9 @@ std::wstring metadata_cell_text(PreviewState& state,
                                                state.show_whitespace);
         case 2: {
             const auto* decision = decision_for_row(state, item);
-            return preview_whitespace_text(from_utf8(decision &&
-                decision->action == djmeta::ReviewAction::ManualValue
-                ? decision->manual_value : item.proposed),
-                state.show_whitespace);
+            return preview_whitespace_text(from_utf8(
+                djmeta::review_visible_value(item.original, item.proposed,
+                                             decision)), state.show_whitespace);
         }
         case 3: return from_utf8(djmeta::to_string(item.safety));
         case 4: return review_decision_caption(state, item);

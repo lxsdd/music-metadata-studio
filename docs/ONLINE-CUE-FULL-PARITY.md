@@ -119,3 +119,12 @@ lazily records a separate *read-only* source guard for later stale-snapshot
 checks. **It does not convert the virtual handle into a physical tag,
 CUE or filename write candidate.** Any absent, ambiguous, oversized,
 unknown-encoding or changed carrier remains blocked.
+
+## Distinct product ownership
+
+The focused separation from active Precision CUE #52 is recorded in
+[SHARED-CUE-RESPONSIBILITIES.md](SHARED-CUE-RESPONSIBILITIES.md).
+Studio owns **comparison of existing CUE metadata and user review**;
+Precision CUE owns **new continuous-mix timing and generation**. Common
+source and writer safety will converge through an explicit, qualified
+integration, not through parallel CUE writers.
