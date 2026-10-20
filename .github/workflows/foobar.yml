@@ -66,62 +66,7 @@ jobs:
           EXACT_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           $ErrorActionPreference = 'Stop'
-          if ($env:EXACT_SHA -cnotmatch '^[a-f0-9]{40}      - name: Build foobar preview component
-        shell: pwsh
-        run: ./scripts/build-foobar.ps1 -Platform '${{ matrix.platform }}' -Configuration Release -PlatformToolset v143
-      - name: Verify private local Git-SHA-pinned Win32/x64 candidate end-to-end
-        if: false # Full local source-to-package qualification PASS (GitHub run 39435120160); avoid repeated expensive builds
-        shell: pwsh
-        run: ./scripts/local-acceptance-build.ps1 -SourceSha '${{ github.event.pull_request.head.sha }}' -OutputDirectory "$env:RUNNER_TEMP\MMS-nonpublic-acceptance"
-
-      - name: Upload DLL
-        if: false # Source-only qualification: no preview DLL artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: foo-dj-metadata-normalizer-${{ matrix.platform }}
-          path: out/foobar/${{ matrix.platform }}/Release/foo_dj_metadata_normalizer.dll
-          if-no-files-found: error
-          retention-days: 7
-
-  # Internal PRs may publish short-lived QA artifacts, never GitHub Releases.
-  # Fork PRs remain build-only so untrusted code cannot publish previews.
-  package:
-    if: false # Package upload disabled until rights clearance
-    needs: [static-audit, host-gate-script, windows-build]
-    runs-on: windows-2022
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
-        with:
-          name: foo-dj-metadata-normalizer-Win32
-          path: candidate-input/Win32
-      - uses: actions/download-artifact@v8
-        with:
-          name: foo-dj-metadata-normalizer-x64
-          path: candidate-input/x64
-      - name: Package verified combined component
-        shell: pwsh
-        run: |
-          $version = (Get-Content -Raw -LiteralPath VERSION).Trim()
-          ./scripts/package-foobar.ps1 `
-            -Win32Dll 'candidate-input/Win32/foo_dj_metadata_normalizer.dll' `
-            -X64Dll 'candidate-input/x64/foo_dj_metadata_normalizer.dll' `
-            -OutputDirectory 'candidate-output' `
-            -Version $version `
-            -Commit '${{ github.event.pull_request.head.sha || github.sha }}'
-      - name: Upload combined component
-        if: false # Do not publish components until clearance
-        uses: actions/upload-artifact@v7
-        with:
-          name: foo-dj-metadata-normalizer-component
-          path: |
-            candidate-output/*.fb2k-component
-            candidate-output/BUILD-MANIFEST.txt
-            candidate-output/SHA256SUMS.txt
-          if-no-files-found: error
-          retention-days: 14
-) { throw 'Non-SHA PR HEAD' }
+          if ($env:EXACT_SHA.Length -ne 40 -or $env:EXACT_SHA -notmatch '^[a-f0-9]+$') { throw 'Non-SHA PR HEAD' }
           $helper = Join-Path $env:RUNNER_TEMP 'music-metadata-studio-standalone.ps1'
           $url = 'https://raw.githubusercontent.com/lxsdd/music-metadata-studio/' + $env:EXACT_SHA + '/scripts/local-acceptance-build.ps1'
           Invoke-WebRequest -UseBasicParsing -MaximumRedirection 5 -Uri $url -OutFile $helper
