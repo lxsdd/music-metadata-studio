@@ -36,10 +36,11 @@ int main() {
     messy.fields.push_back({"BARCODE",{"0001234567","0001234568"}});
     messy.fields.push_back({"CATALOGNUMBER",{"EX001"}});
     messy.fields.push_back({"MY CUSTOM",{"Keep","Both"}});
+    messy.fields.push_back({"VERSION",{"Extended Mix","Radio Edit"}});
     auto hints=physical_search_hints(messy);
     require(hints.title.empty() && hints.artist.empty() &&
             hints.album.empty() && hints.barcode.empty() &&
-            hints.catalog_number=="EX001",
+            hints.catalog_number=="EX001" && hints.version.empty(),
             "ambiguous local optional hints abstain independently without throwing");
     const auto release_url=std::string(
         "https://www.discogs.com/release/38012673-Estiva-Via-Balearia");
@@ -59,6 +60,21 @@ int main() {
             field(read_only,"Release Track 1 / MATCH")->state==FieldReviewState::Blocked &&
             !discogs_physical_identity(messy,242000),
             "offline exact-URL chain keeps local data but blocks ambiguous track match");
+    djmeta::MetadataDocument separate_mix;
+    separate_mix.fields={{"TITLE",{"1000 Years"}},
+                         {"ARTIST",{"Kyau & Albert x Maywave"}},
+                         {"VERSION",{"DJ Version"}}};
+    hints=physical_search_hints(separate_mix);
+    const auto stages=track_search_plan(
+        hints.title,hints.artist,{}, {}, {},true,hints.version);
+    require(hints.version=="DJ Version" && stages.size()==8 &&
+            stages.front().path==track_search_path(
+                "1000 Years (DJ Version)","Kyau & Albert x Maywave") &&
+            allowed_readonly_path(stages.front().path),
+            "qualified physical VERSION reaches fixed official mix-aware search");
+    separate_mix.fields.push_back({"VERSION",{"Radio Edit"}});
+    require(physical_search_hints(separate_mix).version.empty(),
+            "conflicting VERSION fields cannot choose a remix arbitrarily");
     djmeta::MetadataDocument only_album;
     only_album.fields={{"TITLE",{"Bad\nTitle"}},{"ALBUM",{"Valid Album"}},
                        {"ARTIST",{"Artist"}}};

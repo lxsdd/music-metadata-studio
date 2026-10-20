@@ -14,6 +14,7 @@ struct LocalSearchHints {
     std::string title;
     std::string artist;
     std::string album;
+    std::string version;
     std::string barcode;
     std::string catalog_number;
 };
@@ -35,6 +36,7 @@ inline LocalSearchHints physical_search_hints(
     hints.title=unique_optional_physical_hint(source,"TITLE");
     hints.artist=unique_optional_physical_hint(source,"ARTIST");
     hints.album=unique_optional_physical_hint(source,"ALBUM");
+    hints.version=unique_optional_physical_hint(source,"VERSION");
     const auto barcode=unique_optional_physical_hint(source,"BARCODE");
     const auto catalog=unique_optional_physical_hint(source,"CATALOGNUMBER");
     if(catalog_label(barcode,150)) hints.barcode=barcode;

@@ -340,6 +340,8 @@ for label, token in (
     ("Discogs URL constructed by provider", "release_path(direct_id)"),
     ("Discogs physical barcode search", "local_barcode=hints.barcode;"),
     ("Discogs physical catalog search", "local_catalog_number=hints.catalog_number;"),
+    ("Discogs physical mix identity", "local_version=hints.version;"),
+    ("Discogs mix-aware official search", "auto_query?local_version:std::string{}"),
     ("Discogs staged edition identifier search", "auto_query?local_barcode:std::string{}"),
     ("Discogs physical/CUE album search wiring", "auto_query?local_album:std::string{}"),
     ("Discogs physical album tag inventory", "local_album=hints.album;"),

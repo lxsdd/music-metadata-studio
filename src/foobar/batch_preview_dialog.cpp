@@ -2601,7 +2601,7 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
          (state.cue_inspection_mode || state.cue_candidate_comparison_mode ||
           (state.discogs_live_view && state.discogs_search_was_cue)));
     djmeta::MetadataDocument originals;
-    std::string local_title,local_artist,local_album,cue_before;
+    std::string local_title,local_artist,local_album,local_version,cue_before;
     std::string local_barcode,local_catalog_number;
     if(cue_mode) {
         const auto raw=read_cue_raw_on_demand(entry.handle,entry.input.source_path);
@@ -2625,6 +2625,7 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
         local_title=hints.title;
         local_artist=hints.artist;
         local_album=hints.album;
+        local_version=hints.version;
         local_barcode=hints.barcode;
         local_catalog_number=hints.catalog_number;
     }
@@ -2674,13 +2675,15 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
             term,auto_query?local_artist:std::string{},
             auto_query?local_barcode:std::string{},
             auto_query?local_catalog_number:std::string{},
-            auto_query?local_album:std::string{},true);
+            auto_query?local_album:std::string{},true,
+            auto_query?local_version:std::string{});
         identity="discogs|"+entry.input.source_path+"|"+
             std::to_string(state.selected_track_index)+"|"+term+"|"+
             (auto_query?local_artist:"")+"|"+
             (auto_query?local_barcode:"")+"|"+
             (auto_query?local_catalog_number:"")+"|"+
-            (auto_query?local_album:"");
+            (auto_query?local_album:"")+"|"+
+            (auto_query?local_version:"");
         // Only the last PUBLISHED response advances the plan. A network
         // failure does not consume a strategy; even irrelevant nonempty
         // hits can be broadened by another deliberate Search click.

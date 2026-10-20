@@ -202,6 +202,37 @@ int main() {
     rejects([]{(void)release_title_search_path(std::string(151,'x'));},
             "album release title search is bounded");
 
+    // End-to-end discovery for a common physical layout: TITLE holds the
+    // base name, VERSION holds the mix. Search both exact mix and fallback
+    // without ever treating a search hit as a verified recording/edition.
+    const auto versioned=track_search_plan(
+        "1000 Years","Kyau & Albert x Maywave",{}, {}, {}, true,"DJ Version");
+    check(versioned.size()==8 &&
+          versioned[0].path==track_search_path(
+              "1000 Years (DJ Version)","Kyau & Albert x Maywave") &&
+          versioned[1].path==search_path(
+              "1000 Years (DJ Version)","Kyau & Albert x Maywave") &&
+          versioned[2].path==search_path(
+              "1000 Years","Kyau & Albert x Maywave") &&
+          versioned.back().path==master_search_path("1000 Years") &&
+          std::all_of(versioned.begin(),versioned.end(),
+              [](const auto& stage){return allowed_readonly_path(stage.path);}),
+          "separate physical VERSION reaches authorized mix-aware track/release stages");
+    const auto already_annotated=track_search_plan(
+        "1000 Years (DJ Version)","Kyau & Albert x Maywave",
+        {}, {}, {}, true,"DJ Version");
+    check(already_annotated.size()==7 &&
+          already_annotated[0].path==search_path(
+              "1000 Years (DJ Version)","Kyau & Albert x Maywave"),
+          "an already annotated title must not duplicate its mix suffix");
+    rejects([]{(void)track_search_plan(
+        "Home","Artist",{}, {}, {}, false,"Bad\\nAuthorization");},
+        "unsafe VERSION is rejected before any provider request");
+    const auto oversized_version=track_search_plan(
+        std::string(145,'x'),"Artist",{}, {}, {}, false,"Extended Mix");
+    check(oversized_version[0].path==search_path(std::string(145,'x'),"Artist"),
+          "overlong combined mix title skips only the optional mix stage");
+
     const auto master_staged=track_search_plan(
         "1000 Years (DJ Version)", "Kyau & Albert x Maywave",
         {}, {}, {}, true);

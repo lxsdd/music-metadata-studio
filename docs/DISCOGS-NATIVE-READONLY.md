@@ -144,3 +144,18 @@ Qualification still required: exact-HEAD Core and Win32/x64 CI, real
 foobar2000 Win32 and x64 native layout/token/source/track interaction at
 100%–200% scaling, plus end-to-end authorized live lookup. CI success
 alone is **not** installed-host acceptance.
+
+## Separate physical VERSION discovery (read-only)
+
+When the selected physical source has one qualified `TITLE` and one
+qualified `VERSION` (for example, `1000 Years` and `DJ Version`),
+an explicitly initiated Discogs search now tries the documented fixed-host
+`track` and `q` release-candidate filters for `1000 Years (DJ Version)`
+before the ordinary unqualified title fallback. An existing recognized
+mix suffix in `TITLE` is never appended again. Duplicate, malformed or
+oversized VERSION evidence is omitted rather than guessed. Manually typed
+queries and canonical release URLs remain independent of local VERSION;
+CUE-global TITLE is an album and never gains an invented track mix. Each
+additional zero-hit request is paced on the native worker. Search hits
+remain unverified: exact release detail, independent track alignment,
+provenance and host snapshot checks are still mandatory, with no writes.

@@ -321,13 +321,15 @@ struct SearchAttempt {
 inline std::vector<SearchAttempt> track_search_plan(
     std::string_view title, std::string_view artist = {},
     std::string_view barcode = {}, std::string_view catalog_number = {},
-    std::string_view album = {}, bool include_master = false) {
+    std::string_view album = {}, bool include_master = false,
+    std::string_view version = {}) {
     // Some physical sources carry a qualified ALBUM, barcode or catalog
     // number but no TITLE. Those can still search exact editions without
     // inventing a recording identity or sending an empty track filter.
     if (!title.empty()) validated_term(title);
     if (!artist.empty()) validated_term(artist);
     if (!album.empty()) validated_term(album);
+    if (!version.empty()) validated_term(version);
     const auto annotation = split_title_mix(title);
     const auto core = annotation.version.empty()
         ? title : annotation.base;
@@ -351,6 +353,20 @@ inline std::vector<SearchAttempt> track_search_plan(
     // An empty, ambiguous or invalid local album must be omitted by the host.
     if(!album.empty())
         add("Tagged album release title",release_title_search_path(album,artist));
+    // A separate, unambiguous physical VERSION can make the otherwise
+    // generic track title discoverable. This is only a SEARCH HINT: never
+    // merge contradictory TITLE suffixes or assign an edition from a hit.
+    // Keep the original-title stages as a fallback, and bound the combined
+    // text to the same official search envelope as every other query.
+    if (!title.empty() && !version.empty() && annotation.version.empty() &&
+        title.size() + version.size() + 3 <= 150) {
+        const std::string versioned=std::string(title)+" ("+
+            std::string(version)+")";
+        add("Tagged recording VERSION (track candidates)",
+            track_search_path(versioned,artist));
+        add("Tagged recording VERSION (release candidates)",
+            search_path(versioned,artist));
+    }
     // Then broaden by staged release / track search on deliberate user
     // initiation; empty responses can advance within the same bounded plan.
     if (!title.empty()) {
