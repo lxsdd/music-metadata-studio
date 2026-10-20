@@ -31,7 +31,7 @@ if ($SourceSha -cnotmatch '^[a-f0-9]{40}$') { throw 'Pass exact lowercase 40-dig
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) { throw 'Explicit -OutputDirectory required.' }
 $destination = Join-Path ([IO.Path]::GetFullPath($OutputDirectory)) ("MMS-local-" + $SourceSha)
 if (Test-Path -LiteralPath $destination) { throw 'Output already exists: refuse overwrite.' }
-$temp = Join-Path ([IO.Path]::GetTempPath()) ('mms-build-' + [guid]::NewGuid().ToString('N'))
+$temp = Join-Path ([IO.Path]::GetTempPath()) ('m-' + [guid]::NewGuid().ToString('N').Substring(0,8))
 New-Item -ItemType Directory -Path $temp | Out-Null
 try {
     $zip = Join-Path $temp 'source.zip'
@@ -46,7 +46,10 @@ try {
                $actualName -eq ($expectedName + $SourceSha.Substring(0,7)))) {
         throw "Source archive root does not match pinned Git SHA: $actualName"
     }
-    $root = $roots[0].FullName
+    # Keep MSBuild/PFC file tracker paths below legacy Windows MAX_PATH.
+    # Preserve SHA provenance through the root validation above, then relocate.
+    $root = Join-Path $temp 'r'
+    Move-Item -LiteralPath $roots[0].FullName -Destination $root
     foreach ($f in @('scripts\build-foobar.ps1','scripts\package-foobar.ps1',
                      'scripts\bootstrap-sdk.ps1','VERSION','foo_dj_metadata_normalizer.vcxproj')) {
         if (-not (Test-Path -LiteralPath (Join-Path $root $f) -PathType Leaf)) {
