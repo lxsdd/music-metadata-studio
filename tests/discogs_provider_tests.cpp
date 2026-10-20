@@ -36,6 +36,21 @@ int main() {
           request.find("Authorization")==std::string::npos &&
           request.find("token")==std::string::npos,
           "Discogs search fixed endpoint, bounded page, URL-encoded and no secret");
+    // Legal artist-only release discovery; broad hits stay unverified.
+    const auto by_artist=artist_search_path("Kyau & Albert x Maywave");
+    check(by_artist==
+          "/database/search?artist=Kyau%20%26%20Albert%20x%20Maywave&type=release&page=1&per_page=20" &&
+          allowed_readonly_path(by_artist) &&
+          !allowed_readonly_path("/database/search?artist=Artist&type=master&page=1&per_page=20") &&
+          !allowed_readonly_path("/database/search?artist=Artist&type=release&artist=Other&page=1&per_page=20") &&
+          !allowed_readonly_path("/database/search?artist=Artist&type=release&page=2&per_page=20") &&
+          !allowed_readonly_path("/database/search?artist=Artist&type=release&token=secret&page=1&per_page=20"),
+          "artist-only request canonical, bounded and token-free");
+    rejects([]{(void)artist_search_path("");},"empty artist rejected");
+    rejects([]{(void)artist_search_path("bad\nHeader: stolen");},
+            "CRLF artist rejected");
+    rejects([]{(void)artist_search_path(std::string(151,'x'));},
+            "oversized artist rejected");
     const auto master_request=master_search_path("1000 Years");
     check(master_request==
               "/database/search?q=1000%20Years&type=master&page=1&per_page=20" &&
@@ -67,7 +82,7 @@ int main() {
 
     const auto edition_first=track_search_plan(
         "Home (Extended Mix)","DJ Example","004299999998","CAT 007/A");
-    check(edition_first.size()==7 &&
+    check(edition_first.size()==8 &&
           edition_first[0].path==
             edition_identifier_search_path("barcode","004299999998") &&
           edition_first[1].path==
@@ -78,7 +93,7 @@ int main() {
           edition_first[0].path.find("004299999998")!=std::string::npos &&
           edition_first[1].path.find("CAT%20007%2FA")!=std::string::npos,
           "official barcode and catalog filters precede bounded title fallback");
-    check(track_search_plan("Home","DJ Example",{},"CAT 007/A").size()==5,
+    check(track_search_plan("Home","DJ Example",{},"CAT 007/A").size()==6,
           "a single catalog number participates without any barcode guess");
     rejects([]{(void)edition_identifier_search_path("ISRC","USABC2601234");},
             "Discogs API does not support a fabricated ISRC search filter");
@@ -89,7 +104,7 @@ int main() {
 
     const auto tagged_album=track_search_plan(
         "Only You (Extended Mix)","Matt Fax",{},{},"Contrast EP");
-    check(tagged_album.size()==6 &&
+    check(tagged_album.size()==7 &&
           tagged_album[0].label=="Tagged album release title" &&
           tagged_album[0].path==release_title_search_path("Contrast EP","Matt Fax") &&
           tagged_album[1].path==search_path("Only You (Extended Mix)","Matt Fax") &&
@@ -110,10 +125,11 @@ int main() {
     // Full native chain: an ALBUM-only physical source or an identifier-only
     // file can reach a real release search without a fabricated TITLE.
     const auto album_only=track_search_plan("", "Matt Fax", {}, {}, "Contrast EP");
-    check(album_only.size()==1 &&
+    check(album_only.size()==2 &&
           album_only[0].path==release_title_search_path("Contrast EP","Matt Fax") &&
+          album_only[1].path==artist_search_path("Matt Fax") &&
           allowed_readonly_path(album_only[0].path),
-          "album-only file uses one authorized exact-release-title request");
+          "album-only discovery has separate broad artist fallback");
     const auto ids_only=track_search_plan("", {}, "004299999998", "CAT 007/A");
     check(ids_only.size()==2 &&
           ids_only[0].path==edition_identifier_search_path("barcode","004299999998") &&
@@ -121,6 +137,12 @@ int main() {
           allowed_readonly_path(ids_only[0].path) &&
           allowed_readonly_path(ids_only[1].path),
           "identifier-only source searches editions without empty track queries");
+    const auto artist_only=track_search_plan("", "Estiva");
+    check(artist_only.size()==1 &&
+          artist_only[0].path==artist_search_path("Estiva") &&
+          allowed_readonly_path(artist_only[0].path) &&
+          artist_only[0].label.find("broad")!=std::string::npos,
+          "artist-only discovery is explicitly unverified");
     rejects([]{(void)track_search_plan("", {}, {}, {}, "");},
             "no recording, album or identifier never produces a request");
     rejects([]{(void)track_search_plan("Valid",{}, {}, {}, "bad\nheader");},
@@ -131,13 +153,13 @@ int main() {
     const auto master_staged=track_search_plan(
         "1000 Years (DJ Version)", "Kyau & Albert x Maywave",
         {}, {}, {}, true);
-    check(master_staged.size()==6 &&
+    check(master_staged.size()==7 &&
           master_staged.back().path==master_search_path("1000 Years") &&
           master_staged.back().label.find("navigation only")!=std::string::npos,
           "native opt-in search adds one bounded master navigation stage");
     const auto staged=track_search_plan(
         "1000 Years (DJ Version)", "Kyau & Albert x Maywave");
-    check(staged.size()==5 &&
+    check(staged.size()==6 &&
           staged[0].path==search_path("1000 Years (DJ Version)",
                                      "Kyau & Albert x Maywave") &&
           staged[1].path.find("track=1000%20Years%20%28DJ%20Version%29")!=
@@ -145,6 +167,7 @@ int main() {
           staged[2].path==track_search_path("1000 Years (DJ Version)") &&
           staged[3].path==track_search_path("1000 Years") &&
           staged[4].path==search_path("1000 Years") &&
+          staged[5].path==artist_search_path("Kyau & Albert x Maywave") &&
           staged[0].label!=staged[2].label,
           "tiered Discogs queries broaden artist, track and version constraints");
     check(next_search_attempt("old","new",3,5)==0 &&
@@ -157,9 +180,10 @@ int main() {
     rejects([]{(void)next_search_attempt("x","x",7,5);},
             "stale stage index is never silently reused");
     const auto simple_plan=track_search_plan("Via Balearia","Estiva");
-    check(simple_plan.size()==4 &&
+    check(simple_plan.size()==5 &&
           simple_plan[2].path==track_search_path("Via Balearia") &&
-          simple_plan[3].path==search_path("Via Balearia"),
+          simple_plan[3].path==search_path("Via Balearia") &&
+          simple_plan[4].path==artist_search_path("Estiva"),
           "fallback supports a track whose release has a different title");
     const auto no_artist_plan=track_search_plan("Only You");
     check(no_artist_plan.size()==2 &&
@@ -191,8 +215,8 @@ int main() {
           "direct release URL parser rejects spoofing, insecure origins and invalid IDs");
     rejects([]{(void)track_search_path("track\nbad");},
             "track filter rejects control/header injection");
-    rejects([]{(void)track_search_plan("", "Artist");},
-            "staged query requires a valid track title");
+    check(track_search_plan("", "Artist").size()==1,
+          "artist-only source can discover release candidates without track title");
 
     check(allowed_readonly_path(search_path("Via Balearia","Estiva")) &&
           allowed_readonly_path(track_search_path("1000 Years")) &&

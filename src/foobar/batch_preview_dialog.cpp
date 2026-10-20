@@ -2604,9 +2604,9 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
     const std::string term=entered.empty()?local_title:entered;
     if(term.empty() && (!auto_query ||
        (local_album.empty() && local_barcode.empty() &&
-        local_catalog_number.empty())))
+        local_catalog_number.empty() && local_artist.empty())))
         throw std::invalid_argument(
-            "Enter a track, album, edition identifier or exact Discogs release URL.");
+            "Enter a track, artist, album, edition identifier or exact Discogs release URL.");
     auto token=to_utf8(read_control(dialog,IDC_METADATA_DISCOGS_TOKEN));
     if(token.empty()) throw std::invalid_argument(
         "Discogs needs an authorized personal access token (not saved).");

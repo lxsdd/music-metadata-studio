@@ -275,6 +275,15 @@ inline std::string track_search_path(std::string_view title,
         throw std::invalid_argument("Discogs query too large");
     return path;
 }
+// Documented fixed-host artist-only release discovery. Results are
+// candidates, never proof of a recording or exact edition.
+inline std::string artist_search_path(std::string_view artist) {
+    const auto path="/database/search?artist="+
+        musicbrainz::encode_url_query(validated_term(artist))+
+        "&type=release&page=1&per_page=20";
+    if(path.size()>2048) throw std::invalid_argument("Discogs artist query too large");
+    return path;
+}
 // The documented release_title filter searches a release's album name,
 // rather than the track title or the combined artist - release title field.
 // Search hits are still unverified candidates until exact edition lookup.
@@ -352,12 +361,15 @@ inline std::vector<SearchAttempt> track_search_plan(
         if (core != title)
             add("Track without mix suffix",track_search_path(core));
         add("Broad catalog keywords",search_path(core));
-        // Only the native user-initiated workflow opts in: masters may
-        // reveal editions that release/track index queries did not find.
-        if(include_master)
-            add("Master edition discovery (navigation only)",
-                master_search_path(core));
     }
+    // Broad artist-only fallback permits discovery without TITLE/ALBUM.
+    // Even a found hit still needs exact-edition verification.
+    if(!artist.empty())
+        add("Artist-only release discovery (broad; verify edition)",
+            artist_search_path(artist));
+    if(include_master && !title.empty())
+        add("Master edition discovery (navigation only)",
+            master_search_path(core));
     if (plan.empty())
         throw std::invalid_argument(
             "Discogs search requires a track title, album or exact edition identifier");
@@ -546,13 +558,15 @@ inline bool allowed_readonly_path(std::string_view path) {
     const bool barcode=raw_term.starts_with("barcode=");
     const bool catno=raw_term.starts_with("catno=");
     const bool release_title=raw_term.starts_with("release_title=");
-    if(!track && !q && !barcode && !catno && !release_title) return false;
+    const bool artist_only=raw_term.starts_with("artist=");
+    if(!track && !q && !barcode && !catno && !release_title &&
+       !artist_only) return false;
     if(master && (!q || !tail.empty())) return false;
     // Edition identifiers are standalone official filters; never append
     // arbitrary query keys, artist constraints, tokens or pagination.
     if((barcode || catno) && !tail.empty()) return false;
     const auto raw_value=raw_term.substr(
-        track?6:q?2:barcode?8:catno?6:14);
+        track?6:q?2:barcode?8:catno?6:release_title?14:7);
     if(!decode_canonical_term(raw_value,term) ||
        (!raw_artist.empty() &&
         !decode_canonical_term(raw_artist,artist)) ||
@@ -565,6 +579,8 @@ inline bool allowed_readonly_path(std::string_view path) {
                 barcode?"barcode":"catno",validated_term(term));
         if(release_title)
             return path==release_title_search_path(validated_term(term),artist);
+        if(artist_only)
+            return path==artist_search_path(validated_term(term));
         return path==(track?track_search_path(validated_term(term),artist):
                             search_path(validated_term(term),artist));
     } catch(const std::invalid_argument&) {

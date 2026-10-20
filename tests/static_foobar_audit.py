@@ -403,6 +403,16 @@ for token in ("std::jthread", "PostMessageW(notify,kReadOnlyNetworkDoneMessage,0
 if "detach(" in transport or "metadb_handle" in transport or "get_info_ref" in transport:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: network worker lifetime or SDK access unsafe")
 
+# Native artist-only search requires an independently qualified local
+# ARTIST/PERFORMER and passes only the canonical, read-only Discogs filter.
+discogs_provider = (root / "include" / "djmeta" / "discogs_provider.h").read_text(encoding="utf-8")
+for token in ("artist_search_path(", "if(!artist.empty())",
+              'add("Artist-only release discovery (broad; verify edition)"',
+              "if(artist_only)", "path==artist_search_path(validated_term(term))"):
+    if token not in discogs_provider:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: Discogs artist-only guard missing: "+token)
+if "local_catalog_number.empty() && local_artist.empty()" not in batch_table_dialog:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: artist-only native search still blocked")
 # Verify the WinHTTP worker respects Discogs pacing between automatic
 # zero-hit fallback stages; the former immediate exception broke the workflow.
 discogs_http=(foobar / "discogs_http.cpp").read_text(encoding="utf-8")

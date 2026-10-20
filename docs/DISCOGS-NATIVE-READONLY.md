@@ -39,6 +39,13 @@ WinHTTP GET adapter and the existing bounded official catalog/edition parsers.
   unchanged, and a missing/ambiguous/malformed album is not guessed.
   Explicitly edited search text does not silently mix in local ALBUM.
   This is a candidate-discovery hint, never proof of the exact edition.
+- A uniquely qualified local ARTIST (physical audio) or CUE-global PERFORMER
+  now enables deliberate **artist-only** Discogs release discovery even when
+  no usable track or album TITLE is present. This is the last broad release
+  search stage before optional master navigation, with at most 20 unverified
+  page-1 results. Explicit candidate selection and exact-edition inspection
+  are still mandatory. Artist-only hits do not establish track/CUE identity,
+  never authorize writes, and use only the fixed official token-header API.
 - Search begins only with a deliberate user action. After zero hits its
   bounded official strategies automatically broaden; a nonempty result
   requires another deliberate Search click. The joined network worker waits
