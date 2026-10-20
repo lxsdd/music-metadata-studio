@@ -1,6 +1,7 @@
 #include "djmeta/precision_cue.h"
 #include "djmeta/precision_cue_boundary_audit.h"
 #include "djmeta/precision_cue_physical_bounds.h"
+#include "djmeta/precision_cue_lookup_budget.h"
 
 // GitHub CI uses Release: keep test assertions enabled on every platform.
 #ifdef NDEBUG
@@ -8,6 +9,7 @@
 #endif
 #include <cassert>
 #include <cstdint>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -318,6 +320,19 @@ void test_eight_disc_99_track_plan() {
 
 } // namespace
 
+void test_bounded_catalog_lookup_admission() {
+    // All three entry points share this global UI-thread admission rule.
+    for (std::size_t active = 0;
+         active < djmeta::kPrecisionCueMaxOutstandingLookups; ++active)
+        assert(djmeta::precision_cue_lookup_slot_available(active));
+    assert(!djmeta::precision_cue_lookup_slot_available(4));
+    assert(!djmeta::precision_cue_lookup_slot_available(5));
+    assert(!djmeta::precision_cue_lookup_slot_available(
+        std::numeric_limits<std::size_t>::max()));
+    // Once an earlier job is reaped, a capacity slot becomes available.
+    assert(djmeta::precision_cue_lookup_slot_available(3));
+}
+
 int main() {
     test_integer_cumulative_rounding();
     test_physical_cue_index_bounds_and_create_gate();
@@ -328,5 +343,6 @@ int main() {
     test_invalid_input_fail_closed();
     test_generated_utf8_validation();
     test_eight_disc_99_track_plan();
+    test_bounded_catalog_lookup_admission();
     return 0;
 }

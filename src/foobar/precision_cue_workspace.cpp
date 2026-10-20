@@ -17,6 +17,7 @@
 #include "djmeta/precision_cue_match_diagnostics.h"
 #include "djmeta/precision_cue_apple_selection.h"
 #include "djmeta/precision_cue_request_revision.h"
+#include "djmeta/precision_cue_lookup_budget.h"
 #include "djmeta/precision_cue_filename.h"
 #include "djmeta/precision_cue_write_preflight.h"
 #include "djmeta/precision_cue_foobar_path.h"
@@ -99,6 +100,18 @@ void reap_finished_jobs() {
                 return true;
             }),
         jobs.end());
+}
+
+void require_lookup_slot() {
+    // All callers run on foobar's UI thread. Never join a live HTTP worker.
+    reap_finished_jobs();
+    // Allocate bounded capacity before starting a worker; later push_back
+    // cannot reallocate or dispose of a self-owned std::jthread.
+    g_lookup_pool.jobs.reserve(djmeta::kPrecisionCueMaxOutstandingLookups);
+    if (!djmeta::precision_cue_lookup_slot_available(g_lookup_pool.jobs.size()))
+        throw std::runtime_error(
+            "Four Precision CUE catalog lookups are still running. "
+            "Retry once an earlier request completes. Nothing was changed.");
 }
 
 struct Workspace {
@@ -738,7 +751,7 @@ void start_search(Workspace& state) {
     request.storefront = "DE";
     request.user_initiated = true;
     (void)djmeta::apple_precision_cue_http_path(request);
-    reap_finished_jobs();
+    require_lookup_slot();
     reset_disc_controls(state);
     clear_search_results(state);
     state.deezer_reference.reset();
@@ -783,7 +796,7 @@ void start_lookup(Workspace& state) {
         deezer_request.album_id = djmeta::deezer_precision_cue_album_id(input);
         deezer_request.user_initiated = true;
         (void)djmeta::deezer_precision_cue_http_path(deezer_request);
-        reap_finished_jobs();
+        require_lookup_slot();
         reset_disc_controls(state);
         clear_search_results(state);
         state.deezer_reference.reset();
@@ -878,7 +891,7 @@ void start_lookup(Workspace& state) {
     // Search hits never authorize a CUE: fetch the full ordered tracklist
     // in a second, explicitly initiated, rate-limited request.
     (void)djmeta::apple_precision_cue_http_path(request);
-    reap_finished_jobs();
+    require_lookup_slot();
     reset_disc_controls(state);
     auto job = std::make_shared<LookupJob>();
     job->kind = PrecisionCueJobKind::AppleLookup;
