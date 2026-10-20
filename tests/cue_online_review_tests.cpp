@@ -300,8 +300,10 @@ int main() {
     const auto broken_cue = inspect_cue_metadata(
         "FILE x.flac WAVE\nTRACK 01 AUDIO\nTITLE \"broken\n",
         CueCarrierKind::ExternalText);
-    check(!review_cue_release_edition(broken_cue, edition).eligible,
-          "invalid CUE cannot enter edition comparison");
+    const auto broken_review=review_cue_release_edition(broken_cue,edition);
+    check(!broken_review.eligible && broken_review.album_fields.empty() &&
+          broken_review.tracks.empty(),
+          "invalid CUE syntax cannot present even album candidates");
     // End-to-end: official Discogs edition JSON -> CUE text -> one-to-one
     // association -> comparison. Missing CUE runtime/ISRC must show BLOCKED
     // per-field evidence, not falsely accepted metadata.
@@ -323,6 +325,43 @@ int main() {
             {"position":"2","title":"Away (Extended Mix)","duration":"5:20"}
         ]
     })DISCOGS",38012673);
+    // Valid CUE-global album fields remain useful even if one CUE track
+    // lacks PERFORMER, but ALL remote candidates must be display-only BLOCKED.
+    const std::string incomplete_identity_cue =
+        "TITLE \"Night EP\"\nREM GENRE House\n"
+        "FILE \"mix.flac\" WAVE\n"
+        "TRACK 01 AUDIO\nTITLE \"Home (Extended Mix)\"\n"
+        "PERFORMER Example\nINDEX 01 00:00:00\n"
+        "TRACK 02 AUDIO\nTITLE \"Away (Extended Mix)\"\n"
+        "INDEX 01 06:10:00\n";
+    const auto incomplete_inventory=inspect_cue_metadata(
+        incomplete_identity_cue,CueCarrierKind::EmbeddedText);
+    const auto incomplete_review=review_cue_release_edition(
+        incomplete_inventory,official_edition);
+    check(!incomplete_review.eligible &&
+          incomplete_review.reasons==
+              std::vector<std::string>{"cue_track_identity_missing_or_ambiguous"} &&
+          incomplete_review.album_fields.size()>=2 &&
+          incomplete_review.tracks.size()==2 &&
+          incomplete_review.album_fields.front().candidate.source_id=="38012673" &&
+          incomplete_review.album_fields.front().state==FieldReviewState::Blocked &&
+          incomplete_review.album_fields.front().reason.starts_with(
+              "cue_track_inventory_unqualified_") &&
+          incomplete_review.tracks[0].fields.empty() &&
+          incomplete_review.tracks[1].fields.empty() &&
+          incomplete_review.tracks[0].unverified_fields.empty() &&
+          incomplete_review.tracks[1].unverified_fields.empty(),
+          "incomplete CUE track identity retains blocked album-only provenance");
+    auto spoofed_album=official_edition;
+    spoofed_album.fields[0].source_id="foreign-release";
+    const auto untrusted_incomplete=review_cue_release_edition(
+        incomplete_inventory,spoofed_album);
+    check(!untrusted_incomplete.eligible &&
+          untrusted_incomplete.album_fields.empty() &&
+          untrusted_incomplete.tracks.empty(),
+          "unqualified edition provenance never leaks via CUE fallback");
+    check(incomplete_inventory.source_bytes==incomplete_identity_cue.size(),
+          "album-only fallback never changes the original embedded CUE bytes");
     const auto evidence_only=review_cue_release_edition(
         no_duration_inventory,official_edition);
     check(evidence_only.eligible && evidence_only.tracks.size()==2 &&

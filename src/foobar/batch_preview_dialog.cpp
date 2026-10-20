@@ -698,7 +698,10 @@ std::vector<djmeta::online::FieldReviewRow> discogs_cue_release_rows(
     const djmeta::online::ReleaseEdition& edition) {
     using namespace djmeta::online;
     const auto match=review_cue_release_edition(cue,edition);
-    if(!match.eligible)
+    // Invalid CUE syntax or forged remote provenance still fails closed.
+    // A parsed carrier with incomplete track identity may show only
+    // BLOCKED album facts plus per-CUE-track diagnostics, never candidates.
+    if(!match.eligible && match.album_fields.empty())
         throw std::invalid_argument("Discogs CUE edition alignment is unqualified.");
     std::vector<FieldReviewRow> rows;
     const auto append=[&](std::string prefix,const CueCandidateFieldReview& field) {
@@ -713,6 +716,20 @@ std::vector<djmeta::online::FieldReviewRow> discogs_cue_release_rows(
     };
     for(const auto& field:match.album_fields)
         append("Album / ",field);
+    if(!match.eligible) {
+        FieldReviewRow row;
+        row.field="CUE Source / MATCH";
+        row.candidate.field="MATCH_DIAGNOSTIC";
+        row.candidate.provider="discogs";
+        row.candidate.source_id=edition.edition_id;
+        row.candidate.scope=EvidenceScope::Edition;
+        row.state=FieldReviewState::Blocked;
+        row.reason="discogs_live_release_cue_track_inventory_unqualified";
+        row.candidate.values=match.reasons;
+        if(row.candidate.values.empty())
+            row.candidate.values={"No verified track identities; album facts only"};
+        rows.push_back(std::move(row));
+    }
     for(const auto& item:match.tracks) {
         if(rows.size()>2000)
             throw std::invalid_argument("Discogs CUE preview exceeds row limit.");

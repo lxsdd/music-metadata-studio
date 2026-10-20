@@ -33,11 +33,8 @@ struct CueEditionReview {
 inline CueEditionReview review_cue_release_edition(
     const CueMetadataInventory& cue, const ReleaseEdition& edition) {
     CueEditionReview result;
-    const auto local = prepare_cue_release_lookup(cue);
-    if (!local.eligible) {
-        result.reasons = local.reasons;
-        return result;
-    }
+    // Verify the inspected edition BEFORE offering even blocked album facts.
+    // Unqualified CUE track identities must never launder foreign provenance.
     if (!valid_evidence_origin(edition.provider, 128) ||
         !valid_evidence_origin(edition.edition_id, 512)) {
         result.reasons.push_back("cue_release_identity_unqualified");
@@ -52,6 +49,27 @@ inline CueEditionReview review_cue_release_edition(
             result.reasons.push_back("cue_release_field_provenance_mismatch");
             return result;
         }
+    const auto local = prepare_cue_release_lookup(cue);
+    if (!local.eligible) {
+        result.reasons = local.reasons;
+        if (cue.status != CueSyntaxStatus::Parsed) return result;
+        // A readable CUE with missing/ambiguous track identity can still
+        // inspect actual album-level facts. They are display-only BLOCKED,
+        // not proposed edits, and no recording receives remote credits.
+        result.album_fields = review_cue_candidate_fields(
+            cue, std::nullopt, edition.fields);
+        for (auto& row : result.album_fields) {
+            row.state = FieldReviewState::Blocked;
+            row.reason = "cue_track_inventory_unqualified_" + row.reason;
+        }
+        for (const auto& track : cue.tracks) {
+            CueEditionTrackReview row;
+            row.cue_ordinal = track.ordinal;
+            row.reasons = local.reasons;
+            result.tracks.push_back(std::move(row));
+        }
+        return result;
+    }
     result.alignment = align_release(local.tracks, edition);
     if (result.alignment.tracks.size() != local.tracks.size()) {
         result.reasons.push_back("cue_release_alignment_unqualified");
