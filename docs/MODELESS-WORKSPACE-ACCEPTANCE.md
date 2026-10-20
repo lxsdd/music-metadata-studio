@@ -86,3 +86,12 @@ tests passed. The runner now exercises the same display notification used by
 the real ListView. It reads the callback's text from the isolated host process,
 with 256-character bounds and architecture-specific struct layouts.
 A lack of returned text remains a hard failure, not a skipped assertion.
+
+The native content gate uses **Windows UI Automation**, not unsupported
+cross-process messages. Microsoft's virtual ListView contract prohibits
+`LVM_GETITEMTEXT` under `LVS_OWNERDATA`, and `WM_NOTIFY` cannot cross
+process boundaries. After these two negative test findings, the corrected
+test uses the standard Windows `UIAutomationClient` provider for native
+`SysListView32` in its details/Grid layout. It must return the actual
+visible two-mix source and blocked-status cells. No cross-process memory
+injection is used. UI Automation failure is a hard red, never a false PASS.
