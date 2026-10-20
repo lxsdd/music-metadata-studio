@@ -330,11 +330,35 @@ std::vector<LocalFile> capture_files(metadb_handle_list_cref handles) {
             const bool mp3 = suffix == ".mp3" || suffix == ".MP3";
             const bool wav = suffix == ".wav" || suffix == ".WAV";
             const bool file_uri = selected.starts_with("file://");
+            // Diagnostic categories are deliberately path-free. In a real
+            // foobar /context_command run, a failed selection must be
+            // distinguishable from a malformed synthetic fixture without
+            // publishing any user's filesystem paths or filenames.
+            const auto drive_letter = [](char c) {
+                return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+            };
+            const bool drive_absolute = selected.size() >= 3 &&
+                drive_letter(selected[0]) && selected[1] == ':' &&
+                (selected[2] == '/' || selected[2] == '\\');
+            const auto last_sep = selected.find_last_of("/\\");
+            const auto basename = selected.substr(
+                last_sep == std::string_view::npos ? 0 : last_sep + 1);
+            const bool safe_basename =
+                djmeta::precision_cue_safe_mp3_basename(basename);
+            const bool percent_escape = selected.find('%') != std::string_view::npos;
+            const bool quote = selected.find('"') != std::string_view::npos;
+            const bool trailing_separator = !selected.empty() &&
+                (selected.back() == '/' || selected.back() == '\\');
             throw std::invalid_argument(
                 std::string("Precision CUE requires a physical local drive MP3 path. "
                             "Host selection: ") +
                 (mp3 ? "MP3" : wav ? "WAV" : "other format") +
-                (file_uri ? " (file URI)" : " (non-file URI)"));
+                (file_uri ? " (file URI" : " (non-file URI") +
+                (drive_absolute ? ", absolute drive" : ", no absolute drive") +
+                (safe_basename ? ", safe basename" : ", invalid basename") +
+                (percent_escape ? ", percent escape" : ", no percent escape") +
+                (quote ? ", quoted" : ", unquoted") +
+                (trailing_separator ? ", trailing separator)" : ", no trailing separator)"));
         }
         const auto source_path = djmeta::precision_cue_external_detail::utf8_path(*parsed);
         std::error_code ec;
