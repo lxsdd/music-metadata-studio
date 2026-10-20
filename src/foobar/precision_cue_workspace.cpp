@@ -320,10 +320,22 @@ std::vector<LocalFile> capture_files(metadb_handle_list_cref handles) {
             throw std::invalid_argument("Select physical MP3 files, not virtual CUE subsongs");
         const auto parsed = djmeta::precision_cue_foobar_local_windows_mp3_path(
             handle->get_path());
-        if (!parsed)
+        if (!parsed) {
+            // A context-menu command may receive another playlist entry than
+            // its nominal CLI argument. Report only the type and URI form;
+            // never expose a user's physical path in diagnostics.
+            const std::string_view selected(handle->get_path());
+            const auto suffix = selected.size() >= 4
+                ? selected.substr(selected.size() - 4) : std::string_view{};
+            const bool mp3 = suffix == ".mp3" || suffix == ".MP3";
+            const bool wav = suffix == ".wav" || suffix == ".WAV";
+            const bool file_uri = selected.starts_with("file://");
             throw std::invalid_argument(
-                "Precision CUE requires a physical local drive MP3 path, "
-                "not a virtual, remote or ambiguous file URL");
+                std::string("Precision CUE requires a physical local drive MP3 path. "
+                            "Host selection: ") +
+                (mp3 ? "MP3" : wav ? "WAV" : "other format") +
+                (file_uri ? " (file URI)" : " (non-file URI)"));
+        }
         const auto source_path = djmeta::precision_cue_external_detail::utf8_path(*parsed);
         std::error_code ec;
         const auto canonical = std::filesystem::canonical(source_path, ec);
