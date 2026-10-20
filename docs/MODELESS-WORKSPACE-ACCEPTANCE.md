@@ -211,3 +211,19 @@ The separate Core matching gate still tests repeated track numbers across
 FILEs, and withholds any unverified numbered-position evidence. This
 avoids weakening validation or misclassifying a parser-only result as a
 real host success.
+
+## Native File locations tab end-to-end read-only QA
+
+The exact-SHA shared Windows runner now navigates the **actual third tab
+in real isolated Win32/x64 foobar**, enters a disposable runner directory
+as the raw preview destination, evaluates `%filename%` for the synthetic
+WAV, selects its native ListView item and invokes the actual context-menu
+command `Inspect selected raw targets`. The native footer must show
+one inspected candidate and explicitly state that final foobar FileOps
+destinations and CUE dependencies remain unverified. The original
+synthetic WAV's SHA-256, byte count and modification time must remain
+identical. The test returns to online comparison before the existing
+Discogs/Beatport/CUE checks. All cross-process UI interactions avoid
+pointer-bearing tab/ListView messages and operate on isolated fixtures.
+This proves an interactive **raw candidate inspection**, never target
+authorization, user music writes or OS rename/move safety.
