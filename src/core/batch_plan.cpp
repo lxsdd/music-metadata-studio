@@ -227,6 +227,19 @@ BatchPlanReview review_batch_plan(
             block(decision, "EMBEDDED_NUL_IN_PLAN_IDENTITY");
         if (!valid_cue_participants(item))
             block(decision, "CUE_AUDIO_RELATIONSHIP_AMBIGUOUS");
+        // A selected audio source must never be attached to multiple
+        // independently managed external CUE carriers. Count even inactive
+        // CUE rows: a second CUE cannot be ignored just because its own
+        // file path does not change in this preview.
+        if (item.role == FileRole::Audio && !item.physical_id.empty() &&
+            all_cue_counts[item.physical_id] > 1)
+            block(decision, "MULTIPLE_EXTERNAL_CUES_FOR_AUDIO");
+        if (item.role == FileRole::ExternalCue)
+            for (const auto& id : cue_audio_dependencies(item))
+                if (all_cue_counts[id] > 1) {
+                    block(decision, "MULTIPLE_EXTERNAL_CUES_FOR_AUDIO");
+                    break;
+                }
         if (mixed_ruleset_revisions)
             block(decision, "MIXED_RULESET_REVISIONS");
         if (item.source_guard.empty())

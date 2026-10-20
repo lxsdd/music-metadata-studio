@@ -615,6 +615,85 @@ void test_inactive_cue_relationships_and_tag_only_audio_guard() {
             "inactive CUE listing cannot qualify a real audio move");
 }
 
+void test_multiple_external_cue_carriers_per_audio_block_batch() {
+    auto track=audio("same-physical-audio");
+    track.cue_links=djmeta::CueLinkState::Verified;
+    auto first=audio("cue-one");
+    first.role=djmeta::FileRole::ExternalCue;
+    first.associated_audio_id=track.physical_id;
+    first.cue_links=djmeta::CueLinkState::Verified;
+    first.cue_source_fingerprint="first-before";
+    first.cue_postimage_fingerprint="first-after";
+    first.cue_references_will_change=true;
+    first.metadata_fingerprint.clear();
+    first.planned_metadata_fingerprint.clear();
+    auto second=first;
+    second.physical_id="cue-two";
+    second.source_path="Z:/Music/Downloads/cue-two.cue";
+    second.source_key="z:/music/downloads/cue-two.cue";
+    second.source_guard="source-observation-cue-two";
+    second.target_path="Z:/Music/Singles/cue-two.cue";
+    second.target_key="z:/music/singles/cue-two.cue";
+    second.cue_source_fingerprint="second-before";
+    second.cue_postimage_fingerprint="second-after";
+    const std::vector<djmeta::FilePlanItem> batch{track,first,second};
+    const auto conflict=djmeta::review_batch_plan(batch);
+    require(conflict.blocked==3 && !conflict.ready_to_apply,
+            "two independently writable CUEs cannot share one physical audio");
+    for(const auto& decision:conflict.decisions)
+        require(has_reason(decision,"MULTIPLE_EXTERNAL_CUES_FOR_AUDIO") &&
+                !decision.cue_bytes_write_needed &&
+                !decision.metadata_write_needed &&
+                !decision.file_operation_needed,
+                "all conflicted audio/CUE participants must fail closed");
+
+    // Even a static CUE carrier is a relationship that requires explicit
+    // disambiguation; file-action None is NOT permission to ignore it.
+    auto inactive=batch;
+    inactive[2].action=djmeta::FileAction::None;
+    inactive[2].cue_references_will_change=false;
+    inactive[2].cue_postimage_fingerprint=inactive[2].cue_source_fingerprint;
+    const auto with_inactive=djmeta::review_batch_plan(inactive);
+    require(with_inactive.blocked==3 &&
+            has_reason(with_inactive.decisions[0],
+                "MULTIPLE_EXTERNAL_CUES_FOR_AUDIO") &&
+            has_reason(with_inactive.decisions[2],
+                "MULTIPLE_EXTERNAL_CUES_FOR_AUDIO"),
+            "inactive second CUE still conflicts with audio in file operation");
+
+    // Overwrite approval is not an ambiguity override.
+    const djmeta::BatchApproval unsafe_consent{conflict.plan_fingerprint,true,{}};
+    const auto consented=djmeta::review_batch_plan(batch,&unsafe_consent);
+    require(!consented.ready_to_apply && consented.blocked==3,
+            "even exact batch-wide overwrite consent cannot approve ambiguous CUE graph");
+
+    // One CUE carrying two distinct FILE identities is a valid many-to-one
+    // relation; only two DIFFERENT CUE carriers for a single source conflict.
+    auto other=audio("second-track");
+    other.cue_links=djmeta::CueLinkState::Verified;
+    first.associated_audio_id.clear();
+    first.associated_audio_ids={track.physical_id,other.physical_id};
+    const auto valid=djmeta::review_batch_plan({track,other,first});
+    require(valid.ready_to_apply && valid.blocked==0,
+            "one external Multi-FILE CUE may reference two separate audio files");
+
+    // Distinct CUEs each protecting a distinct audio are valid together.
+    auto other_cue=second;
+    other_cue.associated_audio_id=other.physical_id;
+    const auto independent=djmeta::review_batch_plan(
+        {track,other,first,other_cue});
+    require(!independent.ready_to_apply &&
+            has_reason(independent.decisions[1],
+                "MULTIPLE_EXTERNAL_CUES_FOR_AUDIO"),
+            "multi-file CUE plus another CUE for one of its files remains ambiguous");
+    first.associated_audio_ids={track.physical_id};
+    first.associated_audio_id.clear();
+    const auto independent_clean=djmeta::review_batch_plan(
+        {track,other,first,other_cue});
+    require(independent_clean.ready_to_apply,
+            "independent CUE/audio pairs remain valid in one batch");
+}
+
 void test_cue_rewrite_only_on_external_cue_items() {
     auto audio_item = audio("wrong-cue-role");
     audio_item.action = djmeta::FileAction::None;
@@ -1126,6 +1205,7 @@ int main() {
     test_duplicate_subsong_source_and_self_copy();
     test_duplicate_selected_tag_only_source_cannot_escape_preflight();
     test_external_cue_dependencies();
+    test_multiple_external_cue_carriers_per_audio_block_batch();
     test_multifile_cue_planned_audio_dependencies();
     test_contradictory_audio_cue_evidence_rejected();
     test_inactive_cue_relationships_and_tag_only_audio_guard();

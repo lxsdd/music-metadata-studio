@@ -97,3 +97,15 @@ for the standalone fixture, two for the Multi-FILE fixture). Missing
 those rows makes CI fail, not simply report a successful window open.
 These are source observations, not confirmed relocation destinations,
 write approvals, or a substitute for eventual real-user visual inspection.
+
+## Ambiguous CUE graph block (Studio read-only batch preflight)
+
+The exact immutable file-organization batch now **blocks the audio source
+and every external CUE carrier** if multiple selected external CUEs claim
+the same physical audio identity. This includes an otherwise inactive
+second CUE and cannot be overridden with batch overwrite consent.
+A single Multi-FILE CUE legitimately referencing several *different*
+audio sources remains eligible, as do distinct audio/CUE pairs. The
+contract does not guess which CUE should prevail; the eventual user must
+resolve the ambiguity with an explicit selection before physical
+operations can be enabled. No CUE generation or writer is involved.
