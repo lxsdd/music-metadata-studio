@@ -253,10 +253,14 @@ void native_conflict_diagnostics_are_bounded_and_located() {
     assert(message.find("Original Mix") == std::string::npos);
 
     apple = release("apple", "synthetic-apple");
-    apple.tracks[2].track_number = 2;
+    // Both releases remain structurally valid: the disc boundary differs.
+    apple.tracks[2].disc_number = 1;
+    apple.tracks[2].track_number = 3;
+    apple.tracks[3].track_number = 1;
     report = djmeta::match_precision_cue_releases(deezer, {apple});
     message = djmeta::describe_precision_cue_match_failure(report, deezer, apple);
-    assert(message.find("disc 2, track 1 (Apple disc 2, track 2)") != std::string::npos);
+    assert(report.state == PrecisionCueMatchState::Rejected);
+    assert(message.find("disc 2, track 1 (Apple disc 1, track 3)") != std::string::npos);
 
     apple = release("apple", "synthetic-apple");
     apple.tracks[2].duration_ms += 3001;
