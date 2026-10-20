@@ -1,5 +1,6 @@
 #include "djmeta/precision_cue_deezer_http.h"
 #include "djmeta/precision_cue_deezer.h"
+#include "djmeta/precision_cue_http_status.h"
 
 #if !defined(_WIN32)
 #error "This HTTP transport is intended only for the Windows foobar host."
@@ -129,7 +130,8 @@ std::string fetch_deezer_precision_cue_json(const DeezerPrecisionCueHttpRequest&
         WINHTTP_HEADER_NAME_BY_INDEX, &status, &length, WINHTTP_NO_HEADER_INDEX),
         "Deezer HTTP status unavailable");
     if (status != 200)
-        throw std::runtime_error("Deezer API returned non-success HTTP status");
+        throw std::runtime_error("Deezer API: " +
+            std::string(precision_cue_catalog_http_diagnostic(status)));
 
     std::array<wchar_t, 256> type_buffer{};
     length = static_cast<DWORD>(type_buffer.size() * sizeof(wchar_t));

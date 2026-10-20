@@ -2,6 +2,7 @@
 #include "djmeta/precision_cue_boundary_audit.h"
 #include "djmeta/precision_cue_physical_bounds.h"
 #include "djmeta/precision_cue_lookup_budget.h"
+#include "djmeta/precision_cue_http_status.h"
 
 // GitHub CI uses Release: keep test assertions enabled on every platform.
 #ifdef NDEBUG
@@ -333,6 +334,32 @@ void test_bounded_catalog_lookup_admission() {
     assert(djmeta::precision_cue_lookup_slot_available(3));
 }
 
+void test_catalog_http_fail_closed_diagnostics() {
+    using djmeta::precision_cue_catalog_http_diagnostic;
+    using namespace std::string_view_literals;
+    assert(precision_cue_catalog_http_diagnostic(200).empty());
+    assert(precision_cue_catalog_http_diagnostic(401) ==
+           "access denied; verify authorized API access"sv);
+    assert(precision_cue_catalog_http_diagnostic(403) ==
+           "access denied; verify authorized API access"sv);
+    assert(precision_cue_catalog_http_diagnostic(404) ==
+           "album not available in this catalog"sv);
+    assert(precision_cue_catalog_http_diagnostic(408) ==
+           "request timed out; retry later"sv);
+    assert(precision_cue_catalog_http_diagnostic(429) ==
+           "rate limit reached; retry later"sv);
+    assert(precision_cue_catalog_http_diagnostic(500) ==
+           "catalog temporarily unavailable"sv);
+    assert(precision_cue_catalog_http_diagnostic(503) ==
+           "catalog temporarily unavailable"sv);
+    assert(precision_cue_catalog_http_diagnostic(599) ==
+           "catalog temporarily unavailable"sv);
+    assert(precision_cue_catalog_http_diagnostic(301) ==
+           "unexpected HTTP response"sv); // no redirect is followed
+    assert(precision_cue_catalog_http_diagnostic(600) ==
+           "unexpected HTTP response"sv);
+}
+
 int main() {
     test_integer_cumulative_rounding();
     test_physical_cue_index_bounds_and_create_gate();
@@ -344,5 +371,6 @@ int main() {
     test_generated_utf8_validation();
     test_eight_disc_99_track_plan();
     test_bounded_catalog_lookup_admission();
+    test_catalog_http_fail_closed_diagnostics();
     return 0;
 }
