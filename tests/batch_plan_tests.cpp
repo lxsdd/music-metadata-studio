@@ -1,4 +1,5 @@
 #include "djmeta/batch_plan.h"
+#include "djmeta/cue_association.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -411,10 +412,28 @@ void test_multifile_cue_planned_audio_dependencies() {
     cue.target_path="Z:/Music/Singles/multi.cue";
     cue.target_key="z:/music/singles/multi.cue";
     cue.cue_links=djmeta::CueLinkState::Verified;
-    cue.associated_audio_ids={a.physical_id,b.physical_id};
-    cue.cue_source_fingerprint="raw-double-FILE";
-    cue.cue_postimage_fingerprint="rewritten-double-FILE";
-    cue.cue_references_will_change=true;
+    // Full source-derived chain: parse the two FILE references, resolve
+    // each canonical host physical source, stage only the verified CUE
+    // reference postimage and pass its association into batch preflight.
+    const std::string source_cue =
+        "REM GENRE House\n"
+        "FILE \"first.wav\" WAVE\nTRACK 01 AUDIO\n"
+        "FILE \"second.wav\" WAVE\nTRACK 02 AUDIO\n";
+    const auto cue_link=djmeta::qualify_external_cue_association(
+        source_cue,
+        {{0,"first.wav",a.source_key,"first-new.wav",true,true},
+         {1,"second.wav",b.source_key,"second-new.wav",true,true}},
+        {{a.physical_id,a.source_key,a.target_key},
+         {b.physical_id,b.source_key,b.target_key}});
+    require(cue_link.qualified && cue_link.changes_references &&
+            cue_link.related_selected_audio_ids==
+                std::vector<std::string>({a.physical_id,b.physical_id}) &&
+            cue_link.proposed_cue_bytes.find("second-new.wav")!=std::string::npos,
+            "parsed Multi-FILE references map both real physical source identities");
+    cue.associated_audio_ids=cue_link.related_selected_audio_ids;
+    cue.cue_source_fingerprint=cue_link.original_cue_fingerprint;
+    cue.cue_postimage_fingerprint=cue_link.proposed_cue_fingerprint;
+    cue.cue_references_will_change=cue_link.changes_references;
     cue.metadata_fingerprint.clear();
     cue.planned_metadata_fingerprint.clear();
     std::vector<djmeta::FilePlanItem> items={a,b,cue};
@@ -424,14 +443,25 @@ void test_multifile_cue_planned_audio_dependencies() {
             "one external CUE with two qualified physical audio references");
     const djmeta::BatchApproval approval{ok.plan_fingerprint,false,{}};
     const auto frozen=djmeta::freeze_reviewed_batch_preview(items,approval);
-    require(frozen.items.size()==3 && frozen.items[2].associated_audio_ids.size()==2,
-            "frozen plan retains every CUE audio dependency");
+    require(frozen.items.size()==3 && frozen.items[2].associated_audio_ids.size()==2 &&
+            frozen.items[2].cue_postimage_fingerprint==
+                cue_link.proposed_cue_fingerprint,
+            "frozen plan retains actual source-derived CUE bytes and both audio dependencies");
     auto changed=items;
     changed[2].associated_audio_ids={b.physical_id,a.physical_id};
     const auto stale=djmeta::review_batch_plan(changed,&approval);
     require(stale.blocked==3 &&
             has_reason(stale.decisions[2],"STALE_BATCH_APPROVAL"),
             "reordering Multi-FILE members invalidates exact approval");
+    // An updated remote/local FILE-reference proposal is a new plan even
+    // if every audio row still refers to its earlier physical destination.
+    changed=items;
+    changed[2].cue_postimage_fingerprint="changed FILE postimage";
+    const auto renamed=djmeta::review_batch_plan(changed,&approval);
+    require(renamed.blocked==3 &&
+            has_reason(renamed.decisions[2],"STALE_BATCH_APPROVAL"),
+            "CUE reference postimage change invalidates multi-file approval");
+
     changed=items;
     changed[2].associated_audio_ids={a.physical_id};
     const auto incomplete=djmeta::review_batch_plan(changed);

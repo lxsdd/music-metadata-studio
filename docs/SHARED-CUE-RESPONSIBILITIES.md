@@ -51,3 +51,19 @@ physical source projected to incompatible FILE names.
 These are NO-I/O **previews**, not an executor or proof of native OS
 canonical paths. Exact host verification and the future write/rollback
 gate remain mandatory. Precision CUE #52 is untouched.
+
+## Integrated existing-CUE file-organization preview
+
+The Studio core regression now exercises a source-derived complete
+chain: parse two literal `FILE` lines, match independently observed
+physical audio keys, compute a no-I/O CUE reference postimage, bind all
+resolved physical IDs and both CUE fingerprints into the batch plan,
+freeze the *exact reviewed* proposal, then fail closed when an audio
+dependency, its ordering or the CUE postimage changes. Existing unrelated
+CUE contents (for example REM GENRE) remain byte-preserved in the
+postimage, and no actual file or tag mutation occurs.
+
+The live foobar File locations tab still needs a separately qualified
+host-level canonical destination/CUE dependency discovery step before
+it can offer real file operations. This test does **not** certify that
+future executor, nor duplicate any Precision CUE timing/generation work.
