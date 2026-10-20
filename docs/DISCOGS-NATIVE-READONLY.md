@@ -46,6 +46,15 @@ WinHTTP GET adapter and the existing bounded official catalog/edition parsers.
   page-1 results. Explicit candidate selection and exact-edition inspection
   are still mandatory. Artist-only hits do not establish track/CUE identity,
   never authorize writes, and use only the fixed official token-header API.
+- Ordinary Discogs searches now expose a separate **Next results page**
+  native button when the official API reports another page. Each click loads
+  exactly one bounded page of the SAME authenticated official search stage.
+  Page numbers, page size and canonical filters are checked; an edited query,
+  changed source/CUE bytes, different provider, stale preview or invalid page
+  refuses the result. Pages REPLACE the current candidates (no silent merges).
+  The ordinary Search button still broadens strategies, while master pages
+  retain their existing separate navigation. Search hits still require exact
+  release detail inspection before they can participate in tag/CUE comparison.
 - Search begins only with a deliberate user action. After zero hits its
   bounded official strategies automatically broaden; a nonempty result
   requires another deliberate Search click. The joined network worker waits

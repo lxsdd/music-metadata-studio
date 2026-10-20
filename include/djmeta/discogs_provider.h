@@ -493,8 +493,29 @@ inline bool decode_canonical_term(std::string_view encoded, std::string& decoded
     }
     return musicbrainz::encode_url_query(decoded)==encoded;
 }
+inline constexpr std::uint64_t max_search_result_page=100000;
 inline bool allowed_readonly_path(std::string_view path) {
     if(path.empty() || path.size()>2048) return false;
+    // Official search pages beyond 1 are allowed only when identical to a
+    // canonical page-1 request except for a positive bounded page counter.
+    // Never permit a foreign endpoint, arbitrary key or bearer token.
+    constexpr std::string_view paging_tail="&per_page=20";
+    constexpr std::string_view page_one="&page=1&per_page=20";
+    if(path.starts_with("/database/search?") &&
+       path.ends_with(paging_tail) && !path.ends_with(page_one)) {
+        const auto begin=path.rfind("&page=");
+        if(begin==std::string_view::npos) return false;
+        const auto raw=path.substr(begin+6,
+            path.size()-(begin+6)-paging_tail.size());
+        if(raw.empty() || raw.size()>6) return false;
+        std::uint64_t page=0;
+        const auto [end,ec]=std::from_chars(raw.data(),raw.data()+raw.size(),page);
+        if(ec!=std::errc{} || end!=raw.data()+raw.size() ||
+           page<2 || page>max_search_result_page ||
+           raw!=std::to_string(page)) return false;
+        const auto first=std::string(path.substr(0,begin))+std::string(page_one);
+        return allowed_readonly_path(first);
+    }
     constexpr std::string_view release_prefix="/releases/";
     if(path.starts_with(release_prefix)) {
         const auto digits=path.substr(release_prefix.size());
@@ -588,6 +609,18 @@ inline bool allowed_readonly_path(std::string_view path) {
     }
 }
 
+// Construct only a page of an ALREADY canonical official search strategy.
+// Every page is a separate explicit native user action; no bulk crawling.
+inline std::string search_result_page_path(
+    std::string_view first_path, std::uint64_t page) {
+    constexpr std::string_view suffix="&page=1&per_page=20";
+    if(!page || page>max_search_result_page ||
+       !first_path.starts_with("/database/search?") ||
+       !first_path.ends_with(suffix) || !allowed_readonly_path(first_path))
+        throw std::invalid_argument("Discogs search pagination unqualified");
+    return std::string(first_path.substr(0,first_path.size()-suffix.size()))+
+        "&page="+std::to_string(page)+"&per_page=20";
+}
 // These are search candidates, never host track write targets.
 inline SearchResults parse_search(std::string_view json) {
     SearchResults result;
@@ -624,6 +657,36 @@ inline SearchResults parse_search(std::string_view json) {
         result.hits.push_back(std::move(hit));
     }
     return result;
+}
+// Official search pagination is never an editable release identity.
+// A missing/foreign/short page is not silently labeled complete.
+struct SearchResultPage {
+    SearchResults results;
+    std::uint64_t page=1;
+    std::uint64_t pages=1;
+};
+inline SearchResultPage parse_search_result_page(
+    std::string_view json, std::uint64_t expected_page=1) {
+    if(!expected_page || expected_page>max_search_result_page)
+        throw std::invalid_argument("Invalid expected Discogs search page");
+    const auto root=musicbrainz::JsonParser(json).parse();
+    const auto* pagination=root.get("pagination");
+    const auto* hits=root.get("results");
+    if(!pagination || pagination->type!=musicbrainz::Json::Type::Object ||
+       !hits || hits->type!=musicbrainz::Json::Type::Array ||
+       hits->array.size()>20)
+        throw std::invalid_argument("Discogs search pagination incomplete");
+    const auto* page=pagination->get("page");
+    const auto* per_page=pagination->get("per_page");
+    const auto* pages=pagination->get("pages");
+    if(!page || !per_page || !pages ||
+       object_id(*page)!=expected_page || object_id(*per_page)!=20)
+        throw std::invalid_argument("Discogs search page does not match request");
+    std::uint64_t total=object_id(*pages);
+    if(total==0 && expected_page==1 && hits->array.empty()) total=1;
+    if(total<expected_page)
+        throw std::invalid_argument("Discogs reported incomplete search page");
+    return {parse_search(json),expected_page,total};
 }
 // A master's paginated versions are candidate editions, never master fields.
 struct MasterVersionsPage {

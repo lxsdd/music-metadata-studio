@@ -83,6 +83,8 @@ struct PendingDiscogsContext {
     std::uint64_t release_id=0;
     std::uint64_t master_id=0; // versions are candidates only
     std::uint64_t master_page=1;
+    std::uint64_t result_page=1;
+    std::string result_first_path; // verified official page-one strategy
     std::string plan_identity;
     std::string strategy;
     std::size_t attempt_index=0;
@@ -165,6 +167,11 @@ struct PreviewState {
     std::vector<djmeta::online::discogs::SearchHit> discogs_results;
     std::uint64_t discogs_master_id=0,discogs_master_page=0,
                   discogs_master_pages=0;
+    std::uint64_t discogs_result_page=0,discogs_result_pages=0;
+    std::string discogs_result_first_path;
+    std::string discogs_result_identity;
+    std::string discogs_result_strategy;
+    std::size_t discogs_result_attempt_index=0,discogs_result_attempt_total=0;
     std::optional<djmeta::online::ReleaseEdition> discogs_direct_edition;
     std::vector<std::vector<djmeta::online::FieldReviewRow>> musicbrainz_detail_groups;
     std::string musicbrainz_original_title;
@@ -1455,6 +1462,21 @@ void update_live_provider_controls(PreviewState& state) {
     SetDlgItemTextW(state.dialog,IDC_METADATA_MB_SEARCH,
         next_master?L"Next master page":
         state.discogs_provider_selected?L"Search Discogs":L"Search MusicBrainz");
+    const bool next_result=discogs && state.discogs_live_view &&
+        !state.musicbrainz_release_loaded && !state.discogs_master_id &&
+        state.candidate_source_index==state.selected_track_index &&
+        !state.stale && !state.discogs_request && !state.musicbrainz_request &&
+        !state.discogs_result_first_path.empty() &&
+        !state.discogs_result_identity.empty() &&
+        state.search_plan_identity==state.discogs_result_identity &&
+        state.search_attempt_index==state.discogs_result_attempt_index &&
+        state.discogs_result_page>0 &&
+        state.discogs_result_page<state.discogs_result_pages &&
+        state.discogs_result_page<djmeta::online::discogs::max_search_result_page;
+    ShowWindow(GetDlgItem(state.dialog,IDC_METADATA_DISCOGS_NEXT_PAGE),
+               next_result?SW_SHOW:SW_HIDE);
+    EnableWindow(GetDlgItem(state.dialog,IDC_METADATA_DISCOGS_NEXT_PAGE),
+                 next_result?TRUE:FALSE);
 }
 
 void show_preview_page(HWND dialog, PreviewState& state,
@@ -1503,6 +1525,7 @@ void show_preview_page(HWND dialog, PreviewState& state,
         candidate ? SW_SHOW : SW_HIDE);
     ShowWindow(GetDlgItem(dialog, IDC_METADATA_MB_SEARCH),
         candidate ? SW_SHOW : SW_HIDE);
+    update_live_provider_controls(state); // also gates search page navigation
     ShowWindow(GetDlgItem(dialog, IDC_METADATA_MB_LOAD_RELEASE),
         candidate ? SW_SHOW : SW_HIDE);
     layout_musicbrainz_detail_pane(state);
@@ -2280,6 +2303,7 @@ void mark_stale_workspace(PreviewState& state) {
                    IDC_METADATA_RESET, IDC_METADATA_USE_VALUE,
                    IDC_BATCH_APPLY_SELECTED, IDC_BATCH_APPLY_ALL,
                    IDC_METADATA_MB_SEARCH, IDC_METADATA_MB_LOAD_RELEASE,
+                   IDC_METADATA_DISCOGS_NEXT_PAGE,
                    IDC_METADATA_INSPECT_CUE, IDC_METADATA_IMPORT_CANDIDATE})
         EnableWindow(GetDlgItem(state.dialog,id), FALSE);
     SetWindowTextW(state.dialog,L"Music Metadata Studio - STALE snapshot (Read-only)");
@@ -2374,6 +2398,11 @@ void refresh_workspace_snapshot(PreviewState& state) {
         state.discogs_results.clear();
         state.discogs_master_id=0;
         state.discogs_master_page=state.discogs_master_pages=0;
+        state.discogs_result_page=state.discogs_result_pages=0;
+        state.discogs_result_first_path.clear();
+        state.discogs_result_identity.clear();
+        state.discogs_result_strategy.clear();
+        state.discogs_result_attempt_index=state.discogs_result_attempt_total=0;
         state.discogs_direct_edition.reset();
         state.discogs_live_view=false;
         state.discogs_search_was_cue=false;
@@ -2442,7 +2471,8 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_METADATA_ONLINE_PROVIDER,L"Select MusicBrainz (free read-only) or Discogs (your authorized personal token required)."},
         {IDC_METADATA_DISCOGS_TOKEN_LABEL,L"Discogs token only lives in this password control."},
         {IDC_METADATA_DISCOGS_TOKEN,L"Personal Discogs API token. Not saved, logged, embedded or copied into URLs."},
-        {IDC_METADATA_MB_SEARCH,L"One deliberate official HTTPS lookup; no automatic retries and no tag writes."},
+        {IDC_METADATA_MB_SEARCH,L"One deliberate official HTTPS lookup; bounded zero-hit stages broaden with pacing. No tag writes."},
+        {IDC_METADATA_DISCOGS_NEXT_PAGE,L"Explicitly load ONE more page of the same official Discogs query. Never a match or write approval."},
         {IDC_METADATA_MB_LOAD_RELEASE,L"Inspect a verified exact release; unmatched Discogs track credits remain blocked."},
         {IDC_METADATA_INSPECT_CUE,L"Read the source CUE and show its album/track fields. Embedded and external CUE are never written here."},
         {IDC_METADATA_IMPORT_CANDIDATE,L"Import manual facts with @beatport-track-facts or lawfully supplied @beatport-track-json. Offline, unverified, read-only; requires physical match."},
@@ -2549,6 +2579,7 @@ void begin_discogs_network(HWND dialog, PreviewState& state,
     state.discogs_request=std::move(job);
     EnableWindow(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH),FALSE);
     EnableWindow(GetDlgItem(dialog,IDC_METADATA_MB_LOAD_RELEASE),FALSE);
+    EnableWindow(GetDlgItem(dialog,IDC_METADATA_DISCOGS_NEXT_PAGE),FALSE);
 }
 
 // Official Discogs requests share the existing foobar snapshot/rules guards.
@@ -2679,8 +2710,63 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
     context.strategy=std::move(strategy);
     context.attempt_index=attempt_index;
     context.total=total;
+    if(!direct_id && !master_id)
+        context.result_first_path=path; // official page-one search only
     begin_discogs_network(dialog,state,std::move(path),std::move(token),
                           std::move(context));
+}
+
+// A separate user action navigates ONE extra page, without advancing the
+// staged query or borrowing an unrelated source's provider identity.
+void perform_discogs_next_page(HWND dialog, PreviewState& state) {
+    using namespace djmeta::online::discogs;
+    if(state.discogs_request || state.musicbrainz_request ||
+       state.stale || !state.show_candidate || !state.discogs_provider_selected ||
+       !state.discogs_live_view || state.musicbrainz_release_loaded ||
+       state.selected_track_index!=state.candidate_source_index ||
+       state.selected_track_index>=state.entries.size() ||
+       state.discogs_result_first_path.empty() ||
+       state.search_plan_identity!=state.discogs_result_identity ||
+       state.search_attempt_index!=state.discogs_result_attempt_index ||
+       !state.discogs_result_page ||
+       state.discogs_result_page>=state.discogs_result_pages ||
+       state.discogs_result_page>=max_search_result_page)
+        throw std::invalid_argument("No qualified next Discogs result page.");
+    const auto& entry=state.entries[state.selected_track_index];
+    verify_snapshot(entry);
+    verify_rules_snapshot(state.captured_rules);
+    PendingDiscogsContext request;
+    request.kind=PendingDiscogsContext::Kind::Search;
+    request.source_index=state.selected_track_index;
+    request.cue_mode=state.discogs_search_was_cue;
+    if(request.cue_mode) {
+        const auto raw=read_cue_raw_on_demand(entry.handle,entry.input.source_path);
+        if(djmeta::inspect_cue_metadata(raw.raw_text,raw.carrier).status!=
+           djmeta::CueSyntaxStatus::Parsed)
+            throw std::invalid_argument("CUE source is no longer qualified.");
+        request.cue_before=raw.raw_text;
+    } else {
+        if(!entry.input.physical_source_qualified ||
+           is_external_cue_locator(entry.input.source_path))
+            throw std::invalid_argument("Physical source is no longer qualified.");
+        const auto info=entry.handle->get_info_ref();
+        request.originals=metadata_from_file_info(info->info());
+    }
+    request.result_page=state.discogs_result_page+1;
+    request.result_first_path=state.discogs_result_first_path;
+    request.plan_identity=state.discogs_result_identity;
+    request.strategy=state.discogs_result_strategy;
+    request.attempt_index=state.discogs_result_attempt_index;
+    request.total=state.discogs_result_attempt_total;
+    const auto path=search_result_page_path(
+        request.result_first_path,request.result_page);
+    auto token=to_utf8(read_control(dialog,IDC_METADATA_DISCOGS_TOKEN));
+    if(token.empty())
+        throw std::invalid_argument("Authorized Discogs token required.");
+    SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+        (L"Discogs official search page "+std::to_wstring(request.result_page)+
+         L" (read-only)...").c_str());
+    begin_discogs_network(dialog,state,path,std::move(token),std::move(request));
 }
 
 void publish_discogs_release(HWND dialog, PreviewState& state,
@@ -2707,6 +2793,7 @@ void publish_discogs_search(HWND dialog, PreviewState& state,
         throw std::runtime_error("CUE changed during Discogs lookup. Retry.");
     SearchResults result;
     std::optional<MasterVersionsPage> version_page;
+    std::optional<SearchResultPage> search_page;
     std::optional<ReleaseEdition> direct_edition;
     if(request.master_id) {
         version_page=parse_master_versions_page(
@@ -2726,7 +2813,10 @@ void publish_discogs_search(HWND dialog, PreviewState& state,
             else if(field.field=="ALBUM ARTIST") hit.artist=field.values.front();
         }
         result.hits.push_back(std::move(hit));
-    } else result=parse_search(reply);
+    } else {
+        search_page=parse_search_result_page(reply,request.result_page);
+        result=search_page->results;
+    }
     // The final host recheck is on the UI thread immediately before display;
     // a remote response never becomes tag-write authorization.
     verify_snapshot(entry);
@@ -2739,6 +2829,13 @@ void publish_discogs_search(HWND dialog, PreviewState& state,
     state.discogs_master_id=version_page?request.master_id:0;
     state.discogs_master_page=version_page?version_page->page:0;
     state.discogs_master_pages=version_page?version_page->pages:0;
+    state.discogs_result_page=search_page?search_page->page:0;
+    state.discogs_result_pages=search_page?search_page->pages:0;
+    state.discogs_result_first_path=search_page?request.result_first_path:std::string{};
+    state.discogs_result_identity=search_page?request.plan_identity:std::string{};
+    state.discogs_result_strategy=search_page?request.strategy:std::string{};
+    state.discogs_result_attempt_index=request.attempt_index;
+    state.discogs_result_attempt_total=request.total;
     state.discogs_direct_edition=std::move(direct_edition);
     state.discogs_search_was_cue=request.cue_mode;
     state.candidate_source_index=request.source_index;
@@ -2751,7 +2848,8 @@ void publish_discogs_search(HWND dialog, PreviewState& state,
     state.search_plan_identity=request.plan_identity;
     state.search_attempt_index=request.attempt_index;
     const bool broaden_empty=!request.release_id && !request.master_id &&
-        state.discogs_results.empty() && request.attempt_index+1<request.total;
+        request.result_page==1 && state.discogs_results.empty() &&
+        request.attempt_index+1<request.total;
     state.search_attempt_notice=request.master_id
         ? L"Discogs master "+std::to_wstring(request.master_id)+L", page "+
           std::to_wstring(state.discogs_master_page)+L"/"+
@@ -2763,12 +2861,17 @@ void publish_discogs_search(HWND dialog, PreviewState& state,
               ? L"Click Next master page for more (read-only)."
               : L"Last supported page. No tags written.")
         : L"Discogs query "+std::to_wstring(request.attempt_index+1)+L"/"+
-        std::to_wstring(request.total)+L" - "+from_utf8(request.strategy)+L": "+
+        std::to_wstring(request.total)+L" - "+from_utf8(request.strategy)+
+        L" (page "+std::to_wstring(state.discogs_result_page)+L"/"+
+        std::to_wstring(state.discogs_result_pages)+L"): "+
         std::to_wstring(state.discogs_results.size())+L" result(s). "+
         (broaden_empty
             ? L"No hits; trying the next bounded official query automatically."
             : state.discogs_results.empty()
                 ? L"No release found. Paste an exact HTTPS Discogs release URL."
+                : state.discogs_result_page<state.discogs_result_pages &&
+                  state.discogs_result_page<max_search_result_page
+                    ? L"Next results page available; select only an exact edition."
                 : request.attempt_index+1<request.total
                     ? L"Select an exact release, or click Search to broaden."
                     : L"Select an exact release; Search restarts the plan.");
@@ -2967,6 +3070,7 @@ void publish_discogs_release(HWND dialog, PreviewState& state,
     state.candidate_rows=std::move(grouped.summary);
     state.musicbrainz_detail_groups=std::move(grouped.detail);
     state.musicbrainz_release_loaded=true;
+    update_live_provider_controls(state); // no paging after exact edition
     state.search_attempt_notice=L"Exact Discogs edition "+
         std::to_wstring(request.release_id)+
         L" loaded. Unverified track fields remain blocked. Read-only.";
@@ -3006,6 +3110,7 @@ void consume_discogs_network(HWND dialog, PreviewState& state) {
         state.search_attempt_notice=L"Discogs read-only lookup failed: "+
             from_utf8(error.what())+L" No changes were made.";
         update_metadata_table(state);
+        update_live_provider_controls(state); // restore gated paging on recoverable error
         SetDlgItemTextW(dialog,IDC_BATCH_HINT,state.search_attempt_notice.c_str());
     }
 }
@@ -3928,6 +4033,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             state->search_plan_identity.clear();
             if(state->discogs_provider_selected)
                 SetDlgItemTextW(dialog,IDC_METADATA_MB_SEARCH,L"Search Discogs");
+            update_live_provider_controls(*state);
             return TRUE;
         }
         if(id==IDC_METADATA_ONLINE_PROVIDER && HIWORD(wp)==CBN_SELCHANGE) {
@@ -3974,11 +4080,16 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             native_command == PreviewCommand::ManualValue ||
             (HIWORD(wp) == BN_CLICKED &&
              (id == IDC_METADATA_MB_SEARCH || id == IDC_METADATA_MB_LOAD_RELEASE ||
+              id == IDC_METADATA_DISCOGS_NEXT_PAGE ||
               id == IDC_METADATA_INSPECT_CUE || id == IDC_METADATA_IMPORT_CANDIDATE ||
               id == IDC_BATCH_APPLY_SELECTED || id == IDC_BATCH_APPLY_ALL));
         if (consequential) {
             revalidate_workspace(*state, true);
             if (state->stale) return TRUE;
+        }
+        if(id==IDC_METADATA_DISCOGS_NEXT_PAGE && HIWORD(wp)==BN_CLICKED) {
+            perform_discogs_next_page(dialog,*state);
+            return TRUE;
         }
         if (id == IDC_METADATA_MB_SEARCH && HIWORD(wp) == BN_CLICKED) {
             if(state->musicbrainz_request || state->discogs_request)

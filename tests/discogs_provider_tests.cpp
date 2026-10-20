@@ -51,6 +51,58 @@ int main() {
             "CRLF artist rejected");
     rejects([]{(void)artist_search_path(std::string(151,'x'));},
             "oversized artist rejected");
+    // Vertical paged candidate discovery: a user-initiated next page
+    // cannot change filters or silently turn a search hit into an edition.
+    const auto first=track_search_path("Via Balearia","Estiva");
+    const auto second=search_result_page_path(first,2);
+    check(second=="/database/search?track=Via%20Balearia&type=release&artist=Estiva&page=2&per_page=20" &&
+          allowed_readonly_path(second) &&
+          search_result_page_path(first,1)==first &&
+          allowed_readonly_path(search_result_page_path(
+              artist_search_path("Estiva"),3)),
+          "next page preserves exact canonical filters and artist fallback");
+    rejects([]{(void)search_result_page_path(
+                "/database/search?track=X&type=release&token=x&page=1&per_page=20",2);},
+            "pagination cannot launder unauthorized query keys");
+    rejects([]{(void)search_result_page_path(
+                "/database/search?q=X&type=master&page=2&per_page=20",3);},
+            "pagination input must be the canonical first page");
+    rejects([&]{(void)search_result_page_path(first,0);},
+            "zero page is not a request");
+    rejects([&]{(void)search_result_page_path(first,100001);},
+            "unbounded bulk pagination is forbidden");
+    check(!allowed_readonly_path(
+              "/database/search?track=X&type=release&page=02&per_page=20") &&
+          !allowed_readonly_path(
+              "/database/search?track=X&type=release&page=100001&per_page=20") &&
+          !allowed_readonly_path(
+              "/database/search?track=X&type=release&page=2&per_page=100") &&
+          !allowed_readonly_path(
+              "/database/search?track=X&type=release&token=t&page=2&per_page=20"),
+          "only a bounded canonical integer page may cross native WinHTTP");
+    const auto response=std::string(R"DJ({
+        "pagination":{"page":2,"per_page":20,"pages":4},
+        "results":[{"type":"release","id":38012673,
+                    "title":"Estiva - Via Balearia"}]
+    })DJ");
+    const auto page2=parse_search_result_page(response,2);
+    check(page2.page==2 && page2.pages==4 &&
+          page2.results.hits.size()==1 &&
+          page2.results.hits[0].id==38012673,
+          "exact release identities on page 2 retain the official API source");
+    rejects([&]{(void)parse_search_result_page(response,3);},
+            "stale or foreign page number never publishes results");
+    rejects([]{(void)parse_search_result_page(
+                R"({"results":[{"id":1,"title":"X","type":"release"}]})",1);},
+            "missing official pagination cannot fabricate next-page navigation");
+    rejects([]{(void)parse_search_result_page(
+                R"({"pagination":{"page":1,"per_page":100,"pages":3},
+                    "results":[]})",1);},
+            "unexpected page size fails closed");
+    check(parse_search_result_page(
+              R"({"pagination":{"page":1,"per_page":20,"pages":0},"results":[]})",1)
+                  .pages==1,
+          "genuinely empty official search may have zero reported pages");
     const auto master_request=master_search_path("1000 Years");
     check(master_request==
               "/database/search?q=1000%20Years&type=master&page=1&per_page=20" &&

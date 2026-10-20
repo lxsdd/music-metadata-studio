@@ -413,6 +413,29 @@ for token in ("artist_search_path(", "if(!artist.empty())",
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: Discogs artist-only guard missing: "+token)
 if "local_catalog_number.empty() && local_artist.empty()" not in batch_table_dialog:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: artist-only native search still blocked")
+# Paginated search must be a separate opt-in native command with its
+# own source/rules/CUE guards, strictly canonical page path and UI lifetime.
+for token in ("perform_discogs_next_page(", "search_result_page_path(",
+              "parse_search_result_page(reply,request.result_page)",
+              "state.discogs_result_page<state.discogs_result_pages",
+              "request.cue_before=raw.raw_text;",
+              "request.result_first_path=state.discogs_result_first_path;",
+              "IDC_METADATA_DISCOGS_NEXT_PAGE",
+              "state.search_plan_identity==state.discogs_result_identity"):
+    if token not in batch_table_dialog:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: native Discogs pagination gate missing: "+token)
+discogs_provider=(root / "include" / "djmeta" / "discogs_provider.h").read_text(encoding="utf-8")
+for token in ("max_search_result_page=100000",
+              "allowed_readonly_path(first);",
+              "parse_search_result_page(", "object_id(*per_page)!=20",
+              "search_result_page_path("):
+    if token not in discogs_provider:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: unsafe provider paging: "+token)
+if "IDC_METADATA_DISCOGS_NEXT_PAGE" not in resources:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: no native Discogs paging control")
+if 'PUSHBUTTON      "Next results page", IDC_METADATA_DISCOGS_NEXT_PAGE' not in (
+        foobar / "component.rc").read_text(encoding="utf-8"):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing real Windows pager button")
 # Verify the WinHTTP worker respects Discogs pacing between automatic
 # zero-hit fallback stages; the former immediate exception broke the workflow.
 discogs_http=(foobar / "discogs_http.cpp").read_text(encoding="utf-8")
