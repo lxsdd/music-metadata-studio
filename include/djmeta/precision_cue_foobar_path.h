@@ -10,8 +10,11 @@ namespace djmeta {
 inline std::optional<std::string> precision_cue_foobar_local_windows_mp3_path(
     std::string_view uri) {
     constexpr std::string_view prefix = "file://";
-    if (!uri.starts_with(prefix)) return std::nullopt;
-    uri.remove_prefix(prefix.size());
+    // foobar2000's real /context_command can supply a drive-absolute
+    // filesystem path instead of its usual file:// URI. Accept ONLY those
+    // two equivalent local forms. All later segment/filename checks and the
+    // independent canonical/physical-file identity gates remain mandatory.
+    if (uri.starts_with(prefix)) uri.remove_prefix(prefix.size());
     const auto drive = [](char c) {
         return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
     };
