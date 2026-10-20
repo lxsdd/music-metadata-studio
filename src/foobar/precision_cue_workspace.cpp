@@ -28,8 +28,11 @@
 #include "djmeta/precision_cue_embedded_inventory.h"
 #include "djmeta/precision_cue_embedded_crosscheck.h"
 #include "djmeta/precision_cue_id3_file_preview.h"
+#include "djmeta/precision_cue_window_geometry.h"
 #include "metadata_adapter.h"
+#include <SDK/cfg_var.h>
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -49,6 +52,11 @@ namespace {
 
 constexpr UINT_PTR kPollTimer = 9001;
 HWND g_precision_workspace = nullptr; // Only accessed from foobar's UI thread.
+
+constexpr GUID kPrecisionCueGeometryGuid =
+    {0x7a3e9730, 0xc206, 0x4e9d, {0xb4, 0x23, 0x9d, 0x82, 0xfa, 0xf5, 0x01, 0x7e}};
+cfg_string g_precision_cue_geometry(kPrecisionCueGeometryGuid, "");
+
 
 
 struct LocalFile {
@@ -116,6 +124,17 @@ void require_lookup_slot() {
 }
 
 struct Workspace {
+    struct ControlAnchor {
+        int id = 0;
+        unsigned flags = 0;
+        RECT original{};
+    };
+    std::array<ControlAnchor, 12> anchors{};
+    int initial_client_width = 0;
+    int initial_client_height = 0;
+    int min_window_width = 0;
+    int min_window_height = 0;
+    bool restore_maximized = false;
     HWND dialog = nullptr;
     bool registered = false;
     std::vector<LocalFile> files;
@@ -132,6 +151,108 @@ struct Workspace {
     djmeta::PrecisionCueRequestRevision input_revision;
 };
 Workspace* g_pending_workspace = nullptr; // Only main thread, owned until WM_INITDIALOG.
+
+// Anchors use the original dialog-template pixel geometry, so resizing never
+// accumulates rounding drift. No SDK objects or media files are touched.
+constexpr unsigned kGrowWidth = 1, kGrowHeight = 2;
+constexpr unsigned kShiftX = 4, kShiftY = 8;
+
+void capture_precision_window_layout(Workspace& state) noexcept {
+    RECT client{}, outer{};
+    if (!GetClientRect(state.dialog, &client) ||
+        !GetWindowRect(state.dialog, &outer)) return;
+    state.initial_client_width = client.right - client.left;
+    state.initial_client_height = client.bottom - client.top;
+    state.min_window_width = outer.right - outer.left;
+    state.min_window_height = outer.bottom - outer.top;
+    const std::array<std::pair<int, unsigned>, 12> controls{{
+        {IDC_PRECISION_APPLE_LINK, kGrowWidth},
+        {IDC_PRECISION_SEARCH, kShiftX},
+        {IDC_PRECISION_ALBUM_RESULTS, kGrowWidth},
+        {IDC_PRECISION_LOOKUP, kShiftX},
+        {IDC_PRECISION_SOURCE_HINT, kGrowWidth},
+        {IDC_PRECISION_MP3_PICKER, kGrowWidth},
+        {IDC_PRECISION_ASSIGN_DISC, kShiftX},
+        {IDC_PRECISION_PREVIEW_TEXT, kGrowWidth | kGrowHeight},
+        {IDC_PRECISION_EDITION_CONFIRMED, kShiftY},
+        {IDC_PRECISION_COPY_CUE, kShiftX | kShiftY},
+        {IDC_PRECISION_SAVE_CUE, kShiftX | kShiftY},
+        {IDCANCEL, kShiftX | kShiftY}
+    }};
+    for (std::size_t i = 0; i < controls.size(); ++i) {
+        auto& item = state.anchors[i];
+        item.id = controls[i].first;
+        item.flags = controls[i].second;
+        const HWND child = GetDlgItem(state.dialog, item.id);
+        if (!child) continue;
+        RECT rect{};
+        if (!GetWindowRect(child, &rect)) continue;
+        MapWindowPoints(HWND_DESKTOP, state.dialog,
+            reinterpret_cast<POINT*>(&rect), 2);
+        item.original = rect;
+    }
+}
+
+void resize_precision_window_controls(Workspace& state) noexcept {
+    if (state.initial_client_width <= 0 || state.initial_client_height <= 0)
+        return;
+    RECT client{};
+    if (!GetClientRect(state.dialog, &client)) return;
+    const int dx = client.right - client.left - state.initial_client_width;
+    const int dy = client.bottom - client.top - state.initial_client_height;
+    for (const auto& item : state.anchors) {
+        const HWND child = GetDlgItem(state.dialog, item.id);
+        if (!child || item.original.right <= item.original.left ||
+            item.original.bottom <= item.original.top) continue;
+        const int x = item.original.left + ((item.flags & kShiftX) ? dx : 0);
+        const int y = item.original.top + ((item.flags & kShiftY) ? dy : 0);
+        const int width = item.original.right - item.original.left +
+            ((item.flags & kGrowWidth) ? dx : 0);
+        const int height = item.original.bottom - item.original.top +
+            ((item.flags & kGrowHeight) ? dy : 0);
+        if (width > 0 && height > 0)
+            SetWindowPos(child, nullptr, x, y, width, height,
+                SWP_NOACTIVATE | SWP_NOZORDER);
+    }
+}
+
+void restore_precision_window_geometry(Workspace& state) noexcept {
+    djmeta::PrecisionCueWindowGeometry saved;
+    const auto current = g_precision_cue_geometry.get();
+    if (!djmeta::parse_precision_cue_window_geometry(current.c_str(), saved))
+        return;
+    const RECT desired{saved.x, saved.y, saved.x + saved.width,
+                       saved.y + saved.height};
+    const HMONITOR monitor = MonitorFromRect(&desired, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO info{sizeof(info)};
+    if (!monitor || !GetMonitorInfoW(monitor, &info)) return;
+    const djmeta::PrecisionCueWorkArea work{
+        info.rcWork.left, info.rcWork.top, info.rcWork.right, info.rcWork.bottom
+    };
+    if (!djmeta::fit_precision_cue_window_to_work_area(saved, work,
+            state.min_window_width, state.min_window_height)) return;
+    if (SetWindowPos(state.dialog, nullptr, saved.x, saved.y,
+            saved.width, saved.height, SWP_NOACTIVATE | SWP_NOZORDER))
+        state.restore_maximized = saved.maximized;
+}
+
+void save_precision_window_geometry(Workspace& state) noexcept {
+    WINDOWPLACEMENT placement{sizeof(placement)};
+    if (!GetWindowPlacement(state.dialog, &placement)) return;
+    const auto& rect = placement.rcNormalPosition; // never save minimized size
+    const djmeta::PrecisionCueWindowGeometry saved{
+        rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
+        placement.showCmd == SW_SHOWMAXIMIZED ||
+        (placement.showCmd == SW_SHOWMINIMIZED &&
+         (placement.flags & WPF_RESTORETOMAXIMIZED) != 0)
+    };
+    djmeta::PrecisionCueWindowGeometry checked;
+    const auto encoded = djmeta::encode_precision_cue_window_geometry(saved);
+    if (!djmeta::parse_precision_cue_window_geometry(encoded, checked)) return;
+    try { g_precision_cue_geometry.set(encoded.c_str()); }
+    catch (...) {} // Shutdown never fails because window settings could not persist.
+}
+
 
 std::wstring from_utf8(std::string_view value) {
     if (value.empty()) return {};
@@ -1005,6 +1126,8 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
         modeless_dialog_manager::g_add(dialog);
         state->registered = true;
         g_precision_workspace = dialog;
+        capture_precision_window_layout(*state);
+        restore_precision_window_geometry(*state);
         reset_disc_controls(*state);
         show_text(dialog, L"Paste an Apple Music or Deezer album URL, or enter artist and album terms and Search albums.\r\n"
                           L"Select the exact candidate before Look up selected. All local files are read only.");
@@ -1012,6 +1135,18 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
     }
     auto* state = reinterpret_cast<Workspace*>(GetWindowLongPtrW(dialog, GWLP_USERDATA));
     if (!state) return FALSE;
+    if (message == WM_GETMINMAXINFO && state->min_window_width > 0) {
+        auto* const bounds = reinterpret_cast<MINMAXINFO*>(lp);
+        if (bounds) {
+            bounds->ptMinTrackSize.x = state->min_window_width;
+            bounds->ptMinTrackSize.y = state->min_window_height;
+        }
+        return TRUE;
+    }
+    if (message == WM_SIZE && wp != SIZE_MINIMIZED) {
+        resize_precision_window_controls(*state);
+        return TRUE;
+    }
     if (message == WM_TIMER && wp == kPollTimer) {
         if (state->job && state->job->ready.load(std::memory_order_acquire)) {
             KillTimer(dialog, kPollTimer);
@@ -1135,6 +1270,11 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
         }
     }
     if (message == WM_CLOSE) { DestroyWindow(dialog); return TRUE; }
+    if (message == WM_DESTROY) {
+        // Read normal/maximized placement before NCDESTROY invalidates the HWND.
+        save_precision_window_geometry(*state);
+        return TRUE;
+    }
     if (message == WM_NCDESTROY) {
         KillTimer(dialog, kPollTimer);
         if (state->registered) modeless_dialog_manager::g_remove(dialog);
@@ -1148,7 +1288,10 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
 
 void open_precision_workspace(metadb_handle_list_cref handles) {
     if (g_precision_workspace && IsWindow(g_precision_workspace)) {
-        ShowWindow(g_precision_workspace, SW_RESTORE);
+        if (IsIconic(g_precision_workspace))
+            ShowWindow(g_precision_workspace, SW_RESTORE);
+        else
+            ShowWindow(g_precision_workspace, SW_SHOW);
         SetForegroundWindow(g_precision_workspace);
         return;
     }
@@ -1172,7 +1315,7 @@ void open_precision_workspace(metadb_handle_list_cref handles) {
             }
             throw std::runtime_error("Failed to create Precision CUE native preview");
         }
-        ShowWindow(window, SW_SHOW);
+        ShowWindow(window, raw->restore_maximized ? SW_SHOWMAXIMIZED : SW_SHOW);
         UpdateWindow(window);
     } catch (const std::exception& error) {
         popup_message::g_show(error.what(), "Precision CUE Preview");

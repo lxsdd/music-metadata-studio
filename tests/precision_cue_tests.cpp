@@ -3,6 +3,7 @@
 #include "djmeta/precision_cue_physical_bounds.h"
 #include "djmeta/precision_cue_lookup_budget.h"
 #include "djmeta/precision_cue_http_status.h"
+#include "djmeta/precision_cue_window_geometry.h"
 
 // GitHub CI uses Release: keep test assertions enabled on every platform.
 #ifdef NDEBUG
@@ -394,8 +395,54 @@ void test_catalog_http_fail_closed_diagnostics() {
            "unexpected HTTP response"sv);
 }
 
+
+void test_precision_cue_window_geometry_persistence() {
+    using namespace djmeta;
+    PrecisionCueWindowGeometry original{-1400, 75, 1100, 780, true};
+    const auto text = encode_precision_cue_window_geometry(original);
+    assert(text == "v1|-1400|75|1100|780|1");
+    PrecisionCueWindowGeometry parsed;
+    assert(parse_precision_cue_window_geometry(text, parsed));
+    assert(parsed.x == original.x && parsed.y == original.y &&
+           parsed.width == original.width && parsed.height == original.height &&
+           parsed.maximized);
+    for (const auto bad : {
+        "", "v2|0|0|800|600|0", "v1|0|0|800|600",
+        "v1|0|0|800|600|0|extra", "v1|0|0|800|600|2",
+        "v1|0|0|800|600|a", "v1|0|0|999999|600|0",
+        "v1|0|0|-1|600|0", "v1|0|0|800|0|0",
+        "v1|0x4|0|800|600|0", "v1|1 |0|800|600|0",
+        "v1|100001|0|800|600|0", "v1|0|0|800|600|1\n"
+    }) {
+        assert(!parse_precision_cue_window_geometry(bad, parsed));
+    }
+    // A former monitor was unplugged: recover to primary visible work area.
+    original = {-1990, 80, 1100, 780, false};
+    assert(fit_precision_cue_window_to_work_area(original,
+        {0, 0, 1920, 1040}, 800, 660));
+    assert(original.x == 0 && original.y == 80 &&
+           original.width == 1100 && original.height == 780);
+    // Still-present second monitor: preserve negative desktop coordinates.
+    original = {-1500, 70, 1100, 780, true};
+    assert(fit_precision_cue_window_to_work_area(original,
+        {-1920, 0, 0, 1040}, 800, 660));
+    assert(original.x == -1500 && original.maximized);
+    // Clamp oversized windows and a hidden titlebar to visible desktop.
+    original = {1000, -1000, 9000, 9000, false};
+    assert(fit_precision_cue_window_to_work_area(original,
+        {0, 30, 1280, 760}, 800, 660));
+    assert(original.x == 0 && original.y == 30 &&
+           original.width == 1280 && original.height == 730);
+    // Empty/invalid work areas never install stale or corrupt geometry.
+    assert(!fit_precision_cue_window_to_work_area(original,
+        {0, 0, 0, 900}, 800, 660));
+    assert(!fit_precision_cue_window_to_work_area(original,
+        {0, 0, 1280, -2}, 800, 660));
+}
+
 int main() {
     test_integer_cumulative_rounding();
+    test_precision_cue_window_geometry_persistence();
     test_physical_cue_index_bounds_and_create_gate();
     test_long_indices_and_unicode();
     test_frame_classification();
