@@ -329,7 +329,7 @@ std::vector<LocalFile> capture_files(metadb_handle_list_cref handles) {
                 ? selected.substr(selected.size() - 4) : std::string_view{};
             const bool mp3 = suffix == ".mp3" || suffix == ".MP3";
             const bool wav = suffix == ".wav" || suffix == ".WAV";
-            const bool file_uri = selected.starts_with("file://");
+            const auto path_form = djmeta::precision_cue_foobar_path_form(selected);
             // Diagnostic categories are deliberately path-free. In a real
             // foobar /context_command run, a failed selection must be
             // distinguishable from a malformed synthetic fixture without
@@ -353,7 +353,7 @@ std::vector<LocalFile> capture_files(metadb_handle_list_cref handles) {
                 std::string("Precision CUE requires a physical local drive MP3 path. "
                             "Host selection: ") +
                 (mp3 ? "MP3" : wav ? "WAV" : "other format") +
-                (file_uri ? " (file URI" : " (non-file URI") +
+                " (path form=" + std::string(path_form) +
                 (drive_absolute ? ", absolute drive" : ", no absolute drive") +
                 (safe_basename ? ", safe basename" : ", invalid basename") +
                 (percent_escape ? ", percent escape" : ", no percent escape") +

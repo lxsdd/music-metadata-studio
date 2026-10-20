@@ -1,4 +1,5 @@
 #include "djmeta/precision_cue.h"
+#include "djmeta/precision_cue_foobar_path.h"
 #include "djmeta/precision_cue_boundary_audit.h"
 #include "djmeta/precision_cue_physical_bounds.h"
 #include "djmeta/precision_cue_lookup_budget.h"
@@ -354,6 +355,37 @@ void test_eight_disc_99_track_plan() {
     must_reject([&] { (void)djmeta::make_precision_cue(disc); });
 }
 
+
+void test_foobar_physical_mp3_path_admission() {
+    using djmeta::precision_cue_foobar_local_windows_mp3_path;
+    using djmeta::precision_cue_foobar_path_form;
+    const std::string local = "D:\\\\Music\\\\Synthetic.mp3";
+    assert(precision_cue_foobar_local_windows_mp3_path(local) == local);
+    assert(precision_cue_foobar_local_windows_mp3_path(
+        "file://D:\\\\Music\\\\Synthetic.mp3") == local);
+    assert(precision_cue_foobar_local_windows_mp3_path(
+        "FILE://D:\\\\Music\\\\Synthetic.mp3") == local);
+    assert(precision_cue_foobar_local_windows_mp3_path(
+        "file:///D:/Music/Synthetic.mp3") == local);
+    assert(precision_cue_foobar_path_form("FILE://D:/Music/Synthetic.mp3") ==
+           "file-uri");
+    assert(precision_cue_foobar_path_form("D:/Music/Synthetic.mp3") ==
+           "drive-absolute");
+    assert(precision_cue_foobar_path_form("synthetic.mp3") ==
+           "relative-or-unknown");
+    assert(precision_cue_foobar_path_form("\\\\\\\\?\\\\D:\\\\Music\\\\Synthetic.mp3") ==
+           "extended-device-path");
+    for (const auto bad : {
+        "Synthetic.mp3", "/Music/Synthetic.mp3",
+        "file://server/share/Synthetic.mp3", "https://example/Synthetic.mp3",
+        "file:/D:/Music/Synthetic.mp3",
+        "D:/Music/../Synthetic.mp3", "D:/Music/./Synthetic.mp3",
+        "D:/Music/CON.mp3", "D:/Music/bad?.mp3",
+        "D:/Music/Synthetic.mp3/", "D:/Music//Synthetic.mp3",
+        "\\\\\\\\server\\\\share\\\\Synthetic.mp3"
+    }) assert(!precision_cue_foobar_local_windows_mp3_path(bad));
+}
+
 } // namespace
 
 void test_bounded_catalog_lookup_admission() {
@@ -441,6 +473,7 @@ void test_precision_cue_window_geometry_persistence() {
 }
 
 int main() {
+    test_foobar_physical_mp3_path_admission();
     test_integer_cumulative_rounding();
     test_precision_cue_window_geometry_persistence();
     test_physical_cue_index_bounds_and_create_gate();
