@@ -29,6 +29,34 @@ int main() {
            PrecisionCueConsensusState::SingleHighResolutionSource);
     assert(audit_precision_cue_source_consensus({apple, mb}).state ==
            PrecisionCueConsensusState::Agreed);
+    // Both trusted release inputs must start at disc 1, track 1. Reject a
+    // shifted first disc even when both providers share the same bad data.
+    auto missing_first_disc = apple;
+    for (auto& track : missing_first_disc.release.tracks)
+        track.disc_number = 2;
+    assert(audit_precision_cue_source_consensus({missing_first_disc}).state ==
+           PrecisionCueConsensusState::Rejected);
+    assert(audit_precision_cue_source_consensus({missing_first_disc, mb}).state ==
+           PrecisionCueConsensusState::Rejected);
+    auto missing_first_track = apple;
+    missing_first_track.release.tracks[0].track_number = 2;
+    assert(audit_precision_cue_source_consensus({missing_first_track}).state ==
+           PrecisionCueConsensusState::Rejected);
+
+    // Conflict in two known publication dates is evidence of another
+    // edition even if titles, positions and 75-fps boundaries coincide.
+    apple.release.release_date = "2026-10-16";
+    mb.release.release_date = "2026-10-16";
+    assert(audit_precision_cue_source_consensus({apple, mb}).state ==
+           PrecisionCueConsensusState::Agreed);
+    mb.release.release_date = "2026-10-15";
+    const auto date_conflict = audit_precision_cue_source_consensus({apple, mb});
+    assert(date_conflict.state == PrecisionCueConsensusState::Rejected);
+    assert(date_conflict.diagnostics[0] == "DUPLICATE_OR_DIFFERENT_RELEASE_EDITION");
+    mb.release.release_date.clear(); // Unknown never invents another date.
+    assert(audit_precision_cue_source_consensus({apple, mb}).state ==
+           PrecisionCueConsensusState::Agreed);
+    apple.release.release_date.clear();
     // Two Apple collection IDs are not two independent timing providers.
     auto other_apple = source("APPLE", 1);
     other_apple.release.provider_release_id = "alternate-collection";

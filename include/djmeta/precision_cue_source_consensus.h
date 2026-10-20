@@ -58,7 +58,9 @@ inline std::string normalized(std::string_view input) {
 inline bool valid_release_structure(const PrecisionCueRelease& r) {
     if (r.provider.empty() || r.provider_release_id.empty() ||
         r.album_title.empty() || r.album_performer.empty() ||
-        r.tracks.empty() || r.tracks.size() > 8u * 99u) return false;
+        r.tracks.empty() || r.tracks.size() > 8u * 99u ||
+        r.tracks.front().disc_number != 1 ||
+        r.tracks.front().track_number != 1) return false;
     unsigned current_disc = 1;
     unsigned current_track = 0;
     std::int64_t cumulative_disc_ms = 0;
@@ -85,7 +87,11 @@ inline bool valid_release_structure(const PrecisionCueRelease& r) {
 inline bool same_edition(const PrecisionCueRelease& a, const PrecisionCueRelease& b) {
     if (normalized(a.album_title) != normalized(b.album_title) ||
         normalized(a.album_performer) != normalized(b.album_performer) ||
-        a.tracks.size() != b.tracks.size()) return false;
+        a.tracks.size() != b.tracks.size() ||
+        // Two conflicting known release dates cannot independently confirm
+        // the same edition. Unknown dates do not fabricate a mismatch.
+        (!a.release_date.empty() && !b.release_date.empty() &&
+         a.release_date != b.release_date)) return false;
     for (std::size_t i = 0; i < a.tracks.size(); ++i) {
         const auto& x = a.tracks[i];
         const auto& y = b.tracks[i];
