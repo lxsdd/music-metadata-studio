@@ -56,6 +56,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: microsoft/setup-msbuild@v2
+      - name: Verify local private acceptance build prerequisites without downloading
+        shell: pwsh
+        run: ./scripts/local-acceptance-build.ps1 -PreflightOnly
       - name: Build foobar preview component
         shell: pwsh
         run: ./scripts/build-foobar.ps1 -Platform '${{ matrix.platform }}' -Configuration Release -PlatformToolset v143
