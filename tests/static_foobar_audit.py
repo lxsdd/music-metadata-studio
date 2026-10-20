@@ -711,3 +711,31 @@ for token in ['IDC_METADATA_ACCEPT', 'IDC_METADATA_REJECT',
     if token not in resources or token not in batch_table_dialog or token not in gui_test:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: native review action not wired: " + token)
 print("PASS: foobar preview is analysis-only; no tag/file write path is present")
+
+# Four live-provider publication chains must recheck physical file identity
+# as well as foobar's cached tags. No source-wide scan per remote response,
+# and no stale warning may be overwritten by post-network UI refresh.
+for token in (
+    "void verify_online_source_snapshot(PreviewState& state, const PreviewEntry& entry)",
+    "if (!entry.observed_source_guard.empty() ||",
+    "latest.host_physical_key != entry.observed_physical_key",
+    "latest.source_guard != entry.observed_source_guard",
+    "mark_stale_workspace(state);",
+    "if(state.stale) return; // Preserve disabled controls and stale warning.",
+    "if(state.stale) return; // Never re-enable actions after file replacement.",
+):
+    if token not in batch_rules_guard:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing online file snapshot gate: " + token)
+
+for function in (
+    "publish_discogs_search", "publish_discogs_release",
+    "publish_musicbrainz_search", "publish_musicbrainz_release",
+):
+    marker = "void " + function + "("
+    if marker not in batch_rules_guard:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: no online publisher " + function)
+    section = batch_rules_guard.rsplit(marker, 1)[1].split("\nvoid ", 1)[0]
+    if section.count("verify_online_source_snapshot(state, entry);") != 2:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: incomplete disk recheck " + function)
+    if "verify_snapshot(entry);" in section:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: metadb-only provider publish " + function)

@@ -2312,6 +2312,32 @@ void mark_stale_workspace(PreviewState& state) {
         L"Refresh snapshot to discard old decisions; no files were changed.");
 }
 
+// Verify the physical source on the UI thread before publishing asynchronous
+// provider results. A cached foobar metadb fingerprint alone cannot detect
+// replacement on disk. Only the selected track is probed: no batch-wide scan.
+void verify_online_source_snapshot(PreviewState& state, const PreviewEntry& entry) {
+    try {
+        verify_snapshot(entry);
+        if (!entry.observed_source_guard.empty() ||
+            entry.input.physical_source_qualified) {
+            if (entry.observed_source_guard.empty() ||
+                entry.observed_physical_key.empty())
+                throw std::runtime_error("Online source lacks a physical identity guard.");
+            const auto latest = probe_host_file_readonly(entry.input.source_path);
+            if (latest.state != HostFileState::ExistingFile ||
+                latest.host_physical_key != entry.observed_physical_key ||
+                latest.source_guard != entry.observed_source_guard)
+                throw std::runtime_error(
+                    "Physical source changed during the online lookup. Refresh snapshot.");
+        }
+        // External/embedded CUE has an independent original raw-text check
+        // in each search/release publication path, including virtual subsongs.
+    } catch (...) {
+        mark_stale_workspace(state);
+        throw;
+    }
+}
+
 void revalidate_workspace(PreviewState& state, bool full_source_check = false) {
     if (state.stale || state.checking_snapshot || state.refreshing) return;
     state.checking_snapshot = true;
@@ -2789,7 +2815,7 @@ void publish_discogs_search(HWND dialog, PreviewState& state,
        request.source_index>=state.entries.size())
         throw std::runtime_error("Discogs result discarded: the selected source changed.");
     const auto& entry=state.entries[request.source_index];
-    verify_snapshot(entry);
+    verify_online_source_snapshot(state, entry);
     verify_rules_snapshot(state.captured_rules);
     if(request.cue_mode && read_cue_raw_on_demand(
         entry.handle,entry.input.source_path).raw_text!=request.cue_before)
@@ -2822,7 +2848,7 @@ void publish_discogs_search(HWND dialog, PreviewState& state,
     }
     // The final host recheck is on the UI thread immediately before display;
     // a remote response never becomes tag-write authorization.
-    verify_snapshot(entry);
+    verify_online_source_snapshot(state, entry);
     verify_rules_snapshot(state.captured_rules);
     auto browse=discogs_search_rows(result,request.originals);
     state.candidate_rows=std::move(browse.summary);
@@ -3038,7 +3064,7 @@ void publish_discogs_release(HWND dialog, PreviewState& state,
         throw std::runtime_error(
             "Discogs release selection changed during lookup.");
     const auto& entry=state.entries[request.source_index];
-    verify_snapshot(entry);
+    verify_online_source_snapshot(state, entry);
     verify_rules_snapshot(state.captured_rules);
     std::optional<djmeta::CueMetadataInventory> cue;
     djmeta::MetadataDocument originals;
@@ -3068,7 +3094,7 @@ void publish_discogs_release(HWND dialog, PreviewState& state,
         djmeta::online::review_discogs_physical_edition(
             originals,edition,physical_duration_ms);
     auto grouped=group_musicbrainz_release_rows(flat);
-    verify_snapshot(entry);
+    verify_online_source_snapshot(state, entry);
     verify_rules_snapshot(state.captured_rules);
     state.candidate_rows=std::move(grouped.summary);
     state.musicbrainz_detail_groups=std::move(grouped.detail);
@@ -3110,6 +3136,7 @@ void consume_discogs_network(HWND dialog, PreviewState& state) {
                 djmeta::online::discogs::parse_release(
                     job->response,context->release_id));
     } catch(const std::exception& error) {
+        if(state.stale) return; // Preserve disabled controls and stale warning.
         state.search_attempt_notice=L"Discogs read-only lookup failed: "+
             from_utf8(error.what())+L" No changes were made.";
         update_metadata_table(state);
@@ -3145,7 +3172,7 @@ void publish_musicbrainz_search(
        request.source_index>=state.entries.size())
         throw std::runtime_error("MusicBrainz search result discarded after source change.");
     const auto& entry=state.entries[request.source_index];
-    verify_snapshot(entry);
+    verify_online_source_snapshot(state, entry);
     verify_rules_snapshot(state.captured_rules);
     if(request.cue_mode && read_cue_raw_on_demand(
         entry.handle,entry.input.source_path).raw_text!=request.cue_before)
@@ -3154,7 +3181,7 @@ void publish_musicbrainz_search(
         reply,request.kind);
     auto rows=musicbrainz_search_rows(
         result,request.local_title,request.local_artist,request.originals);
-    verify_snapshot(entry);
+    verify_online_source_snapshot(state, entry);
     verify_rules_snapshot(state.captured_rules);
     state.candidate_rows=std::move(rows.summary);
     state.musicbrainz_detail_groups=std::move(rows.detail);
@@ -3220,7 +3247,7 @@ void publish_musicbrainz_release(
                .candidate.source_id!=request.release_mbid)
         throw std::runtime_error("MusicBrainz release selection changed during lookup.");
     const auto& entry=state.entries[request.source_index];
-    verify_snapshot(entry);
+    verify_online_source_snapshot(state, entry);
     verify_rules_snapshot(state.captured_rules);
     const auto raw=read_cue_raw_on_demand(entry.handle,entry.input.source_path);
     if(raw.raw_text!=request.cue_before)
@@ -3232,7 +3259,7 @@ void publish_musicbrainz_release(
         reply,request.release_mbid);
     auto grouped=group_musicbrainz_release_rows(
         musicbrainz_cue_release_rows(cue,release));
-    verify_snapshot(entry);
+    verify_online_source_snapshot(state, entry);
     verify_rules_snapshot(state.captured_rules);
     state.candidate_rows=std::move(grouped.summary);
     state.musicbrainz_detail_groups=std::move(grouped.detail);
@@ -3266,6 +3293,7 @@ void consume_musicbrainz_network(HWND dialog, PreviewState& state) {
         else
             publish_musicbrainz_release(state,*request,job->response);
     } catch(const std::exception& error) {
+        if(state.stale) return; // Never re-enable actions after file replacement.
         state.search_attempt_notice=L"MusicBrainz read-only lookup failed: "+
             from_utf8(error.what())+L" No files were changed.";
         update_metadata_table(state);
