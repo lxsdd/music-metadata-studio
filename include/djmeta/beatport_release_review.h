@@ -160,22 +160,41 @@ inline std::vector<FieldReviewRow> review_beatport_user_edition_cue(
         throw std::invalid_argument("Beatport CUE carrier is not fully parsed");
     ReleaseAlignment alignment;
     if (local.eligible) alignment = align_release(local.tracks, edition);
-    std::vector<FieldReviewRow> rows;
-    for (const auto& field : edition.fields) {
-        const auto compared = review_cue_candidate_fields(
-            cue, std::nullopt, {field});
-        for (const auto& item : compared) {
-            FieldReviewRow row;
-            row.field = "Album / " + (item.cue_field.empty()
-                ? item.candidate.field : item.cue_field);
-            row.original_values = item.original_values;
-            row.candidate = item.candidate;
-            row.state = local.eligible ? item.state : FieldReviewState::Blocked;
-            row.reason = local.eligible
-                ? "manual_beatport_cue_album_" + item.reason
-                : "manual_beatport_cue_unqualified_album_evidence_only";
-            rows.push_back(std::move(row));
+    // Reading a valid CUE is not proof that the pasted edition belongs to
+    // that album. Do not make album-global changes reviewable when any
+    // local track or release track is missing, uncertain or in conflict.
+    bool complete_edition_alignment = local.eligible &&
+        local.tracks.size() == edition.tracks.size() &&
+        alignment.tracks.size() == local.tracks.size();
+    std::vector<bool> matched_remote(edition.tracks.size(), false);
+    for (const auto& match : alignment.tracks) {
+        if (match.decision != MatchDecision::Suggested ||
+            !match.conflicts.empty() ||
+            match.edition_track_index >= edition.tracks.size() ||
+            matched_remote[match.edition_track_index]) {
+            complete_edition_alignment = false;
+        } else {
+            matched_remote[match.edition_track_index] = true;
         }
+    }
+    // Evaluate the whole edition field set at once: duplicate canonical
+    // aliases and conflicting dates must not bypass the CUE token guard.
+    std::vector<FieldReviewRow> rows;
+    const auto album_review = review_cue_candidate_fields(
+        cue, std::nullopt, edition.fields);
+    for (const auto& item : album_review) {
+        FieldReviewRow row;
+        row.field = "Album / " + (item.cue_field.empty()
+            ? item.candidate.field : item.cue_field);
+        row.original_values = item.original_values;
+        row.candidate = item.candidate;
+        row.state = complete_edition_alignment
+            ? item.state : FieldReviewState::Blocked;
+        row.reason = complete_edition_alignment
+            ? "manual_beatport_cue_album_" + item.reason
+            : "manual_beatport_cue_unverified_edition_album_evidence_only_"
+                + item.reason;
+        rows.push_back(std::move(row));
     }
     for (std::size_t i = 0; i < edition.tracks.size(); ++i) {
         const auto& track = edition.tracks[i];
@@ -221,23 +240,34 @@ inline std::vector<FieldReviewRow> review_beatport_user_edition_cue(
         if (diagnostic.candidate.values.empty())
             diagnostic.candidate.values = {"No verified CUE-to-edition track"};
         rows.push_back(std::move(diagnostic));
+        // One batch per remote recording: otherwise TITLE/title aliases,
+        // different DATE candidates or other duplicate CUE targets each
+        // appear independently eligible after a one-field-at-a-time check.
+        std::vector<FieldEvidence> recording_evidence;
+        for (const auto& field : track.fields)
+            if (field.scope == EvidenceScope::Recording)
+                recording_evidence.push_back(field);
+        std::vector<CueCandidateFieldReview> compared;
+        if (suggested || weak)
+            compared = review_cue_candidate_fields(
+                cue, link->source_index, recording_evidence);
+        std::size_t recording_index = 0;
         for (const auto& field : track.fields) {
             FieldReviewRow row;
             row.field = prefix + field.field;
             row.candidate = field;
             row.reason = "manual_beatport_cue_track_not_qualified";
-            if ((suggested || weak) &&
-                field.scope == EvidenceScope::Recording) {
-                const auto compared = review_cue_candidate_fields(
-                    cue, link->source_index, {field});
-                if (!compared.empty()) {
-                    row.original_values = compared.front().original_values;
-                    row.state = suggested ? compared.front().state
-                        : FieldReviewState::Blocked;
+            if (field.scope == EvidenceScope::Recording) {
+                if (suggested || weak) {
+                    const auto& checked = compared.at(recording_index);
+                    row.original_values = checked.original_values;
+                    row.state = suggested ? checked.state : FieldReviewState::Blocked;
                     row.reason = suggested
-                        ? "manual_beatport_cue_track_" + compared.front().reason
-                        : "manual_beatport_cue_weak_alignment_evidence_only";
+                        ? "manual_beatport_cue_track_" + checked.reason
+                        : "manual_beatport_cue_weak_alignment_evidence_only_"
+                            + checked.reason;
                 }
+                ++recording_index;
             } else if (field.scope == EvidenceScope::Edition) {
                 row.reason = "manual_beatport_cue_edition_field_not_track_local";
             }

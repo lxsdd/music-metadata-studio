@@ -270,6 +270,55 @@ int main() {
               std::vector<std::string>{"Home EP"} &&
           match_seen && recording_seen,
           "CUE album and track evidence shown without fabricated virtual writes");
+    // End-to-end source-scope safety: a parsed local CUE is not evidence
+    // for an unrelated edition, even if the pasted release has a plausible
+    // album name. All album changes require complete one-to-one tracks.
+    auto unrelated=edition;
+    for(auto& track:unrelated.tracks) {
+        track.recording.title="Different recording";
+        track.recording.primary_artist="Another Artist";
+    }
+    const auto unrelated_review=review_beatport_user_edition_cue(cue,unrelated);
+    const auto* unrelated_album=find(unrelated_review,"Album / TITLE");
+    check(unrelated_album &&
+          unrelated_album->state==FieldReviewState::Blocked &&
+          unrelated_album->reason.find("unverified_edition")!=std::string::npos,
+          "unrelated pasted edition cannot propose CUE global ALBUM edit");
+
+    // Full-set duplicate detection: two remote fields that resolve to the
+    // same CUE token must BOTH block. Never independently compare them.
+    auto duplicated_album=edition;
+    duplicated_album.fields.push_back(duplicated_album.fields.front());
+    const auto album_collision=review_beatport_user_edition_cue(
+        cue,duplicated_album);
+    std::size_t blocked_titles=0;
+    for(const auto& row:album_collision)
+        if(row.field=="Album / TITLE" &&
+           row.state==FieldReviewState::Blocked &&
+           row.reason.find("cue_duplicate_provider_field_evidence")!=
+                std::string::npos)
+            ++blocked_titles;
+    check(blocked_titles==2,
+          "duplicate pasted album fields never compete for one CUE global");
+
+    auto duplicated_track=edition;
+    duplicated_track.tracks[0].fields.push_back(
+        duplicated_track.tracks[0].fields.front());
+    const auto track_collision=review_beatport_user_edition_cue(
+        cue,duplicated_track);
+    std::size_t track_fields=0,blocked_track_titles=0;
+    for(const auto& row:track_collision)
+        if(row.field=="CUE Track 1 / TITLE" ||
+           row.field=="Edition Track 1 / TITLE") {
+            ++track_fields;
+            if(row.state==FieldReviewState::Blocked &&
+               row.reason.find("cue_duplicate_provider_field_evidence")!=
+                   std::string::npos)
+                ++blocked_track_titles;
+        }
+    check(track_fields==2 && blocked_track_titles==2,
+          "duplicate pasted recording fields cannot bypass CUE target collision gate");
+
     rejects([&]{(void)parse_beatport_user_release_clipboard(
         bundle.substr(0,bundle.find("\n@beatport-tracks-json")));},
         "release detail alone is not a full tracklist");

@@ -38,6 +38,14 @@ int main() {
            row.state!=FieldReviewState::Unchanged) return 2;
     }
     if(repeated!=2 || originals<6 || !has_file || !has_track) return 3;
+    // Repeated existing global GENRE must not be flattened or replaced
+    // solely because a provider suggested a new release genre.
+    for(const auto& row:rows)
+        if(row.field=="Album / REM GENRE" &&
+           (row.state!=FieldReviewState::Blocked ||
+            row.original_values!=std::vector<std::string>{"House","Trance"}))
+            return 6;
+
     const auto incomplete=djmeta::inspect_cue_metadata(
         "TITLE \"Home EP\"\nREM CUSTOM Keep\n"
         "FILE \"source.flac\" WAVE\nTRACK 01 AUDIO\n"

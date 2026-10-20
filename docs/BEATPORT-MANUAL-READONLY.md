@@ -89,3 +89,17 @@ physical/CUE writes, artwork changes, File Operations or external requests.
 Live Beatport API discovery is still **disabled** without a verified lawful
 provider credential route. Exact-head CI and actual foobar host validation
 remain separate from parser correctness.
+
+## Full-edition CUE consistency and duplicate evidence (20 October 2026)
+
+The native user's pasted complete Beatport release now passes **all album
+candidate fields together** through the CUE mapping check and **all recording
+fields per associated release track together**. Duplicate or aliased CUE
+targets cannot bypass duplicate detection by arriving in separate source
+fields. Parsed CUE syntax by itself is **not** evidence that the remote edition
+is a match. Album-global candidate rows stay blocked unless every local CUE
+track and every remote edition track has a unique, conflict-free suggested
+one-to-one association. Weak/missing/mismatched mix assignments remain
+read-only evidence; other provider-only fields have no fabricated CUE target.
+The entire original CUE inventory (including repeated REM/FILE tokens)
+remains visible and no writer is invoked.
