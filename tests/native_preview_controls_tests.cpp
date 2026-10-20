@@ -1,6 +1,7 @@
 #include "../src/foobar/native_preview_controls.h"
 #include "../src/foobar/readonly_network_request.h"
 #include "../src/foobar/review_grid_controls.h"
+#include "../src/foobar/host_file_probe.h"
 #include "../src/foobar/legacy_routing_profiles.h"
 
 #include <commctrl.h>
@@ -91,6 +92,51 @@ bool centers_match(HWND dialog, int label_id, int control_id) {
 }
 
 int main() {
+    // Pure read-only target-state stability contract. No filesystem access
+    // or real user audio required by these negative tests.
+    using djmeta_foobar::HostFileObservation;
+    using djmeta_foobar::HostFileState;
+    using djmeta_foobar::stable_raw_target_observation;
+    HostFileObservation missing;
+    missing.state=HostFileState::Missing;
+    missing.canonical_path="file:///C:/sandbox/raw-missing.mp3";
+    check(stable_raw_target_observation(missing,missing),
+          "stable missing raw target remains an advisory missing observation");
+    auto created=missing;
+    created.state=HostFileState::ExistingFile;
+    created.host_physical_key="os-file-123";
+    created.source_guard="os-file-123:time-v1";
+    check(!stable_raw_target_observation(missing,created),
+          "created formerly missing target invalidates preview before publication");
+    auto replaced=created;
+    replaced.host_physical_key="os-file-456";
+    check(!stable_raw_target_observation(created,replaced),
+          "physical target replacement invalidates advisory observation");
+    replaced=created;
+    replaced.source_guard="os-file-123:time-v2";
+    check(!stable_raw_target_observation(created,replaced),
+          "same target physical ID with new attributes invalidates observation");
+    replaced=created;
+    replaced.canonical_path="file:///C:/sandbox/other.mp3";
+    check(!stable_raw_target_observation(created,replaced),
+          "re-resolved raw candidate cannot silently change canonical path");
+    check(stable_raw_target_observation(created,created),
+          "identical existing physical target remains stable");
+    HostFileObservation unqualified;
+    unqualified.state=HostFileState::Unqualified;
+    unqualified.canonical_path="file:///C:/sandbox/unsupported.mp3";
+    unqualified.detail="Unsupported filesystem";
+    check(stable_raw_target_observation(unqualified,unqualified),
+          "unchanged unsupported filesystem stays advisory and unqualified");
+    auto changed_reason=unqualified;
+    changed_reason.detail="Permission changed";
+    check(!stable_raw_target_observation(unqualified,changed_reason),
+          "unqualified target reason change blocks mixed inspection");
+    HostFileObservation no_canonical=missing;
+    no_canonical.canonical_path.clear();
+    check(!stable_raw_target_observation(no_canonical,no_canonical),
+          "missing target without canonical host locator cannot be treated as stable");
+
     INITCOMMONCONTROLSEX controls{sizeof(controls),
                                   ICC_LISTVIEW_CLASSES | ICC_TAB_CLASSES | ICC_BAR_CLASSES};
     check(InitCommonControlsEx(&controls) != FALSE,

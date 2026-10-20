@@ -2189,6 +2189,7 @@ void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
 
     struct RawObservation {
         std::size_t index;
+        std::string raw_candidate;
         HostFileObservation observed;
     };
     std::vector<RawObservation> observations;
@@ -2218,7 +2219,8 @@ void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
         // sanitization or automatic source-extension handling.
         const std::string raw_candidate = entry.input.destination_root +
             "\\" + entry.input.raw_relative_path;
-        observations.push_back({index, probe_host_file_readonly(raw_candidate)});
+        observations.push_back({index, raw_candidate,
+            probe_host_file_readonly(raw_candidate)});
     }
     // All-or-nothing UI update: revalidate the entire captured metadata and
     // ruleset snapshot after the slowest selected filesystem observation.
@@ -2238,6 +2240,18 @@ void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
             current.source_guard != entry.observed_source_guard)
             throw std::runtime_error(
                 "Physical source changed during raw destination inspection. Reopen Prepare Tracks.");
+    }
+    // A previously missing destination might have been created while
+    // earlier target/source probes ran, or an existing hardlink may have
+    // been swapped. Do not publish a mixture of before/after facts: all
+    // raw target observations must remain identical on a second bounded
+    // read-only pass immediately before the atomic table update.
+    for (const auto& result : observations) {
+        const HostFileObservation current =
+            probe_host_file_readonly(result.raw_candidate);
+        if (!stable_raw_target_observation(result.observed, current))
+            throw std::runtime_error(
+                "Raw destination changed during filesystem inspection. Refresh preview.");
     }
     for (auto& result : observations) {
         PreviewEntry& entry = state.entries[result.index];

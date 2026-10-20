@@ -17,6 +17,37 @@ struct HostFileObservation {
     std::string detail;            // human-readable reason if unqualified
 };
 
+// Compares two independent snapshots of the SAME literal raw candidate.
+// This is still only read-only evidence, never a qualified final FileOps
+// destination. Every state must remain stable, including "missing" and
+// "unqualified" (which must retain an identical failure reason).
+inline bool stable_raw_target_observation(
+    const HostFileObservation& before, const HostFileObservation& after) {
+    if (before.state != after.state ||
+        before.canonical_path.empty() ||
+        before.canonical_path != after.canonical_path)
+        return false;
+    switch (before.state) {
+    case HostFileState::ExistingFile:
+        return !before.host_physical_key.empty() &&
+            !before.source_guard.empty() &&
+            before.host_physical_key == after.host_physical_key &&
+            before.source_guard == after.source_guard;
+    case HostFileState::Missing:
+        return before.host_physical_key.empty() &&
+            after.host_physical_key.empty() &&
+            before.source_guard.empty() && after.source_guard.empty();
+    case HostFileState::Unqualified:
+        return !before.detail.empty() &&
+            before.detail == after.detail &&
+            before.host_physical_key.empty() &&
+            after.host_physical_key.empty() &&
+            before.source_guard.empty() && after.source_guard.empty();
+    default:
+        return false;
+    }
+}
+
 // Missing is a legitimate observation for a proposed target but NOT for a
 // selected source. The caller enforces that distinction.
 // No files are opened for writing, created, moved or modified.

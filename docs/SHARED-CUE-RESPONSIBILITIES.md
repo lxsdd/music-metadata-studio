@@ -148,3 +148,16 @@ source version. If a second process changes a file during that window,
 the inspection fails as one unit without publishing partially updated
 target states. This deliberately leaves the final FileOps destination
 and CUE dependency gates unchanged/unqualified. No writes were enabled.
+
+## Double-observed native raw destination integrity
+
+The bounded GUI-triggered raw-target inspection now performs **two separate
+read-only observations of every selected raw candidate**. After the
+physical audio-source and metadb/rules checks, target identities, versions
+and even observed absence must still match a second filesystem pass.
+A newly created formerly absent target, an exchanged hardlink, changes
+to the target version or canonical path, and a changing unsupported
+filesystem result all abort the whole inspection **before any new table
+rows are published**. Windows native regression tests cover each state
+transition. These are preliminary Title Formatting paths and do not
+enable foobar's final File Operations or any media writer.
