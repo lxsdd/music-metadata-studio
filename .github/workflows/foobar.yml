@@ -58,7 +58,7 @@ jobs:
         shell: pwsh
         run: ./scripts/build-foobar.ps1 -Platform '${{ matrix.platform }}' -Configuration Release -PlatformToolset v143
       - name: HARD GATE - foobar2000 ${{ matrix.platform }} component host load
-        uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@28a957c590b04620ec1d802aad4b35a88f8b93a8
+        uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@4ab288b0d47163c602e8907af76d5ddacc268577
         with:
           architecture: ${{ matrix.platform }}
           component-dll: out/foobar/${{ matrix.platform }}/Release/foo_music_metadata_studio.dll
