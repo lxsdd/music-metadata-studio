@@ -196,8 +196,11 @@ int main() {
         source("apple", 1), source("deezer", 1000)
     }).first_coarse_conflict.has_value());
 
-    // Repeated sub-second truncation can look acceptable track-by-track
-    // yet produce a badly drifted full-disc CUE.
+    // Every selected Apple track is exactly 180 seconds here; Deezer's
+    // corresponding 179 seconds is a VALID whole-second catalog result.
+    // Per-track differences stay below the rejection threshold, but
+    // accumulated boundary drift must require review.
+    for (auto& track : apple.release.tracks) track.duration_ms = 180000;
     deezer = source("deezer", 1000);
     deezer.release.tracks = apple.release.tracks;
     // Use real whole-second Deezer evidence, not synthetic 179100 ms.
@@ -205,6 +208,9 @@ int main() {
     coarse_conflict = audit_precision_cue_source_consensus({apple, deezer});
     assert(coarse_conflict.state == PrecisionCueConsensusState::Review);
     assert(coarse_conflict.diagnostics[0] == "COARSE_REFERENCE_DURATION_CONFLICT");
+    assert(coarse_conflict.first_coarse_conflict.has_value());
+    assert(coarse_conflict.first_coarse_conflict->track_number == 3);
+    assert(coarse_conflict.first_coarse_conflict->signed_track_delta_ms == -1000);
 
     // Standard CUE supports at most 99 tracks per disc; this native preview
     // supports at most eight explicitly mapped physical MP3 discs.
