@@ -1,4 +1,5 @@
 #include "djmeta/precision_cue_match.h"
+#include "djmeta/precision_cue_match_diagnostics.h"
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
@@ -36,6 +37,8 @@ void strong_match_and_rounded_reference() {
     assert(report.selected_candidate_index == 0);
     assert(report.candidates.size() == 1);
     assert(report.candidates[0].diagnostics.empty());
+    assert(djmeta::describe_precision_cue_match_failure(
+        report, source, apple).empty());
 }
 
 
@@ -47,8 +50,13 @@ void sourced_edition_date_review() {
     assert(djmeta::match_precision_cue_releases(source, {apple}).state ==
            PrecisionCueMatchState::Selected);
     source.release_date = "2026-10-15";
-    assert(djmeta::match_precision_cue_releases(source, {apple}).state ==
-           PrecisionCueMatchState::Review);
+    const auto date_report = djmeta::match_precision_cue_releases(source, {apple});
+    assert(date_report.state == PrecisionCueMatchState::Review);
+    const auto date_explanation = djmeta::describe_precision_cue_match_failure(
+        date_report, source, apple);
+    assert(date_explanation.find("Deezer 2026-10-15 / Apple 2026-10-16") !=
+           std::string::npos);
+    assert(!date_report.selected_candidate_index.has_value());
     source.release_date = "2026-10-16";
     assert(djmeta::match_precision_cue_releases(source, {apple}).state ==
            PrecisionCueMatchState::Selected);
@@ -88,7 +96,10 @@ void mix_identity_and_disc_gates() {
     const auto source = release("deezer", "ref-1");
     auto apple = release("apple", "680000001");
     apple.tracks[1].title = "Loophole (Original Mix)";
-    assert(djmeta::match_precision_cue_releases(source, {apple}).state == PrecisionCueMatchState::Rejected);
+    const auto mix_report = djmeta::match_precision_cue_releases(source, {apple});
+    assert(mix_report.state == PrecisionCueMatchState::Rejected);
+    assert(djmeta::describe_precision_cue_match_failure(mix_report, source, apple)
+        .find("mix version differs") != std::string::npos);
     apple = release("apple", "680000001");
     apple.tracks[2].disc_number = 1;
     assert(djmeta::match_precision_cue_releases(source, {apple}).state == PrecisionCueMatchState::Rejected);

@@ -97,6 +97,27 @@ int main() {
     CHECK(parsed.provider=="deezer" && parsed.provider_release_id=="1071045032");
     CHECK(parsed.tracks.size()==2 && parsed.tracks[0].duration_ms==123000);
     CHECK(parsed.tracks[1].track_number==2);
+    // The album-level date is optional; a supplied date must be real ISO.
+    CHECK(parsed.release_date.empty());
+    auto dated=good;
+    const auto date_anchor=dated.find("\\\"artist\\\":");
+    CHECK(date_anchor!=std::string::npos);
+    dated.insert(date_anchor, "\\\"release_date\\\":\\\"2026-10-16\\\",");
+    CHECK(parse_deezer_precision_cue_album(dated,"1071045032").release_date ==
+          "2026-10-16");
+    for (const auto bad_date : {"2026-02-30", "2025-02-29", "2026-13-01",
+                                "2026-10-16T00:00:00Z", "2026-10-16\\nInjected"}) {
+        auto malformed=good;
+        const auto at=malformed.find("\\\"artist\\\":");
+        CHECK(at!=std::string::npos);
+        malformed.insert(at, std::string("\\\"release_date\\\":\\\"")+
+                             bad_date+"\\\",");
+        rejects(malformed);
+    }
+    auto wrong_date_type=good;
+    wrong_date_type.insert(wrong_date_type.find("\\\"artist\\\":"),
+                           "\\\"release_date\\\":null,");
+    rejects(wrong_date_type);
     const auto multidisc=parse_deezer_precision_cue_album(
         album(row(11,1,1)+","+row(12,2,1)),"1071045032");
     CHECK(multidisc.tracks[1].disc_number==2 && multidisc.tracks[1].track_number==1);

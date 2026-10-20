@@ -14,6 +14,7 @@
 #include "djmeta/precision_cue_deezer_link.h"
 #include "djmeta/precision_cue_deezer_http.h"
 #include "djmeta/precision_cue_match.h"
+#include "djmeta/precision_cue_match_diagnostics.h"
 #include "djmeta/precision_cue_apple_selection.h"
 #include "djmeta/precision_cue_request_revision.h"
 #include "djmeta/precision_cue_filename.h"
@@ -898,9 +899,8 @@ void start_lookup(Workspace& state) {
                     *job->deezer_reference, {looked_up});
                 if (match.state != djmeta::PrecisionCueMatchState::Selected)
                     throw std::invalid_argument(
-                        "Deezer/Apple edition or track durations differ: "
-                        "review exact album, mix version, track positions and durations; "
-                        "CUE preview blocked");
+                        djmeta::describe_precision_cue_match_failure(
+                            match, *job->deezer_reference, looked_up));
             }
             job->release = std::move(looked_up);
         } catch (const std::exception& error) {

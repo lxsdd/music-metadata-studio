@@ -569,6 +569,17 @@ PrecisionCueRelease parse_deezer_precision_cue_album_pages(
     release.provider_release_id = std::to_string(expected);
     release.album_title = text(root, "title");
     release.album_performer = text(album_artist, "name");
+    // Deezer's official album release_date is edition evidence, not a
+    // physical DATE tag and never a source of sub-second CUE timing.
+    if (const auto* date = root.find("release_date")) {
+        if (date->type != JsonValue::Type::String)
+            reject("invalid Deezer album release date type");
+        if (!date->raw.empty()) {
+            if (date->raw.size() != 10)
+                reject("unsupported Deezer album release date");
+            release.release_date = apple_album_release_date(date->raw);
+        }
+    }
     std::map<std::pair<unsigned, unsigned>, PrecisionCueReleaseTrack> ordered;
     std::map<std::int64_t, bool> unique_ids;
     std::map<unsigned, std::int64_t> elapsed_by_disc;
