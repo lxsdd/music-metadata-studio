@@ -58,6 +58,9 @@ jobs:
         shell: bash
         run: python tests/validate_rules.py
 
+      - name: Assert no public binary artifacts are uploaded
+        run: python scripts/verify-public-artifact-hold.py
+
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
