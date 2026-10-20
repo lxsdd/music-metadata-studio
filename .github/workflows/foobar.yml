@@ -62,6 +62,11 @@ jobs:
       - name: Build foobar preview component
         shell: pwsh
         run: ./scripts/build-foobar.ps1 -Platform '${{ matrix.platform }}' -Configuration Release -PlatformToolset v143
+      - name: Verify private local Git-SHA-pinned Win32/x64 candidate end-to-end
+        if: matrix.platform == 'x64' && github.event_name == 'pull_request'
+        shell: pwsh
+        run: ./scripts/local-acceptance-build.ps1 -SourceSha '${{ github.event.pull_request.head.sha }}' -OutputDirectory "$env:RUNNER_TEMP\MMS-nonpublic-acceptance"
+
       - name: Upload DLL
         if: false # Source-only qualification: no preview DLL artifacts
         uses: actions/upload-artifact@v7
