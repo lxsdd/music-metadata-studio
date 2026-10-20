@@ -33,6 +33,13 @@ int main() {
            PrecisionCueConsensusState::SingleHighResolutionSource);
     assert(audit_precision_cue_source_consensus({apple, mb}).state ==
            PrecisionCueConsensusState::Agreed);
+    const auto initial_coarse = audit_precision_cue_source_consensus({apple, deezer});
+    assert(initial_coarse.differences.size() == 2);
+    assert(initial_coarse.differences[0].signed_delta_ms == -234);
+    assert(initial_coarse.differences[0].signed_cumulative_delta_ms == -234);
+    assert(initial_coarse.differences[1].signed_delta_ms == -456);
+    assert(initial_coarse.differences[1].signed_cumulative_delta_ms == -690);
+    assert(audit_precision_cue_source_consensus({apple}).differences.empty());
     // Both trusted release inputs must start at disc 1, track 1. Reject a
     // shifted first disc even when both providers share the same bad data.
     auto missing_first_disc = apple;
@@ -148,6 +155,14 @@ int main() {
     assert(report.state == PrecisionCueConsensusState::Review);
     assert(report.diagnostics[0] == "ONE_FRAME_BOUNDARY_AMBIGUITY_REVIEW");
     assert(report.differences.size() == 30);
+    // Track deltas accumulate only within each disc. The second disc must
+    // start with a fresh zero offset, never inherit disc one's rounding.
+    assert(report.differences[0].signed_cumulative_delta_ms == 0);
+    assert(report.differences[1].signed_cumulative_delta_ms == 14);
+    assert(report.differences[2].signed_cumulative_delta_ms == 0);
+    assert(report.differences[16].signed_cumulative_delta_ms == 0);
+    assert(report.differences[17].signed_cumulative_delta_ms == 14);
+    assert(report.differences[18].signed_cumulative_delta_ms == 0);
     unsigned exact = 0, one_frame = 0;
     for (const auto& diff : report.differences) {
         if (diff.signed_end_frame_delta == 0) ++exact;
@@ -190,6 +205,7 @@ int main() {
     assert(first.disc_number == 1 && first.track_number == 3);
     assert(first.signed_track_delta_ms == -999);
     assert(first.signed_cumulative_delta_ms == -2997);
+    assert(cumulative_conflict.differences[2].signed_cumulative_delta_ms == -2997);
     assert(first.allowed_track_delta_ms == 1500);
     assert(first.allowed_cumulative_delta_ms == 2500);
     assert(!audit_precision_cue_source_consensus({
@@ -211,6 +227,7 @@ int main() {
     assert(coarse_conflict.first_coarse_conflict.has_value());
     assert(coarse_conflict.first_coarse_conflict->track_number == 3);
     assert(coarse_conflict.first_coarse_conflict->signed_track_delta_ms == -1000);
+    assert(coarse_conflict.differences[2].signed_cumulative_delta_ms == -3000);
 
     // Standard CUE supports at most 99 tracks per disc; this native preview
     // supports at most eight explicitly mapped physical MP3 discs.

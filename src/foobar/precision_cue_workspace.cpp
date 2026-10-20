@@ -379,6 +379,38 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
         details += L"Apple catalog DATE: " + from_utf8(release.release_date) + L"\r\n";
     if (!release.genre.empty())
         details += L"Apple catalog GENRE: " + from_utf8(release.genre) + L"\r\n";
+    // Read-only cross-provider evidence belongs in the actual foobar preview,
+    // not just in an exception thrown on an incompatible release. Revalidate
+    // the independently matched Deezer reference on every preview refresh.
+    if (state.deezer_reference) {
+        const auto timing = djmeta::audit_precision_cue_source_consensus({
+            {release, 1}, {*state.deezer_reference, 1000}
+        });
+        if (timing.state !=
+                djmeta::PrecisionCueConsensusState::SingleHighResolutionSource)
+            throw std::invalid_argument(
+                "Apple/Deezer edition or cumulative durations no longer qualify; "
+                "run the lookup again before preview");
+        details += L"\r\nCATALOG DURATION EVIDENCE (DEEZER MINUS APPLE):\r\n";
+        details += L"Deezer whole seconds corroborate edition identity only. "
+                   L"Apple catalog milliseconds determine CUE frames; "
+                   L"neither source proves sample-accurate boundaries.\r\n";
+        const auto signed_number = [](std::int64_t value) {
+            return std::wstring(value >= 0 ? L"+" : L"") + std::to_wstring(value);
+        };
+        for (const auto& diff : timing.differences) {
+            details += L"Disc " + std::to_wstring(diff.disc_number) +
+                       L", track " + std::to_wstring(diff.track_number) +
+                       L": track delta " + signed_number(diff.signed_delta_ms) +
+                       L" ms; cumulative delta " +
+                       signed_number(diff.signed_cumulative_delta_ms) +
+                       L" ms; quantized end-frame delta " +
+                       signed_number(diff.signed_end_frame_delta) + L" frame(s)\r\n";
+        }
+    } else {
+        details += L"\r\nCATALOG DURATION EVIDENCE: Apple only; "
+                   L"no independent provider has verified the frame boundaries.\r\n";
+    }
     if (duration_warning)
         details += L"WARNING: At least one local duration is unknown or requires review.\r\n";
     details += reviewed

@@ -30,6 +30,8 @@ struct PrecisionCueSourceDifference {
     std::int64_t signed_delta_ms = 0;
     std::int64_t signed_end_frame_delta = 0;
     unsigned resolution_ms = 0;
+    // Corroborating minus primary cumulative duration; resets at each disc.
+    std::int64_t signed_cumulative_delta_ms = 0;
 };
 
 struct PrecisionCueCoarseDurationConflict {
@@ -189,7 +191,8 @@ inline PrecisionCueConsensusReport audit_precision_cue_source_consensus(
             const auto delta = cue_frame(other_elapsed) - cue_frame(primary_elapsed);
             report.differences.push_back({
                 release.provider, track.disc_number, track.track_number,
-                other_ms - primary_ms, delta, source.resolution_ms
+                other_ms - primary_ms, delta, source.resolution_ms,
+                other_elapsed - primary_elapsed
             });
             if (sources.front().resolution_ms <= 14 && source.resolution_ms <= 14) {
                 if (delta != 0) one_frame_ambiguity = true;
