@@ -85,10 +85,10 @@ int main() {
         "results":[{"type":"release","id":38012673,
                     "title":"Estiva - Via Balearia"}]
     })DJ");
-    const auto page2=parse_search_result_page(response,2);
-    check(page2.page==2 && page2.pages==4 &&
-          page2.results.hits.size()==1 &&
-          page2.results.hits[0].id==38012673,
+    const auto search_page2=parse_search_result_page(response,2);
+    check(search_page2.page==2 && search_page2.pages==4 &&
+          search_page2.results.hits.size()==1 &&
+          search_page2.results.hits[0].id==38012673,
           "exact release identities on page 2 retain the official API source");
     rejects([&]{(void)parse_search_result_page(response,3);},
             "stale or foreign page number never publishes results");
