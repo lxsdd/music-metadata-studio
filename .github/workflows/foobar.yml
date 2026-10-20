@@ -58,10 +58,13 @@ jobs:
         shell: pwsh
         run: ./scripts/build-foobar.ps1 -Platform '${{ matrix.platform }}' -Configuration Release -PlatformToolset v143
       - name: HARD GATE - foobar2000 ${{ matrix.platform }} component host load
-        uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@37abc33f4dd7048e66462d4bee4e69f9ffeedbc9
+        uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@57b90cd134a3d40d0fe475cb5e755629a11f1ef9
         with:
           architecture: ${{ matrix.platform }}
           component-dll: out/foobar/${{ matrix.platform }}/Release/foo_music_metadata_studio.dll
+          context-command: 'Music Metadata Studio/Prepare Tracks (Preview)...'
+          expected-window-title: 'Music Metadata Studio - Prepare Tracks (Read-only)'
+          required-control-ids: '270,273,271,291,292,293,294,299'
       - name: Upload DLL
         if: github.event_name != 'pull_request'  # Never upload unqualified DLLs in draft PR CI
         uses: actions/upload-artifact@v7

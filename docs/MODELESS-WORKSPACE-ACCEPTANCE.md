@@ -26,3 +26,9 @@ Use `scripts/host-acceptance-noop.ps1 -Mode Prepare` from the **same SHA** as th
 6. Complete the integrity script's `-Mode Verify` step. Source copies, CUE text and timestamps must remain unmodified by Studio. Ensure no writer path ran. The MusicBrainz search is optional and must be manually clicked; no request may fire on restore, refresh or foobar playback/playlist changes.
 
 **Pass gate:** record foobar version, architecture, Windows DPI/theme, tested commit, exact component artifact and package SHA256, script integrity result and any screenshots/errors. Leave PR #45 Draft and writer routes disabled regardless of runtime result until separately qualified.
+
+## Automated real-workspace host gate (20 October 2026)
+
+The shared `foobar-host-smoke` action is SHA-pinned in `.github/workflows/foobar.yml`. It now drives the actual **Prepare Tracks (Preview)** context command in an isolated official foobar2000 2.26.1 Win32/x64 instance, using only a runner-generated synthetic WAV (never the user's library). It checks that the native Studio modeless window opens, has the expected core HWND controls, responds to the message loop and is reused rather than duplicated on a second invocation. The synthetic WAV SHA256/size/timestamps are checked after actual foobar CLI import and dialog activation. No tag, CUE or media writes are authorized.
+
+**Qualification boundary:** only actual context entry, native window/control presence, modeless reuse, and disposable WAV no-write behavior are covered. Visual DPI alignment, all tab interactions, physical/CUE-specific review, authenticated live Discogs/Beatport/MB providers, release matching, Apply gating and full human acceptance remain **NOT_TESTED** until independently verified. A passing host smoke must not be reported as `HOST_FULL_PASS`.
