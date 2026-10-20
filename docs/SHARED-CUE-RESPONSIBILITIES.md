@@ -125,3 +125,14 @@ cannot bypass these tests. All tests are pure/fixture-only and non-writing.
 The native Studio target path remains unqualified until foobar's final
 File Operations target mapping and filesystem readback are separately
 proved; this does not enable a write-capable implementation.
+
+## Early Windows raw target spelling collisions
+
+Studio flags two proposed *raw* Title Formatting destinations with
+different text but the same ASCII-case-folded Windows path and
+slash/backslash separators, including differences in root spelling.
+Both rows display `RAW_TARGET_CASE_OR_SEPARATOR_COLLISION` in the
+File locations preview. This is only a **possible** collision,
+not a canonical filesystem collision or a Unicode case-folding oracle.
+A separate final foobar File Operations sanitizer, OS physical-ID probe
+and approval are mandatory; no file write path is enabled.

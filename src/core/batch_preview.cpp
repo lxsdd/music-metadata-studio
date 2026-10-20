@@ -25,6 +25,21 @@ bool ascii_reserved_windows_device(std::string_view component) {
     return false;
 }
 
+// A *warning* for Windows-style raw Title Formatting destinations,
+// not a substitute for foobar's canonical File Operations target or an
+// authoritative filesystem identity (notably for non-ASCII case folding).
+std::string preliminary_windows_spelling_key(std::string_view path) {
+    std::string result;
+    result.reserve(path.size());
+    for (unsigned char byte : path) {
+        if (byte == '/') byte = '\\';
+        if (byte >= 'a' && byte <= 'z')
+            byte = static_cast<unsigned char>(byte - ('a' - 'A'));
+        result.push_back(static_cast<char>(byte));
+    }
+    return result;
+}
+
 bool safe_component(std::string_view component) {
     if (component.empty() || component == "." || component == ".." ||
         component.back() == '.' || component.back() == ' ' ||
@@ -59,6 +74,7 @@ BatchPreviewTable describe_batch_preview(
     BatchPreviewTable out;
     out.rows.resize(items.size());
     std::map<std::string, std::size_t> counts;
+    std::map<std::string, std::size_t> raw_windows_spelling_counts;
     std::map<std::string, std::size_t> observed_target_key_counts;
     std::set<std::string> observed_source_keys;
     for (const auto& item : items) {
@@ -73,7 +89,10 @@ BatchPreviewTable describe_batch_preview(
     for (const auto& item : items) {
         if (item.physical_source_qualified &&
             !item.destination_root.empty() && !item.raw_relative_path.empty()) {
-            ++counts[item.destination_root + "\\" + item.raw_relative_path];
+            const std::string candidate = item.destination_root + "\\" +
+                item.raw_relative_path;
+            ++counts[candidate];
+            ++raw_windows_spelling_counts[preliminary_windows_spelling_key(candidate)];
         }
     }
     for (std::size_t i = 0; i < items.size(); ++i) {
@@ -92,6 +111,13 @@ BatchPreviewTable describe_batch_preview(
         if (!row.raw_destination.empty() && counts[row.raw_destination] > 1) {
             row.has_raw_target_collision = true;
             row.issues.emplace_back("DUPLICATE_RAW_TARGET");
+            ++out.raw_collision_items;
+        } else if (!row.raw_destination.empty() &&
+                   item.physical_source_qualified &&
+                   raw_windows_spelling_counts[
+                       preliminary_windows_spelling_key(row.raw_destination)] > 1) {
+            row.has_raw_target_collision = true;
+            row.issues.emplace_back("RAW_TARGET_CASE_OR_SEPARATOR_COLLISION");
             ++out.raw_collision_items;
         }
         // These findings concern the unsanitized raw candidate only. A

@@ -57,6 +57,26 @@ int main() {
           "unverified host/cue gates must remain visible");
     check(c.unqualified_rows == 2, "unqualified rows must be counted");
 
+    // Different literal text can still name the same prospective Windows
+    // target. This is not canonical FileOps path proof.
+    a=sample("case-a.mp3");
+    b=sample("case-b.mp3");
+    b.destination_root="z:\\music\\singles";
+    b.raw_relative_path="test\\artist - track";
+    const auto spelling=djmeta::describe_batch_preview({a,b});
+    check(spelling.raw_collision_items==2 &&
+          spelling.rows[0].has_raw_target_collision &&
+          spelling.rows[1].has_raw_target_collision &&
+          contains(spelling.rows[0],"RAW_TARGET_CASE_OR_SEPARATOR_COLLISION") &&
+          contains(spelling.rows[1],"RAW_TARGET_CASE_OR_SEPARATOR_COLLISION") &&
+          !contains(spelling.rows[0],"DUPLICATE_RAW_TARGET"),
+          "Windows ASCII case and separator spelling differences remain conflicts");
+    b.raw_relative_path="Other\\Artist - Track";
+    const auto genuinely_different=djmeta::describe_batch_preview({a,b});
+    check(genuinely_different.raw_collision_items==0,
+          "genuinely different raw Windows destinations are not falsely aliased");
+    a=sample("a.mp3");
+    b=sample("b.mp3");
     b.raw_relative_path = "Other/Artist - Track";
     b.semantic_proposals_pending = true;
     const auto differing = djmeta::describe_batch_preview({a,b});
