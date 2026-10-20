@@ -99,6 +99,15 @@ WinHTTP GET adapter and the existing bounded official catalog/edition parsers.
   provider fields are shown next to original CUE values exclusively as
   **BLOCKED, non-actionable evidence**. Wrong remix, ambiguous alignment,
   forged source IDs and unverified track provenance cannot borrow credits.
+- Both **Inspect CUE** and the exact Discogs edition detail use the same
+  read-only source inventory. The comparison shows every parsed original
+  CUE-global and CUE-track field (including repeated values and unknown REM)
+  plus FILE references in separate **CUE Original** groups with actual source
+  lines and external/embedded carrier identity. Provider-absent values display
+  **Keep original CUE** and **(not supplied)**; no remote identity is invented.
+  Unknown REM remains display-only, not an editable/inherited canonical tag.
+  CUE original inventory is bounded to 10,000 rows; the 1,024-row native
+  detail view explicitly marks overflow instead of silent truncation.
 - The existing source/rules snapshot and CUE post-read guards run before
   publishing any result. The online page remains a **read-only comparison**:
   no accepting online metadata as a write operation, audio modification,

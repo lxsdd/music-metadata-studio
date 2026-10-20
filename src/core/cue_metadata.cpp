@@ -82,7 +82,12 @@ bool decimal_track(std::string_view value, int& track) {
     return true;
 }
 bool is_field_for_scope(std::string_view name, bool track) {
-    if (!recognized(name)) return false;
+    // Unknown REM entries are original source facts, not editable targets.
+    // effective_cue_field and candidate mapping retain their allowlists.
+    const bool unknown_rem = name.starts_with("REM ") &&
+        name.size() > 4 && name.size() <= 128 &&
+        name.find_first_of(" \t\r\n\"", 4) == std::string_view::npos;
+    if (!recognized(name) && !unknown_rem) return false;
     if (!track && name == "ISRC") return false;
     return true;
 }

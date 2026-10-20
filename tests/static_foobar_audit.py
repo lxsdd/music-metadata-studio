@@ -422,6 +422,17 @@ for token in ("unverified_fields", "cue_unverified_alignment_evidence_only_",
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing blocked CUE evidence guard: "+token)
 if "item.unverified_fields" not in batch_table_dialog:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing native blocked CUE evidence")
+# Every original CUE token must stay source-only in both native lanes.
+cue_inventory_header=(root / "include" / "djmeta" / "cue_original_inventory.h").read_text(encoding="utf-8")
+for token in ("cue_original_inventory_rows(", "cue-line:", "row.original_values.push_back(",
+              "row.state = FieldReviewState::Unchanged", "CUE original inventory exceeds"):
+    if token not in cue_inventory_header:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: unsafe CUE original inventory: "+token)
+for token in ('cue_original_inventory_rows(cue,"CUE Original / ")',
+              "is_local_cue_inventory(row)", "Keep original CUE",
+              "cue_original_inventory_rows(inventory)"):
+    if token not in batch_table_dialog:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: CUE original provenance missing in native UI: "+token)
 
 # Never relabel original-only physical source fields as provider evidence
 # in Discogs/MusicBrainz/Beatport comparison or native release grouping.

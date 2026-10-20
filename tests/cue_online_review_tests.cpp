@@ -1,6 +1,8 @@
 #include "djmeta/cue_release_review.h"
+#include "djmeta/cue_original_inventory.h"
 #include "djmeta/discogs_provider.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <optional>
@@ -32,6 +34,57 @@ int main() {
     const auto preserved = cue;
     const auto parsed = inspect_cue_metadata(cue, CueCarrierKind::EmbeddedText);
     check(parsed.status == CueSyntaxStatus::Parsed, "qualified source fixture");
+    // Original CUE evidence is independent from the exact online edition.
+    // Never coalesce duplicate fields or promote unknown REM into a writer.
+    const std::string custom_text =
+        "REM GENRE House\nREM GENRE Trance\nREM CUSTOM Keep-A\n"
+        "FILE \"part one.flac\" WAVE\nTRACK 01 AUDIO\n"
+        "TITLE \"Only One\"\nPERFORMER \"DJ\"\n"
+        "REM CUSTOM Keep-B\n";
+    const auto custom=inspect_cue_metadata(
+        custom_text,CueCarrierKind::ExternalText);
+    check(custom.status==CueSyntaxStatus::Parsed,
+          "unknown and repeated REM remain readable source facts");
+    const auto originals=cue_original_inventory_rows(
+        custom,"CUE Original / ");
+    check(originals.size()==7 && originals[0].field==
+              "CUE Original / Album / REM GENRE" &&
+          originals[1].original_values==std::vector<std::string>{"Trance"} &&
+          originals[2].field=="CUE Original / Album / REM CUSTOM" &&
+          originals[2].original_values==std::vector<std::string>{"Keep-A"} &&
+          originals[2].candidate.source_id=="cue-line:3" &&
+          originals[5].field=="CUE Original / Track 1 (CUE ordinal 1, FILE #1) / REM CUSTOM" &&
+          originals[5].original_values==std::vector<std::string>{"Keep-B"} &&
+          originals[6].field=="CUE Original / FILE #1 / FILE" &&
+          originals[6].original_values==std::vector<std::string>{"part one.flac"},
+          "CUE full globals/unknown REM/duplicate values/track/FILE survive");
+    for(const auto& row:originals)
+        check(is_local_cue_inventory(row) &&
+              row.candidate.values.empty() &&
+              row.state==FieldReviewState::Unchanged &&
+              row.candidate.provider.starts_with("External CUE") &&
+              row.candidate.source_id.starts_with("cue-line:"),
+              "original facts cannot impersonate provider or writable evidence");
+    const auto embedded_originals=cue_original_inventory_rows(
+        inspect_cue_metadata(custom_text,CueCarrierKind::EmbeddedText));
+    check(embedded_originals.size()==originals.size() &&
+          embedded_originals[0].candidate.provider=="Embedded CUE" &&
+          custom_text.find("Keep-B")!=std::string::npos,
+          "embedded CUE has separate provenance and remains unmodified");
+    const auto multi_file=inspect_cue_metadata(
+        "FILE a.flac WAVE\nTRACK 01 AUDIO\nTITLE First\n"
+        "FILE b.flac WAVE\nTRACK 01 AUDIO\nTITLE Second\n",
+        CueCarrierKind::ExternalText);
+    const auto multi_file_originals=cue_original_inventory_rows(multi_file);
+    check(multi_file.status==CueSyntaxStatus::Parsed &&
+          multi_file_originals.size()==4 &&
+          multi_file_originals[0].field==
+              "Track 1 (CUE ordinal 1, FILE #1) / TITLE" &&
+          multi_file_originals[1].field==
+              "Track 1 (CUE ordinal 2, FILE #2) / TITLE" &&
+          multi_file_originals[0].candidate.source_id=="cue-line:3" &&
+          multi_file_originals[1].candidate.source_id=="cue-line:6",
+          "same declared track number across FILE blocks keeps unique local identity");
     const auto rows = review_cue_candidate_fields(parsed, 1, {
         item("ALBUM", {"New Album"}, EvidenceScope::Edition),
         item("ALBUM ARTIST", {"Album Artist"}, EvidenceScope::Edition),

@@ -26,6 +26,7 @@
 #include "djmeta/musicbrainz_provider.h"
 #include "djmeta/discogs_provider.h"
 #include "djmeta/cue_release_review.h"
+#include "djmeta/cue_original_inventory.h"
 #include "djmeta/beatport_manual_intake.h"
 #include "djmeta/beatport_release_review.h"
 #include "djmeta/discogs_release_review.h"
@@ -754,6 +755,13 @@ std::vector<djmeta::online::FieldReviewRow> discogs_cue_release_rows(
         } else for(const auto& field:item.fields)
             append(prefix,field);
     }
+    // The complete actual CUE carrier belongs to a SEPARATE local lane.
+    // Missing provider fields must not hide original tags, unknown REM,
+    // duplicate occurrences or structural FILE references.
+    const auto original=cue_original_inventory_rows(cue,"CUE Original / ");
+    if (original.size() > 10000 || rows.size() > 10000 - original.size())
+        throw std::invalid_argument("Discogs CUE comparison exceeds row limit.");
+    rows.insert(rows.end(),original.begin(),original.end());
     return rows;
 }
 
@@ -774,10 +782,12 @@ MusicBrainzBrowseRows group_musicbrainz_release_rows(
             summary.candidate.provider=row.candidate.provider;
             summary.candidate.source_id=row.candidate.source_id;
             const bool physical=is_local_physical_original(row);
-            summary.candidate.field=physical
-                ? "LOCAL PHYSICAL SOURCE" : "RELEASE TRACK";
+            const bool local_cue=is_local_cue_inventory(row);
+            summary.candidate.field=physical ? "LOCAL PHYSICAL SOURCE"
+                : local_cue ? "LOCAL CUE SOURCE" : "RELEASE TRACK";
             summary.state=row.state;
             summary.reason=physical ? "local_physical_group" :
+                local_cue ? "local_cue_group" :
                 row.candidate.provider=="discogs"
                     ? "discogs_live_release_group"
                     : "musicbrainz_live_release_group";
@@ -897,17 +907,20 @@ std::wstring candidate_cell_text(const djmeta::online::FieldReviewRow& item,
     if (item.reason.starts_with("musicbrainz_live_candidate_rank_") ||
         item.reason == "musicbrainz_live_release_group" ||
         item.reason == "discogs_live_release_group" ||
-        item.reason == "local_physical_group") {
+        item.reason == "local_physical_group" ||
+        item.reason == "local_cue_group") {
         switch(column) {
         case 0: return from_utf8(item.field);
         case 1: return show_field_values(item.original_values);
         case 2: return show_field_values(item.candidate.values);
-        case 3: return from_utf8(
-            djmeta::online::online_evidence_origin_label(item));
+        case 3: return item.reason=="local_cue_group"
+            ? from_utf8(item.candidate.provider)
+            : from_utf8(djmeta::online::online_evidence_origin_label(item));
         case 4: {
             if (item.reason.starts_with("musicbrainz_live_candidate_rank_"))
                 return from_utf8(item.candidate.field);
             if (item.reason=="local_physical_group") return L"Keep original";
+            if (item.reason=="local_cue_group") return L"Keep original CUE";
             return item.state==djmeta::online::FieldReviewState::Blocked
                 ? L"Unmatched" : L"Review";
         }
@@ -1052,7 +1065,8 @@ void refresh_musicbrainz_detail_rows(PreviewState& state) {
         const auto field=from_utf8(row.field);
         const auto original=show_field_values(row.original_values);
         const bool local_original=djmeta::online::is_local_physical_original(row);
-        const auto proposed=local_original
+        const bool local_cue=djmeta::online::is_local_cue_inventory(row);
+        const auto proposed=(local_original || local_cue)
             ? L"(not supplied)" : show_field_values(row.candidate.values);
         const std::wstring status=row.reason=="local_physical_inventory_overflow"
             ? L"More original tags" :
@@ -1060,6 +1074,7 @@ void refresh_musicbrainz_detail_rows(PreviewState& state) {
             ? (row.state==djmeta::online::FieldReviewState::Unchanged
                 ? L"Suggested identity only" : L"Not safely matched") :
             local_original ? L"Keep original" :
+            local_cue ? L"Keep original CUE" :
             row.state==
             djmeta::online::FieldReviewState::Blocked ? L"Blocked"
             : row.state==djmeta::online::FieldReviewState::Unchanged
@@ -3603,14 +3618,19 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                             const auto& item=rows[row];
                             const bool physical_source=
                                 djmeta::online::is_local_physical_original(item);
+                            const bool cue_source=
+                                djmeta::online::is_local_cue_inventory(item);
                             const auto label=
-                                L"Source: "+from_utf8(
-                                    djmeta::online::online_evidence_origin_label(item))+
-                                L"\nProvider ID: "+(physical_source
+                                L"Source: "+(cue_source
+                                    ? from_utf8(item.candidate.provider)
+                                    : from_utf8(djmeta::online::online_evidence_origin_label(item)))+
+                                L"\nSource line / provider ID: "+(physical_source
                                     ? std::wstring(L"(not supplied; original local tag)")
                                     : from_utf8(item.candidate.source_id))+
                                 L"\nScope: "+(physical_source
                                     ? std::wstring(L"physical audio metadata")
+                                    : cue_source
+                                    ? std::wstring(L"original CUE album/track/structure")
                                     : from_utf8(djmeta::online::online_evidence_scope_label(
                                         item.candidate.scope)))+
                                 L"\nDate meaning: "+from_utf8(
@@ -4176,46 +4196,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                     // An ambiguous CUE title requires manual search text.
                 }
             }
-            std::vector<djmeta::online::FieldReviewRow> fields;
-            const auto add_field = [&](const std::string& label,
-                                       const djmeta::CueMetadataField& field,
-                                       const std::string& source) {
-                if (fields.size() >= 10000)
-                    throw std::invalid_argument("CUE inventory display exceeds 10,000 rows.");
-                djmeta::online::FieldReviewRow row;
-                row.field = label + field.name;
-                row.original_values.push_back(field.value);
-                row.candidate.provider = source;
-                row.candidate.source_id = "cue-line:" +
-                    std::to_string(field.line_number);
-                row.reason = inventory.status == djmeta::CueSyntaxStatus::Parsed
-                    ? "cue_inventory_read_only" : "cue_inventory_unqualified";
-                fields.push_back(std::move(row));
-            };
-            const auto carrier = raw.carrier == djmeta::CueCarrierKind::ExternalText
-                ? std::string("External CUE") : std::string("Embedded CUE");
-            for (const auto& field : inventory.globals)
-                add_field("Album / ", field, carrier);
-            for (const auto& track : inventory.tracks) {
-                const auto source = carrier + " / FILE #" +
-                    std::to_string(track.file_reference_index + 1) +
-                    " / TRACK " + std::to_string(track.declared_track_number);
-                for (const auto& field : track.local_fields)
-                    add_field("Track " + std::to_string(track.declared_track_number) +
-                              " / ", field, source);
-            }
-            for (std::size_t i = 0; i < inventory.files.size(); ++i) {
-                if (fields.size() >= 10000)
-                    throw std::invalid_argument("CUE inventory display exceeds 10,000 rows.");
-                djmeta::online::FieldReviewRow row;
-                row.field = "FILE #" + std::to_string(i + 1) + " / FILE";
-                row.original_values.push_back(inventory.files[i].filename);
-                row.candidate.provider = carrier + " / structure";
-                row.candidate.source_id = "cue-line:" +
-                    std::to_string(inventory.files[i].line_number);
-                row.reason = "cue_inventory_read_only";
-                fields.push_back(std::move(row));
-            }
+            // Shared source-only inventory for Inspect CUE and Discogs.
+            auto fields=djmeta::online::cue_original_inventory_rows(inventory);
             state->candidate_rows = std::move(fields);
             state->candidate_source_index = state->selected_track_index;
             state->cue_inspection_mode = true;
