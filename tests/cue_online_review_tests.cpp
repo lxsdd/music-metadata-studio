@@ -464,6 +464,34 @@ int main() {
         no_duration_inventory,wrong_remix);
     check(incompatible.tracks[0].unverified_fields.empty(),
           "wrong remix never receives provisional track field evidence");
+    // A real Discogs edition is authenticated catalog evidence, not proof
+    // that this CUE has the same complete local tracklist. Never make an
+    // album-global change appear reviewable on uncertain track alignment.
+    auto different_album=official_edition;
+    bool has_album=false;
+    for(auto& source_field:different_album.fields)
+        if(source_field.field=="ALBUM" && !source_field.values.empty()) {
+            source_field.values={"Unrelated Edition"};
+            has_album=true;
+            break;
+        }
+    check(has_album,"Discogs fixture contains exact edition album evidence");
+    const auto blocked_album=review_cue_release_edition(
+        no_duration_inventory,different_album);
+    bool protected_album=false;
+    for(const auto& item:blocked_album.album_fields)
+        if(item.candidate.field=="ALBUM" &&
+           item.state==FieldReviewState::Blocked &&
+           item.reason.starts_with("cue_edition_album_unverified_"))
+            protected_album=true;
+    check(blocked_album.eligible && protected_album,
+          "incomplete Discogs-CUE track alignment blocks global album changes");
+    const auto nochange=std::find_if(evidence_only.album_fields.begin(),
+        evidence_only.album_fields.end(),
+        [](const auto& item){return item.candidate.field=="ALBUM";});
+    check(nochange!=evidence_only.album_fields.end() &&
+          nochange->state==FieldReviewState::Unchanged,
+          "identical album facts remain safe no-ops despite uncertain tracks");
     check(no_duration_inventory.source_bytes==no_duration_cue.size(),
           "read-only release review never patches CUE bytes");
     std::cout << "PASS: CUE field scope, inheritance impact, no-op, unknown-field guards\n";

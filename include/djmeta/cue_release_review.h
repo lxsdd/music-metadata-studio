@@ -78,6 +78,29 @@ inline CueEditionReview review_cue_release_edition(
     result.eligible = true;
     result.album_fields = review_cue_candidate_fields(
         cue, std::nullopt, edition.fields);
+    // Official provider provenance does not by itself establish that the
+    // supplied edition belongs to this local CUE. Preserve identical album
+    // no-ops, but require an exhaustive unambiguous 1:1 track association
+    // before showing any album-global value as a potential change.
+    bool complete_edition_alignment =
+        local.tracks.size() == edition.tracks.size();
+    std::vector<bool> seen(edition.tracks.size(), false);
+    for (const auto& match : result.alignment.tracks) {
+        if (match.decision != MatchDecision::Suggested ||
+            !match.conflicts.empty() ||
+            match.edition_track_index >= edition.tracks.size() ||
+            seen[match.edition_track_index]) {
+            complete_edition_alignment = false;
+        } else {
+            seen[match.edition_track_index] = true;
+        }
+    }
+    if (!complete_edition_alignment)
+        for (auto& row : result.album_fields)
+            if (row.state == FieldReviewState::NeedsReview) {
+                row.state = FieldReviewState::Blocked;
+                row.reason = "cue_edition_album_unverified_" + row.reason;
+            }
     for (const auto& match : result.alignment.tracks) {
         CueEditionTrackReview row;
         row.cue_ordinal = match.source_index;

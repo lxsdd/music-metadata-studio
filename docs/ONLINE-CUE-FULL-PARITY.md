@@ -96,3 +96,13 @@ A successful feature requires one-window intuitive operation, exact comparison, 
 ## Reference findings
 
 `lxsdd/foo_metadata_isolation` `docs/VIRTUAL_METADATA_CAPABILITY_MATRIX.md`, `docs/PHYSICAL_METADATA_CAPABILITY_MATRIX.md`, `docs/reports/generated/global-scope-20260809.md`, `docs/reports/generated/native-flac-type5-go-no-go-20260822.md`, `docs/reports/generated/internationalization-unicode-cuesheet-encoding-20260822.md`; and Music Metadata Studio `docs/EXTERNAL-CUE-READONLY.md`, `include/djmeta/external_cue.h`, `include/djmeta/cue_association.h`. No reference findings constitute a release or automatic write qualification for the new component.
+
+## Full tracklist qualification before Discogs album-global changes
+
+Even a successfully loaded official Discogs edition is not independent
+proof that a local CUE is the same release. Unless all local CUE and remote
+edition tracks form one complete, distinct, conflict-free `Suggested`
+one-to-one alignment, candidate album-global **changes** remain `Blocked`.
+Byte-identical global originals remain `Unchanged` and visible. Partial
+recording evidence is available only as explicitly blocked comparison data.
+No physical, embedded or external CUE writes are enabled.
