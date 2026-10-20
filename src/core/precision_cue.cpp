@@ -1,5 +1,6 @@
 #include "djmeta/precision_cue.h"
 #include "djmeta/precision_cue_filename.h"
+#include "djmeta/precision_cue_unicode_text.h"
 #include "djmeta/external_cue.h"
 
 #include <algorithm>
@@ -21,13 +22,13 @@ void validate_cue_text(std::string_view value, std::string_view field, bool requ
     if (required && value.empty()) {
         throw std::invalid_argument(std::string(field) + " is empty");
     }
-    for (const unsigned char c : value) {
-        if (c < 0x20 || c == 0x7F || c == '"') {
-            // The external CUE grammar does not portably represent a literal
-            // double quote inside a quoted field; never silently alter tags.
-            throw std::invalid_argument(std::string(field) + " contains an unsafe CUE character");
-        }
-    }
+    if (!precision_cue_safe_unicode_text(value))
+        throw std::invalid_argument(
+            std::string(field) + " contains malformed Unicode or hidden controls");
+    if (value.find('"') != std::string_view::npos)
+        // The external CUE grammar cannot portably escape literal quotes.
+        throw std::invalid_argument(
+            std::string(field) + " contains an unsafe CUE quote");
 }
 
 std::string quoted(std::string_view input, std::string_view field, bool required = true) {

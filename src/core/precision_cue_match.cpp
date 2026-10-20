@@ -1,5 +1,6 @@
 #include "djmeta/precision_cue_match.h"
 #include "djmeta/precision_cue_cumulative_evidence.h"
+#include "djmeta/precision_cue_unicode_text.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -35,38 +36,8 @@ std::string canonical(std::string_view s) {
     return out;
 }
 
-bool valid_utf8(std::string_view s) {
-    for (std::size_t pos = 0; pos < s.size();) {
-        const auto first = static_cast<unsigned char>(s[pos]);
-        if (first < 0x80u) {
-            if (first < 0x20u || first == 0x7fu) return false;
-            ++pos;
-            continue;
-        }
-        unsigned count = 0;
-        std::uint32_t codepoint = 0, minimum = 0;
-        if ((first & 0xe0u) == 0xc0u) {
-            count = 2; codepoint = first & 0x1fu; minimum = 0x80u;
-        } else if ((first & 0xf0u) == 0xe0u) {
-            count = 3; codepoint = first & 0x0fu; minimum = 0x800u;
-        } else if ((first & 0xf8u) == 0xf0u) {
-            count = 4; codepoint = first & 0x07u; minimum = 0x10000u;
-        } else return false;
-        if (count > s.size() - pos) return false;
-        for (unsigned i = 1; i < count; ++i) {
-            const auto c = static_cast<unsigned char>(s[pos + i]);
-            if ((c & 0xc0u) != 0x80u) return false;
-            codepoint = (codepoint << 6) | (c & 0x3fu);
-        }
-        if (codepoint < minimum || codepoint > 0x10ffffu ||
-            (codepoint >= 0xd800u && codepoint <= 0xdfffu)) return false;
-        pos += count;
-    }
-    return true;
-}
-
 bool valid_field(const std::string& s, bool required = true) {
-    return (!required || !canonical(s).empty()) && valid_utf8(s) && s.size() <= 4096;
+    return (!required || !canonical(s).empty()) && precision_cue_safe_unicode_text(s) && s.size() <= 4096;
 }
 
 bool valid_release(const PrecisionCueRelease& release, bool reference) {

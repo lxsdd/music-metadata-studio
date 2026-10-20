@@ -115,6 +115,40 @@ void test_generated_utf8_validation() {
     assert(cue.external_cue_utf8.find(d.album_title) != std::string::npos);
 }
 
+void test_unicode_control_and_bidi_safety() {
+    // Preserve legitimate Unicode, including combining marks and ZWJ emoji.
+    auto disc = synthetic_disc();
+    disc.album_title = "München – 東京";
+    disc.album_performer = "Кирилл";
+    disc.tracks[0].title = "Café 👩‍🎤";
+    const auto accepted = djmeta::make_precision_cue(disc);
+    assert(accepted.external_cue_utf8.find(disc.tracks[0].title) != std::string::npos);
+
+    const std::vector<std::string> unsafe = {
+        "\xC2\x85",          // U+0085 NEL (Unicode C1)
+        "\xE2\x80\xAE",      // U+202E right-to-left override
+        "\xE2\x80\xA8",      // U+2028 line separator
+        "\xE2\x81\xA6",      // U+2066 bidi isolate
+        "\xD8\x9C",          // U+061C Arabic letter mark
+        "\xEF\xBB\xBF",      // U+FEFF embedded BOM
+        "\xEF\xB7\x90",      // U+FDD0 noncharacter
+        "\xF4\x8F\xBF\xBF",  // U+10FFFF noncharacter
+        "\xC0\xAF",          // overlong UTF-8
+        "\xED\xA0\x80"       // UTF-8 surrogate
+    };
+    for (const auto& bad : unsafe) {
+        disc = synthetic_disc();
+        disc.tracks[0].title = "Synthetic" + bad + "Track";
+        must_reject([&] { (void)djmeta::make_precision_cue(disc); });
+        disc = synthetic_disc();
+        disc.album_title = "Edition" + bad;
+        must_reject([&] { (void)djmeta::make_precision_cue(disc); });
+        disc = synthetic_disc();
+        disc.audio_file_basename = "disc" + bad + ".mp3";
+        must_reject([&] { (void)djmeta::make_precision_cue(disc); });
+    }
+}
+
 void test_invalid_input_fail_closed() {
     const auto good = synthetic_disc();
     {
@@ -369,6 +403,7 @@ int main() {
     test_boundary_audit_multidisc_synthetic();
     test_invalid_input_fail_closed();
     test_generated_utf8_validation();
+    test_unicode_control_and_bidi_safety();
     test_eight_disc_99_track_plan();
     test_bounded_catalog_lookup_admission();
     test_catalog_http_fail_closed_diagnostics();

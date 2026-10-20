@@ -163,6 +163,32 @@ void malformed_provider_data_fail_closed() {
     assert(djmeta::match_precision_cue_releases(source, excessive).state == PrecisionCueMatchState::Rejected);
 }
 
+void provider_unicode_controls_fail_closed() {
+    auto deezer = release("deezer", "synthetic-identity");
+    auto apple = release("apple", "synthetic-collection");
+    const std::vector<std::string> hidden = {
+        "\xC2\x85", "\xE2\x80\xAE", "\xE2\x81\xA6",
+        "\xE2\x80\xA8", "\xEF\xBB\xBF", "\xEF\xB7\x90"
+    };
+    for (const auto& bad : hidden) {
+        deezer = release("deezer", "synthetic-identity");
+        apple = release("apple", "synthetic-collection");
+        apple.tracks[0].title += bad;
+        assert(djmeta::match_precision_cue_releases(deezer, {apple}).state ==
+               PrecisionCueMatchState::Rejected);
+        apple = release("apple", "synthetic-collection");
+        deezer.album_title += bad;
+        assert(djmeta::match_precision_cue_releases(deezer, {apple}).state ==
+               PrecisionCueMatchState::Rejected);
+    }
+    deezer = release("deezer", "synthetic-identity");
+    apple = release("apple", "synthetic-collection");
+    deezer.tracks[0].title = "Café 👩‍🎤";
+    apple.tracks[0].title = "Café 👩‍🎤";
+    assert(djmeta::match_precision_cue_releases(deezer, {apple}).state ==
+           PrecisionCueMatchState::Selected);
+}
+
 void normalization_preserves_mix_versions() {
     auto source = release("deezer", "ref-1");
     auto apple = release("apple", "680000001");
@@ -355,6 +381,7 @@ int main() {
     incomplete_or_conflicting_evidence_review();
     malformed_provider_data_fail_closed();
     normalization_preserves_mix_versions();
+    provider_unicode_controls_fail_closed();
     eight_disc_99_track_contract();
     release_cumulative_24h_contract();
     cumulative_mixed_edition_drift_gates();
