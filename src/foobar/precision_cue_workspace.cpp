@@ -922,12 +922,27 @@ void start_lookup(Workspace& state) {
                     {looked_up, 1}, {*job->deezer_reference, 1000}
                 });
                 if (timing.state !=
-                        djmeta::PrecisionCueConsensusState::SingleHighResolutionSource)
-                    throw std::invalid_argument(
-                        "Apple/Deezer cumulative durations or edition metadata "
-                        "disagree. Preview blocked until a compatible exact "
-                        "edition is selected; whole-second Deezer durations "
-                        "cannot determine CUE frames.");
+                        djmeta::PrecisionCueConsensusState::SingleHighResolutionSource) {
+                    std::string reason =
+                        "Apple/Deezer cumulative durations or edition metadata disagree. "
+                        "Preview blocked; Deezer whole-second durations cannot determine CUE frames.";
+                    if (timing.first_coarse_conflict) {
+                        const auto& first = *timing.first_coarse_conflict;
+                        // Only bounded ordinal and numeric data; no untrusted
+                        // provider titles are reflected in an error dialog.
+                        reason += " First incompatible disc " +
+                            std::to_string(first.disc_number) + ", track " +
+                            std::to_string(first.track_number) +
+                            ": Deezer minus Apple track delta " +
+                            std::to_string(first.signed_track_delta_ms) +
+                            " ms; cumulative delta " +
+                            std::to_string(first.signed_cumulative_delta_ms) +
+                            " ms (allowed +/-" +
+                            std::to_string(first.allowed_cumulative_delta_ms) +
+                            " ms cumulative).";
+                    }
+                    throw std::invalid_argument(reason);
+                }
             }
             job->release = std::move(looked_up);
         } catch (const std::exception& error) {

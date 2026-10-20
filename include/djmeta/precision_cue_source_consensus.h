@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <algorithm>
+#include <optional>
 #include <set>
 #include <string>
 #include <string_view>
@@ -31,10 +32,22 @@ struct PrecisionCueSourceDifference {
     unsigned resolution_ms = 0;
 };
 
+struct PrecisionCueCoarseDurationConflict {
+    unsigned disc_number = 0;
+    unsigned track_number = 0;
+    // Corroborating minus primary provider, in integer milliseconds.
+    std::int64_t signed_track_delta_ms = 0;
+    std::int64_t signed_cumulative_delta_ms = 0;
+    std::int64_t allowed_track_delta_ms = 0;
+    std::int64_t allowed_cumulative_delta_ms = 0;
+};
+
 struct PrecisionCueConsensusReport {
     PrecisionCueConsensusState state = PrecisionCueConsensusState::Rejected;
     std::size_t high_resolution_sources = 0;
     std::vector<PrecisionCueSourceDifference> differences;
+    // Read-only evidence for the first coarse-resolution duration conflict.
+    std::optional<PrecisionCueCoarseDurationConflict> first_coarse_conflict;
     std::vector<std::string> diagnostics;
 };
 
@@ -184,8 +197,14 @@ inline PrecisionCueConsensusReport audit_precision_cue_source_consensus(
                     ((resolution + 1) / 2) * tracks_in_disc + 1000;
                 if (duration_delta > track_limit || duration_delta < -track_limit ||
                     cumulative_delta > cumulative_limit ||
-                    cumulative_delta < -cumulative_limit)
+                    cumulative_delta < -cumulative_limit) {
                     coarse_reference_conflict = true;
+                    if (!report.first_coarse_conflict)
+                        report.first_coarse_conflict = PrecisionCueCoarseDurationConflict{
+                            track.disc_number, track.track_number, duration_delta,
+                            cumulative_delta, track_limit, cumulative_limit
+                        };
+                }
             }
         }
     }

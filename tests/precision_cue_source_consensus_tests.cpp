@@ -172,6 +172,16 @@ int main() {
     assert(cumulative_conflict.state == PrecisionCueConsensusState::Review);
     assert(cumulative_conflict.diagnostics[0] ==
            "COARSE_REFERENCE_DURATION_CONFLICT");
+    assert(cumulative_conflict.first_coarse_conflict.has_value());
+    const auto first = *cumulative_conflict.first_coarse_conflict;
+    assert(first.disc_number == 1 && first.track_number == 3);
+    assert(first.signed_track_delta_ms == -999);
+    assert(first.signed_cumulative_delta_ms == -2997);
+    assert(first.allowed_track_delta_ms == 1500);
+    assert(first.allowed_cumulative_delta_ms == 2500);
+    assert(!audit_precision_cue_source_consensus({
+        source("apple", 1), source("deezer", 1000)
+    }).first_coarse_conflict.has_value());
 
     // Repeated sub-second truncation can look acceptable track-by-track
     // yet produce a badly drifted full-disc CUE.
