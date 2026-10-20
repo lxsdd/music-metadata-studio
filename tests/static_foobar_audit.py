@@ -65,11 +65,21 @@ for token in (
 for token in (
     "master_id_from_url(term)", "master_versions_path(master_id)",
     "parse_master_versions(reply,request.master_id)",
-    "context.master_id=master_id", "master_search_path(core)",
+    "context.master_id=master_id",
     "if(source_id.starts_with(\"master:\"))", "perform_discogs_search(dialog,state);",
 ):
     if token not in batch_rules_guard:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: master edition route missing "+token)
+
+# Master search belongs to the provider implementation. Check the documented
+# canonical path and the native opt-in independently, not in one source.
+discogs_provider = (root / "include" / "djmeta" / "discogs_provider.h").read_text(encoding="utf-8")
+for token in ("master_search_path(core)", "type=master",
+              "if(master && (!q || !tail.empty())) return false;"):
+    if token not in discogs_provider:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: Discogs master provider gate missing " + token)
+if "auto_query?local_album:std::string{},true" not in batch_rules_guard:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: native Discogs master opt-in missing")
 
 # Refresh cancellation is only permitted after affirmative confirmation.
 refresh_source = batch_rules_guard.split("void refresh_workspace_snapshot(PreviewState& state)",1)[1]
