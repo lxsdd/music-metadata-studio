@@ -4,6 +4,7 @@
 #include "djmeta/online_release.h"
 
 #include <cstddef>
+#include <map>
 #include <string>
 #include <utility>
 #include <vector>
@@ -42,6 +43,14 @@ inline CueReleaseLookup prepare_cue_release_lookup(
         result.reasons.push_back("release_matching_limit_exceeded");
         return result;
     }
+    // A new FILE is not an inferred new disc. When track numbering
+    // restarts, an occurrence such as TRACK 01 in two FILE sections
+    // cannot be used as an exact provider track-position identity.
+    // Keep the unique CUE ordinal/source identity but mark the repeated
+    // position unknown for the cross-release matcher.
+    std::map<int, std::size_t> declared_number_frequency;
+    for (const auto& track : cue.tracks)
+        ++declared_number_frequency[track.declared_track_number];
     for (const auto& track : cue.tracks) {
         if (track.track_type != "AUDIO" ||
             track.file_reference_index >= cue.files.size()) {
@@ -66,7 +75,8 @@ inline CueReleaseLookup prepare_cue_release_lookup(
         identity.duration_ms = -1;       // INDEX/CD frames != full duration.
         LocalReleaseTrack row;
         row.source_index = track.ordinal;
-        row.track_number = track.declared_track_number;
+        row.track_number = declared_number_frequency[track.declared_track_number] == 1
+            ? track.declared_track_number : -1;
         row.disc_number = -1; // A new FILE is NOT proof of a new disc.
         row.recording = std::move(identity);
         result.tracks.push_back(std::move(row));

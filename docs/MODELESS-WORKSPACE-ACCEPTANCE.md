@@ -182,3 +182,20 @@ open native Studio must enter `STALE snapshot (Read-only)` and disable
 subsequent import actions, including when foobar previously selected a
 virtual embedded-CUE track. Type-5 **writing** remains prohibited and
 unqualified; the test validates *read-only byte preservation* only.
+
+## Real Multi-FILE CUE host qualification (October 2026)
+
+The exact-SHA Win32/x64 shared foobar runner now opens an isolated CUE
+referencing **two distinct disposable physical WAV files**, each with its
+own `FILE` line and intentionally restarted `TRACK 01`. It invokes
+the native **Inspect CUE** and a complete, invented two-mix Beatport
+edition comparison through the actual modeless Studio window. The original
+external CUE and **both** audio files must retain their exact bytes, sizes
+and timestamps. No remote Beatport request or writer path is involved.
+
+A corresponding in-process cross-release matching gate explicitly
+suppresses duplicated track-number position evidence across FILE blocks,
+without losing the individual CUE source ordinal or fabricating a disc
+number. Sequential globally unique track numbers remain usable. This
+does not claim that the existence or rename safety of arbitrary unselected
+FILE paths has yet been qualified for any physical write plan.

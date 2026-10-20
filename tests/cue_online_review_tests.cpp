@@ -103,6 +103,42 @@ int main() {
           multi_file_originals[0].candidate.source_id=="cue-line:3" &&
           multi_file_originals[1].candidate.source_id=="cue-line:6",
           "same declared track number across FILE blocks keeps unique local identity");
+    // Multi-FILE CUEs may restart TRACK 01 for each physical source.
+    // CUE ordinal remains unique, but that repeated number is NOT proof
+    // that either recording is track #1 in the online release edition.
+    const auto repeating_file_numbers=inspect_cue_metadata(
+        "TITLE Album\nPERFORMER Example DJ\n"
+        "FILE a.flac WAVE\nTRACK 01 AUDIO\nTITLE First\n"
+        "FILE b.flac WAVE\nTRACK 01 AUDIO\nTITLE Second\n",
+        CueCarrierKind::ExternalText);
+    const auto multi_lookup=prepare_cue_release_lookup(repeating_file_numbers);
+    check(multi_lookup.eligible && multi_lookup.tracks.size()==2 &&
+          multi_lookup.tracks[0].source_index==0 &&
+          multi_lookup.tracks[1].source_index==1 &&
+          multi_lookup.tracks[0].track_number==-1 &&
+          multi_lookup.tracks[1].track_number==-1 &&
+          multi_lookup.tracks[0].disc_number==-1 &&
+          multi_lookup.tracks[1].disc_number==-1,
+          "repeated TRACK 01 across FILE blocks retains ordinals but no invented position");
+    EditionTrack provider_track;
+    provider_track.track_number=1;
+    provider_track.disc_number=1;
+    const auto unknown_position=compare_position(multi_lookup.tracks[1],provider_track);
+    check(!unknown_position.conflict && unknown_position.bonus==0,
+          "repeated CUE number supplies no misleading provider track match bonus");
+    const auto sequential_file_numbers=inspect_cue_metadata(
+        "PERFORMER Example DJ\n"
+        "FILE a.flac WAVE\nTRACK 01 AUDIO\nTITLE First\n"
+        "FILE b.flac WAVE\nTRACK 02 AUDIO\nTITLE Second\n",
+        CueCarrierKind::ExternalText);
+    const auto sequential_lookup=prepare_cue_release_lookup(sequential_file_numbers);
+    check(sequential_lookup.eligible && sequential_lookup.tracks.size()==2 &&
+          sequential_lookup.tracks[0].track_number==1 &&
+          sequential_lookup.tracks[1].track_number==2 &&
+          compare_position(sequential_lookup.tracks[0],provider_track).bonus==6,
+          "unique multi-FILE CUE numbers remain valid unambiguous position evidence");
+    check(cue_original_inventory_rows(repeating_file_numbers).size()==5,
+          "original global performer, two track titles and two FILEs stay distinct");
     const auto rows = review_cue_candidate_fields(parsed, 1, {
         item("ALBUM", {"New Album"}, EvidenceScope::Edition),
         item("ALBUM ARTIST", {"Album Artist"}, EvidenceScope::Edition),
