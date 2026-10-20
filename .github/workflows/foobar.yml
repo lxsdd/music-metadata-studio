@@ -58,7 +58,7 @@ jobs:
         shell: pwsh
         run: ./scripts/build-foobar.ps1 -Platform '${{ matrix.platform }}' -Configuration Release -PlatformToolset v143
       - name: HARD GATE - foobar2000 ${{ matrix.platform }} component host load
-        uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@8e5ca6fe92d619ad50c5f04eac92626c46b7fdd1
+        uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@826e2c88bc64ac3ca497e98cec2e5ba2ab9e5f1e
         with:
           architecture: ${{ matrix.platform }}
           component-dll: out/foobar/${{ matrix.platform }}/Release/foo_music_metadata_studio.dll
@@ -74,6 +74,8 @@ jobs:
             DATE_RAW@edition=2026-10-20
           clipboard-button-id: '289'
           clipboard-list-id: '271'
+          beatport-edition-host-probe: 'true'
+          stale-physical-host-probe: 'true'
       - name: Upload DLL
         if: github.event_name != 'pull_request'  # Never upload unqualified DLLs in draft PR CI
         uses: actions/upload-artifact@v7

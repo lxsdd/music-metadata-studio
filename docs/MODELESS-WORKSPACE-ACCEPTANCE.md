@@ -44,3 +44,21 @@ read-only UI-handler test, not a live provider test and not a substitute for
 checking provenance or comparison values in a final human review. The
 existing same-source workspace reuse and synthetic WAV integrity checks
 remain mandatory. The runner clipboard is cleared after this probe.
+
+## Expanded synthetic Beatport release and stale source host gates
+
+The exact-SHA pinned runner now optionally imports a complete **invented**
+Beatport release document and an independently invented two-track page with
+Extended Mix and Radio Edit. The production Import clipboard control must
+populate at least three release/track summary rows, a native field-details
+list, and the read-only release-details status. This is **manual offline
+source-declared evidence only**; it is not an official API query and cannot
+approve a match when the synthetic WAV has no matching recording identity.
+
+After confirming byte/timestamp integrity of the original disposable WAV,
+the runner deliberately modifies **only this temporary test WAV** and
+activates Import clipboard again. A PASS requires the real Studio window to
+enter `STALE snapshot (Read-only)` mode and disable that native control.
+Production music, physical CUE, ReplayGain, artwork and actual writer paths
+are never modified. These focused host passes are not a full provider or
+writer-safety qualification.
