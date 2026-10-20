@@ -2277,7 +2277,15 @@ void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
     }
     update_table(state);
     std::size_t present = 0, missing = 0, unqualified = 0;
+    std::size_t physical_source_aliases = 0;
     for (const auto& result : observations) {
+        const auto& issues = state.table.rows.at(result.index).issues;
+        for (const auto& issue : issues)
+            if (issue == "RAW_TARGET_ALIASES_SOURCE" ||
+                issue == "RAW_TARGET_IS_BATCH_SOURCE") {
+                ++physical_source_aliases;
+                break;
+            }
         switch (result.observed.state) {
         case HostFileState::ExistingFile: ++present; break;
         case HostFileState::Missing: ++missing; break;
@@ -2291,6 +2299,7 @@ void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
         L" candidate(s); present " + std::to_wstring(present) +
         L", missing " + std::to_wstring(missing) +
         L", unqualified " + std::to_wstring(unqualified) +
+        L", physical source aliases " + std::to_wstring(physical_source_aliases) +
         L". Final foobar destinations/CUE dependencies UNVERIFIED; no writes.";
     SetDlgItemTextW(dialog, IDC_BATCH_HINT, hint.c_str());
 }

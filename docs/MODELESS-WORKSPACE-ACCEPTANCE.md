@@ -227,3 +227,12 @@ Discogs/Beatport/CUE checks. All cross-process UI interactions avoid
 pointer-bearing tab/ListView messages and operate on isolated fixtures.
 This proves an interactive **raw candidate inspection**, never target
 authorization, user music writes or OS rename/move safety.
+
+## Physical source-alias feedback in real File locations
+
+The read-only raw target inspection footer now includes a count of targets
+that physically alias any selected source (including another selected
+audio in the batch). The alias result is derived from the existing OS
+physical-file-ID and source-guard checks; it is not inferred from
+filename text or an extension. An alias remains a conflict and **never**
+turns the raw target into a qualified File Operations destination.
