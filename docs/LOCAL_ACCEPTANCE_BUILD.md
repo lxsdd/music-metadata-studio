@@ -49,10 +49,15 @@ es werden keine vorhandenen Daten gelöscht.
 
 **Kein automatisches Installieren, Patchen, Tagging, Datenbank- oder Audiozugriff.**
 Das Paket darf erst nach separater Freigabe und Prüfung im Endgerät installiert
-werden. Die GitHub-CI testet die Preflight-Voraussetzungen und die normalen
-Architektur-Builds; die vollständige lokale Download-und-Build-Reihenfolge
-und die echte Endgerätabnahme bleiben bis zu einem tatsächlichen Windows-Lauf
-noch **unbestätigt**.
+werden. Die vollständige lokale Download-und-Build-Reihenfolge wurde auf einem
+Windows-Runner einschließlich Win32/x64, Paketmanifest und SHA-256 bereits
+nachgewiesen ([Lauf 39435120160](https://github.com/lxsdd/music-metadata-studio/actions/runs/39435120160)).
+Der Standalone-Aufruf aus einem isolierten Windows-Temp-Ordner ohne
+Projektdateien wurde separat erfolgreich geprüft
+([Lauf 39438568386](https://github.com/lxsdd/music-metadata-studio/actions/runs/39438568386)).
+Beide Läufe veröffentlichten **keine Binär-Artefakte**. Eine Installation
+und die **echte Endgerätabnahme auf deinem Windows-Rechner** bleiben separat
+und sind nicht durch GitHub-CI ersetzbar.
 
 Die bestehenden öffentlichen Sicherheits-PRs verhindern parallel, dass ein
 Github-Actions-Build des gleichen Quellcodes als öffentlich abrufbare DLL
