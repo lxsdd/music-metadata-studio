@@ -58,7 +58,7 @@ jobs:
         shell: pwsh
         run: ./scripts/build-foobar.ps1 -Platform '${{ matrix.platform }}' -Configuration Release -PlatformToolset v143
       - name: Upload DLL
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        if: false # Source-only qualification: no preview DLL artifacts
         uses: actions/upload-artifact@v7
         with:
           name: foo-dj-metadata-normalizer-${{ matrix.platform }}
@@ -69,7 +69,7 @@ jobs:
   # Internal PRs may publish short-lived QA artifacts, never GitHub Releases.
   # Fork PRs remain build-only so untrusted code cannot publish previews.
   package:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: false # Package upload disabled until rights clearance
     needs: [static-audit, host-gate-script, windows-build]
     runs-on: windows-2022
     timeout-minutes: 10
@@ -94,6 +94,7 @@ jobs:
             -Version $version `
             -Commit '${{ github.event.pull_request.head.sha || github.sha }}'
       - name: Upload combined component
+        if: false # Do not publish components until clearance
         uses: actions/upload-artifact@v7
         with:
           name: foo-dj-metadata-normalizer-component
