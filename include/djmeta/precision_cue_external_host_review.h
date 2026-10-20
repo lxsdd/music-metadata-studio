@@ -3,10 +3,13 @@
 // Captures actual OS file IDs/snapshots and target non-existence at preview.
 // It cannot write; writes require an independent user action and confirmation.
 #include "djmeta/precision_cue_external_create.h"
+#include "djmeta/precision_cue_sha256_stream.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <optional>
 #include <string_view>
 #include <system_error>
@@ -16,7 +19,42 @@ namespace djmeta {
 struct PrecisionCueReviewedExternalCreate {
     PrecisionCueExternalCreateRequest request;
     precision_cue_external_detail::PhysicalSourceFingerprint reviewed_source;
+    std::array<std::uint8_t, 32> reviewed_source_sha256{};
 };
+
+// Streaming SHA guard: same-inode, same-size, restored-mtime edits must
+// invalidate a reviewed physical mix. Read-only; bounded 64 KiB RAM.
+inline std::optional<std::array<std::uint8_t, 32>>
+precision_cue_review_source_sha256(
+    const std::filesystem::path& physical, const std::filesystem::path& parent,
+    std::string_view basename) {
+    const auto before = precision_cue_external_detail::physical_source_snapshot(
+        physical, parent, basename);
+    if (!before || before->length > (std::uintmax_t{1} << 42))
+        return std::nullopt;
+    std::ifstream stream(physical, std::ios::binary);
+    if (!stream) return std::nullopt;
+    PrecisionCueSha256Stream digest;
+    std::array<char, 64 * 1024> block{};
+    std::uintmax_t remaining = before->length;
+    while (remaining != 0) {
+        const auto count = static_cast<std::size_t>((std::min)(
+            remaining, std::uintmax_t(block.size())));
+        stream.read(block.data(), static_cast<std::streamsize>(count));
+        if (stream.gcount() != static_cast<std::streamsize>(count))
+            return std::nullopt;
+        digest.update(std::string_view(block.data(), count));
+        remaining -= count;
+    }
+    char extra = 0;
+    if (stream.get(extra) || !stream.eof()) return std::nullopt;
+    stream.close();
+    if (!precision_cue_external_detail::physical_source_unchanged(
+            *before, physical, parent, basename))
+        return std::nullopt;
+    return digest.finalize();
+}
+
 
 // Nonzero deterministic token is only a stale-state fingerprint, NOT an
 // authorization or evidence of a private file's contents.
@@ -84,6 +122,9 @@ capture_precision_cue_external_review(
         !precision_cue_external_detail::physical_source_unchanged(
             initially_selected, physical, parent, mp3_basename))
         return std::nullopt;
+    const auto source_hash = precision_cue_review_source_sha256(
+        physical, parent, mp3_basename);
+    if (!source_hash) return std::nullopt;
     const auto target = parent /
         precision_cue_external_detail::utf8_path(proposal.target_cue_basename);
     if (target.parent_path() != parent ||
@@ -116,6 +157,7 @@ capture_precision_cue_external_review(
     req.reviewed_preflight.explicit_user_approval = false;
     req.explicitly_approved_for_external_create = false;
     reviewed.reviewed_source = *current;
+    reviewed.reviewed_source_sha256 = *source_hash;
     return reviewed;
 }
 
@@ -135,8 +177,14 @@ inline PrecisionCueExternalFreshSnapshot observe_precision_cue_external_review(
             reviewed.request.mp3_basename)) {
         observed.preflight.source_snapshot_current = false;
     } else {
-        observed.source_snapshot_token =
-            precision_cue_source_snapshot_token(physical, *current);
+        const auto current_hash = precision_cue_review_source_sha256(
+            physical, parent, reviewed.request.mp3_basename);
+        if (!current_hash || *current_hash != reviewed.reviewed_source_sha256) {
+            observed.preflight.source_snapshot_current = false;
+        } else {
+            observed.source_snapshot_token =
+                precision_cue_source_snapshot_token(physical, *current);
+        }
     }
     const auto proposal = plan_precision_cue_external_export(
         reviewed.request.plan, reviewed.request.mp3_basename);
@@ -165,9 +213,19 @@ create_confirmed_precision_cue_external(
         !reviewed.request.reviewed_preflight.explicit_user_approval)
         return {PrecisionCueExternalCreateStatus::Rejected,
                 "CUE_CREATE_REQUIRES_SEPARATE_USER_CONFIRMATION"};
-    return create_new_precision_cue_external(
+    const auto created = create_new_precision_cue_external(
         reviewed.request,
         [&reviewed] { return observe_precision_cue_external_review(reviewed); });
+    if (created.status == PrecisionCueExternalCreateStatus::Created) {
+        const auto after = precision_cue_review_source_sha256(
+            reviewed.request.physical_mp3_absolute_path,
+            reviewed.request.qualified_sibling_directory,
+            reviewed.request.mp3_basename);
+        if (!after || *after != reviewed.reviewed_source_sha256)
+            return {PrecisionCueExternalCreateStatus::PublishedNeedsReview,
+                    "CUE_PUBLISHED_SOURCE_HASH_CHANGED_REVIEW"};
+    }
+    return created;
 }
 
 } // namespace djmeta

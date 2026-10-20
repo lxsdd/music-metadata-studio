@@ -583,6 +583,48 @@ void native_host_review_and_create_regressions() {
     const auto newReview = capture_precision_cue_external_review(
         plan, mp3, "Disc Über 東京.mp3", *initial);
     VERIFY(newReview.has_value());
+    // Same inode, same length and restored mtime must still be rejected.
+    // A timestamp/OS-file-ID-only guard would incorrectly accept this edit.
+    const auto saved_time = fs::last_write_time(mp3);
+    std::string saved_bytes;
+    {
+        std::ifstream source(mp3, std::ios::binary);
+        saved_bytes.assign(std::istreambuf_iterator<char>(source),
+                           std::istreambuf_iterator<char>());
+    }
+    VERIFY(!saved_bytes.empty());
+    {
+        std::fstream edit(mp3, std::ios::binary | std::ios::in | std::ios::out);
+        VERIFY(edit.is_open());
+        edit.put(saved_bytes.front() == 'X' ? 'Y' : 'X');
+        VERIFY(edit.good());
+    }
+    fs::last_write_time(mp3, saved_time);
+    const auto in_place_fingerprint =
+        precision_cue_external_detail::physical_source_snapshot(
+            mp3, root, "Disc Über 東京.mp3");
+    VERIFY(in_place_fingerprint.has_value());
+    VERIFY(in_place_fingerprint->length == initial->length);
+    VERIFY(in_place_fingerprint->last_write == initial->last_write);
+    VERIFY(in_place_fingerprint->file_id == initial->file_id);
+    VERIFY(in_place_fingerprint->volume_id == initial->volume_id);
+    auto changed_content = *newReview;
+    changed_content.request.explicitly_approved_for_external_create = true;
+    changed_content.request.reviewed_preflight.explicit_user_approval = true;
+    VERIFY(!observe_precision_cue_external_review(changed_content)
+                .preflight.source_snapshot_current);
+    VERIFY(create_confirmed_precision_cue_external(changed_content).status !=
+           Status::Created);
+    VERIFY(!fs::exists(target));
+    {
+        std::ofstream restore(mp3, std::ios::binary | std::ios::trunc);
+        restore << saved_bytes;
+        VERIFY(restore.good());
+    }
+    fs::last_write_time(mp3, saved_time);
+    VERIFY(observe_precision_cue_external_review(*newReview)
+               .preflight.source_snapshot_current);
+
     // A stale original review may not be used after source replacement,
     // even if the file size and modification timestamp are unchanged.
     const auto sourceFingerprint = precision_cue_external_detail::physical_source_snapshot(
