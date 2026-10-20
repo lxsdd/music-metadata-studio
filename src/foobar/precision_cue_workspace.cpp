@@ -14,6 +14,7 @@
 #include "djmeta/precision_cue_deezer_link.h"
 #include "djmeta/precision_cue_deezer_http.h"
 #include "djmeta/precision_cue_match.h"
+#include "djmeta/precision_cue_source_consensus.h"
 #include "djmeta/precision_cue_match_diagnostics.h"
 #include "djmeta/precision_cue_apple_selection.h"
 #include "djmeta/precision_cue_request_revision.h"
@@ -914,6 +915,19 @@ void start_lookup(Workspace& state) {
                     throw std::invalid_argument(
                         djmeta::describe_precision_cue_match_failure(
                             match, *job->deezer_reference, looked_up));
+                // Per-track tolerance does not protect a 30-track continuous
+                // mix against accumulated whole-second catalog drift. Apple
+                // supplies index timing; Deezer is identity evidence only.
+                const auto timing = djmeta::audit_precision_cue_source_consensus({
+                    {looked_up, 1}, {*job->deezer_reference, 1000}
+                });
+                if (timing.state !=
+                        djmeta::PrecisionCueConsensusState::SingleHighResolutionSource)
+                    throw std::invalid_argument(
+                        "Apple/Deezer cumulative durations or edition metadata "
+                        "disagree. Preview blocked until a compatible exact "
+                        "edition is selected; whole-second Deezer durations "
+                        "cannot determine CUE frames.");
             }
             job->release = std::move(looked_up);
         } catch (const std::exception& error) {

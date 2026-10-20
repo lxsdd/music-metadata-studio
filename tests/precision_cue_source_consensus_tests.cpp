@@ -146,6 +146,33 @@ int main() {
     assert(audit_precision_cue_source_consensus({apple, mb}).state ==
            PrecisionCueConsensusState::Review);
 
+    // End-to-end native admission contract: independently matched Deezer
+    // seconds never become Apple CUE frames when cumulative drift is unsafe.
+    apple = source("apple", 1);
+    deezer = source("deezer", 1000);
+    apple.release.tracks.clear();
+    deezer.release.tracks.clear();
+    for (unsigned track = 1; track <= 30; ++track) {
+        apple.release.tracks.push_back({1, track, "Synthetic Mixed Track",
+                                        "Synthetic Artist", 180500});
+        deezer.release.tracks.push_back({1, track, "Synthetic Mixed Track",
+                                         "Synthetic Artist", 180000});
+    }
+    assert(match_precision_cue_releases(deezer.release, {apple.release}).state ==
+           PrecisionCueMatchState::Selected);
+    assert(audit_precision_cue_source_consensus({apple, deezer}).state ==
+           PrecisionCueConsensusState::SingleHighResolutionSource);
+    // All 30 per-track deviations remain within the matcher threshold,
+    // but their aggregate drift makes the generated CUE unsafe.
+    for (auto& track : apple.release.tracks) track.duration_ms = 180999;
+    assert(match_precision_cue_releases(deezer.release, {apple.release}).state ==
+           PrecisionCueMatchState::Selected);
+    const auto cumulative_conflict =
+        audit_precision_cue_source_consensus({apple, deezer});
+    assert(cumulative_conflict.state == PrecisionCueConsensusState::Review);
+    assert(cumulative_conflict.diagnostics[0] ==
+           "COARSE_REFERENCE_DURATION_CONFLICT");
+
     // Repeated sub-second truncation can look acceptable track-by-track
     // yet produce a badly drifted full-disc CUE.
     deezer = source("deezer", 1000);
