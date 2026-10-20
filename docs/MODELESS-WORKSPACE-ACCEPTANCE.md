@@ -68,7 +68,7 @@ writer-safety qualification.
 The ordinary secret-free foobar Win32 and x64 host runs no longer accept
 only nonempty candidate/detail ListViews as proof of an exact edition import.
 For a fully invented, user-pasted Beatport two-track release, the shared
-runner queries the **actual native virtual ListView rows** in the disposable
+runner queries the **native LVN_GETDISPINFOW display callbacks of the virtual ListView rows** in the disposable
 foobar host using bounded cross-process Win32 scratch memory. Both
 `Release Track 1` and `Release Track 2` must appear once, each labelled
 `Pasted: beatport` and `Unmatched` because the synthetic one-second
@@ -78,3 +78,11 @@ population, duplicate identities, wrong provider or accidental
 not just ListView item counts. It does not prove a positive recording match,
 CUE coverage or media write safety. The same action version is pinned by
 the separately protected, manual authorized Discogs path.
+
+The Win32 `LVS_OWNERDATA` (virtual ListView) style does **not**
+support `LVM_GETITEMTEXT`. An initial cross-process text query correctly
+returned no content in both architectures, although previous button/row-count
+tests passed. The runner now exercises the same display notification used by
+the real ListView. It reads the callback's text from the isolated host process,
+with 256-character bounds and architecture-specific struct layouts.
+A lack of returned text remains a hard failure, not a skipped assertion.
