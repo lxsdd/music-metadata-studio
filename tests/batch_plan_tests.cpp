@@ -398,6 +398,85 @@ void test_external_cue_dependencies() {
             "unverified CUE source bytes must block operation");
 }
 
+
+void test_multifile_cue_planned_audio_dependencies() {
+    auto a=audio("first");
+    auto b=audio("second");
+    a.cue_links=djmeta::CueLinkState::Verified;
+    b.cue_links=djmeta::CueLinkState::Verified;
+    auto cue=audio("mix-cue");
+    cue.role=djmeta::FileRole::ExternalCue;
+    cue.source_path="Z:/Music/Downloads/multi.cue";
+    cue.source_key="z:/music/downloads/multi.cue";
+    cue.target_path="Z:/Music/Singles/multi.cue";
+    cue.target_key="z:/music/singles/multi.cue";
+    cue.cue_links=djmeta::CueLinkState::Verified;
+    cue.associated_audio_ids={a.physical_id,b.physical_id};
+    cue.cue_source_fingerprint="raw-double-FILE";
+    cue.cue_postimage_fingerprint="rewritten-double-FILE";
+    cue.cue_references_will_change=true;
+    cue.metadata_fingerprint.clear();
+    cue.planned_metadata_fingerprint.clear();
+    std::vector<djmeta::FilePlanItem> items={a,b,cue};
+    const auto ok=djmeta::review_batch_plan(items);
+    require(ok.ready_to_apply && ok.blocked==0 &&
+            ok.decisions[2].cue_bytes_write_needed,
+            "one external CUE with two qualified physical audio references");
+    const djmeta::BatchApproval approval{ok.plan_fingerprint,false,{}};
+    const auto frozen=djmeta::freeze_reviewed_batch_preview(items,approval);
+    require(frozen.items.size()==3 && frozen.items[2].associated_audio_ids.size()==2,
+            "frozen plan retains every CUE audio dependency");
+    auto changed=items;
+    changed[2].associated_audio_ids={b.physical_id,a.physical_id};
+    const auto stale=djmeta::review_batch_plan(changed,&approval);
+    require(stale.blocked==3 &&
+            has_reason(stale.decisions[2],"STALE_BATCH_APPROVAL"),
+            "reordering Multi-FILE members invalidates exact approval");
+    changed=items;
+    changed[2].associated_audio_ids={a.physical_id};
+    const auto incomplete=djmeta::review_batch_plan(changed);
+    require(incomplete.blocked>=1 &&
+            has_reason(incomplete.decisions[1],"VERIFIED_CUE_NOT_IN_PLAN"),
+            "dropping second selected physical FILE cannot silently qualify plan");
+    changed=items;
+    changed[2].associated_audio_ids.push_back("absent-file");
+    const auto missing=djmeta::review_batch_plan(changed);
+    require(!missing.ready_to_apply &&
+            has_reason(missing.decisions[2],"CUE_REFERENCE_PLAN_UNQUALIFIED"),
+            "unselected FILE identity blocks the CUE");
+    changed=items;
+    changed[2].associated_audio_ids={a.physical_id,a.physical_id};
+    const auto duplicate=djmeta::review_batch_plan(changed);
+    require(!duplicate.ready_to_apply &&
+            has_reason(duplicate.decisions[2],"CUE_AUDIO_RELATIONSHIP_AMBIGUOUS"),
+            "duplicate physical source in Multi-FILE CUE blocks");
+    changed=items;
+    changed[2].associated_audio_id="different-legacy-id";
+    const auto contradiction=djmeta::review_batch_plan(changed);
+    require(!contradiction.ready_to_apply &&
+            has_reason(contradiction.decisions[2],"CUE_AUDIO_RELATIONSHIP_AMBIGUOUS"),
+            "legacy and multi-file relationships cannot contradict");
+    changed=items;
+    changed[1].cue_links=djmeta::CueLinkState::NoExternalCue;
+    const auto denied=djmeta::review_batch_plan(changed);
+    require(!denied.ready_to_apply &&
+            has_reason(denied.decisions[1],"CUE_ASSOCIATION_CONTRADICTS_NO_EXTERNAL_CUE") &&
+            has_reason(denied.decisions[2],"CUE_REFERENCE_PLAN_UNQUALIFIED"),
+            "one contradictory FILE participant blocks complete plan");
+    changed=items;
+    changed[2].associated_audio_ids[1].push_back('\0');
+    const auto nul=djmeta::review_batch_plan(changed);
+    require(!nul.ready_to_apply &&
+            has_reason(nul.decisions[2],"EMBEDDED_NUL_IN_PLAN_IDENTITY"),
+            "NUL in second FILE association cannot bypass guard");
+    changed=items;
+    changed[0].associated_audio_ids={b.physical_id};
+    const auto wrongRole=djmeta::review_batch_plan(changed);
+    require(!wrongRole.ready_to_apply &&
+            has_reason(wrongRole.decisions[0],"CUE_AUDIO_RELATIONSHIP_AMBIGUOUS"),
+            "non-CUE file cannot declare multi-FILE relation");
+}
+
 void test_contradictory_audio_cue_evidence_rejected() {
     auto source = audio("contradictory");
     djmeta::FilePlanItem cue;
@@ -1017,6 +1096,7 @@ int main() {
     test_duplicate_subsong_source_and_self_copy();
     test_duplicate_selected_tag_only_source_cannot_escape_preflight();
     test_external_cue_dependencies();
+    test_multifile_cue_planned_audio_dependencies();
     test_contradictory_audio_cue_evidence_rejected();
     test_inactive_cue_relationships_and_tag_only_audio_guard();
     test_cue_rewrite_only_on_external_cue_items();

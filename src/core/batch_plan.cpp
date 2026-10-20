@@ -38,8 +38,11 @@ std::string plan_fingerprint(const std::vector<FilePlanItem>& items) {
             item.target_guard,
             decimal(static_cast<int>(item.cue_links)),
             item.cue_source_fingerprint, item.cue_postimage_fingerprint,
-            yesno(item.cue_references_will_change)
+            yesno(item.cue_references_will_change),
+            std::to_string(item.associated_audio_ids.size())
         }});
+        for (const auto& id : item.associated_audio_ids)
+            document.fields.back().values.push_back(id);
     }
     return fingerprint(document);
 }
@@ -101,7 +104,30 @@ bool contains_embedded_nul(const FilePlanItem& item) {
     };
     for (const auto* field : fields)
         if (field->find('\0') != std::string::npos) return true;
+    for (const auto& id : item.associated_audio_ids)
+        if (id.find('\0') != std::string::npos) return true;
     return false;
+}
+
+std::vector<std::string> cue_audio_dependencies(const FilePlanItem& item) {
+    if (!item.associated_audio_ids.empty()) return item.associated_audio_ids;
+    return item.associated_audio_id.empty()
+        ? std::vector<std::string>{}
+        : std::vector<std::string>{item.associated_audio_id};
+}
+
+bool valid_cue_participants(const FilePlanItem& item) {
+    if (!item.associated_audio_ids.empty() &&
+        item.role != FileRole::ExternalCue) return false;
+    if (item.role != FileRole::ExternalCue) return true;
+    const auto ids = cue_audio_dependencies(item);
+    if (ids.empty()) return false;
+    std::set<std::string> unique;
+    for (const auto& id : ids)
+        if (id.empty() || !unique.insert(id).second) return false;
+    if (!item.associated_audio_id.empty() &&
+        unique.count(item.associated_audio_id) == 0) return false;
+    return true;
 }
 
 bool active_file_action(const FilePlanItem& item) {
@@ -162,9 +188,9 @@ BatchPlanReview review_batch_plan(
 
     for (const FilePlanItem& item : items) {
         if (!item.source_key.empty()) all_source_keys.insert(item.source_key);
-        if (item.role == FileRole::ExternalCue &&
-            !item.associated_audio_id.empty())
-            ++all_cue_counts[item.associated_audio_id];
+        if (item.role == FileRole::ExternalCue)
+            for (const auto& id : cue_audio_dependencies(item))
+                ++all_cue_counts[id];
         if (item.role == FileRole::Audio && !item.physical_id.empty()) {
             audio_ids.insert(item.physical_id);
             // Preserve the host-qualified relationship state of every audio
@@ -179,8 +205,9 @@ BatchPlanReview review_batch_plan(
         if (!active_item(item)) continue;
         if (active_file_action(item) && !item.target_key.empty())
             ++target_key_counts[item.target_key];
-        if (item.role == FileRole::ExternalCue && !item.associated_audio_id.empty())
-            ++cue_counts[item.associated_audio_id];
+        if (item.role == FileRole::ExternalCue)
+            for (const auto& id : cue_audio_dependencies(item))
+                ++cue_counts[id];
     }
 
     for (std::size_t index = 0; index < items.size(); ++index) {
@@ -198,6 +225,8 @@ BatchPlanReview review_batch_plan(
 
         if (contains_embedded_nul(item))
             block(decision, "EMBEDDED_NUL_IN_PLAN_IDENTITY");
+        if (!valid_cue_participants(item))
+            block(decision, "CUE_AUDIO_RELATIONSHIP_AMBIGUOUS");
         if (mixed_ruleset_revisions)
             block(decision, "MIXED_RULESET_REVISIONS");
         if (item.source_guard.empty())
@@ -289,9 +318,13 @@ BatchPlanReview review_batch_plan(
                 (!item.companion_policy_qualified && !item.manual_override))
                 block(decision, "COMPANION_NOT_AUTHORIZED");
         } else if (item.role == FileRole::ExternalCue) {
-            if (item.associated_audio_id.empty() ||
-                audio_ids.count(item.associated_audio_id) == 0 ||
-                audio_cue_states[item.associated_audio_id] != CueLinkState::Verified ||
+            const auto related = cue_audio_dependencies(item);
+            bool all_audio_verified = !related.empty();
+            for (const auto& id : related)
+                if (audio_ids.count(id) == 0 ||
+                    audio_cue_states[id] != CueLinkState::Verified)
+                    all_audio_verified = false;
+            if (!valid_cue_participants(item) || !all_audio_verified ||
                 item.cue_links != CueLinkState::Verified ||
                 item.cue_source_fingerprint.empty() ||
                 item.cue_postimage_fingerprint.empty()) {

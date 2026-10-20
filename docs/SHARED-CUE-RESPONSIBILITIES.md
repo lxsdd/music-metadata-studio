@@ -37,3 +37,17 @@ Win32/x64 foobar acceptance, rather than a blind merge.
 preview, a CUE postimage calculator nor a successful test fixture is
 permission to write a physical/virtual audio track, an external/embedded
 CUE, a FLAC Type-5 block or artwork. Zero unapproved media writes.
+
+## Multi-FILE read-only batch preflight — October 2026
+
+The Studio-specific file plan now binds every selected physical
+audio participant of a Multi-FILE external CUE into one immutable
+approval fingerprint, while retaining the legacy single-source
+association. Missing, duplicated, unqualified or contradictory
+participants block review. The separate FILE-reference association
+checker refuses selected audio absent from the parsed CUE or one
+physical source projected to incompatible FILE names.
+
+These are NO-I/O **previews**, not an executor or proof of native OS
+canonical paths. Exact host verification and the future write/rollback
+gate remain mandatory. Precision CUE #52 is untouched.

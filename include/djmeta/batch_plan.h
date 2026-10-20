@@ -28,8 +28,12 @@ struct FilePlanItem {
     std::string target_key;
     FileAction action = FileAction::None;
     FileRole role = FileRole::Audio;
-    // For a CUE entry: physical_id of its parent/related audio item.
+    // Legacy single CUE/companion association.
     std::string associated_audio_id;
+    // External CUE: all selected, uniquely identified physical audio
+    // participants of its (possibly Multi-FILE) reference set.
+    // File reference identity must be qualified separately by the host.
+    std::vector<std::string> associated_audio_ids;
 
     std::string metadata_fingerprint;
     // Approved/selected proposal postimage, not merely raw input fingerprint.

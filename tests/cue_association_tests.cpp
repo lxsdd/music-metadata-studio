@@ -57,8 +57,44 @@ void test_unsupported_source_encoding() {
     const std::string bad = std::string("\xff\xfe",2) + "F\0I\0";
     check(!qualify_external_cue_association(bad, {}, {}).qualified, "UTF16 cannot be rewritten as UTF8");
 }
+
+void test_complete_selected_audio_and_alias_destinations() {
+    const std::string original =
+        "FILE \"a.flac\" WAVE\nTRACK 01 AUDIO\n"
+        "FILE \"b.flac\" WAVE\nTRACK 02 AUDIO\n";
+    const auto verified=qualify_external_cue_association(original,
+        {{0,"a.flac","srcA","a-new.flac",true,true},
+         {1,"b.flac","srcB","b-new.flac",true,true}},
+        {{"A","srcA","dstA"},{"B","srcB","dstB"}});
+    check(verified.qualified &&
+          verified.related_selected_audio_ids==std::vector<std::string>({"A","B"}) &&
+          verified.changes.size()==2,
+          "two-source CUE reference plan preserves every selected physical ID");
+    const auto orphan=qualify_external_cue_association(original,
+        {{0,"a.flac","srcA","a-new.flac",true,true},
+         {1,"b.flac","srcB","b-new.flac",true,true}},
+        {{"A","srcA","dstA"},{"NOT_IN_CUE","some-other-physical-source","dstX"}});
+    check(!orphan.qualified && !orphan.diagnostics.empty() &&
+          orphan.diagnostics[0]=="SELECTED_AUDIO_NOT_REFERENCED_BY_CUE",
+          "cannot silently skip a selected audio absent from CUE FILE list");
+    const auto aliasConflict=qualify_external_cue_association(original,
+        {{0,"a.flac","same-physical","a-new.flac",true,true},
+         {1,"b.flac","same-physical","b-new.flac",true,true}},
+        {{"A","same-physical","dstA"}});
+    check(!aliasConflict.qualified && !aliasConflict.diagnostics.empty() &&
+          aliasConflict.diagnostics[0]=="CUE_SAME_SOURCE_CONFLICTING_DESTINATION_REFERENCES",
+          "one physical source cannot produce two conflicting FILE names");
+    const auto aliasSame=qualify_external_cue_association(original,
+        {{0,"a.flac","same-physical","same.flac",true,true},
+         {1,"b.flac","same-physical","same.flac",true,true}},
+        {{"A","same-physical","dstA"}});
+    check(aliasSame.qualified && aliasSame.related_selected_audio_ids.size()==1,
+          "same physical source with consistent destination can be qualified");
+}
+
 int main() {
     test_single(); test_multifile_unselected(); test_missing_and_ambiguous();
+    test_complete_selected_audio_and_alias_destinations();
     test_exact_nochange_and_unsafe_postimage(); test_unsupported_source_encoding();
-    std::cout << "PASS: 5 cue association test suites\n";
+    std::cout << "PASS: 6 cue association test suites\n";
 }
