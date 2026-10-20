@@ -146,3 +146,23 @@ Both interactive and asynchronous source checks fail closed if an external
 CUE lacks a qualified guard or changes on disk. The runner deliberately
 mutates only a disposable fixture after intact comparison and requires a
 `STALE snapshot` lockdown.
+
+## Embedded FLAC CUESHEET native host qualification (20 October 2026)
+
+The isolated Win32/x64 host test now creates a **deterministic valid FLAC**
+containing exactly one second of silent 8-kHz mono PCM compressed as a
+constant FLAC frame. A self-contained Python-standard-library generator
+adds a multiline textual `CUESHEET` **Vorbis comment** with two tracks,
+two original REM GENRE values and an unknown REM CUSTOM value. It is a
+synthetic fixture, not user music and not a third-party download. The runner
+must run the real foobar context action against the FLAC, enable and click
+**Inspect CUE**, populate the native source inventory, then import an
+invented complete two-mix Beatport edition through the real clipboard
+button. SHA-256, byte length and last-modified time for both the FLAC and
+original WAV must be identical after these read-only operations. The
+original WAV's independent stale guard still executes afterward.
+
+This qualifies **embedded textual Vorbis-comment CUESHEET observation only**.
+It does not qualify embedded CUE playback, write-safe tag/CUE commits,
+FLAC Type-5 binary CUESHEET block rewriting, artwork, ReplayGain or any
+user-library modifications. These remain blocked until separately proven.

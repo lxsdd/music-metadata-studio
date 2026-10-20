@@ -74,7 +74,7 @@ jobs:
         shell: pwsh
         run: ./scripts/build-foobar.ps1 -Platform '${{ matrix.platform }}' -Configuration Release -PlatformToolset v143
       - name: HARD GATE - foobar2000 ${{ matrix.platform }} component host load
-        uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@b73c7cc3ea4523f6e65514fe0ff7ec03bc055099
+        uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@51af10ef8c73d68798a1221a8f04b131a24f24b0
         with:
           architecture: ${{ matrix.platform }}
           component-dll: out/foobar/${{ matrix.platform }}/Release/foo_music_metadata_studio.dll
@@ -92,6 +92,7 @@ jobs:
           clipboard-list-id: '271'
           beatport-edition-host-probe: 'true'
           external-cue-host-probe: 'true'
+          embedded-cue-host-probe: 'true'
           stale-physical-host-probe: 'true'
       - name: Upload DLL
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'  # Never upload draft PR or manual QA DLLs
@@ -127,7 +128,7 @@ jobs:
         shell: pwsh
         run: ./scripts/build-foobar.ps1 -Platform '${{ matrix.platform }}' -Configuration Release -PlatformToolset v143
       - name: Authorized official Discogs native exact-edition gate
-        uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@b73c7cc3ea4523f6e65514fe0ff7ec03bc055099
+        uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@51af10ef8c73d68798a1221a8f04b131a24f24b0
         env:
           FB2K_DISCOGS_QA_TOKEN: ${{ secrets.MMS_DISCOGS_QA_TOKEN }}
         with:
