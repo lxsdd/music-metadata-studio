@@ -65,10 +65,19 @@ for token in (
 for token in (
     "master_id_from_url(term)", "master_versions_path(master_id)",
     "parse_master_versions(reply,request.master_id)",
-    "context.master_id=master_id",
+    "context.master_id=master_id", "master_search_path(core)",
+    "if(source_id.starts_with(\"master:\"))", "perform_discogs_search(dialog,state);",
 ):
     if token not in batch_rules_guard:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: master edition route missing "+token)
+
+# Refresh cancellation is only permitted after affirmative confirmation.
+refresh_source = batch_rules_guard.split("void refresh_workspace_snapshot(PreviewState& state)",1)[1]
+refresh_source = refresh_source.split("// Native context help",1)[0]
+if refresh_source.index("!= IDYES) return;") > refresh_source.index("invalidate_online_request(state);"):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: Refresh cancels before consent")
+if "invalidate_online_request(*state);\n            refresh_workspace_snapshot(*state);" in batch_rules_guard:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: Refresh command cancels before consent")
 
 # Search and release completion for BOTH providers must reject context
 # mutations even if the visible query returns to the original text.

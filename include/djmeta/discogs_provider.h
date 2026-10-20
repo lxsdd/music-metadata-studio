@@ -250,6 +250,16 @@ inline std::string search_path(std::string_view title,
         throw std::invalid_argument("Discogs query too large");
     return result;
 }
+// Official master candidates are navigation only. A master is never an
+// exact edition and its catalog fields must not become tag proposals.
+inline std::string master_search_path(std::string_view keywords) {
+    const auto result="/database/search?q="+
+        musicbrainz::encode_url_query(validated_term(keywords))+
+        "&type=master&page=1&per_page=20";
+    if(result.size()>2048)
+        throw std::invalid_argument("Discogs master query too large");
+    return result;
+}
 // Discogs supports 'track' as a distinct database search field. A release
 // named differently from a contained track must not require browsing an
 // artist tree or repeatedly clearing an artist cache.
@@ -302,7 +312,7 @@ struct SearchAttempt {
 inline std::vector<SearchAttempt> track_search_plan(
     std::string_view title, std::string_view artist = {},
     std::string_view barcode = {}, std::string_view catalog_number = {},
-    std::string_view album = {}) {
+    std::string_view album = {}, bool include_master = false) {
     // Some physical sources carry a qualified ALBUM, barcode or catalog
     // number but no TITLE. Those can still search exact editions without
     // inventing a recording identity or sending an empty track filter.
@@ -342,6 +352,11 @@ inline std::vector<SearchAttempt> track_search_plan(
         if (core != title)
             add("Track without mix suffix",track_search_path(core));
         add("Broad catalog keywords",search_path(core));
+        // Only the native user-initiated workflow opts in: masters may
+        // reveal editions that release/track index queries did not find.
+        if(include_master)
+            add("Master edition discovery (navigation only)",
+                master_search_path(core));
     }
     if (plan.empty())
         throw std::invalid_argument(
@@ -491,14 +506,17 @@ inline bool allowed_readonly_path(std::string_view path) {
     }
     constexpr std::string_view prefix="/database/search?";
     constexpr std::string_view suffix="&page=1&per_page=20";
-    constexpr std::string_view type="&type=release";
+    constexpr std::string_view type_release="&type=release";
+    constexpr std::string_view type_master="&type=master";
     if(!path.starts_with(prefix) || !path.ends_with(suffix)) return false;
     auto inner=path.substr(prefix.size(),
         path.size()-prefix.size()-suffix.size());
-    const auto marker=inner.find(type);
+    const auto release_marker=inner.find(type_release);
+    const bool master=release_marker==std::string_view::npos;
+    const auto marker=master?inner.find(type_master):release_marker;
     if(marker==std::string_view::npos) return false;
     const auto raw_term=inner.substr(0,marker);
-    const auto tail=inner.substr(marker+type.size());
+    const auto tail=inner.substr(marker+(master?type_master.size():type_release.size()));
     constexpr std::string_view artist_prefix="&artist=";
     if(!tail.empty() && !tail.starts_with(artist_prefix)) return false;
     const auto raw_artist=tail.empty()?std::string_view{}:
@@ -510,6 +528,7 @@ inline bool allowed_readonly_path(std::string_view path) {
     const bool catno=raw_term.starts_with("catno=");
     const bool release_title=raw_term.starts_with("release_title=");
     if(!track && !q && !barcode && !catno && !release_title) return false;
+    if(master && (!q || !tail.empty())) return false;
     // Edition identifiers are standalone official filters; never append
     // arbitrary query keys, artist constraints, tokens or pagination.
     if((barcode || catno) && !tail.empty()) return false;
@@ -520,6 +539,8 @@ inline bool allowed_readonly_path(std::string_view path) {
         !decode_canonical_term(raw_artist,artist)) ||
        (!tail.empty() && raw_artist.empty())) return false;
     try {
+        if(master)
+            return path==master_search_path(validated_term(term));
         if(barcode || catno)
             return path==edition_identifier_search_path(
                 barcode?"barcode":"catno",validated_term(term));

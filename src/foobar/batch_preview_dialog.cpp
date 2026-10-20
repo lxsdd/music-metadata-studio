@@ -1105,9 +1105,11 @@ void update_online_release_load_button(PreviewState& state) {
     if(!state.dialog || !state.metadata_list) return;
     std::vector<std::string> exact_ids;
     if(state.discogs_live_view) {
-        for(const auto& hit:state.discogs_results)
-            if(hit.kind==djmeta::online::discogs::EntityKind::Release)
-                exact_ids.push_back("release:"+std::to_string(hit.id));
+        for(const auto& hit:state.discogs_results) {
+            const bool master=hit.kind==djmeta::online::discogs::EntityKind::Master;
+            exact_ids.push_back(std::string(master?"master:":"release:")+
+                                std::to_string(hit.id));
+        }
     } else {
         for(const auto& hit:state.musicbrainz_results)
             if(hit.kind==djmeta::online::musicbrainz::SearchKind::Release)
@@ -2294,6 +2296,8 @@ void refresh_workspace_snapshot(PreviewState& state) {
             L"No music files or tags will be changed.",
             L"Refresh preview only",MB_ICONQUESTION|MB_YESNO|MB_DEFBUTTON2)
         != IDYES) return;
+    // Declining Refresh must never cancel an unrelated in-flight lookup.
+    invalidate_online_request(state);
     state.refreshing=true;
     try {
         const RoutePreviewChoice choice=read_choice(state.dialog);
@@ -2598,7 +2602,7 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
             term,auto_query?local_artist:std::string{},
             auto_query?local_barcode:std::string{},
             auto_query?local_catalog_number:std::string{},
-            auto_query?local_album:std::string{});
+            auto_query?local_album:std::string{},true);
         identity="discogs|"+entry.input.source_path+"|"+
             std::to_string(state.selected_track_index)+"|"+term+"|"+
             (auto_query?local_artist:"")+"|"+
@@ -2767,8 +2771,33 @@ void perform_discogs_load(HWND dialog, PreviewState& state) {
     if(rowid>=state.candidate_rows.size())
         throw std::invalid_argument("Selected Discogs result expired.");
     const auto source_id=state.candidate_rows[rowid].candidate.source_id;
+    if(source_id.starts_with("master:")) {
+        // A master is a navigation target only. This explicit Load action
+        // searches its official bounded versions page, not release details.
+        const auto digits=std::string_view(source_id).substr(7);
+        std::uint64_t master_id=0;
+        const auto [end,ec]=std::from_chars(
+            digits.data(),digits.data()+digits.size(),master_id);
+        if(ec!=std::errc{} || end!=digits.data()+digits.size() || !master_id ||
+           source_id!="master:"+std::to_string(master_id))
+            throw std::invalid_argument("Invalid Discogs master identity.");
+        const bool verified=std::any_of(
+            state.discogs_results.begin(),state.discogs_results.end(),
+            [master_id](const auto& hit) {
+                return hit.kind==EntityKind::Master && hit.id==master_id;
+            });
+        if(!verified)
+            throw std::invalid_argument("Discogs master was not in the current results.");
+        const auto& entry=state.entries[state.selected_track_index];
+        verify_snapshot(entry);
+        verify_rules_snapshot(state.captured_rules);
+        const auto url=from_utf8(canonical_url(EntityKind::Master,master_id));
+        SetDlgItemTextW(dialog,IDC_METADATA_MB_QUERY,url.c_str());
+        perform_discogs_search(dialog,state);
+        return;
+    }
     if(!source_id.starts_with("release:"))
-        throw std::invalid_argument("A Discogs master is not an exact release.");
+        throw std::invalid_argument("Selected Discogs result is not a release.");
     const auto digits=std::string_view(source_id).substr(8);
     std::uint64_t id=0;
     const auto [end,ec]=std::from_chars(digits.data(),digits.data()+digits.size(),id);
@@ -3462,18 +3491,22 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             (header->code==NM_DBLCLK ||
              (header->code==LVN_KEYDOWN &&
               reinterpret_cast<const NMLVKEYDOWN*>(lp)->wVKey==VK_RETURN));
+        const bool discogs_activation=release_activation &&
+            state->show_candidate && state->discogs_live_view &&
+            !state->musicbrainz_release_loaded &&
+            state->candidate_source_index==state->selected_track_index;
         if (release_activation &&
             IsWindowEnabled(GetDlgItem(dialog,IDC_METADATA_MB_LOAD_RELEASE)) &&
-            may_activate_musicbrainz_release(header->code,
+            (discogs_activation || may_activate_musicbrainz_release(header->code,
                 state->show_candidate && state->musicbrainz_live_view,
                 state->musicbrainz_kind==
                     djmeta::online::musicbrainz::SearchKind::Release,
                 state->musicbrainz_release_loaded,
                 state->candidate_source_index==state->selected_track_index,
-                header->code==LVN_KEYDOWN?VK_RETURN:0)) {
+                header->code==LVN_KEYDOWN?VK_RETURN:0))) {
             // A native ListView double-click or Enter is equivalent to
-            // explicitly clicking Load MB release. Existing code checks the
-            // selected verified MBID, enforces rate limiting and never writes.
+            // clicking Load release. Both providers verify selected identities;
+            // a Discogs master navigates to editions, never to tag fields.
             SendMessageW(dialog,WM_COMMAND,
                 MAKEWPARAM(IDC_METADATA_MB_LOAD_RELEASE,BN_CLICKED),
                 reinterpret_cast<LPARAM>(GetDlgItem(dialog,
@@ -3863,7 +3896,6 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             return TRUE;
         }
         if (id == IDC_BATCH_REFRESH && HIWORD(wp) == BN_CLICKED) {
-            invalidate_online_request(*state);
             refresh_workspace_snapshot(*state);
             return TRUE;
         }

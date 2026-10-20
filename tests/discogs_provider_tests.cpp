@@ -36,6 +36,17 @@ int main() {
           request.find("Authorization")==std::string::npos &&
           request.find("token")==std::string::npos,
           "Discogs search fixed endpoint, bounded page, URL-encoded and no secret");
+    const auto master_request=master_search_path("1000 Years");
+    check(master_request==
+              "/database/search?q=1000%20Years&type=master&page=1&per_page=20" &&
+          allowed_readonly_path(master_request) &&
+          !allowed_readonly_path(
+              "/database/search?track=1000%20Years&type=master&page=1&per_page=20") &&
+          !allowed_readonly_path(
+              "/database/search?q=1000%20Years&type=master&artist=X&page=1&per_page=20"),
+          "master discovery is canonical, read-only and navigation-only");
+    rejects([]{(void)master_search_path("bad\nheader");},
+            "master search rejects header injection");
     rejects([]{(void)search_path("song\r\nAuthorization: stolen");},
             "reject CRLF/header injection");
     rejects([]{(void)search_path("");},"reject empty title");
@@ -117,6 +128,13 @@ int main() {
     rejects([]{(void)release_title_search_path(std::string(151,'x'));},
             "album release title search is bounded");
 
+    const auto master_staged=track_search_plan(
+        "1000 Years (DJ Version)", "Kyau & Albert x Maywave",
+        {}, {}, {}, true);
+    check(master_staged.size()==6 &&
+          master_staged.back().path==master_search_path("1000 Years") &&
+          master_staged.back().label.find("navigation only")!=std::string::npos,
+          "native opt-in search adds one bounded master navigation stage");
     const auto staged=track_search_plan(
         "1000 Years (DJ Version)", "Kyau & Albert x Maywave");
     check(staged.size()==5 &&
@@ -189,7 +207,7 @@ int main() {
           "only canonical authenticated Discogs API paths cross native HTTP");
     check(!allowed_readonly_path("https://api.discogs.com/releases/123") &&
           !allowed_readonly_path("/users/example/collection") &&
-          !allowed_readonly_path("/database/search?q=X&type=master&page=1&per_page=20") &&
+          allowed_readonly_path("/database/search?q=X&type=master&page=1&per_page=20") &&
           !allowed_readonly_path("/database/search?q=Hi%0D%0ABad&type=release&page=1&per_page=20") &&
           !allowed_readonly_path("/database/search?q=Hi&type=release&token=secret&page=1&per_page=20") &&
           !allowed_readonly_path("/database/search?q=Hi&type=release&page=2&per_page=20") &&
