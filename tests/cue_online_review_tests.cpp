@@ -1,5 +1,7 @@
 #include "djmeta/cue_release_review.h"
 #include "djmeta/cue_original_inventory.h"
+#include "djmeta/cue_reference_locator.h"
+#include "djmeta/native_candidate_labels.h"
 #include "djmeta/discogs_provider.h"
 #include "djmeta/discogs_search_hints.h"
 
@@ -26,6 +28,34 @@ djmeta::online::FieldEvidence item(
 int main() {
     using namespace djmeta;
     using namespace djmeta::online;
+    // Studio-specific FILE location preflight is deliberately lexical and
+    // conservative; it is not a duplicate of Precision CUE's generator.
+    const auto sibling=preview_cue_sibling_locator(
+        "file:///Z:/Music/Album/set.cue","audio (Extended Mix).flac");
+    check(sibling.eligible &&
+          sibling.source_candidate==
+              "file:///Z:/Music/Album/audio (Extended Mix).flac" &&
+          sibling.reason=="CUE_FILE_HOST_PROBE_REQUIRED",
+          "safe sibling FILE must still require independent host identity proof");
+    for(const std::string bad : {
+            "../other.flac", "nested/other.flac", "nested\\other.flac",
+            "C:\\other.flac", "other.flac:tag", "other?.flac",
+            "CON.flac", "COM1.wav", "track%.mp3", "..", "bad.flac ",
+            "evil\nname.flac"}) {
+        check(!preview_cue_sibling_locator(
+            "file:///Z:/Music/Album/set.cue",bad).eligible,
+            "dangerous or ambiguous FILE locator must never be probed");
+    }
+    check(!preview_cue_sibling_locator("unqualified.cue","audio.flac").eligible,
+          "CUE without qualified containing folder must fail closed");
+    FieldReviewRow file_observation;
+    file_observation.reason="cue_reference_preflight_only";
+    file_observation.candidate.provider="Local filesystem (read-only)";
+    file_observation.state=FieldReviewState::Blocked;
+    check(native_candidate_source_label(file_observation)==
+              "Local filesystem (read-only)" &&
+          native_candidate_status_label(file_observation)=="Reference only",
+          "native CUE file host observation never appears as approved edit");
     const std::string cue = "TITLE Album\nPERFORMER Album Artist\n"
         "REM GENRE House\nREM DATE 1998\n"
         "FILE x.flac WAVE\n"

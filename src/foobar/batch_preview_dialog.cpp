@@ -33,6 +33,7 @@
 #include "djmeta/native_candidate_labels.h"
 #include "djmeta/discogs_search_hints.h"
 #include "djmeta/cue_online_bridge.h"
+#include "djmeta/cue_reference_locator.h"
 #include "djmeta/physical_selection.h"
 #include "djmeta/review_decisions.h"
 #include "djmeta/review_display.h"
@@ -2081,6 +2082,84 @@ void apply_to_rows(HWND dialog, PreviewState& state, bool all) {
 // User-initiated inspection of RAW, unsanitized candidate paths only. No
 // host File Operations resolution, no write/overwrite approval, no CUE gate.
 // Scope deliberately follows selected underlying row IDs after sorting.
+// One deliberate, bounded read-only FILE reference inventory for the
+// selected external CUE. This is independent of target routing and never
+// sets filesystem_target_checked or cue_dependencies_checked; real File
+// Operations path sanitation and write safety are NOT certified here.
+void append_external_cue_file_reference_evidence(
+    const PreviewEntry& entry, const djmeta::CueMetadataInventory& inventory,
+    std::vector<djmeta::online::FieldReviewRow>& rows) {
+    if (!is_external_cue_locator(entry.input.source_path)) return;
+    const auto original = probe_host_file_readonly(entry.input.source_path);
+    if (original.state != HostFileState::ExistingFile ||
+        original.source_guard.empty() ||
+        original.source_guard != entry.observed_source_guard ||
+        original.host_physical_key != entry.observed_physical_key)
+        throw std::runtime_error(
+            "External CUE physical source changed before FILE-reference inspection.");
+    constexpr std::size_t maximum_probes=128;
+    std::map<std::string, HostFileObservation> probes;
+    std::set<std::string> observed_ids;
+    auto append = [&](std::size_t index, std::string filename,
+                      std::string result) {
+        if (rows.size() >= 10000)
+            throw std::invalid_argument("Too many original CUE rows to show source checks.");
+        djmeta::online::FieldReviewRow row;
+        row.field = "FILE #" + std::to_string(index+1) +
+            " / Physical source preflight";
+        row.original_values.push_back(std::move(filename));
+        row.candidate.field = "Read-only FILE dependency (not an approved move)";
+        row.candidate.provider = "Local filesystem (read-only)";
+        row.candidate.scope = djmeta::online::EvidenceScope::Edition;
+        row.candidate.source_id = "cue-file:" + std::to_string(index+1);
+        row.candidate.values.push_back(std::move(result));
+        row.state = djmeta::online::FieldReviewState::Blocked;
+        row.reason = "cue_reference_preflight_only";
+        rows.push_back(std::move(row));
+    };
+    for (std::size_t i=0;i<inventory.files.size();++i) {
+        const auto& item=inventory.files[i];
+        if (i>=maximum_probes) {
+            if (i==maximum_probes)
+                append(i,"(further FILE references)",
+                       "NOT INSPECTED: over 128 FILE references; operation blocked");
+            break;
+        }
+        const auto candidate = djmeta::preview_cue_sibling_locator(
+            entry.input.source_path,item.filename);
+        if (!candidate.eligible) {
+            append(i,item.filename,"NOT QUALIFIED: "+candidate.reason);
+            continue;
+        }
+        const auto [it, inserted] = probes.try_emplace(
+            candidate.source_candidate);
+        if (inserted)
+            it->second = probe_host_file_readonly(candidate.source_candidate);
+        const auto& observed=it->second;
+        if (observed.state == HostFileState::ExistingFile &&
+            !observed.host_physical_key.empty() &&
+            !observed.source_guard.empty()) {
+            if (!observed_ids.insert(observed.host_physical_key).second)
+                append(i,item.filename,
+                       "ALIAS: physical audio already referenced; operation unqualified");
+            else
+                append(i,item.filename,
+                       "PRESENT: independently observed physical file; read-only");
+        } else if (observed.state==HostFileState::Missing) {
+            append(i,item.filename,"MISSING: CUE FILE source absent");
+        } else {
+            append(i,item.filename,
+                   "NOT QUALIFIED: source identity or filesystem unsupported");
+        }
+    }
+    const auto current = probe_host_file_readonly(entry.input.source_path);
+    if (current.state != HostFileState::ExistingFile ||
+        current.host_physical_key != original.host_physical_key ||
+        current.source_guard != original.source_guard)
+        throw std::runtime_error(
+            "External CUE changed during FILE-reference inspection.");
+}
+
 void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
     const RoutePreviewChoice typed = read_choice(dialog);
     if (typed.display_name != state.current_choice.display_name ||
@@ -4333,6 +4412,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             }
             // Shared source-only inventory for Inspect CUE and Discogs.
             auto fields=djmeta::online::cue_original_inventory_rows(inventory);
+            append_external_cue_file_reference_evidence(entry,inventory,fields);
             state->candidate_rows = std::move(fields);
             state->candidate_source_index = state->selected_track_index;
             state->cue_inspection_mode = true;

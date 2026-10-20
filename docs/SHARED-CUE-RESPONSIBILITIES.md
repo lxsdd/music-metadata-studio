@@ -67,3 +67,22 @@ The live foobar File locations tab still needs a separately qualified
 host-level canonical destination/CUE dependency discovery step before
 it can offer real file operations. This test does **not** certify that
 future executor, nor duplicate any Precision CUE timing/generation work.
+
+## Native external FILE source inventory (October 2026)
+
+In the real modeless Studio **Inspect CUE** action for external text
+`.cue` carriers, the UI now additionally displays one read-only
+`FILE #N / Physical source preflight` row per inspected dependency.
+After validating the original CUE's OS/foobar identity, a bounded
+(128-reference) host probe checks each *same-directory* filename and
+reports PRESENT, MISSING, ALIAS or NOT QUALIFIED. Unicode names remain
+intact. Relative directories, traversal, drive/URI/ADS aliases, reparse
+points and Windows device names fail closed instead of being guessed.
+The CUE's source guard is checked again after the observations, and the
+original CUE rows/bytes remain untouched. A large CUE retains its full
+original inventory but explicitly reports remaining dependencies as
+uninspected. This is extra evidence for the user, **not** certification
+of source-to-destination routing or a FILE rewrite. The File locations
+tab's `cue_dependencies_checked` and `filesystem_target_checked`
+still remain false pending separately qualified native FileOps mapping.
+Neither actual file movement nor Precision CUE generator code is invoked.

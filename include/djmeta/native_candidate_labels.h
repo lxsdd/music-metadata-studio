@@ -21,6 +21,8 @@ inline bool native_candidate_cue_inventory(const FieldReviewRow& row) {
 }
 
 inline std::string native_candidate_source_label(const FieldReviewRow& row) {
+    if(row.reason=="cue_reference_preflight_only")
+        return "Local filesystem (read-only)";
     if(row.reason=="local_cue_group" || native_candidate_cue_inventory(row))
         return row.candidate.provider;
     return online_evidence_origin_label(row);
@@ -34,6 +36,8 @@ inline std::string native_candidate_status_label(const FieldReviewRow& row) {
         if(row.reason=="local_cue_group") return "Keep original CUE";
         return row.state==FieldReviewState::Blocked ? "Unmatched" : "Review";
     }
+    if(row.reason=="cue_reference_preflight_only")
+        return "Reference only";
     if(native_candidate_cue_inventory(row))
         return row.reason=="cue_inventory_unqualified"
             ? "Unqualified" : "Read-only";
