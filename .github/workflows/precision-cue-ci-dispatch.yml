@@ -52,7 +52,7 @@ jobs:
           def github(method, path, data=None):
               payload = None if data is None else json.dumps(data).encode('utf-8')
               request = urllib.request.Request(
-                  base + '/' + path, data=payload, headers=headers, method=method)
+                  base + ('/' + path if path else ''), data=payload, headers=headers, method=method)
               if payload is not None:
                   request.add_header('Content-Type', 'application/json')
               with urllib.request.urlopen(request, timeout=20) as response:
