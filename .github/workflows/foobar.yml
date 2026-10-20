@@ -68,10 +68,13 @@ jobs:
         shell: pwsh
         run: ./scripts/build-foobar.ps1 -Platform '${{ matrix.platform }}' -Configuration Release -PlatformToolset v143
       - name: HARD GATE - real foobar2000 ${{ matrix.platform }} CUE component load
-        uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@7acb670f96fff4f63e8f84d8ccb3a4c3f84b8c64
+        uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@99cc4b8c31d4ac8e640da0c375675566dc44762e
         with:
           architecture: ${{ matrix.platform }}
           component-dll: out/foobar/${{ matrix.platform }}/Release/foo_dj_metadata_normalizer.dll
+          context-command: 'Precision CUE (Preview)'
+          expected-window-title: 'Precision CUE - Preview / External CUE Create'
+          required-control-ids: '331,332,333,335,336,337,338,339,340,341,342,343'
       - name: Upload DLL
         if: github.event_name != 'pull_request'  # No unqualified DLL artifacts from draft PR
         uses: actions/upload-artifact@v7
