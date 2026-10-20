@@ -135,6 +135,7 @@ for token in (
     "reset_raw_target_observation(entry)",
     "input.filesystem_target_checked = false; // invariant: final target unknown",
     "raw_relative_path_lexically_safe(entry.input.raw_relative_path)",
+    "Physical source changed during raw destination inspection. Reopen Prepare Tracks.",
 ):
     if token not in batch_rules_guard:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing raw candidate isolation: " + token)

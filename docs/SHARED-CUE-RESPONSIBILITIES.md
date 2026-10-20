@@ -136,3 +136,15 @@ File locations preview. This is only a **possible** collision,
 not a canonical filesystem collision or a Unicode case-folding oracle.
 A separate final foobar File Operations sanitizer, OS physical-ID probe
 and approval are mandatory; no file write path is enabled.
+
+## Raw target preview: post-probe source consistency
+
+A user-triggered RAW destination inspection now verifies *all selected
+physical source identities and versions twice*: once before the bounded
+host filesystem reads, and again **after the last destination probe**
+but before any new inspection result reaches the native table. foobar's
+cached metadb values alone are not used as a substitute for the physical
+source version. If a second process changes a file during that window,
+the inspection fails as one unit without publishing partially updated
+target states. This deliberately leaves the final FileOps destination
+and CUE dependency gates unchanged/unqualified. No writes were enabled.

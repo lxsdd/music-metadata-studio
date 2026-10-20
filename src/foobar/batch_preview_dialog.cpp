@@ -2224,6 +2224,21 @@ void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
     // ruleset snapshot after the slowest selected filesystem observation.
     for (const auto& entry : state.entries) verify_snapshot(entry);
     verify_rules_snapshot(state.captured_rules);
+    // Host metadb may retain cached metadata while another process modifies
+    // the actual audio file. Re-probe EVERY selected physical source after
+    // the final target lookup, before any observation is published.
+    // On mismatch, the whole inspection fails without partially replacing
+    // existing GUI observations or granting final-FileOps qualification.
+    for (const auto index : selected) {
+        const PreviewEntry& entry = state.entries.at(index);
+        const HostFileObservation current =
+            probe_host_file_readonly(entry.input.source_path);
+        if (current.state != HostFileState::ExistingFile ||
+            current.host_physical_key != entry.observed_physical_key ||
+            current.source_guard != entry.observed_source_guard)
+            throw std::runtime_error(
+                "Physical source changed during raw destination inspection. Reopen Prepare Tracks.");
+    }
     for (auto& result : observations) {
         PreviewEntry& entry = state.entries[result.index];
         auto& input = entry.input;
