@@ -199,3 +199,15 @@ without losing the individual CUE source ordinal or fabricating a disc
 number. Sequential globally unique track numbers remain usable. This
 does not claim that the existence or rename safety of arbitrary unselected
 FILE paths has yet been qualified for any physical write plan.
+
+## Native Multi-FILE TRACK numbering qualification boundary
+
+The first two-source host experiment used `TRACK 01` in both `FILE`
+sections; the real foobar2000 context route did not open the Studio window
+on that CUE, so that *host configuration is not claimed as supported or
+qualified*. The deterministic host fixture now uses a sequential
+`TRACK 01` / `TRACK 02` across the two distinct WAV `FILE`s.
+The separate Core matching gate still tests repeated track numbers across
+FILEs, and withholds any unverified numbered-position evidence. This
+avoids weakening validation or misclassifying a parser-only result as a
+real host success.
