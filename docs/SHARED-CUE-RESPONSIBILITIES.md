@@ -86,3 +86,14 @@ of source-to-destination routing or a FILE rewrite. The File locations
 tab's `cue_dependencies_checked` and `filesystem_target_checked`
 still remain false pending separately qualified native FileOps mapping.
 Neither actual file movement nor Precision CUE generator code is invoked.
+
+## Native FILE-reference rows: cross-architecture test gate
+
+The shared Win32/x64 runner now requires not only that a real disposable
+CUE can be opened and imported, but that the native **Inspect CUE** table
+contains at least the complete original CUE inventory **plus one physical
+read-only FILE source preflight row per referenced audio** (one FILE
+for the standalone fixture, two for the Multi-FILE fixture). Missing
+those rows makes CI fail, not simply report a successful window open.
+These are source observations, not confirmed relocation destinations,
+write approvals, or a substitute for eventual real-user visual inspection.
