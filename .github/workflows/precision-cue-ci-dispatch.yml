@@ -3,6 +3,12 @@ name: Precision CUE - Dispatch CI
 # Runs only on trusted default branch. Reads PR metadata but never checks out
 # unreviewed PR code. Can only dispatch two existing GitHub workflows.
 on:
+  # One-shot production smoke for changes to this dispatcher itself.
+  # Ordinary product commits never match this very narrow path filter.
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/precision-cue-ci-dispatch.yml'
   schedule:
     - cron: '07,27,47 * * * *'
   workflow_dispatch:
