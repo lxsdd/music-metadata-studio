@@ -38,12 +38,15 @@ WinHTTP GET adapter and the existing bounded official catalog/edition parsers.
   `https://www.discogs.com/release/<id>` URL performs one fixed-host
   release lookup directly. A canonical
   `https://www.discogs.com/master/<id>` instead requests the documented
-  master versions **first page** on the same official token-header transport.
-  It displays at most 20 concrete release editions, including documented
-  format/label/country/catalog/year where present. This is explicitly
-  **non-exhaustive** and neither the master nor its versions list supplies
-  exact edition tag fields. Select a release and **Load release** separately.
-  Noncanonical pagination, unknown hosts and unqualified IDs are rejected.
+  master versions page 1 on the same official token-header transport.
+  Each page displays at most 20 concrete release editions, including available
+  format/label/country/catalog/year. **Next master page** explicitly loads
+  exactly one subsequent official page; the native page counter shows progress.
+  Pages replace rather than silently append candidates, and the bounded
+  canonical transport accepts only page numbers 1–100000. Provider-advertised
+  totals above that limit remain explicitly incomplete. A master/version list
+  is never exact tag evidence: select a release and **Load release** separately.
+  Foreign pagination, unknown hosts and unqualified IDs are rejected.
 - **Local physical** original-only tags appear in a separate native Physical
   section, not as part of the inspected Discogs edition. A provider-absent
   custom/ReplayGain/multivalue tag is kept intact and explicitly displays

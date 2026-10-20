@@ -234,7 +234,11 @@ int main() {
           master_id_from_url("http://www.discogs.com/master/782")==0 &&
           master_versions_path(782)=="/masters/782/versions?page=1&per_page=20" &&
           allowed_readonly_path(master_versions_path(782)) &&
-          !allowed_readonly_path("/masters/782/versions?page=2&per_page=20") &&
+          allowed_readonly_path("/masters/782/versions?page=2&per_page=20") &&
+          allowed_readonly_path(master_versions_path(782,2)) &&
+          !allowed_readonly_path("/masters/782/versions?page=0&per_page=20") &&
+          !allowed_readonly_path("/masters/782/versions?page=0002&per_page=20") &&
+          !allowed_readonly_path("/masters/782/versions?page=100001&per_page=20") &&
           !allowed_readonly_path("/masters/782/versions?page=1&per_page=200") &&
           !allowed_readonly_path("/masters/0782/versions?page=1&per_page=20") &&
           !allowed_readonly_path("/masters/782/versions?token=abc&page=1&per_page=20"),
@@ -261,9 +265,25 @@ int main() {
           selected_exact_release_id("release:38012673",versions.hits[0].id) &&
           !selected_exact_release_id("master:782",versions.hits[0].id),
           "master versions yield distinct concrete releases and edition provenance");
+    const auto page2=parse_master_versions_page(R"({
+        "pagination":{"page":2,"per_page":20,"pages":3},
+        "versions":[{"id":36397609,"title":"Only You","released":"2026"}]
+    })",782,2);
+    check(page2.page==2 && page2.pages==3 &&
+          page2.results.hits.size()==1 &&
+          page2.results.hits[0].id==36397609,
+          "second page can show concrete editions absent on page one");
+    rejects([]{(void)parse_master_versions_page(
+        R"({"pagination":{"page":1,"per_page":20,"pages":3},"versions":[]})",782,2);},
+        "unexpected/stale reply page fails closed");
+    rejects([]{(void)parse_master_versions_page(
+        R"({"pagination":{"page":4,"per_page":20,"pages":3},"versions":[]})",782,4);},
+        "page beyond provider total fails closed");
     rejects([]{(void)parse_master_versions(
         R"({"pagination":{"page":2,"per_page":20,"pages":3},"versions":[]})",782);},
-        "foreign master page refused");
+        "first page adapter still refuses second page");
+    rejects([]{(void)master_versions_path(782,100001);},
+        "page number above safety cap fails closed");
     rejects([]{(void)parse_master_versions(
         R"({"pagination":{"page":1,"per_page":200,"pages":3},"versions":[]})",782);},
         "unbounded master page refused");

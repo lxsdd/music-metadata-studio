@@ -80,6 +80,7 @@ struct PendingDiscogsContext {
     djmeta::MetadataDocument originals;
     std::uint64_t release_id=0;
     std::uint64_t master_id=0; // versions are candidates only
+    std::uint64_t master_page=1;
     std::string plan_identity;
     std::string strategy;
     std::size_t attempt_index=0;
@@ -160,6 +161,8 @@ struct PreviewState {
     bool discogs_live_view = false; // last response, never inferred from combo
     bool discogs_search_was_cue = false;
     std::vector<djmeta::online::discogs::SearchHit> discogs_results;
+    std::uint64_t discogs_master_id=0,discogs_master_page=0,
+                  discogs_master_pages=0;
     std::optional<djmeta::online::ReleaseEdition> discogs_direct_edition;
     std::vector<std::vector<djmeta::online::FieldReviewRow>> musicbrainz_detail_groups;
     std::string musicbrainz_original_title;
@@ -1410,7 +1413,14 @@ void update_live_provider_controls(PreviewState& state) {
         discogs?SW_SHOW:SW_HIDE);
     ShowWindow(GetDlgItem(state.dialog,IDC_METADATA_DISCOGS_TOKEN),
         discogs?SW_SHOW:SW_HIDE);
+    const bool next_master=discogs && state.discogs_live_view &&
+        state.candidate_source_index==state.selected_track_index &&
+        state.discogs_master_id &&
+        state.discogs_master_page<state.discogs_master_pages &&
+        state.discogs_master_page<
+            djmeta::online::discogs::max_master_version_page;
     SetDlgItemTextW(state.dialog,IDC_METADATA_MB_SEARCH,
+        next_master?L"Next master page":
         state.discogs_provider_selected?L"Search Discogs":L"Search MusicBrainz");
 }
 
@@ -2329,6 +2339,8 @@ void refresh_workspace_snapshot(PreviewState& state) {
         state.candidate_view_order.clear();
         state.musicbrainz_results.clear();
         state.discogs_results.clear();
+        state.discogs_master_id=0;
+        state.discogs_master_page=state.discogs_master_pages=0;
         state.discogs_direct_edition.reset();
         state.discogs_live_view=false;
         state.discogs_search_was_cue=false;
@@ -2585,6 +2597,7 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
         throw std::invalid_argument(
             "Only canonical HTTPS Discogs release/master URLs are accepted.");
     std::string path,strategy,identity;
+    std::uint64_t master_page=1;
     std::size_t total=1;
     std::size_t attempt_index=0;
     if(direct_id) {
@@ -2593,10 +2606,19 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
         identity="discogs|direct|"+std::to_string(direct_id)+"|"+
             entry.input.source_path;
     } else if(master_id) {
-        path=master_versions_path(master_id);
-        strategy="Master edition candidates (page 1 only)";
         identity="discogs|master|"+std::to_string(master_id)+"|"+
-            entry.input.source_path;
+            entry.input.source_path+"|"+std::to_string(state.selected_track_index);
+        const bool continuing=state.discogs_live_view &&
+            !state.musicbrainz_release_loaded &&
+            state.candidate_source_index==state.selected_track_index &&
+            state.discogs_master_id==master_id &&
+            state.search_plan_identity==identity &&
+            state.discogs_master_page>0 &&
+            state.discogs_master_page<state.discogs_master_pages &&
+            state.discogs_master_page<max_master_version_page;
+        if(continuing) master_page=state.discogs_master_page+1;
+        path=master_versions_path(master_id,master_page);
+        strategy="Master edition candidates, page "+std::to_string(master_page);
     } else {
         const auto plan=track_search_plan(
             term,auto_query?local_artist:std::string{},
@@ -2633,6 +2655,7 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
     context.originals=std::move(originals);
     context.release_id=direct_id;
     context.master_id=master_id;
+    context.master_page=master_page;
     context.plan_identity=std::move(identity);
     context.strategy=std::move(strategy);
     context.attempt_index=attempt_index;
@@ -2664,9 +2687,12 @@ void publish_discogs_search(HWND dialog, PreviewState& state,
         entry.handle,entry.input.source_path).raw_text!=request.cue_before)
         throw std::runtime_error("CUE changed during Discogs lookup. Retry.");
     SearchResults result;
+    std::optional<MasterVersionsPage> version_page;
     std::optional<ReleaseEdition> direct_edition;
     if(request.master_id) {
-        result=parse_master_versions(reply,request.master_id);
+        version_page=parse_master_versions_page(
+            reply,request.master_id,request.master_page);
+        result=version_page->results;
     } else if(request.release_id) {
         direct_edition=parse_release(reply,request.release_id);
         SearchHit hit;
@@ -2691,6 +2717,9 @@ void publish_discogs_search(HWND dialog, PreviewState& state,
     state.musicbrainz_detail_groups=std::move(browse.detail);
     state.musicbrainz_results.clear();
     state.discogs_results=std::move(result.hits);
+    state.discogs_master_id=version_page?request.master_id:0;
+    state.discogs_master_page=version_page?version_page->page:0;
+    state.discogs_master_pages=version_page?version_page->pages:0;
     state.discogs_direct_edition=std::move(direct_edition);
     state.discogs_search_was_cue=request.cue_mode;
     state.candidate_source_index=request.source_index;
@@ -2705,10 +2734,15 @@ void publish_discogs_search(HWND dialog, PreviewState& state,
     const bool broaden_empty=!request.release_id && !request.master_id &&
         state.discogs_results.empty() && request.attempt_index+1<request.total;
     state.search_attempt_notice=request.master_id
-        ? L"Discogs master "+std::to_wstring(request.master_id)+L": "+
+        ? L"Discogs master "+std::to_wstring(request.master_id)+L", page "+
+          std::to_wstring(state.discogs_master_page)+L"/"+
+          std::to_wstring(state.discogs_master_pages)+L": "+
           std::to_wstring(state.discogs_results.size())+
-          L" release editions shown from PAGE 1 ONLY (non-exhaustive). "
-          L"Select the exact edition, then Load release. No tags written."
+          L" edition candidates. Select a release and Load release. "+
+          (state.discogs_master_page<state.discogs_master_pages &&
+           state.discogs_master_page<max_master_version_page
+              ? L"Click Next master page for more (read-only)."
+              : L"Last supported page. No tags written.")
         : L"Discogs query "+std::to_wstring(request.attempt_index+1)+L"/"+
         std::to_wstring(request.total)+L" - "+from_utf8(request.strategy)+L": "+
         std::to_wstring(state.discogs_results.size())+L" result(s). "+
@@ -2721,6 +2755,7 @@ void publish_discogs_search(HWND dialog, PreviewState& state,
                     : L"Select an exact release; Search restarts the plan.");
     ListView_SetItemState(state.metadata_list,-1,0,LVIS_SELECTED);
     update_metadata_table(state);
+    update_live_provider_controls(state);
     if(state.discogs_direct_edition) {
         // The deliberate exact URL search already fetched this edition.
         // Reuse it for read-only Track/CUE field comparison in one action.
@@ -3002,6 +3037,8 @@ void publish_musicbrainz_search(
     state.musicbrainz_results=result.candidates;
     state.discogs_live_view=false;
     state.discogs_results.clear();
+    state.discogs_master_id=0;
+    state.discogs_master_page=state.discogs_master_pages=0;
     state.discogs_direct_edition.reset();
     state.musicbrainz_kind=request.kind;
     state.musicbrainz_live_view=true;
@@ -3865,6 +3902,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             // A delayed response must fail closed even after edit-and-restore.
             invalidate_online_request(*state);
             state->search_plan_identity.clear();
+            if(state->discogs_provider_selected)
+                SetDlgItemTextW(dialog,IDC_METADATA_MB_SEARCH,L"Search Discogs");
             return TRUE;
         }
         if(id==IDC_METADATA_ONLINE_PROVIDER && HIWORD(wp)==CBN_SELCHANGE) {
@@ -3878,6 +3917,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             state->musicbrainz_release_loaded=false;
             state->discogs_live_view=false;
             state->discogs_results.clear();
+            state->discogs_master_id=0;
+            state->discogs_master_page=state->discogs_master_pages=0;
             state->discogs_direct_edition.reset();
             state->musicbrainz_results.clear();
             state->musicbrainz_detail_groups.clear();
@@ -4165,6 +4206,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             state->musicbrainz_live_view = false;
             state->discogs_live_view = false;
             state->discogs_results.clear();
+            state->discogs_master_id=0;
+            state->discogs_master_page=state->discogs_master_pages=0;
             state->discogs_direct_edition.reset();
             state->discogs_search_was_cue = false;
             state->musicbrainz_results.clear();
@@ -4275,6 +4318,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 : L"";
             state->discogs_live_view = false;
             state->discogs_results.clear();
+            state->discogs_master_id=0;
+            state->discogs_master_page=state->discogs_master_pages=0;
             state->discogs_direct_edition.reset();
             state->discogs_search_was_cue = false;
             state->musicbrainz_results.clear();

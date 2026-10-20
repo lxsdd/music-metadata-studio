@@ -65,7 +65,8 @@ for token in (
 for token in (
     "master_id_from_url(term)", "master_versions_path(master_id)",
     "parse_master_versions(reply,request.master_id)",
-    "context.master_id=master_id",
+    "context.master_id=master_id", "context.master_page=master_page",
+    "parse_master_versions_page(", "state.discogs_master_page+1",
     "if(source_id.starts_with(\"master:\"))", "perform_discogs_search(dialog,state);",
 ):
     if token not in batch_rules_guard:
@@ -75,6 +76,7 @@ for token in (
 # canonical path and the native opt-in independently, not in one source.
 discogs_provider = (root / "include" / "djmeta" / "discogs_provider.h").read_text(encoding="utf-8")
 for token in ("master_search_path(core)", "type=master",
+              "max_master_version_page", "master_versions_path",
               "if(master && (!q || !tail.empty())) return false;"):
     if token not in discogs_provider:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: Discogs master provider gate missing " + token)
