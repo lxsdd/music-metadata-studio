@@ -83,3 +83,18 @@ function as the production UI and assert both exact mix identities, source
 provenance and blocked/no-op review states; independent full-host acceptance
 remains pending. No debug IPC/backdoor, injected messages, secret access or
 production media writes are justified by the test limitation.
+
+## In-process native row-label contract
+
+The actual `batch_preview_dialog.cpp` owner-data display handler now calls
+the same pure `native_candidate_source_label` and
+`native_candidate_status_label` functions used in the positive/negative
+Discogs and Beatport full-release review tests. These tests exercise
+complete edition parsing, track/mix matching, unverified-track blocking,
+source-aware custom multivalue retention, then inspect the **actual text
+contract** consumed by the Win32 virtual ListView. Both Windows and Linux
+core CI validate it; the full foobar host still verifies control creation,
+real import and proper stale lockdown. This closes an isolated presentation
+logic coverage gap without falsely claiming that the inaccessible external
+UI automation readback passed. Visual correctness and CUE host workflows
+remain for eventual real foobar acceptance.

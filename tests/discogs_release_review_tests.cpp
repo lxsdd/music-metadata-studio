@@ -1,4 +1,5 @@
 #include "djmeta/discogs_release_review.h"
+#include "djmeta/native_candidate_labels.h"
 #include "djmeta/discogs_search_hints.h"
 
 #include <algorithm>
@@ -242,5 +243,18 @@ int main() {
             field(unsafe,"Release Track 1 / REMIXER")->state==
                 FieldReviewState::Blocked,
             "tainted track field provenance blocks all track comparisons");
+    // Actual foobar owner-data display labels share these exact helpers
+    // with portable release/track provenance and field comparison tests.
+    auto discogs_group=*wrong_diagnosis;
+    discogs_group.field="Release Track 1";
+    discogs_group.reason="discogs_live_release_group";
+    require(native_candidate_source_label(discogs_group)=="Discogs API" &&
+            native_candidate_status_label(discogs_group)=="Unmatched",
+            "unverified Discogs version is visibly unmatched with official API provenance");
+    auto physical_group=*field(verified,"Physical / CUSTOM");
+    physical_group.reason="local_physical_group";
+    require(native_candidate_source_label(physical_group)=="Local physical" &&
+            native_candidate_status_label(physical_group)=="Keep original",
+            "custom multivalue physical source remains keep-original in native review");
     std::cout<<"Discogs read-only physical edition review PASS\n";
 }

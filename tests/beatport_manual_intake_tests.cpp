@@ -1,4 +1,5 @@
 #include "djmeta/beatport_release_review.h"
+#include "djmeta/native_candidate_labels.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -276,5 +277,31 @@ int main() {
         bad.replace(p,15,"\"track_count\":3");
         (void)parse_beatport_user_release_clipboard(bad);},
         "incomplete pasted edition is rejected");
+    // The same native labels now used by the production owner-data
+    // ListView must expose distinct unverified release tracks, independent
+    // of platform-specific inaccessible cross-process virtual list APIs.
+    const djmeta::MetadataDocument empty_original{};
+    const auto unmatched=review_beatport_user_edition_physical(
+        empty_original,1000,edition);
+    for (int track_number=1;track_number<=2;++track_number) {
+        const std::string prefix="Release Track "+
+            std::to_string(track_number);
+        const auto* diagnostic=find(unmatched,prefix+" / MATCH");
+        check(diagnostic && diagnostic->state==FieldReviewState::Blocked,
+              "both user-pasted mixes lack physical recording identity");
+        auto summary=*diagnostic;
+        summary.field=prefix;
+        summary.reason="musicbrainz_live_release_group";
+        check(native_candidate_source_label(summary)=="Pasted: beatport" &&
+              native_candidate_status_label(summary)=="Unmatched" &&
+              summary.field==prefix,
+              "native release row keeps mix identity, pasted origin and blocked state");
+    }
+    auto local_only=make_local_physical_original(
+        original.fields.back(),"manual_beatport_local_only_no_provider_value");
+    local_only.reason="local_physical_group";
+    check(native_candidate_source_label(local_only)=="Local physical" &&
+          native_candidate_status_label(local_only)=="Keep original",
+          "native original-only lane cannot masquerade as a Beatport edit");
     std::cout<<"Beatport user clipboard read-only workflow PASS\n";
 }

@@ -30,6 +30,7 @@
 #include "djmeta/beatport_manual_intake.h"
 #include "djmeta/beatport_release_review.h"
 #include "djmeta/discogs_release_review.h"
+#include "djmeta/native_candidate_labels.h"
 #include "djmeta/discogs_search_hints.h"
 #include "djmeta/cue_online_bridge.h"
 #include "djmeta/physical_selection.h"
@@ -910,53 +911,15 @@ std::wstring show_field_values(const std::vector<std::string>& values) {
 
 std::wstring candidate_cell_text(const djmeta::online::FieldReviewRow& item,
                                  int column) {
-    const bool cue_inventory = item.reason == "cue_inventory_read_only" ||
-                               item.reason == "cue_inventory_unqualified";
-    if (item.reason.starts_with("musicbrainz_live_candidate_rank_") ||
-        item.reason == "musicbrainz_live_release_group" ||
-        item.reason == "discogs_live_release_group" ||
-        item.reason == "local_physical_group" ||
-        item.reason == "local_cue_group") {
-        switch(column) {
-        case 0: return from_utf8(item.field);
-        case 1: return show_field_values(item.original_values);
-        case 2: return show_field_values(item.candidate.values);
-        case 3: return item.reason=="local_cue_group"
-            ? from_utf8(item.candidate.provider)
-            : from_utf8(djmeta::online::online_evidence_origin_label(item));
-        case 4: {
-            if (item.reason.starts_with("musicbrainz_live_candidate_rank_"))
-                return from_utf8(item.candidate.field);
-            if (item.reason=="local_physical_group") return L"Keep original";
-            if (item.reason=="local_cue_group") return L"Keep original CUE";
-            return item.state==djmeta::online::FieldReviewState::Blocked
-                ? L"Unmatched" : L"Review";
-        }
-        default: return {};
-        }
-    }
-    if (cue_inventory) {
-        switch (column) {
-        case 0: return from_utf8(item.field);
-        case 1: return show_field_values(item.original_values);
-        case 2: return L""; // no online proposal exists; don't suggest approval
-        case 3: return from_utf8(item.candidate.provider);
-        case 4: return item.reason == "cue_inventory_unqualified"
-            ? L"Unqualified" : L"Read-only";
-        default: return {};
-        }
-    }
+    // Keep every native visible source/status token in one testable contract.
+    // The virtual SysListView32 requests these cells via LVN_GETDISPINFOW.
     switch (column) {
     case 0: return from_utf8(item.field);
     case 1: return show_field_values(item.original_values);
-    case 2: return show_field_values(item.candidate.values);
-    case 3: return from_utf8(
-        djmeta::online::online_evidence_origin_label(item));
-    case 4:
-        return item.state == djmeta::online::FieldReviewState::Unchanged
-            ? L"No change" :
-            item.state == djmeta::online::FieldReviewState::NeedsReview
-            ? L"Review" : L"Blocked";
+    case 2: return djmeta::online::native_candidate_cue_inventory(item)
+        ? L"" : show_field_values(item.candidate.values);
+    case 3: return from_utf8(djmeta::online::native_candidate_source_label(item));
+    case 4: return from_utf8(djmeta::online::native_candidate_status_label(item));
     default: return {};
     }
 }
