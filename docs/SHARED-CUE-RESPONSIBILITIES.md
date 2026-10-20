@@ -161,3 +161,12 @@ filesystem result all abort the whole inspection **before any new table
 rows are published**. Windows native regression tests cover each state
 transition. These are preliminary Title Formatting paths and do not
 enable foobar's final File Operations or any media writer.
+
+## File locations native read-only inspection feedback
+
+After a user-triggered raw destination inspection, the real Studio
+File locations footer reports how many selected raw candidates were
+observed as present, missing or unqualified, with an explicit statement
+that *final foobar File Operations destinations and CUE dependencies
+remain unverified*. It cannot turn an advisory observation into an
+approved file operation and does not write files.

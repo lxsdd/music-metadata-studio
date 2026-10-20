@@ -2276,6 +2276,23 @@ void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
         input.filesystem_target_checked = false; // invariant: final target unknown
     }
     update_table(state);
+    std::size_t present = 0, missing = 0, unqualified = 0;
+    for (const auto& result : observations) {
+        switch (result.observed.state) {
+        case HostFileState::ExistingFile: ++present; break;
+        case HostFileState::Missing: ++missing; break;
+        case HostFileState::Unqualified: default: ++unqualified; break;
+        }
+    }
+    // Preserve the distinction between an observed raw location and a
+    // final foobar File Operations destination. These counts are UX-only.
+    const std::wstring hint =
+        L"Raw target inspection: " + std::to_wstring(observations.size()) +
+        L" candidate(s); present " + std::to_wstring(present) +
+        L", missing " + std::to_wstring(missing) +
+        L", unqualified " + std::to_wstring(unqualified) +
+        L". Final foobar destinations/CUE dependencies UNVERIFIED; no writes.";
+    SetDlgItemTextW(dialog, IDC_BATCH_HINT, hint.c_str());
 }
 
 std::vector<PreviewEntry> capture_preview(
