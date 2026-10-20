@@ -338,12 +338,12 @@ for label, token in (
     ("official Discogs release action", "perform_discogs_load(dialog,*state)"),
     ("Discogs auth only from runtime password field", "read_control(dialog,IDC_METADATA_DISCOGS_TOKEN)"),
     ("Discogs URL constructed by provider", "release_path(direct_id)"),
-    ("Discogs physical barcode search", 'unique_discogs_physical_tag(\n            originals,"BARCODE")'),
-    ("Discogs physical catalog search", 'unique_discogs_physical_tag(\n            originals,"CATALOGNUMBER")'),
+    ("Discogs physical barcode search", "local_barcode=hints.barcode;"),
+    ("Discogs physical catalog search", "local_catalog_number=hints.catalog_number;"),
     ("Discogs staged edition identifier search", "auto_query?local_barcode:std::string{}"),
     ("Discogs physical/CUE album search wiring", "auto_query?local_album:std::string{}"),
-    ("Discogs physical album tag inventory", 'unique_metadata_value(originals,"ALBUM")'),
-    ("Discogs CUE global album provenance", "local_album=local_title; // Qualified CUE-global album"),
+    ("Discogs physical album tag inventory", "local_album=hints.album;"),
+    ("Discogs CUE global album provenance", "local_album=hints.album; // Qualified CUE-global album"),
     ("Discogs source rank separation", "discogs_live_master_not_exact_edition"),
     ("Discogs CUE edition matcher", "review_cue_release_edition(cue,edition)"),
     ("Discogs CUE stale check", "CUE changed during Discogs release lookup."),
@@ -422,6 +422,19 @@ for token in ("unverified_fields", "cue_unverified_alignment_evidence_only_",
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing blocked CUE evidence guard: "+token)
 if "item.unverified_fields" not in batch_table_dialog:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing native blocked CUE evidence")
+# Optional physical/CUE search hints must abstain on ambiguous values,
+# not prevent a user-entered exact Discogs URL from reaching the official API.
+hint_header=(root / "include" / "djmeta" / "discogs_search_hints.h").read_text(encoding="utf-8")
+for token in ("physical_search_hints(", "cue_search_hints(",
+              "unique_discogs_physical_tag(source,name)",
+              "if(found) return {};", "validated_term(*value)",
+              "hints.album=hints.title;"):
+    if token not in hint_header:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: Discogs optional source hint guard missing: "+token)
+for token in ("physical_search_hints(originals)",
+              "cue_search_hints(cue)", "release_id_from_url(term)"):
+    if token not in batch_table_dialog:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: native Discogs URL/hint chain missing: "+token)
 # Every original CUE token must stay source-only in both native lanes.
 cue_inventory_header=(root / "include" / "djmeta" / "cue_original_inventory.h").read_text(encoding="utf-8")
 for token in ("cue_original_inventory_rows(", "cue-line:", "row.original_values.push_back(",

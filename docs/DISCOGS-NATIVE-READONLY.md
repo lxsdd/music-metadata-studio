@@ -16,6 +16,15 @@ WinHTTP GET adapter and the existing bounded official catalog/edition parsers.
 - Enter a **personal access token authorized by Discogs** in the masked
   temporary native control. It is neither persisted, logged, committed, added
   to URLs, nor stored in the user's foobar configuration.
+- Manually pasted canonical Discogs release/master URLs stay reachable even
+  when the selected source has duplicate, multi-value, malformed or absent
+  TITLE, ARTIST or ALBUM tags; those local fields are merely optional
+  discovery hints. An invalid track title cannot suppress an independently
+  qualified ALBUM search. CUE-global duplicates are likewise ignored for
+  discovery (never arbitrarily selected), while actual track/CUE association
+  remains blocked or review-only when its identity cannot be established.
+  An exact URL always resolves to the fixed official API path; no arbitrary
+  pasted URL is fetched and no missing source value becomes an edit proposal.
 - When the selected physical track has a single valid BARCODE and/or
   CATALOGNUMBER, the explicitly initiated Discogs search first tries those
   documented, fixed-host **edition** filters (preserving leading zeros and

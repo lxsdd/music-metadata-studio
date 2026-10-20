@@ -1,4 +1,5 @@
 #include "djmeta/discogs_release_review.h"
+#include "djmeta/discogs_search_hints.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -23,6 +24,49 @@ const djmeta::online::FieldReviewRow* field(
 int main() {
     using namespace djmeta::online;
     using namespace djmeta::online::discogs;
+    // Regression: even an unusable local inventory cannot prevent a
+    // deliberately entered, canonical exact-edition URL. The comparison
+    // still blocks accidental physical-track assignment and keeps originals.
+    djmeta::MetadataDocument messy;
+    messy.fields.push_back({"TITLE",{"A","B"}});
+    messy.fields.push_back({"ARTIST",{"Somebody"}});
+    messy.fields.push_back({"ARTIST",{"Another"}});
+    messy.fields.push_back({"ALBUM",{"Version 1"}});
+    messy.fields.push_back({"ALBUM",{"Version 2"}});
+    messy.fields.push_back({"BARCODE",{"0001234567","0001234568"}});
+    messy.fields.push_back({"CATALOGNUMBER",{"EX001"}});
+    messy.fields.push_back({"MY CUSTOM",{"Keep","Both"}});
+    auto hints=physical_search_hints(messy);
+    require(hints.title.empty() && hints.artist.empty() &&
+            hints.album.empty() && hints.barcode.empty() &&
+            hints.catalog_number=="EX001",
+            "ambiguous local optional hints abstain independently without throwing");
+    const auto release_url=std::string(
+        "https://www.discogs.com/release/38012673-Estiva-Via-Balearia");
+    const auto expected_id=release_id_from_url(release_url);
+    require(expected_id==38012673 &&
+            allowed_readonly_path(release_path(expected_id)),
+            "user-pasted problem release takes fixed official read-only API route");
+    const auto example=parse_release(R"JSON({
+        "id":38012673,"title":"Synthetic offline edition",
+        "tracklist":[{"position":"1","title":"A","duration":"4:02"}]
+    })JSON",expected_id);
+    const auto read_only=review_discogs_physical_edition(messy,example,242000);
+    require(field(read_only,"Physical / MY CUSTOM") &&
+            field(read_only,"Physical / MY CUSTOM")->original_values==
+                std::vector<std::string>({"Keep","Both"}) &&
+            field(read_only,"Release Track 1 / MATCH") &&
+            field(read_only,"Release Track 1 / MATCH")->state==FieldReviewState::Blocked &&
+            !discogs_physical_identity(messy,242000),
+            "offline exact-URL chain keeps local data but blocks ambiguous track match");
+    djmeta::MetadataDocument only_album;
+    only_album.fields={{"TITLE",{"Bad\nTitle"}},{"ALBUM",{"Valid Album"}},
+                       {"ARTIST",{"Artist"}}};
+    hints=physical_search_hints(only_album);
+    require(hints.title.empty() && hints.album=="Valid Album" &&
+            hints.artist=="Artist" &&
+            !track_search_plan(hints.title,hints.artist,{}, {},hints.album).empty(),
+            "invalid track title cannot suppress qualified album fallback");
     djmeta::MetadataDocument originals;
     originals.fields.push_back({"GENRE",{"House","Deep House"}});
     originals.fields.push_back({"REPLAYGAIN_TRACK_GAIN",{"-4.50 dB"}});

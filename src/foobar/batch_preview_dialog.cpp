@@ -30,6 +30,7 @@
 #include "djmeta/beatport_manual_intake.h"
 #include "djmeta/beatport_release_review.h"
 #include "djmeta/discogs_release_review.h"
+#include "djmeta/discogs_search_hints.h"
 #include "djmeta/cue_online_bridge.h"
 #include "djmeta/physical_selection.h"
 #include "djmeta/review_decisions.h"
@@ -2576,39 +2577,25 @@ void perform_discogs_search(HWND dialog, PreviewState& state) {
         const auto cue=djmeta::inspect_cue_metadata(raw.raw_text,raw.carrier);
         if(cue.status!=djmeta::CueSyntaxStatus::Parsed)
             throw std::invalid_argument("Discogs CUE search needs a qualified CUE inventory.");
-        local_title=unique_cue_album_value(cue,"TITLE");
-        local_artist=unique_cue_album_value(cue,"PERFORMER");
-        local_album=local_title; // Qualified CUE-global album, not a virtual tag.
+        const auto hints=cue_search_hints(cue);
+        local_title=hints.title;
+        local_artist=hints.artist;
+        local_album=hints.album; // Qualified CUE-global album, not a virtual tag.
         cue_before=raw.raw_text;
     } else {
         if(!entry.input.physical_source_qualified)
             throw std::invalid_argument("Discogs search requires a qualified physical source.");
         const auto info=entry.handle->get_info_ref();
         originals=metadata_from_file_info(info->info());
-        local_title=unique_metadata_value(originals,"TITLE");
-        local_artist=unique_metadata_value(originals,"ARTIST");
-        // ALBUM is an independent release-search hint, never a track identity.
-        // Malformed/oversize/ambiguous local album data cannot block a valid
-        // track-title search and must never become a guessed edition.
-        const auto tagged_album=unique_metadata_value(originals,"ALBUM");
-        if(!tagged_album.empty()) {
-            try {
-                (void)validated_term(tagged_album);
-                local_album=tagged_album;
-            } catch(const std::invalid_argument&) {
-                // Ignore only this optional search hint, not the source tags.
-            }
-        }
-        // Only one intact value is sufficiently qualified. Duplicate or
-        // multivalue edition identifiers are ignored, not guessed.
-        const auto barcode=djmeta::online::unique_discogs_physical_tag(
-            originals,"BARCODE");
-        if(barcode && catalog_label(*barcode,150))
-            local_barcode=*barcode;
-        const auto catalog=djmeta::online::unique_discogs_physical_tag(
-            originals,"CATALOGNUMBER");
-        if(catalog && catalog_label(*catalog,150))
-            local_catalog_number=*catalog;
+        // An exact manually entered URL (or a manual text query) must
+        // remain reachable even if local TITLE, ARTIST, ALBUM or identifiers
+        // are ambiguous. No local hint proves a provider track association.
+        const auto hints=physical_search_hints(originals);
+        local_title=hints.title;
+        local_artist=hints.artist;
+        local_album=hints.album;
+        local_barcode=hints.barcode;
+        local_catalog_number=hints.catalog_number;
     }
     const auto entered=to_utf8(read_control(dialog,IDC_METADATA_MB_QUERY));
     const bool auto_query=entered.empty() ||

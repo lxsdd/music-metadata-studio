@@ -1,6 +1,7 @@
 #include "djmeta/cue_release_review.h"
 #include "djmeta/cue_original_inventory.h"
 #include "djmeta/discogs_provider.h"
+#include "djmeta/discogs_search_hints.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -32,6 +33,23 @@ int main() {
         "TRACK 02 AUDIO\nTITLE Second\n"
         "TRACK 03 AUDIO\nTITLE Third\n";
     const auto preserved = cue;
+    const auto cue_hints=discogs::cue_search_hints(
+        inspect_cue_metadata(cue,CueCarrierKind::EmbeddedText));
+    check(cue_hints.title=="Album" && cue_hints.album=="Album" &&
+          cue_hints.artist=="Album Artist" &&
+          cue_hints.barcode.empty() && cue_hints.catalog_number.empty(),
+          "qualified CUE global album supports official Discogs discovery only");
+    const auto duplicate_album=inspect_cue_metadata(
+        "TITLE \"One\"\nTITLE \"Two\"\nPERFORMER \"Composer\"\n"
+        "FILE a.flac WAVE\nTRACK 01 AUDIO\nTITLE \"Track\"\n",
+        CueCarrierKind::ExternalText);
+    const auto uncertain_hints=discogs::cue_search_hints(duplicate_album);
+    check(duplicate_album.status==CueSyntaxStatus::Parsed &&
+          uncertain_hints.title.empty() && uncertain_hints.album.empty() &&
+          uncertain_hints.artist=="Composer" &&
+          discogs::release_id_from_url(
+              "https://www.discogs.com/release/37332711-1000-Years")==37332711,
+          "duplicate global CUE album does not block manually selected official edition");
     const auto parsed = inspect_cue_metadata(cue, CueCarrierKind::EmbeddedText);
     check(parsed.status == CueSyntaxStatus::Parsed, "qualified source fixture");
     // Original CUE evidence is independent from the exact online edition.
