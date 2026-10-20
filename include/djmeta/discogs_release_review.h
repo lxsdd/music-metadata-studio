@@ -122,6 +122,18 @@ inline std::vector<FieldReviewRow> review_discogs_physical_edition(
                 verified_track=link.edition_track_index;
         }
     }
+    // An exact catalogue edition is only provider evidence until a unique
+    // physical recording matches one specific edition track. Do not suggest
+    // ALBUM/DATE/GENRE changes for unrelated files merely because an edition
+    // was selected by search or pasted URL. Preserve the evidence and all
+    // originals visibly, but block reviewable album proposals.
+    if(verified_track==no_release_track) {
+        for(auto& row:rows) {
+            if(!row.field.starts_with("Album / ")) continue;
+            row.state=FieldReviewState::Blocked;
+            row.reason="discogs_live_release_edition_source_unverified_"+row.reason;
+        }
+    }
     for(std::size_t i=0;i<edition.tracks.size();++i) {
         const auto& track=edition.tracks[i];
         const auto expected=edition.edition_id+"/track/"+std::to_string(i+1);

@@ -102,7 +102,9 @@ int main() {
     require(genre && genre->candidate.values==
         std::vector<std::string>({"House","Trance"}) &&
         genre->original_values==std::vector<std::string>({"House","Deep House"}) &&
-        genre->state==FieldReviewState::NeedsReview &&
+        genre->state==FieldReviewState::Blocked &&
+        genre->reason.starts_with(
+            "discogs_live_release_edition_source_unverified_") &&
         genre->candidate.source_id=="4242",
         "edition GENRE preserves multivalues and exact provider identity");
     const auto* custom=field(rows,"Physical / MY CUSTOM TAG");
@@ -161,6 +163,13 @@ int main() {
     physical.fields.push_back({"REPLAYGAIN_TRACK_GAIN",{"-4.5 dB"}});
     physical.fields.push_back({"CUSTOM",{"First","Second"}});
     const auto verified=review_discogs_physical_edition(physical,exact,242000);
+    const auto* matched_album=field(verified,"Album / ALBUM");
+    require(matched_album && matched_album->state==FieldReviewState::NeedsReview &&
+            matched_album->candidate.provider=="discogs" &&
+            matched_album->candidate.source_id=="4243" &&
+            !matched_album->reason.starts_with(
+                "discogs_live_release_edition_source_unverified_"),
+            "a uniquely aligned physical recording may review its exact edition album");
     const auto* matched_title=field(verified,"Release Track 1 / TITLE");
     const auto* matched_credit=field(verified,"Release Track 1 / REMIXER");
     const auto* other_title=field(verified,"Release Track 2 / TITLE");
@@ -205,6 +214,9 @@ int main() {
     auto wrong_mix=physical;
     wrong_mix.fields[0].values={"Track One (Radio Edit)"};
     const auto wrong=review_discogs_physical_edition(wrong_mix,exact,242000);
+    require(field(wrong,"Album / ALBUM") &&
+            field(wrong,"Album / ALBUM")->state==FieldReviewState::Blocked,
+            "wrong physical remix cannot propose even album-level edition tags");
     const auto* wrong_diagnosis=field(wrong,"Release Track 1 / MATCH");
     require(field(wrong,"Release Track 1 / REMIXER")->state==
                 FieldReviewState::Blocked &&
