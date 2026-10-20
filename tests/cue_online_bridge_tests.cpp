@@ -42,10 +42,10 @@ int main() {
           "track title, performer and ISRC do not leak album TITLE/artist");
     check(local.tracks[0].disc_number == -1 &&
           local.tracks[1].disc_number == -1 &&
-          local.tracks[0].track_number == 1 &&
-          local.tracks[1].track_number == 1 &&
+          local.tracks[0].track_number == -1 &&
+          local.tracks[1].track_number == -1 &&
           local.tracks[0].recording.duration_ms == -1,
-          "multiple FILEs never imply disc positions or fabricated durations");
+          "repeated track numbers across FILEs do not imply provider position or disc and cannot fabricate duration");
 
     ReleaseEdition edition{"musicbrainz", "release-100", {}, {
         {"r2", {"Lunar", "Artist B", "", MixKind::Unknown, "", -1}, -1, 1, {}},

@@ -137,8 +137,8 @@ int main() {
           sequential_lookup.tracks[1].track_number==2 &&
           compare_position(sequential_lookup.tracks[0],provider_track).bonus==6,
           "unique multi-FILE CUE numbers remain valid unambiguous position evidence");
-    check(cue_original_inventory_rows(repeating_file_numbers).size()==5,
-          "original global performer, two track titles and two FILEs stay distinct");
+    check(cue_original_inventory_rows(repeating_file_numbers).size()==6,
+          "album TITLE and PERFORMER, two track titles and two FILEs remain distinct");
     const auto rows = review_cue_candidate_fields(parsed, 1, {
         item("ALBUM", {"New Album"}, EvidenceScope::Edition),
         item("ALBUM ARTIST", {"Album Artist"}, EvidenceScope::Edition),
