@@ -4,6 +4,7 @@
 #include "djmeta/beatport_manual_intake.h"
 #include "djmeta/cue_online_bridge.h"
 #include "djmeta/cue_online_review.h"
+#include "djmeta/cue_original_inventory.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -155,9 +156,10 @@ inline std::vector<FieldReviewRow> review_beatport_user_edition_cue(
     const CueMetadataInventory& cue, const ReleaseEdition& edition) {
     validate_manual_beatport_edition(edition);
     const auto local = prepare_cue_release_lookup(cue);
-    if (!local.eligible)
-        throw std::invalid_argument("Beatport CUE inventory is unqualified");
-    const auto alignment = align_release(local.tracks, edition);
+    if (cue.status != CueSyntaxStatus::Parsed)
+        throw std::invalid_argument("Beatport CUE carrier is not fully parsed");
+    ReleaseAlignment alignment;
+    if (local.eligible) alignment = align_release(local.tracks, edition);
     std::vector<FieldReviewRow> rows;
     for (const auto& field : edition.fields) {
         const auto compared = review_cue_candidate_fields(
@@ -168,8 +170,10 @@ inline std::vector<FieldReviewRow> review_beatport_user_edition_cue(
                 ? item.candidate.field : item.cue_field);
             row.original_values = item.original_values;
             row.candidate = item.candidate;
-            row.state = item.state;
-            row.reason = "manual_beatport_cue_album_" + item.reason;
+            row.state = local.eligible ? item.state : FieldReviewState::Blocked;
+            row.reason = local.eligible
+                ? "manual_beatport_cue_album_" + item.reason
+                : "manual_beatport_cue_unqualified_album_evidence_only";
             rows.push_back(std::move(row));
         }
     }
@@ -240,6 +244,14 @@ inline std::vector<FieldReviewRow> review_beatport_user_edition_cue(
             rows.push_back(std::move(row));
         }
     }
+    // Never hide the original CUE carrier behind pasted provider evidence.
+    // Duplicates, unknown REM, local track fields and FILE remain separate.
+    const auto original = cue_original_inventory_rows(cue,"CUE Original / ");
+    constexpr std::size_t maximum_rows = 12000;
+    if (original.size() > maximum_rows ||
+        rows.size() > maximum_rows - original.size())
+        throw std::invalid_argument("Beatport CUE comparison exceeds row limit");
+    rows.insert(rows.end(),original.begin(),original.end());
     return rows;
 }
 

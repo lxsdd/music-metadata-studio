@@ -81,6 +81,8 @@ JSON can still be handled as a **single track** using the separate
 `@beatport-track-json` path if that one track itself qualifies; never claim
 it represents the complete release.
 
+The native exact-edition CUE comparison now also displays a separate **CUE Original** source lane with each original global, track-local, repeated REM and FILE occurrence. A readable CUE with incomplete track identity keeps this inventory visible but blocks all pasted provider proposals. These facts are not Beatport authorization and never approve virtual or physical writes.
+
 Original physical multivalue, ReplayGain and custom fields remain visible
 and untouched. Neither imported facts nor displayed Review states authorize
 physical/CUE writes, artwork changes, File Operations or external requests.
