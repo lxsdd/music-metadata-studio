@@ -57,8 +57,13 @@ jobs:
       - name: Build foobar preview component
         shell: pwsh
         run: ./scripts/build-foobar.ps1 -Platform '${{ matrix.platform }}' -Configuration Release -PlatformToolset v143
+      - name: HARD GATE - foobar2000 ${{ matrix.platform }} component host load
+        uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@0d5baa8c655abd9b447556505fa98ce1396a3135
+        with:
+          architecture: ${{ matrix.platform }}
+          component-dll: out/foobar/${{ matrix.platform }}/Release/foo_music_metadata_studio.dll
       - name: Upload DLL
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        if: github.event_name != 'pull_request'  # Never upload unqualified DLLs in draft PR CI
         uses: actions/upload-artifact@v7
         with:
           name: foo-music-metadata-studio-${{ matrix.platform }}
@@ -69,7 +74,7 @@ jobs:
   # Internal PRs may publish short-lived QA artifacts, never GitHub Releases.
   # Fork PRs remain build-only so untrusted code cannot publish previews.
   package:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name != 'pull_request'  # Never upload unqualified DLLs in draft PR CI
     needs: [static-audit, host-gate-script, windows-build]
     runs-on: windows-2022
     timeout-minutes: 10
