@@ -159,3 +159,45 @@ CUE-global TITLE is an album and never gains an invented track mix. Each
 additional zero-hit request is paced on the native worker. Search hits
 remain unverified: exact release detail, independent track alignment,
 provenance and host snapshot checks are still mandatory, with no writes.
+
+## GitHub runner: authenticated *real native* QA (manual only, 2026-10-20)
+
+A separately gated `discogs-authorized-native` job is now attached to
+`.github/workflows/foobar.yml`. It is **not part of pull_request or push
+runs**, never uses `pull_request_target`, and is only eligible for a manual
+`workflow_dispatch` on the exact canonical PR #45 development branch when
+`discogs_live` is explicitly set to true. The Win32 and x64 matrices build
+the exact selected branch HEAD and run official SHA-256-pinned foobar2000
+2.26.1 in isolated GitHub-hosted Windows environments.
+
+The job requests protected GitHub environment **`discogs-qa`**. Set a
+**single environment secret** named **`MMS_DISCOGS_QA_TOKEN`**, obtained
+and authorized independently from Discogs. Enable a required reviewer and
+restrict the environment to the canonical Studio branch before launching.
+Never paste a token into a chat, PR description, GitHub issue, YAML, workflow
+input, file, URL or command line. The token only enters the secret-scoped
+action step and masked Win32 password control; it is removed from the runner
+shell environment **before** starting foobar, so foobar does not inherit it.
+No secrets are present in normal PR CI. No artifacts, merges, releases or
+writes are performed by the manual job.
+
+In one explicit native UI Search click, the test opens
+`https://www.discogs.com/release/<allowlisted id>`. The plugin's own
+fixed-host official HTTPS transport receives the token in the Authorization
+header, reads the exact edition and promotes it directly into native
+read-only release/track/field comparison. The test requires real native
+summary and field-detail rows, expected read-only status, responsive UI,
+modeless reuse and unchanged synthetic WAV bytes/timestamps. The test does
+**not** prove matching of the selected artificial local track, complete CUE
+coverage, visual field correctness, or actual tag/media writer safety.
+
+The allowlist comprises historical user-reported discovery problems:
+38012673, 37332711, 36397609, 36819730. Select only one per manual run,
+honor Discogs request limits, and never treat a source-owned token as a
+license to scrape or bulk-download. Auth failures, missing protected secret,
+rate limits, invalid responses or unavailable catalog entries are reported as
+FAIL, not silently skipped or reclassified as host success.
+
+The separate `core`, build and ordinary PR host gates stay independent.
+The default `workflow_dispatch` input `discogs_live=false` cannot access
+this secret-bearing job. Manual QA does not upload or package draft DLLs.

@@ -16,6 +16,22 @@ on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      discogs_live:
+        description: 'Explicitly run official authenticated Discogs native QA (requires protected discogs-qa environment)'
+        type: boolean
+        required: true
+        default: false
+      discogs_release_id:
+        description: 'Public Discogs release ID from existing regression set (read-only)'
+        type: choice
+        required: true
+        default: '38012673'
+        options:
+          - '38012673'
+          - '37332711'
+          - '36397609'
+          - '36819730'
 
 permissions:
   contents: read
@@ -77,7 +93,7 @@ jobs:
           beatport-edition-host-probe: 'true'
           stale-physical-host-probe: 'true'
       - name: Upload DLL
-        if: github.event_name != 'pull_request'  # Never upload unqualified DLLs in draft PR CI
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'  # Never upload draft PR or manual QA DLLs
         uses: actions/upload-artifact@v7
         with:
           name: foo-music-metadata-studio-${{ matrix.platform }}
@@ -85,10 +101,47 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # Privileged third-party API QA has an isolated, manually approved
+  # GitHub environment. Ordinary PR workflows receive NO Discogs token.
+  # This job neither uploads nor packages the DLL and NEVER runs for forks.
+  discogs-authorized-native:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.discogs_live == true &&
+      github.ref == 'refs/heads/feature/online-metadata-discovery-foundation-20261009'
+    needs: static-audit
+    environment: discogs-qa
+    runs-on: windows-2022
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [Win32, x64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: microsoft/setup-msbuild@v2
+      - name: Build the exact checked-out foobar component for Discogs QA
+        shell: pwsh
+        run: ./scripts/build-foobar.ps1 -Platform '${{ matrix.platform }}' -Configuration Release -PlatformToolset v143
+      - name: Authorized official Discogs native exact-edition gate
+        uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@48a989c6eced0f530f6f6d38b3391b2a2e099bd7
+        env:
+          FB2K_DISCOGS_QA_TOKEN: ${{ secrets.MMS_DISCOGS_QA_TOKEN }}
+        with:
+          architecture: ${{ matrix.platform }}
+          component-dll: out/foobar/${{ matrix.platform }}/Release/foo_music_metadata_studio.dll
+          context-command: 'Music Metadata Studio/Prepare Tracks (Preview)...'
+          expected-window-title: 'Music Metadata Studio - Prepare Tracks (Read-only)'
+          required-control-ids: '270,273,271,291,292,293,294,299,301'
+          authorized-discogs-probe: 'true'
+          discogs-release-id: ${{ inputs.discogs_release_id }}
+
   # Internal PRs may publish short-lived QA artifacts, never GitHub Releases.
   # Fork PRs remain build-only so untrusted code cannot publish previews.
   package:
-    if: github.event_name != 'pull_request'  # Never upload unqualified DLLs in draft PR CI
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'  # Never package draft PR or manual QA
     needs: [static-audit, host-gate-script, windows-build]
     runs-on: windows-2022
     timeout-minutes: 10
