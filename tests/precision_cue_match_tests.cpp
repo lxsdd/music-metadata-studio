@@ -241,12 +241,58 @@ void release_cumulative_24h_contract() {
            PrecisionCueMatchState::Selected);
 }
 
+
+void native_conflict_diagnostics_are_bounded_and_located() {
+    auto deezer = release("deezer", "synthetic-deezer");
+    auto apple = release("apple", "synthetic-apple");
+    apple.tracks[1].title = "Loophole (Original Mix)";
+    auto report = djmeta::match_precision_cue_releases(deezer, {apple});
+    auto message = djmeta::describe_precision_cue_match_failure(report, deezer, apple);
+    assert(report.state == PrecisionCueMatchState::Rejected);
+    assert(message.find("First conflict: disc 1, track 2") != std::string::npos);
+    assert(message.find("Original Mix") == std::string::npos);
+
+    apple = release("apple", "synthetic-apple");
+    apple.tracks[2].track_number = 2;
+    report = djmeta::match_precision_cue_releases(deezer, {apple});
+    message = djmeta::describe_precision_cue_match_failure(report, deezer, apple);
+    assert(message.find("disc 2, track 1 (Apple disc 2, track 2)") != std::string::npos);
+
+    apple = release("apple", "synthetic-apple");
+    apple.tracks[2].duration_ms += 3001;
+    report = djmeta::match_precision_cue_releases(deezer, {apple});
+    message = djmeta::describe_precision_cue_match_failure(report, deezer, apple);
+    assert(message.find("disc 2, track 1 (Deezer 248173 ms / Apple 251174 ms") !=
+           std::string::npos);
+    assert(message.find("not audio precision") != std::string::npos);
+
+    apple = release("apple", "synthetic-apple");
+    apple.tracks[3].duration_ms += 1500;
+    report = djmeta::match_precision_cue_releases(deezer, {apple});
+    message = djmeta::describe_precision_cue_match_failure(report, deezer, apple);
+    assert(report.state == PrecisionCueMatchState::Review);
+    assert(message.find("disc 2, track 2 (Deezer 107667 ms / Apple 109167 ms") !=
+           std::string::npos);
+
+    apple = release("apple", "synthetic-apple");
+    for (auto& track : apple.tracks) track.performer = "Other Artist";
+    report = djmeta::match_precision_cue_releases(deezer, {apple});
+    message = djmeta::describe_precision_cue_match_failure(report, deezer, apple);
+    const auto first = message.find("Track performer differs or is missing.");
+    assert(first != std::string::npos);
+    assert(message.find("Track performer differs or is missing.", first + 1) ==
+           std::string::npos);
+    assert(message.find("disc 1, track 1") != std::string::npos);
+    assert(message.size() < 512);
+}
+
 } // namespace
 
 int main() {
     strong_match_and_rounded_reference();
     exact_duplicate_deduplicates_only_same_id();
     sourced_edition_date_review();
+    native_conflict_diagnostics_are_bounded_and_located();
     mix_identity_and_disc_gates();
     incomplete_or_conflicting_evidence_review();
     malformed_provider_data_fail_closed();
