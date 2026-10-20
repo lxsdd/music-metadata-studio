@@ -739,3 +739,40 @@ for function in (
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: incomplete disk recheck " + function)
     if "verify_snapshot(entry);" in section:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: metadb-only provider publish " + function)
+
+# Only the explicitly invoked, environment-gated canonical Studio branch may
+# receive the Discogs QA secret; PR, fork, push, and regular workflow runs
+# must remain credential-free. No manual run may publish a draft artifact.
+workflow = (root / ".github" / "workflows" / "foobar.yml").read_text(encoding="utf-8")
+if "pull_request_target:" in workflow or workflow.count(
+    "secrets.MMS_DISCOGS_QA_TOKEN"
+) != 1:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: unsafe Discogs secret propagation")
+if "  workflow_dispatch:\n    inputs:" not in workflow:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing explicit manual QA trigger")
+if "  discogs-authorized-native:\n" not in workflow:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing separated Discogs QA job")
+public_jobs, protected_job = workflow.split("  discogs-authorized-native:\n", 1)
+protected_job = protected_job.split("\n  # Internal PRs", 1)[0]
+if "secrets.MMS_DISCOGS_QA_TOKEN" in public_jobs:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: Discogs secret exposed to PR jobs")
+for token in (
+    "github.event_name == 'workflow_dispatch'",
+    "inputs.discogs_live == true",
+    "github.ref == 'refs/heads/feature/online-metadata-discovery-foundation-20261009'",
+    "environment: discogs-qa",
+    "FB2K_DISCOGS_QA_TOKEN:",
+    "secrets.MMS_DISCOGS_QA_TOKEN",
+    "authorized-discogs-probe: 'true'",
+):
+    if token not in protected_job:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing protected live QA guard: " + token)
+if workflow.count(
+    "lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@"
+    "48a989c6eced0f530f6f6d38b3391b2a2e099bd7"
+) != 2:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: mismatched protected/ordinary host pins")
+if workflow.count(
+    "github.event_name == 'push' && github.ref == 'refs/heads/main'"
+) != 2:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: manual QA may publish unqualified DLL")
