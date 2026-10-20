@@ -71,6 +71,23 @@ inline std::optional<LocalReleaseTrack> discogs_physical_identity(
     return local;
 }
 
+// Track-field provenance is part of release identity, not merely a detail
+// rendering condition. An otherwise matching physical recording cannot
+// promote edition-wide album/date/genre proposals through a tainted track.
+inline bool discogs_edition_track_provenance_trusted(
+    const ReleaseEdition& edition, std::size_t index) {
+    if (index >= edition.tracks.size()) return false;
+    const auto& track = edition.tracks[index];
+    const auto expected = edition.edition_id + "/track/" +
+        std::to_string(index + 1);
+    return !track.fields.empty() && std::all_of(
+        track.fields.begin(), track.fields.end(), [&](const auto& field) {
+            return field.provider == "discogs" &&
+                   field.scope == EvidenceScope::Edition &&
+                   field.source_id == expected;
+        });
+}
+
 inline std::vector<FieldReviewRow> review_discogs_physical_edition(
     const MetadataDocument& originals, const ReleaseEdition& edition,
     std::int64_t physical_duration_ms=-1) {
@@ -118,7 +135,8 @@ inline std::vector<FieldReviewRow> review_discogs_physical_edition(
             chosen_association=link;
             if(link.decision==MatchDecision::Suggested &&
                link.conflicts.empty() &&
-               link.edition_track_index<edition.tracks.size())
+               discogs_edition_track_provenance_trusted(
+                   edition, link.edition_track_index))
                 verified_track=link.edition_track_index;
         }
     }
@@ -137,12 +155,7 @@ inline std::vector<FieldReviewRow> review_discogs_physical_edition(
     for(std::size_t i=0;i<edition.tracks.size();++i) {
         const auto& track=edition.tracks[i];
         const auto expected=edition.edition_id+"/track/"+std::to_string(i+1);
-        const bool trusted=!track.fields.empty() && std::all_of(
-            track.fields.begin(),track.fields.end(),[&](const auto& field) {
-                return field.provider=="discogs" &&
-                       field.scope==EvidenceScope::Edition &&
-                       field.source_id==expected;
-            });
+        const bool trusted=discogs_edition_track_provenance_trusted(edition,i);
         // Display-only proof/uncertainty for each edition track. This row
         // is not a candidate metadata tag and cannot approve a write.
         FieldReviewRow diagnosis;

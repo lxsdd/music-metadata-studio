@@ -255,6 +255,19 @@ int main() {
             field(unsafe,"Release Track 1 / REMIXER")->state==
                 FieldReviewState::Blocked,
             "tainted track field provenance blocks all track comparisons");
+    const auto* tainted_album=field(unsafe,"Album / ALBUM");
+    require(tainted_album && tainted_album->state==FieldReviewState::Blocked &&
+            tainted_album->reason.starts_with(
+                "discogs_live_release_edition_source_unverified_"),
+            "tainted matched track provenance also blocks edition-wide album changes");
+    auto tainted_scope=exact;
+    tainted_scope.tracks[0].fields.front().scope=EvidenceScope::Recording;
+    const auto wrong_scope=review_discogs_physical_edition(
+        physical,tainted_scope,242000);
+    require(field(wrong_scope,"Album / ALBUM")->state==FieldReviewState::Blocked &&
+            field(wrong_scope,"Release Track 1 / MATCH")->reason==
+                "discogs_live_match_track_provenance_unqualified",
+            "wrong matched track evidence scope cannot promote album fields");
     // Actual foobar owner-data display labels share these exact helpers
     // with portable release/track provenance and field comparison tests.
     auto discogs_group=*wrong_diagnosis;
