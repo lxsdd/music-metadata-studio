@@ -387,6 +387,7 @@ int main() {
     const FieldEvidence newer_edition{"RELEASEDATE",{"2026-10-21"},"discogs",
         master_linked.edition_id,EvidenceScope::Edition,
         DateMeaning::EditionRelease};
+    master_linked.fields.push_back(newer_edition);
     check(verified_discogs_master_year(master_linked,genuine_master) &&
           !verified_discogs_master_year(approved_edition,genuine_master),
           "master date requires exact edition-linked master provenance");
@@ -415,6 +416,11 @@ int main() {
           "dual date preview maps master and edition to distinct tags without touching DATE");
     check(refuses_date_target({2},{{2,"GENRE"}}),
           "invalid date targets remain blocked after paired preview");
+    auto forged_edition=newer_edition;
+    forged_edition.values={"2025-12-31"};
+    check(!discogs_dual_date_indices(
+              master_linked,{genuine_master,forged_edition}),
+          "a forged edition date absent from the exact release cannot be paired");
     auto forged_master=genuine_master;
     forged_master.source_id="master:9999";
     check(!verified_discogs_master_year(master_linked,forged_master) &&

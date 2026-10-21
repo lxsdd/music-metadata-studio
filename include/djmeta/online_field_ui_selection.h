@@ -224,7 +224,9 @@ inline std::optional<DiscogsDatePair> discogs_dual_date_indices(
            candidate.source_id==edition.edition_id &&
            candidate.scope==EvidenceScope::Edition &&
            candidate.date_meaning==DateMeaning::EditionRelease &&
-           candidate.values.size()==1) {
+           candidate.values.size()==1 &&
+           std::find(edition.fields.begin(),edition.fields.end(),
+                     candidate)!=edition.fields.end()) {
             auto* slot=candidate.field=="RELEASEDATE"?&edition_full:
                        candidate.field=="DATE"?&edition_year:nullptr;
             if(slot) {
