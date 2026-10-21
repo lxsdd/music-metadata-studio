@@ -91,6 +91,26 @@ inline std::wstring preview_whitespace_text(std::wstring_view original, bool sho
         case L'\u202f': display.append(L"[NNBSP]"); break;
         case L'\u200b': display.append(L"[ZWSP]"); break;
         case L'\ufeff': display.append(L"[BOM]"); break;
+        // Directional controls can visually reorder source, target and
+        // provenance text. Expose them only in the optional display view;
+        // never transform the actual value used for review or comparison.
+        case L'\u200e': display.append(L"[LRM]"); break;
+        case L'\u200f': display.append(L"[RLM]"); break;
+        case L'\u202a': display.append(L"[LRE]"); break;
+        case L'\u202b': display.append(L"[RLE]"); break;
+        case L'\u202c': display.append(L"[PDF]"); break;
+        case L'\u202d': display.append(L"[LRO]"); break;
+        case L'\u202e': display.append(L"[RLO]"); break;
+        case L'\u2066': display.append(L"[LRI]"); break;
+        case L'\u2067': display.append(L"[RLI]"); break;
+        case L'\u2068': display.append(L"[FSI]"); break;
+        case L'\u2069': display.append(L"[PDI]"); break;
+        case L'\u2060': display.append(L"[WJ]"); break;
+        case L'\u2028': display.append(L"[LS]"); break;
+        case L'\u2029': display.append(L"[PS]"); break;
+        case L'\0': display.append(L"[NUL]"); break;
+        case L'\x1b': display.append(L"[ESC]"); break;
+        case L'\x7f': display.append(L"[DEL]"); break;
         default: display.push_back(ch); break;
         }
     }
