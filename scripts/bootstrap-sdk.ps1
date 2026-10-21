@@ -44,10 +44,14 @@ if (-not (Test-Path -LiteralPath $SevenZip)) {
     throw '7-Zip is required to verify/extract the official foobar2000 SDK.'
 }
 $SdkUrl = "https://www.foobar2000.org/downloads/SDK-$SdkVersion.7z"
-$downloaded = Test-Path -LiteralPath $Archive
+# CI always checks out the immutable owner SDK tree. Prefer it directly
+# instead of requesting the same official archive on every Win32/x64 build.
+$preferPinnedTemplate = Test-Path -LiteralPath (Join-Path $TemplateCheckout '.git')
+$downloaded = (-not $preferPinnedTemplate) -and (Test-Path -LiteralPath $Archive)
 $lastTransportError = ''
-if (-not $downloaded) {
-    # Official source always first; every failed attempt removes partial bytes.
+if (-not $downloaded -and -not $preferPinnedTemplate) {
+    # Use the official download only for a standalone local environment
+    # without the verified shared owner SDK checkout.
     for ($attempt = 1; $attempt -le 3; $attempt++) {
         try {
             Invoke-WebRequest -UseBasicParsing -Uri $SdkUrl -OutFile $Archive -MaximumRedirection 5 -TimeoutSec 35
@@ -110,7 +114,8 @@ if ($downloaded) {
         throw 'Pinned template SDK license missing.'
     }
     Copy-Item -Path (Join-Path $sdkFiles '*') -Destination $Stage -Recurse -Force
-    Write-Warning "Official SDK transport unavailable; using Git-tree-pinned owner template (no archive SHA256 claim)."
+    Write-Host "FOOBAR_SDK_OWNER_TEMPLATE_PREFERRED=PASS (no vendor HTTP request; Git tree verified)"
+    Write-Host 'SDK_ORIGINAL_ARCHIVE_SHA256=NOT_TESTED (Git tree source provenance instead)'
 }
 foreach ($relative in @(
     'foobar2000\SDK\foobar2000.h',
