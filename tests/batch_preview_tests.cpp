@@ -136,6 +136,7 @@ int main() {
     a = sample("a.mp3");
     a.source_physical_key = "volume1:source";
     a.raw_target_presence = djmeta::RawTargetPresence::Missing;
+    a.raw_target_host_canonical = "file:///Z:/Music/raw-missing.mp3";
     auto observed = djmeta::describe_batch_preview({a});
     check(observed.rows[0].raw_target_presence == djmeta::RawTargetPresence::Missing &&
           contains(observed.rows[0], "FILESYSTEM_TARGET_UNCHECKED"),
@@ -152,12 +153,14 @@ int main() {
           "not-inspected destination cannot retain a prior target identity");
     a.raw_target_physical_key.clear();
     a.raw_target_guard.clear();
+    a.raw_target_host_canonical.clear();
     a.raw_target_presence = djmeta::RawTargetPresence::Existing;
     observed = djmeta::describe_batch_preview({a});
     check(contains(observed.rows[0], "RAW_TARGET_PROBE_UNQUALIFIED"),
           "an existing raw candidate without identity guard is unqualified");
     a.raw_target_physical_key = "volume1:unrelated-target";
     a.raw_target_guard = "observed-guard";
+    a.raw_target_host_canonical = "file:///Z:/Music/existing-target.mp3";
     observed = djmeta::describe_batch_preview({a});
     check(contains(observed.rows[0], "RAW_TARGET_EXISTS") &&
           contains(observed.rows[0], "FILESYSTEM_TARGET_UNCHECKED"),
@@ -192,6 +195,37 @@ int main() {
     observed = djmeta::describe_batch_preview({a});
     check(contains(observed.rows[0], "RAW_TARGET_PROBE_UNQUALIFIED"),
           "unknown serialized raw candidate state must fail closed");
+
+    // Different literal raw paths can converge to a single SDK-canonical
+    // candidate even while both destinations are absent. Neither may look
+    // independently safe; this still does NOT resolve final FileOps names.
+    a = sample("canon-a.mp3");
+    b = sample("canon-b.mp3");
+    b.raw_relative_path = "Other/A Different Name.mp3";
+    a.raw_target_presence = djmeta::RawTargetPresence::Missing;
+    b.raw_target_presence = djmeta::RawTargetPresence::Missing;
+    a.raw_target_host_canonical = "file:///Z:/Music/shared-raw-location";
+    b.raw_target_host_canonical = a.raw_target_host_canonical;
+    const auto shared_canonical = djmeta::describe_batch_preview({a,b});
+    check(shared_canonical.raw_collision_items == 2 &&
+          contains(shared_canonical.rows[0], "RAW_TARGET_SHARED_HOST_CANONICAL") &&
+          contains(shared_canonical.rows[1], "RAW_TARGET_SHARED_HOST_CANONICAL") &&
+          contains(shared_canonical.rows[0], "FILESYSTEM_TARGET_UNCHECKED"),
+          "two observed missing candidates resolving to one host path must collide");
+    b.raw_target_host_canonical += "-other";
+    const auto distinct_canonical = djmeta::describe_batch_preview({a,b});
+    check(distinct_canonical.raw_collision_items == 0 &&
+          !contains(distinct_canonical.rows[0], "RAW_TARGET_SHARED_HOST_CANONICAL"),
+          "distinct host-canonical observations should not falsely collide");
+    a.raw_target_host_canonical.clear();
+    const auto no_host_canonical = djmeta::describe_batch_preview({a});
+    check(contains(no_host_canonical.rows[0], "RAW_TARGET_HOST_CANONICAL_UNQUALIFIED"),
+          "missing target without foobar-canonical observation is unqualified");
+    a.raw_target_presence = djmeta::RawTargetPresence::NotInspected;
+    a.raw_target_host_canonical = "stale-canonical";
+    const auto stale_host_canonical = djmeta::describe_batch_preview({a});
+    check(contains(stale_host_canonical.rows[0], "RAW_TARGET_OBSERVATION_CONTRADICTORY"),
+          "not inspected cannot retain a stale host path key");
 
     a = sample("a.mp3");
     a.cue_dependencies_checked = true;

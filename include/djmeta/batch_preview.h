@@ -23,6 +23,9 @@ struct BatchPreviewInputRow {
     std::string source_physical_key; // genuine host-observed source identity
     std::string raw_target_physical_key; // genuine host-observed target identity, when existing
     std::string raw_target_guard; // observed target state, not overwrite approval
+    // Foobar-native *raw* candidate canonical locator. Not final FileOps path.
+    // Recorded only on stable Existing/Missing host observations.
+    std::string raw_target_host_canonical;
     bool physical_source_qualified = false;
     bool semantic_proposals_pending = false;
     bool cue_dependencies_checked = false;

@@ -360,6 +360,7 @@ void reset_raw_target_observation(PreviewEntry& entry) {
     entry.input.raw_target_presence = djmeta::RawTargetPresence::NotInspected;
     entry.input.raw_target_physical_key.clear();
     entry.input.raw_target_guard.clear();
+    entry.input.raw_target_host_canonical.clear();
     entry.raw_target_probe_detail.clear();
     // This flag is reserved for the actual host-resolved, post-sanitization
     // destination. A raw file probe must never set it.
@@ -413,6 +414,10 @@ std::string status_text(const djmeta::BatchPreviewRow& row) {
         if (issue == "RAW_TARGET_ALIASES_SOURCE") return "Raw target: source alias";
         if (issue == "RAW_TARGET_IS_BATCH_SOURCE") return "Raw target: batch source";
         if (issue == "RAW_TARGET_SHARED_PHYSICAL_ID") return "Raw targets: same file";
+        if (issue == "RAW_TARGET_SHARED_HOST_CANONICAL")
+            return "Raw targets: same host path";
+        if (issue == "RAW_TARGET_HOST_CANONICAL_UNQUALIFIED")
+            return "Raw host target: unqualified";
         if (issue == "RAW_TARGET_EXISTS") return "Raw candidate exists";
         if (issue == "RAW_TARGET_OBSERVATION_CONTRADICTORY")
             return "Raw target: inconsistent observation";
@@ -2276,13 +2281,16 @@ void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
         auto& input = entry.input;
         input.raw_target_physical_key.clear();
         input.raw_target_guard.clear();
+        input.raw_target_host_canonical.clear();
         entry.raw_target_probe_detail = result.observed.detail;
         switch (result.observed.state) {
         case HostFileState::Missing:
             input.raw_target_presence = djmeta::RawTargetPresence::Missing;
+            input.raw_target_host_canonical = result.observed.canonical_path;
             break;
         case HostFileState::ExistingFile:
             input.raw_target_presence = djmeta::RawTargetPresence::Existing;
+            input.raw_target_host_canonical = result.observed.canonical_path;
             input.raw_target_physical_key = result.observed.host_physical_key;
             input.raw_target_guard = result.observed.source_guard;
             break;

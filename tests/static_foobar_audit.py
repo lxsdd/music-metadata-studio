@@ -135,6 +135,8 @@ for token in (
     "inspect_selected_raw_targets(dialog, *state)",
     "probe_host_file_readonly(raw_candidate)",
     "reset_raw_target_observation(entry)",
+    "input.raw_target_host_canonical = result.observed.canonical_path",
+    "RAW_TARGET_SHARED_HOST_CANONICAL",
     "input.filesystem_target_checked = false; // invariant: final target unknown",
     "raw_relative_path_lexically_safe(entry.input.raw_relative_path)",
     "raw_destination_root_lexically_safe(entry.input.destination_root)",

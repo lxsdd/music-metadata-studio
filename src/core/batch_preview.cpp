@@ -116,6 +116,7 @@ BatchPreviewTable describe_batch_preview(
     std::map<std::string, std::size_t> counts;
     std::map<std::string, std::size_t> raw_windows_spelling_counts;
     std::map<std::string, std::size_t> observed_target_key_counts;
+    std::map<std::string, std::size_t> observed_canonical_counts;
     std::set<std::string> observed_source_keys;
     for (const auto& item : items) {
         if (item.physical_source_qualified && !item.source_physical_key.empty())
@@ -123,6 +124,10 @@ BatchPreviewTable describe_batch_preview(
         if (item.raw_target_presence == RawTargetPresence::Existing &&
             !item.raw_target_physical_key.empty() && !item.raw_target_guard.empty())
             ++observed_target_key_counts[item.raw_target_physical_key];
+        if ((item.raw_target_presence == RawTargetPresence::Existing ||
+             item.raw_target_presence == RawTargetPresence::Missing) &&
+            !item.raw_target_host_canonical.empty())
+            ++observed_canonical_counts[item.raw_target_host_canonical];
     }
     // Deliberately raw, case-sensitive counts only. Windows canonicalization
     // remains a responsibility of the future foobar host filesystem planner.
@@ -162,17 +167,40 @@ BatchPreviewTable describe_batch_preview(
             row.issues.emplace_back("RAW_TARGET_CASE_OR_SEPARATOR_COLLISION");
             ++out.raw_collision_items;
         }
+        // Compare foobar-canonical observations IN ADDITION to raw filename
+        // spelling and existing physical IDs. Even two absent destinations
+        // may map to the same canonical raw candidate. This does not predict
+        // File Operations' eventual post-sanitization output.
+        if ((item.raw_target_presence == RawTargetPresence::Existing ||
+             item.raw_target_presence == RawTargetPresence::Missing) &&
+            !item.raw_target_host_canonical.empty() &&
+            observed_canonical_counts[item.raw_target_host_canonical] > 1) {
+            if (!row.has_raw_target_collision) {
+                row.has_raw_target_collision = true;
+                ++out.raw_collision_items;
+            }
+            row.issues.emplace_back("RAW_TARGET_SHARED_HOST_CANONICAL");
+        }
         // These findings concern the unsanitized raw candidate only. A
         // real host-resolved destination may be different and MUST receive
         // its own independent preflight before any future file operation.
         switch (item.raw_target_presence) {
         case RawTargetPresence::NotInspected:
+            if (!item.raw_target_physical_key.empty() ||
+                !item.raw_target_guard.empty() ||
+                !item.raw_target_host_canonical.empty())
+                row.issues.emplace_back("RAW_TARGET_OBSERVATION_CONTRADICTORY");
+            break;
         case RawTargetPresence::Missing:
             if (!item.raw_target_physical_key.empty() ||
                 !item.raw_target_guard.empty())
                 row.issues.emplace_back("RAW_TARGET_OBSERVATION_CONTRADICTORY");
+            if (item.raw_target_host_canonical.empty())
+                row.issues.emplace_back("RAW_TARGET_HOST_CANONICAL_UNQUALIFIED");
             break;
         case RawTargetPresence::Existing:
+            if (item.raw_target_host_canonical.empty())
+                row.issues.emplace_back("RAW_TARGET_HOST_CANONICAL_UNQUALIFIED");
             if (item.raw_target_physical_key.empty() || item.raw_target_guard.empty())
                 row.issues.emplace_back("RAW_TARGET_PROBE_UNQUALIFIED");
             else if (!item.source_physical_key.empty() &&
@@ -188,7 +216,8 @@ BatchPreviewTable describe_batch_preview(
         case RawTargetPresence::Unqualified:
         default:
             if (!item.raw_target_physical_key.empty() ||
-                !item.raw_target_guard.empty())
+                !item.raw_target_guard.empty() ||
+                !item.raw_target_host_canonical.empty())
                 row.issues.emplace_back("RAW_TARGET_OBSERVATION_CONTRADICTORY");
             row.issues.emplace_back("RAW_TARGET_PROBE_UNQUALIFIED");
             break;
