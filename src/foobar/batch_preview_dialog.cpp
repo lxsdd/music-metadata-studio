@@ -3849,11 +3849,26 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             (header->code==NM_DBLCLK ||
              (header->code==LVN_KEYDOWN &&
               reinterpret_cast<const NMLVKEYDOWN*>(lp)->wVKey==VK_RETURN));
-        const bool discogs_activation=release_activation &&
+        // The Load release handler resolves the FIRST selected candidate.
+        // Check the actual double-click/Return row before using that handler:
+        // blank-space clicks, stale selections and ambiguous multi-selection
+        // must never load a different release from the one activated.
+        const int release_selected_row=release_activation
+            ? ListView_GetNextItem(state->metadata_list,-1,LVNI_SELECTED) : -1;
+        const int release_focused_row=release_activation
+            ? ListView_GetNextItem(state->metadata_list,-1,LVNI_FOCUSED) : -1;
+        const int release_clicked_row=release_activation &&
+            header->code==NM_DBLCLK
+            ? reinterpret_cast<const NMITEMACTIVATE*>(lp)->iItem : -1;
+        const bool exact_release_activation=release_activation &&
+            may_activate_selected_native_list_row(header->code,
+                release_clicked_row,release_selected_row,release_focused_row,
+                header->code==LVN_KEYDOWN?VK_RETURN:0);
+        const bool discogs_activation=exact_release_activation &&
             state->show_candidate && state->discogs_live_view &&
             !state->musicbrainz_release_loaded &&
             state->candidate_source_index==state->selected_track_index;
-        if (release_activation &&
+        if (exact_release_activation &&
             IsWindowEnabled(GetDlgItem(dialog,IDC_METADATA_MB_LOAD_RELEASE)) &&
             (discogs_activation || may_activate_musicbrainz_release(header->code,
                 state->show_candidate && state->musicbrainz_live_view,

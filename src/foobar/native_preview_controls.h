@@ -318,6 +318,19 @@ inline bool align_label_to_input(HWND dialog, int label_id, int input_id) {
 // Align real native input text rows rather than assuming edit/combo fonts
 // occupy the same vertical pixels as themed pushbutton captions. Repeated
 // WM_SIZE calls use current control geometry, so alignment is idempotent.
+// A ListView can keep a previous selection when the user double-clicks
+// empty space or an unrelated highlighted row. Native Load release consumes
+// the FIRST selected row, so only a gesture on exactly that row may trigger
+// the load command. This guard is pure; it issues no network request.
+inline bool may_activate_selected_native_list_row(
+    UINT notification, int clicked_row, int selected_row,
+    int focused_row, UINT key = 0) noexcept {
+    if (selected_row < 0) return false;
+    if (notification == NM_DBLCLK) return clicked_row == selected_row;
+    return notification == LVN_KEYDOWN && key == VK_RETURN &&
+           focused_row == selected_row;
+}
+
 // LVN_ITEMACTIVATE is the ListView's platform-native user intent for
 // double-click and keyboard activation. Never allow it to trigger network
 // access on an unrelated tab, physical-recording hit or loaded track list.

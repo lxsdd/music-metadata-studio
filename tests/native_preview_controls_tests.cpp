@@ -346,6 +346,24 @@ int main() {
           !djmeta_foobar::native_release_loadable(
               true,true,true,false,"release:38012673",exact_ids),
           "native release action rejects masters, unrelated, pending, stale and loaded rows");
+    check(djmeta_foobar::may_activate_selected_native_list_row(
+        NM_DBLCLK,3,3,3) &&
+          djmeta_foobar::may_activate_selected_native_list_row(
+        LVN_KEYDOWN,-1,3,3,VK_RETURN),
+        "only the selected candidate row can activate native Load release");
+    check(!djmeta_foobar::may_activate_selected_native_list_row(
+        NM_DBLCLK,-1,3,3) &&
+          !djmeta_foobar::may_activate_selected_native_list_row(
+        NM_DBLCLK,2,3,3) &&
+          !djmeta_foobar::may_activate_selected_native_list_row(
+        NM_DBLCLK,3,-1,3) &&
+          !djmeta_foobar::may_activate_selected_native_list_row(
+        LVN_KEYDOWN,-1,3,2,VK_RETURN) &&
+          !djmeta_foobar::may_activate_selected_native_list_row(
+        LVN_KEYDOWN,-1,3,3,VK_SPACE) &&
+          !djmeta_foobar::may_activate_selected_native_list_row(
+        LVN_ITEMACTIVATE,3,3,3),
+        "empty-space, alternate-selection and duplicate-event release loads are refused");
     check(djmeta_foobar::may_activate_musicbrainz_release(
         NM_DBLCLK,true,true,false,true) &&
           djmeta_foobar::may_activate_musicbrainz_release(

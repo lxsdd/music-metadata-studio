@@ -852,6 +852,21 @@ for token in (
 if "prefill_musicbrainz_query(state,true);" in refresh_source:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: refresh unconditionally overwrites manual search")
 
+# The native release activation shortcut must identify the clicked/focused
+# row as the row that Load release will actually consume.
+release_activation = batch_rules_guard.split(
+    "const bool release_activation=header &&",1)[1].split(
+    "if (header && header->idFrom == IDC_METADATA_LIST &&",1)[0]
+for token in (
+    "const int release_selected_row=release_activation",
+    "const int release_focused_row=release_activation",
+    "reinterpret_cast<const NMITEMACTIVATE*>(lp)->iItem",
+    "may_activate_selected_native_list_row(header->code",
+    "if (exact_release_activation &&",
+):
+    if token not in release_activation:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: release row intent is not qualified: "+token)
+
 # External-CUE inventories may involve slow multi-FILE source probes. All
 # distinct references must be rechecked together after the initial scan and
 # before publishing even advisory PRESENT/MISSING/ALIAS labels.
