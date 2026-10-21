@@ -787,9 +787,9 @@ if workflow.count(
 # MusicBrainz even when originating from Review/File locations, and must use
 # the same one-shot guarded handler as the visible Search button.
 track_activation = batch_rules_guard.split(
-    "if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&\\n"
+    "if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&\n"
     "            (header->code == NM_DBLCLK || header->code == LVN_KEYDOWN)) {", 1)[1].split(
-    "if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&\\n"
+    "if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&\n"
     "            header->code == LVN_GETDISPINFOW)", 1)[0]
 if (
     "prefill_musicbrainz_query(*state,true);" not in track_activation
