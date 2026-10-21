@@ -783,6 +783,22 @@ if workflow.count(
 # An external .cue selected as a virtual foobar subsong must still retain
 # a physical *read-only* carrier guard. This is independent of its status
 # as an ineligible physical audio/tag/CUE write target.
+# External-CUE inventories may involve slow multi-FILE source probes. All
+# distinct references must be rechecked together after the initial scan and
+# before publishing even advisory PRESENT/MISSING/ALIAS labels.
+cue_inventory = batch_rules_guard.split(
+    "void append_external_cue_file_reference_evidence(", 1)[1].split(
+    "void inspect_selected_raw_targets(", 1)[0]
+if not (
+    "for (const auto& [candidate_path, earlier] : probes)" in cue_inventory
+    and "probe_host_file_readonly(candidate_path)" in cue_inventory
+    and "stable_raw_target_observation(earlier, latest)" in cue_inventory
+    and "External CUE FILE dependency changed during read-only inspection." in cue_inventory
+    and cue_inventory.index("stable_raw_target_observation(earlier, latest)") <
+        cue_inventory.index("const auto current = probe_host_file_readonly(entry.input.source_path);")
+):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: CUE FILE dependencies lack atomic read-only recheck")
+
 for token in (
     "std::map<std::string, HostFileObservation> cue_source_probes;",
     "const bool external_cue = is_external_cue_locator(entry.input.source_path);",
