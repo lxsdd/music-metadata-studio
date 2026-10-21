@@ -5,8 +5,10 @@
 #include <winhttp.h>
 #include <windows.h>
 
+#include <chrono>
 #include <cstdint>
 #include <mutex>
+#include <thread>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -81,13 +83,25 @@ std::string fetch_musicbrainz_json_readonly(
     if (!safe_path(path))
         throw std::invalid_argument("Invalid official MusicBrainz request path.");
     reject_cancelled(cancel);
-    {
-        std::lock_guard<std::mutex> lock(request_clock_mutex);
-        const auto tick=GetTickCount64();
-        if (last_request_tick != 0 && tick-last_request_tick < 1150)
-            throw std::runtime_error(
-                "MusicBrainz rate limit: wait at least 1.2 seconds and try again.");
-        last_request_tick=tick; // Reserve even if this request fails.
+    // Reserve one time slot in the network worker. A second explicit
+    // search waits in short cancelable slices; never block foobar's UI
+    // thread, busy-spin, or bypass the official per-second rate ceiling.
+    for(;;) {
+        reject_cancelled(cancel);
+        std::uint64_t remaining=0;
+        {
+            std::lock_guard<std::mutex> lock(request_clock_mutex);
+            const auto tick=GetTickCount64();
+            remaining=djmeta::online::musicbrainz::request_spacing_wait_ms(
+                last_request_tick,tick);
+            if(remaining==0) {
+                last_request_tick=tick; // Reserve even if HTTPS fails.
+                break;
+            }
+        }
+        reject_cancelled(cancel);
+        const auto slice=remaining>50?50:remaining;
+        std::this_thread::sleep_for(std::chrono::milliseconds(slice));
     }
     // Synchronous, explicit user click only. WinHTTP respects OS proxy, TLS
     // certificate validation and OS trust. No authorization or session state.

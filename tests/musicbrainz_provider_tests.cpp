@@ -22,6 +22,14 @@ int main() {
     using namespace djmeta;
     using namespace djmeta::online;
     using namespace djmeta::online::musicbrainz;
+    check(request_spacing_wait_ms(0,100)==0 &&
+          request_spacing_wait_ms(100,100)==1200 &&
+          request_spacing_wait_ms(100,101)==1199 &&
+          request_spacing_wait_ms(100,1299)==1 &&
+          request_spacing_wait_ms(100,1300)==0 &&
+          request_spacing_wait_ms(100,1600)==0 &&
+          request_spacing_wait_ms(500,200)==1200,
+          "MusicBrainz worker reserves a bounded, cancelable request slot");
     const auto request=make_search_path(SearchKind::Recording,
         "Björk: It's \"Alive\" & 東京", "Artist / Guest");
     check(request.starts_with("/ws/2/recording?query=") &&

@@ -576,6 +576,16 @@ for token in ("WinHttpOpen(", "WINHTTP_FLAG_SECURE", 'L"musicbrainz.org"',
             raise SystemExit("STATIC FOOBAR AUDIT FAIL: MusicBrainz adapter contains a writer")
     elif token not in online_transport:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: official MusicBrainz network boundary: " + token)
+# Rapid manual MusicBrainz retry may happen immediately after a zero-hit
+# search. It must wait in the worker, rather than reject and require a
+# second manually timed click or sleep on the UI thread.
+for token in ("request_spacing_wait_ms(", "std::this_thread::sleep_for(",
+              "reject_cancelled(cancel)", "last_request_tick=tick"):
+    if token not in online_transport:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: MusicBrainz worker pacing missing: "+token)
+if "MusicBrainz rate limit: wait at least 1.2 seconds and try again." in online_transport:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: MusicBrainz retries still self-reject")
+
 discogs_physical = (root / "include" / "djmeta" / "discogs_release_review.h").read_text(encoding="utf-8")
 for token in ("review_online_fields(originals,edition.fields)",
               "discogs_local_only_no_provider_value",

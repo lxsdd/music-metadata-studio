@@ -398,6 +398,19 @@ inline std::string lead_credit_search_artist(std::string_view credit) {
     return lead.size()>=3 ? lead : std::string{};
 }
 
+// MusicBrainz's one-request-per-second boundary is enforced by the HTTP
+// worker. Staged manual discovery must wait rather than reject a valid
+// second click; the UI thread must never sleep.
+inline constexpr std::uint64_t minimum_request_spacing_ms=1200;
+inline std::uint64_t request_spacing_wait_ms(
+    std::uint64_t last_tick, std::uint64_t now_tick) noexcept {
+    if(last_tick==0) return 0;
+    if(now_tick<last_tick) return minimum_request_spacing_ms;
+    const auto elapsed=now_tick-last_tick;
+    return elapsed>=minimum_request_spacing_ms?0:
+        minimum_request_spacing_ms-elapsed;
+}
+
 inline bool valid_search_isrc(std::string_view value) {
     if(value.size()!=12) return false;
     for(std::size_t i=0;i<value.size();++i) {
