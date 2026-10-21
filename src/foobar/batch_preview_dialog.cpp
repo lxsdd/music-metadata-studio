@@ -32,6 +32,7 @@
 #include "djmeta/cue_release_review.h"
 #include "djmeta/cue_original_inventory.h"
 #include "djmeta/beatport_manual_intake.h"
+#include "djmeta/beatport_public_page.h"
 #include "djmeta/beatport_release_review.h"
 #include "djmeta/discogs_release_review.h"
 #include "djmeta/native_candidate_labels.h"
@@ -2794,7 +2795,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_ONLINE_IGNORE_FIELDS,L"Remove highlighted edition fields from the in-memory preview. Existing tags remain intact."},
         {IDC_ONLINE_RESET_FIELDS,L"Clear every included online field for this exact edition. Does not modify any file or saved metadata."},
         {IDC_METADATA_INSPECT_CUE,L"Read the source CUE and show its album/track fields. Embedded and external CUE are never written here."},
-        {IDC_METADATA_IMPORT_CANDIDATE,L"Beatport offline: import lawfully obtained @beatport-track-json, @beatport-track-facts or complete @beatport-release-json plus @beatport-tracks-json. Pure field comparison, no authentication claim or writers."},
+        {IDC_METADATA_IMPORT_CANDIDATE,L"Beatport offline: user-supplied track JSON, facts, or @beatport-public-jsonld from a public track page; complete edition+tracks JSON for releases. No authentication claim or writers."},
         {IDC_METADATA_LIST,L"Select a candidate or proposed change to inspect its source and status."},
         {IDC_METADATA_MB_DETAILS,L"Field-by-field evidence for the selected online candidate. REVIEW is not a tag-write authorization."},
         {IDC_ONLINE_DATE_TARGET_LABEL,L"Do not infer an edition date from your current physical DATE."},
@@ -4705,7 +4706,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             update_metadata_table(*state);
             if(state->beatport_offline_selected)
                 SetDlgItemTextW(dialog,IDC_BATCH_HINT,
-                    L"Beatport offline: copy authorized track-detail JSON "
+                    L"Beatport offline: copy a public page's JSON-LD, "
+                    L"authorized track-detail JSON "
                     L"(@beatport-track-json), complete edition+tracks JSON "
                     L"or explicit @beatport-track-facts, then Import Beatport. "
                     L"Live Beatport API requires separate partner approval.");
@@ -5047,12 +5049,15 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 djmeta::online::is_beatport_user_facts_clipboard(text);
             const bool beatport_user_release =
                 djmeta::online::is_beatport_user_release_clipboard(text);
-            const bool beatport_user_track=beatport_user_json || beatport_user_facts;
+            const bool beatport_public_page =
+                djmeta::online::is_beatport_public_page_clipboard(text);
+            const bool beatport_user_track=
+                beatport_user_json || beatport_user_facts || beatport_public_page;
             if(state->beatport_offline_selected &&
                !beatport_user_release && !beatport_user_track)
                 throw std::invalid_argument(
                     "Beatport mode requires @beatport-track-json, "
-                    "@beatport-track-facts or both @beatport-release-json "
+                    "@beatport-track-facts, @beatport-public-jsonld, or both @beatport-release-json "
                     "and @beatport-tracks-json. Plain webpage text "
                     "cannot be treated as authorized API evidence.");
             std::optional<djmeta::online::ManualCandidate> user_candidate;
@@ -5063,7 +5068,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 user_candidate=djmeta::online::parse_manual_candidate(text);
             std::vector<djmeta::online::FieldReviewRow> rows;
             if (compare_cue) {
-                if(beatport_user_json || beatport_user_facts)
+                if(beatport_user_track)
                     throw std::invalid_argument(
                         "Beatport track import has no qualified CUE ordinal. "
                         "Use structured @cue_track_ordinal evidence instead.");
@@ -5101,10 +5106,12 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                         : -1;
                     rows=djmeta::online::review_beatport_user_edition_physical(
                         original,duration_ms,*user_edition);
-                } else if(beatport_user_json || beatport_user_facts) {
+                } else if(beatport_user_track) {
                     const auto beatport_track = beatport_user_json
                         ? djmeta::online::parse_beatport_user_json_clipboard(text)
-                        : djmeta::online::parse_beatport_user_facts_clipboard(text);
+                        : beatport_user_facts
+                            ? djmeta::online::parse_beatport_user_facts_clipboard(text)
+                            : djmeta::online::parse_beatport_public_jsonld_clipboard(text);
                     const double seconds=ref->info().get_length();
                     std::int64_t duration_ms=-1;
                     if(seconds>0.0 && seconds<=36000.0)

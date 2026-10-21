@@ -1,4 +1,5 @@
 #include "djmeta/beatport_release_review.h"
+#include "djmeta/beatport_public_page.h"
 #include "djmeta/native_candidate_labels.h"
 
 #include <algorithm>
@@ -38,6 +39,50 @@ int main() {
     check(is_beatport_user_json_clipboard(raw) &&
           !is_beatport_user_json_clipboard(R"({"id":321})"),
           "only explicitly selected user JSON is imported");
+    const std::string public_jsonld=
+        "@beatport-public-jsonld\n"
+        "@url=https://www.beatport.com/track/home/321\n"
+        "{\"@context\":\"https://schema.org\",\"@type\":\"MusicRecording\","
+        "\"url\":\"https://www.beatport.com/track/home/321\","
+        "\"name\":\"Home (Extended Mix)\","
+        "\"byArtist\":{\"name\":\"DJ Example\"},"
+        "\"isrcCode\":\"GBXYZ2601234\",\"duration\":\"PT6M42S\","
+        "\"datePublished\":\"2026-10-16\","
+        "\"inAlbum\":{\"name\":\"Unverified EP\"}}";
+    check(is_beatport_public_page_clipboard(public_jsonld) &&
+          !is_beatport_public_page_clipboard(raw) &&
+          qualify_beatport_public_track_url(
+              "https://www.beatport.com/track/home/321").id==321 &&
+          public_iso_duration_ms("PT6M42S")==402000 &&
+          public_iso_duration_ms("PT1H3M2S")==3782000 &&
+          !public_iso_duration_ms("PT25H"),
+          "bounded user-selected public page identity and ISO duration");
+    const auto public_track=parse_beatport_public_jsonld_clipboard(public_jsonld);
+    check(public_track.id==321 && public_track.title=="Home" &&
+          public_track.mix_name=="Extended Mix" &&
+          public_track.artists==std::vector<std::string>{"DJ Example"} &&
+          public_track.duration_ms==402000 &&
+          public_track.release_title.empty() &&
+          public_track.publish_date.empty(),
+          "JSON-LD readable facts retain mix; unsupported album/date provenance is not invented");
+    for(const char* url:{
+        "http://www.beatport.com/track/home/321",
+        "https://beatport.com/track/home/321",
+        "https://www.beatport.com.evil.org/track/home/321",
+        "https://www.beatport.com/track/home/321?token=x",
+        "https://www.beatport.com/track/home/0321",
+        "https://www.beatport.com/release/home/321",
+        "https://www.beatport.com/track/home/321/related"}) {
+        rejects([&]{(void)qualify_beatport_public_track_url(url);},
+                "unqualified source URL, redirect, query or release route fails closed");
+    }
+    rejects([&] {
+        std::string forged=public_jsonld;
+        const auto key=forged.find("\"url\":\"https://www.beatport.com/track/home/321\"");
+        check(key!=std::string::npos,"JSON-LD URL fixture exists");
+        forged.replace(key,55,"\"url\":\"https://www.beatport.com/track/other/322\"");
+        (void)parse_beatport_public_jsonld_clipboard(forged);
+    }, "public page URL mismatch fails closed");
     const auto track=parse_beatport_user_json_clipboard(raw);
     check(track.id==321 && track.release_id==987 &&
           track.mix_name=="Extended Mix" && track.duration_ms==402500,

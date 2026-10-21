@@ -146,3 +146,34 @@ all retrieved candidates still undergo independent strict mix-name, artist,
 original title and physical duration verification. Never take the first ISRC
 hit as automatically correct or write-authorized. This is an inert catalog
 path plan until the project's own legally approved Beatport transport exists.
+
+## Public Beatport webpage intake — source-only foundation (21 October 2026)
+
+**Private user-initiated retrieval of public pages is not blanket-illegal in
+Germany.** API licensing and website browsing are separate contracts;
+applicable copyright/database rights, any binding website conditions,
+robots/access restrictions and local laws still matter. No assertion that
+Beatport has permitted an HTTP crawler is made here. The external development
+tool received HTTP 403 when trying to read `beatport.com/robots.txt`, so
+we could not verify a crawl policy or live page layout from that environment.
+
+Music Metadata Studio now accepts the following small, explicit, bounded
+*user-supplied* format from a public track page:
+
+```text
+@beatport-public-jsonld
+@url=https://www.beatport.com/track/home/321
+{"@type":"MusicRecording","url":"https://www.beatport.com/track/home/321","name":"Home (Extended Mix)","byArtist":{"name":"DJ Example"},"duration":"PT6M42S"}
+```
+
+The source URL must be canonical HTTPS `www.beatport.com/track/slug/id`.
+The JSON-LD must identify the *same track URL* if it declares a URL and must
+provide a recording title, artist and real duration. The normalizer verifies
+physical TITLE, ARTIST, mix/version, optional ISRC and foobar duration.
+Unverified `datePublished` or `inAlbum` metadata cannot be silently
+promoted to physical `DATE` or `ALBUM` without separate edition provenance.
+This is **not yet automatic fetching** or a verified official API response,
+and does not authorize tag, CUE, file, artwork or ReplayGain writes.
+The next implementation gate is a bounded, explicit, public-page transport,
+if its applicable access policy can be checked without circumventing
+restrictions. No batch crawler, hidden endpoints, tokens or login capture.

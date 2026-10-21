@@ -129,10 +129,10 @@ inline beatport::TrackEvidence parse_beatport_public_jsonld_clipboard(
     track.duration_ms=*duration;
     track.isrc=beatport::label(obj,"isrcCode",24);
     if(const auto* genre=obj.get("genre")) track.genre=beatport::object_name(*genre);
-    // datePublished is NOT an original/master or exact edition release date.
-    track.publish_date=beatport::date_label(obj,"datePublished");
-    if(const auto* album=obj.get("inAlbum"))
-        track.release_title=beatport::object_name(*album);
+    // Generic JSON-LD datePublished / inAlbum is not independently
+    // authenticated edition provenance, so these values are visible on
+    // the public page but MUST NOT become DATE or ALBUM tag proposals.
+    // The official/provider-qualified edition path remains separate.
     return track;
 }
 } // namespace djmeta::online
