@@ -2143,7 +2143,10 @@ void append_external_cue_file_reference_evidence(
         if (observed.state == HostFileState::ExistingFile &&
             !observed.host_physical_key.empty() &&
             !observed.source_guard.empty()) {
-            if (!observed_ids.insert(observed.host_physical_key).second)
+            if (observed.host_physical_key == original.host_physical_key)
+                append(i,item.filename,
+                       "NOT QUALIFIED: FILE resolves to the CUE carrier itself");
+            else if (!observed_ids.insert(observed.host_physical_key).second)
                 append(i,item.filename,
                        "ALIAS: physical audio already referenced; operation unqualified");
             else
