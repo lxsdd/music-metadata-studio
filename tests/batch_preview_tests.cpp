@@ -29,6 +29,8 @@ int main() {
              std::string("Album/Artist - Track.mp3"),
              std::string("A\\B\\C.flac"),
              std::string("Bj\xC3\xB6rk.mp3"),
+             std::string("COM10.wav"),
+             std::string("COM\xC2\xB9mix.wav"),
              std::string(".profile")})
         check(raw_relative_path_lexically_safe(valid),
               "legitimate relative path must pass lexical checks");
@@ -38,6 +40,9 @@ int main() {
              std::string("C:\\\\absolute.mp3"), std::string("a//b.mp3"),
              std::string("a/"), std::string("foo:bar.mp3"),
              std::string("NUL.mp3"), std::string("con"),
+             std::string("CON .mp3"), std::string("Aux  .cue"),
+             std::string("com9 .wav"), std::string("A/COM\xC2\xB9.flac"),
+             std::string("lpt\xC2\xB3.wav"),
              std::string("A/LpT9.txt"), std::string("x. "),
              std::string("x."), std::string("name?.mp3"),
              std::string("name|x"), std::string("line\nfeed.mp3"),
