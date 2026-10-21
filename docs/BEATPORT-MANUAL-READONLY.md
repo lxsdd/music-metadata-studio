@@ -135,3 +135,14 @@ match gate. This fallback is intentionally *not* a new scraping transport,
 not fuzzy permission to accept the wrong version, and never a writer.
 OneTagger is GPL-3.0; no code or embedded/shared OAuth client secrets are
 transplanted. Beatport API authorization remains a separate release gate.
+
+## ISRC-first discovery contract
+
+Like OneTagger, a future properly licensed Beatport API connector may first
+search with a *validated* normalized ISRC before the original artist+base-title
+and title-only strategies. The fallback ordering is deterministic and bounded.
+A shared ISRC alone **does not identify a specific Extended/Radio/Remix**;
+all retrieved candidates still undergo independent strict mix-name, artist,
+original title and physical duration verification. Never take the first ISRC
+hit as automatically correct or write-authorized. This is an inert catalog
+path plan until the project's own legally approved Beatport transport exists.

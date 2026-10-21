@@ -63,6 +63,22 @@ int main() {
           track_search_plan("Title (Extended Mix)","Artist").size()==2 &&
           track_search_plan("feat. Singer","Producer").size()==2,
           "mixed-case features are optional query alternatives, not empty searches");
+    const auto by_isrc=track_search_plan(
+        "Home (Extended Mix)","DJ Example","GB-XYZ-26-01234");
+    check(canonical_search_isrc("gb-xyz-26-01234")==
+              std::optional<std::string>{"GBXYZ2601234"} &&
+          by_isrc.size()==3 &&
+          by_isrc[0].path==search_path("GBXYZ2601234") &&
+          by_isrc[0].reason.find("mix requires verification")!=std::string::npos &&
+          by_isrc[1].path==search_path("DJ Example Home") &&
+          by_isrc[2].path==search_path("Home"),
+          "OneTagger-inspired ISRC-first discovery preserves independent exact mix verification");
+    check(!canonical_search_isrc("GBXYZ26/01234") &&
+          !canonical_search_isrc("GBXYZ260123") &&
+          !canonical_search_isrc("12XYZ2601234") &&
+          !canonical_search_isrc("GBXYZ26AA234") &&
+          track_search_plan("Home","DJ Example","invalid").size()==2,
+          "malformed or misleading local ISRC never enters a provider query");
     const auto no_artist_plan=track_search_plan("Home (Radio Edit)");
     check(no_artist_plan.size()==1 &&
           no_artist_plan[0].path==search_path("Home"),

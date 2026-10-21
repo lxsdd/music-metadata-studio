@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <set>
 #include <string>
@@ -67,6 +68,28 @@ struct SearchAttempt {
 // Shared lowercase helper is implemented further below for parsing and
 // mix classification. Forward-declare it for the search-only planner.
 inline std::string ascii_lower(std::string_view value);
+// A canonical ISRC can be used as a FIRST, bounded official catalog
+// search term by a future authorized transport. It identifies a recording,
+// NOT an exact commercial mix/edition; all results must still pass the
+// separate title, mix, artist and physical-duration verifier.
+inline std::optional<std::string> canonical_search_isrc(std::string_view raw) {
+    if(raw.empty() || raw.size()>18) return std::nullopt;
+    std::string result;
+    for(unsigned char c:raw) {
+        if(c=='-') continue;
+        if(c>='a' && c<='z') c=static_cast<unsigned char>(c-('a'-'A'));
+        if(!((c>='A' && c<='Z') || (c>='0' && c<='9')))
+            return std::nullopt;
+        result.push_back(static_cast<char>(c));
+    }
+    if(result.size()!=12) return std::nullopt;
+    for(std::size_t i=0;i<12;++i) {
+        const char c=result[i];
+        if(i<2 && (c<'A' || c>'Z')) return std::nullopt;
+        if(i>=5 && (c<'0' || c>'9')) return std::nullopt;
+    }
+    return result;
+}
 // Search-only fallback: featured-artist suffixes often make strict catalog
 // queries return no results, even where a matching base track exists. Keep
 // the complete original identity in the independent matcher; NEVER use the
@@ -93,7 +116,8 @@ inline std::string search_title_without_feature_credit(std::string_view title) {
 // attempts offer an optional feat/ft-cleaned fallback search. Exact version
 // and collaborator credit matching remains an independent hard gate.
 inline std::vector<SearchAttempt> track_search_plan(
-    std::string_view tagged_title, std::string_view tagged_artist = {}) {
+    std::string_view tagged_title, std::string_view tagged_artist = {},
+    std::string_view tagged_isrc = {}) {
     if (!text_ok(tagged_title, 150) ||
         (!tagged_artist.empty() && !text_ok(tagged_artist, 150)))
         throw std::invalid_argument("Invalid Beatport track search identity");
@@ -101,13 +125,17 @@ inline std::vector<SearchAttempt> track_search_plan(
     const auto title=annotated.version.empty()
         ? tagged_title : annotated.base;
     std::vector<SearchAttempt> result;
+    if(const auto isrc=canonical_search_isrc(tagged_isrc))
+        result.push_back({"ISRC first (recording only; mix requires verification)",
+                          search_path(*isrc)});
     if (!tagged_artist.empty() &&
         tagged_artist.size() + 1 + title.size() <= 150) {
         result.push_back({"Artist and base title",
             search_path(std::string(tagged_artist) + " " + std::string(title))});
     }
     const auto title_path=search_path(title);
-    if (result.empty() || result.back().path != title_path)
+    if (std::none_of(result.begin(),result.end(),
+            [&](const SearchAttempt& step){return step.path==title_path;}))
         result.push_back({"Base title without artist restriction", title_path});
     const auto without_feat=search_title_without_feature_credit(title);
     if(!without_feat.empty() && without_feat!=title) {
