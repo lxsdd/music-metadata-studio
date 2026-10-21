@@ -321,7 +321,7 @@ int main() {
             "tainted track field provenance blocks all track comparisons");
     const auto tainted_allowed=physical_discogs_stageable_evidence(
         tainted_edition,physical,242000,unsafe);
-    require(tainted_allowed.size()==tainted_edition.fields.size() &&
+    require(tainted_allowed.empty() &&
             !physical_discogs_stageable_field_index(
                 tainted_edition,tainted_allowed,
                 *field(unsafe,"Release Track 1 / REMIXER")),
