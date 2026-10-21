@@ -790,9 +790,13 @@ if workflow.count("repository: lxsdd/foobar2000_component_template") != 2 or (
     workflow.count("ref: 31a35947a7527826c2199491692802e3ce3d8bd7") != 2
 ) or workflow.count("persist-credentials: false") < 2:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: SDK fallback checkout is not pinned on both Windows jobs")
+# Exactly two *step-scoped* references are now allowed: one for the
+# authenticated staged-search probe and one for the actual native host gate.
+# Both belong exclusively to the same manually approved discogs-qa job.
+# NEVER move the secret into job-global env or an unprotected PR job.
 if "pull_request_target:" in workflow or workflow.count(
     "secrets.MMS_DISCOGS_QA_TOKEN"
-) != 1:
+) != 2:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: unsafe Discogs secret propagation")
 if "  workflow_dispatch:\n    inputs:" not in workflow:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing explicit manual QA trigger")
@@ -802,6 +806,14 @@ public_jobs, protected_job = workflow.split("  discogs-authorized-native:\n", 1)
 protected_job = protected_job.split("\n  # Internal PRs", 1)[0]
 if "secrets.MMS_DISCOGS_QA_TOKEN" in public_jobs:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: Discogs secret exposed to PR jobs")
+if protected_job.count("secrets.MMS_DISCOGS_QA_TOKEN") != 2 or (
+    "      - name: Authorized official Discogs staged search and exact-edition QA\n"
+    "        if: matrix.platform == 'Win32'\n"
+    "        shell: pwsh\n"
+    "        env:\n"
+    "          MMS_DISCOGS_QA_TOKEN: ${{ secrets.MMS_DISCOGS_QA_TOKEN }}"
+) not in protected_job:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: second protected Discogs QA secret scope unqualified")
 for token in (
     "github.event_name == 'workflow_dispatch'",
     "inputs.discogs_live == true",
