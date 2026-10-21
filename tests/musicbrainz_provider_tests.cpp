@@ -56,6 +56,26 @@ int main() {
               "Track (Unknown Remixer Club Dub)" &&
           search_title_core("Track (Extended Mix)")=="Track",
           "unknown remix preserved, generic version only stripped for search");
+    const auto named_remix=recording_search_plan(
+        "Only You (John Smith Remix)", "Matt Fax");
+    check(named_remix.core_title=="Only You" &&
+          named_remix.full_title=="Only You (John Smith Remix)" &&
+          named_remix.attempts.size()==4 &&
+          named_remix.attempts[0].path==make_search_path(
+              SearchKind::Recording,"Only You","Matt Fax") &&
+          named_remix.attempts[1].path==make_search_path(
+              SearchKind::Recording,"Only You (John Smith Remix)","Matt Fax") &&
+          recording_identity_label(
+              "Only You (John Smith Remix)","Matt Fax",
+              "Only You","Matt Fax")=="Version review",
+          "named DJ remix gains recall fallback but never an exact version match");
+    check(search_title_core("Title [Artist Rework]")=="Title" &&
+          search_title_core("Title [Extended Mix]")=="Title" &&
+          search_title_core("Title [Live at the Arena]")==
+              "Title [Live at the Arena]" &&
+          search_title_core("Title (Unknown Remixer Club Dub)")==
+              "Title (Unknown Remixer Club Dub)",
+          "known bracket/version suffix is discovery-only; unknown qualifiers survive");
     const auto by_isrc=recording_search_plan("Track (Radio Edit)","Artist","usrc17607839");
     check(by_isrc.attempts.size()==5 &&
           by_isrc.attempts[0].label=="Exact ISRC identifier" &&

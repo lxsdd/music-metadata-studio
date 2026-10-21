@@ -324,8 +324,10 @@ inline std::string search_title_core(std::string_view full) {
     const auto end=trimmed.find_last_not_of(" \t");
     if(end==std::string::npos) return {};
     trimmed.resize(end+1);
-    if(trimmed.size()<4 || trimmed.back()!=')') return trimmed;
-    const auto pos=trimmed.find_last_of('(');
+    if(trimmed.size()<4 || (trimmed.back()!=')' && trimmed.back()!=']'))
+        return trimmed;
+    const char opening=trimmed.back()==')' ? '(' : '[';
+    const auto pos=trimmed.find_last_of(opening);
     if(pos==std::string::npos || pos==0) return trimmed;
     std::string qualifier=trimmed.substr(pos+1,trimmed.size()-pos-2);
     for(char& c:qualifier) if(c>='A'&&c<='Z') c=static_cast<char>(c+('a'-'A'));
@@ -338,6 +340,23 @@ inline std::string search_title_core(std::string_view full) {
     };
     bool known=false;
     for(auto key:generic) if(qualifier==key) {known=true;break;}
+    // DJs frequently have source TITLE="Song (Remixer Remix)" while the
+    // MusicBrainz recording is indexed as "Song". Broaden DISCOVERY ONLY,
+    // never alter the original full title or grant an identity match.
+    // Do not strip unknown parentheticals such as "(Live at the Arena)".
+    if(!known) {
+        for(const std::string_view suffix : {" remix", " rework"}) {
+            if(qualifier.size() > suffix.size() &&
+               qualifier.ends_with(suffix)) {
+                const auto remixer=std::string_view(qualifier).substr(
+                    0,qualifier.size()-suffix.size());
+                if(remixer.find_first_not_of(" \t")!=std::string_view::npos) {
+                    known=true;
+                    break;
+                }
+            }
+        }
+    }
     if(!known) return trimmed;
     std::string core=trimmed.substr(0,pos);
     const auto last=core.find_last_not_of(" \t");
