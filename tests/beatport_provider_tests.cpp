@@ -49,6 +49,20 @@ int main() {
           search_plan[1].path==search_path("Home") &&
           search_plan[0].reason!=search_plan[1].reason,
           "Beatport search first uses artist and base title, then broadens");
+    const auto featuring_plan=track_search_plan(
+        "Forever feat. Singer (Extended Mix)","Producer");
+    check(featuring_plan.size()==4 &&
+          featuring_plan[0].path==search_path("Producer Forever feat. Singer") &&
+          featuring_plan[1].path==search_path("Forever feat. Singer") &&
+          featuring_plan[2].path==search_path("Producer Forever") &&
+          featuring_plan[3].path==search_path("Forever") &&
+          featuring_plan[3].reason.find("identity still verified")!=std::string::npos,
+          "OneTagger-inspired bounded feat fallback retains strict exact match gate");
+    check(track_search_plan("Forever Ft. Singer","Producer").size()==4 &&
+          track_search_plan("Forever featuring Singer","Producer").size()==4 &&
+          track_search_plan("Title (Extended Mix)","Artist").size()==2 &&
+          track_search_plan("feat. Singer","Producer").size()==2,
+          "mixed-case features are optional query alternatives, not empty searches");
     const auto no_artist_plan=track_search_plan("Home (Radio Edit)");
     check(no_artist_plan.size()==1 &&
           no_artist_plan[0].path==search_path("Home"),

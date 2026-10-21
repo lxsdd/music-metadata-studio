@@ -64,9 +64,31 @@ struct SearchAttempt {
     std::string reason; // Human-readable disclosure of the bounded query.
     std::string path;   // Inert until an authorized host transport exists.
 };
-// Beatport v4 search has historically rejected bracket-heavy queries. Search
-// the artist + BASE TITLE first, then only the title if needed. Keep the mix
-// label for the matcher: never broaden which version may be suggested.
+// Search-only fallback: featured-artist suffixes often make strict catalog
+// queries return no results, even where a matching base track exists. Keep
+// the complete original identity in the independent matcher; NEVER use the
+// shortened search string to authorize a different recording or mix.
+inline std::string search_title_without_feature_credit(std::string_view title) {
+    if(!text_ok(title,150)) return {};
+    const auto folded=ascii_lower(title);
+    constexpr std::string_view markers[]={
+        " feat. "," feat "," ft. "," ft "," featuring "};
+    std::size_t earliest=std::string_view::npos;
+    for(const auto marker:markers) {
+        const auto at=folded.find(marker);
+        if(at!=std::string_view::npos &&
+           (earliest==std::string_view::npos || at<earliest))
+            earliest=at;
+    }
+    if(earliest==std::string_view::npos || earliest==0)
+        return std::string(title);
+    // Never strip everything or perform fuzzy provider-match repairs.
+    return std::string(title.substr(0,earliest));
+}
+// Beatport v4 search has historically rejected bracket-heavy queries.
+// Search artist + full BASE TITLE, then base TITLE alone; ONLY after those
+// attempts offer an optional feat/ft-cleaned fallback search. Exact version
+// and collaborator credit matching remains an independent hard gate.
 inline std::vector<SearchAttempt> track_search_plan(
     std::string_view tagged_title, std::string_view tagged_artist = {}) {
     if (!text_ok(tagged_title, 150) ||
@@ -84,6 +106,20 @@ inline std::vector<SearchAttempt> track_search_plan(
     const auto title_path=search_path(title);
     if (result.empty() || result.back().path != title_path)
         result.push_back({"Base title without artist restriction", title_path});
+    const auto without_feat=search_title_without_feature_credit(title);
+    if(!without_feat.empty() && without_feat!=title) {
+        if(!tagged_artist.empty() &&
+           tagged_artist.size()+1+without_feat.size()<=150) {
+            const auto path=search_path(std::string(tagged_artist)+" "+without_feat);
+            if(std::none_of(result.begin(),result.end(),
+                [&](const SearchAttempt& step){return step.path==path;}))
+                result.push_back({"Explicit featured-artist search fallback",path});
+        }
+        const auto path=search_path(without_feat);
+        if(std::none_of(result.begin(),result.end(),
+            [&](const SearchAttempt& step){return step.path==path;}))
+            result.push_back({"Base-title-only fallback; identity still verified",path});
+    }
     return result;
 }
 inline std::string track_path(std::uint64_t track_id) {

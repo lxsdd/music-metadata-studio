@@ -122,3 +122,16 @@ Every Beatport-only value stays labelled **user-provided/unverified** and
 never enters the verified official Discogs physical staging lane. Beatport
 URL/search/OAuth integration remains a separate **license-dependent** gate,
 not an undocumented scraper or borrowed public-client credential.
+
+## OneTagger feature parity — search-only fallback
+
+The public OneTagger Beatport integration informed the **architecture**, not
+copied source code or provider credentials. The C++ provider now plans the
+original artist + unmodified **base title** search first; only afterward a
+bounded feature-credit-free fallback for `feat.`, `ft.`, `featuring` may be
+used by a future **authorized** API connector. The original complete local
+artist/title, named mix, ISRC and duration remain required by the independent
+match gate. This fallback is intentionally *not* a new scraping transport,
+not fuzzy permission to accept the wrong version, and never a writer.
+OneTagger is GPL-3.0; no code or embedded/shared OAuth client secrets are
+transplanted. Beatport API authorization remains a separate release gate.
