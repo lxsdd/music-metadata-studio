@@ -79,34 +79,47 @@ inline std::optional<std::int64_t> public_iso_duration_ms(
     return seconds*1000;
 }
 
-inline beatport::TrackEvidence parse_beatport_public_jsonld_clipboard(
-    std::string_view raw) {
-    if(!is_beatport_public_page_clipboard(raw) || raw.size()>65536 ||
-       raw.find('\0')!=std::string_view::npos)
-        throw std::invalid_argument("Unsupported or oversized public page metadata");
-    const auto first=raw.find('\n');
-    const auto second=raw.find('\n',first+1);
-    if(first==std::string_view::npos || second==std::string_view::npos ||
-       !raw.substr(first+1,second-first-1).starts_with("@url="))
-        throw std::invalid_argument("Public page requires exact @url= header");
-    auto url=raw.substr(first+1+5,second-first-1-5);
-    if(url.ends_with("\r")) url.remove_suffix(1);
-    const auto target=qualify_beatport_public_track_url(url);
-    const auto json=raw.substr(second+1);
-    const auto obj=musicbrainz::JsonParser(json).parse();
-    if(obj.type!=beatport::Json::Type::Object ||
-       musicbrainz::str(obj,"@type")!="MusicRecording")
-        throw std::invalid_argument("A single MusicRecording JSON-LD object is required");
-    if(const auto* canonical=obj.get("url");canonical &&
-       canonical->type!=beatport::Json::Type::Null &&
-       (canonical->type!=beatport::Json::Type::String ||
-        canonical->text!=target.canonical_url))
-        throw std::invalid_argument("Webpage JSON-LD URL differs from selected Beatport track");
-    if(const auto* identity=obj.get("@id");identity &&
-       identity->type!=beatport::Json::Type::Null &&
-       (identity->type!=beatport::Json::Type::String ||
-        identity->text!=target.canonical_url))
-        throw std::invalid_argument("Webpage JSON-LD identity differs from Beatport URL");
+inline bool public_music_recording_type(const beatport::Json& obj) {
+    if(obj.type!=beatport::Json::Type::Object) return false;
+    const auto* type=obj.get("@type");
+    if(!type) return false;
+    const auto matches=[](std::string_view value) {
+        return value=="MusicRecording" ||
+               value=="https://schema.org/MusicRecording";
+    };
+    if(type->type==beatport::Json::Type::String)
+        return matches(type->text);
+    if(type->type==beatport::Json::Type::Array &&
+       type->array.size()<=8)
+        return std::any_of(type->array.begin(),type->array.end(),
+            [&](const beatport::Json& item) {
+                return item.type==beatport::Json::Type::String &&
+                       matches(item.text);
+            });
+    return false;
+}
+
+// A direct browser clipboard can supply an explicit selected URL. For a
+// native HTML GET, however, embedded JSON-LD itself MUST affirm that URL.
+// No unrelated recording from @graph or a recommendation list may be used.
+inline beatport::TrackEvidence parse_beatport_public_jsonld_object(
+    const beatport::Json& obj,const BeatportPublicTrackUrl& target,
+    bool require_embedded_identity=false) {
+    if(!public_music_recording_type(obj))
+        throw std::invalid_argument("A MusicRecording JSON-LD object is required");
+    bool attested=false;
+    for(const std::string_view key:{"url","@id"}) {
+        if(const auto* source=obj.get(key)) {
+            if(source->type!=beatport::Json::Type::String ||
+               source->text!=target.canonical_url)
+                throw std::invalid_argument(
+                    "Public JSON-LD identity differs from the selected Beatport track");
+            attested=true;
+        }
+    }
+    if(require_embedded_identity && !attested)
+        throw std::invalid_argument(
+            "Public HTML lacks an independent exact track URL in structured data");
     beatport::TrackEvidence track;
     track.id=target.id;
     const auto title=beatport::label(obj,"name",2048);
@@ -125,14 +138,31 @@ inline beatport::TrackEvidence parse_beatport_public_jsonld_clipboard(
     }
     const auto duration=public_iso_duration_ms(musicbrainz::str(obj,"duration"));
     if(!duration || track.artists.empty())
-        throw std::invalid_argument("Public page lacks separately qualified artist/duration");
+        throw std::invalid_argument(
+            "Public page lacks separately qualified artist/duration");
     track.duration_ms=*duration;
     track.isrc=beatport::label(obj,"isrcCode",24);
-    if(const auto* genre=obj.get("genre")) track.genre=beatport::object_name(*genre);
-    // Generic JSON-LD datePublished / inAlbum is not independently
-    // authenticated edition provenance, so these values are visible on
-    // the public page but MUST NOT become DATE or ALBUM tag proposals.
-    // The official/provider-qualified edition path remains separate.
+    if(const auto* genre=obj.get("genre"))
+        track.genre=beatport::object_name(*genre);
+    // Generic datePublished / inAlbum are NOT verified exact-edition facts.
+    // Never create DATE, RELEASEDATE or ALBUM from these ambiguous sources.
     return track;
 }
+inline beatport::TrackEvidence parse_beatport_public_jsonld_clipboard(
+    std::string_view raw) {
+    if(!is_beatport_public_page_clipboard(raw) || raw.size()>65536 ||
+       raw.find('\0')!=std::string_view::npos)
+        throw std::invalid_argument("Unsupported or oversized public page metadata");
+    const auto first=raw.find('\n');
+    const auto second=raw.find('\n',first+1);
+    if(first==std::string_view::npos || second==std::string_view::npos ||
+       !raw.substr(first+1,second-first-1).starts_with("@url="))
+        throw std::invalid_argument("Public page requires exact @url= header");
+    auto url=raw.substr(first+1+5,second-first-1-5);
+    if(url.ends_with("\r")) url.remove_suffix(1);
+    const auto target=qualify_beatport_public_track_url(url);
+    const auto obj=musicbrainz::JsonParser(raw.substr(second+1)).parse();
+    return parse_beatport_public_jsonld_object(obj,target);
+}
+
 } // namespace djmeta::online
