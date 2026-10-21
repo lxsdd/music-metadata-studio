@@ -486,5 +486,22 @@ int main() {
           no_local_album[0].reason=="musicbrainz_live_search_new_field_proposal",
           "missing local ALBUM is not falsely compared against TITLE");
 
+
+    const auto edition_date=musicbrainz_search_edition_date(first,"2026-10-21");
+    check(edition_date.has_value() &&
+          edition_date->candidate.date_meaning==DateMeaning::EditionRelease &&
+          edition_date->candidate.scope==EvidenceScope::Edition &&
+          edition_date->field=="EDITION DATE (read-only)" &&
+          edition_date->candidate.field!="DATE" &&
+          edition_date->reason=="musicbrainz_live_search_edition_date_display_only",
+          "search snippet date has typed edition meaning, never a physical DATE proposal");
+    check(musicbrainz_search_edition_date(first,"2026-10").has_value() &&
+          musicbrainz_search_edition_date(first,"2026").has_value() &&
+          !musicbrainz_search_edition_date(first,"2026-10-21-22") &&
+          !musicbrainz_search_edition_date(first,"2026/10/21") &&
+          !musicbrainz_search_edition_date(first,"") &&
+          !musicbrainz_search_edition_date("","2026-10-21"),
+          "only bounded, explicitly sourced MusicBrainz edition dates appear as evidence");
+
     std::cout << "PASS: official MusicBrainz query encoding, bounded JSON, artist roles and release alignment\n";
 }

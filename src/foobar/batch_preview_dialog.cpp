@@ -589,7 +589,9 @@ MusicBrainzBrowseRows musicbrainz_search_rows(
                 std::to_string(hit.search_score));
         }
         if (hit.kind==musicbrainz::SearchKind::Release)
-            add("EDITION DATE","",hit.release_date);
+            if (auto date=musicbrainz_search_edition_date(
+                    hit.mbid,hit.release_date))
+                detail.push_back(std::move(*date));
         // Display the full original physical inventory independently from
         // search-hit fields. Keep all values and source identities separate;
         // above native capacity show an explicit overflow count, not silence.
@@ -1069,6 +1071,8 @@ void refresh_musicbrainz_detail_rows(PreviewState& state) {
                 ? L"Suggested identity only" : L"Not safely matched") :
             local_original ? L"Keep original" :
             local_cue ? L"Keep original CUE" :
+            row.reason=="musicbrainz_live_search_edition_date_display_only"
+                ? L"Edition date only" :
             row.state==
             djmeta::online::FieldReviewState::Blocked ? L"Blocked"
             : row.state==djmeta::online::FieldReviewState::Unchanged

@@ -4,6 +4,7 @@
 // An MB recording's artist/title is not the release's album artist/album.
 #include "djmeta/online_fields.h"
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -33,6 +34,32 @@ inline std::vector<FieldReviewRow> review_musicbrainz_search_hit_fields(
     for (auto& row : rows)
         row.reason = "musicbrainz_live_search_" + row.reason;
     return rows;
+}
+
+// A search snippet's date describes the release edition, not the original
+// recording or a verified replacement for a physical DATE tag. It remains
+// a typed, read-only evidence row, and never masquerades as a tag proposal.
+// MusicBrainz supplies either YYYY, YYYY-MM or YYYY-MM-DD.
+inline std::optional<FieldReviewRow> musicbrainz_search_edition_date(
+    const std::string& exact_source_id, const std::string& date) {
+    if (date.size()!=4 && date.size()!=7 && date.size()!=10)
+        return std::nullopt;
+    if (!valid_evidence_origin(exact_source_id,512)) return std::nullopt;
+    for (std::size_t i=0;i<date.size();++i) {
+        if ((i==4 || i==7) && i<date.size()) {
+            if (date[i]!='-') return std::nullopt;
+        } else if (date[i]<'0' || date[i]>'9') {
+            return std::nullopt;
+        }
+    }
+    FieldReviewRow row;
+    row.field="EDITION DATE (read-only)";
+    row.candidate={"EDITION DATE (read-only)",{date},"musicbrainz",
+                   exact_source_id,EvidenceScope::Edition,
+                   DateMeaning::EditionRelease};
+    row.state=FieldReviewState::NeedsReview;
+    row.reason="musicbrainz_live_search_edition_date_display_only";
+    return row;
 }
 
 } // namespace djmeta::online
