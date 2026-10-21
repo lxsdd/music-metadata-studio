@@ -448,6 +448,19 @@ inline bool insert_native_preview_detail_row(HWND list, int index,
     return true;
 }
 
+// After a new provider query or a changed track, a virtual ListView may
+// retain selection INDEX 0/1 while representing an entirely different
+// release. A selected row is not an identity. Unless the exact source ID
+// survives the rebuilt candidate order, reselect the explicit first row and
+// refresh its evidence. This guards the Load release action from stale rows.
+inline bool native_browser_selection_requires_reset(
+    bool same_candidate_identity, int actual_selected_row,
+    std::size_t verified_view_row) noexcept {
+    if(!same_candidate_identity) return true;
+    return actual_selected_row<0 ||
+        static_cast<std::size_t>(actual_selected_row)!=verified_view_row;
+}
+
 // Search progress is visible in the actual native button, not buried in a
 // status label: a second deliberate click broadens nonmatching first-page
 // Discogs hits without browsing an artist tree. No request starts merely

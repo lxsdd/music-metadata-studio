@@ -1254,8 +1254,8 @@ void update_metadata_table(PreviewState& state) {
             const int selected_now=ListView_GetNextItem(
                 state.metadata_list,-1,LVNI_SELECTED);
             if (!state.candidate_view_order.empty() &&
-                ((found && selected_now!=static_cast<int>(target)) ||
-                 (!found && selected_now<0))) {
+                native_browser_selection_requires_reset(
+                    found,selected_now,target)) {
                 state.updating_musicbrainz_selection=true;
                 ListView_SetItemState(state.metadata_list,-1,0,LVIS_SELECTED);
                 ListView_SetItemState(state.metadata_list,static_cast<int>(target),

@@ -805,6 +805,13 @@ int main() {
               "DPI capture retains logical width and hidden column width");
     }
 
+    check(djmeta_foobar::native_browser_selection_requires_reset(false,0,0) &&
+          djmeta_foobar::native_browser_selection_requires_reset(false,2,0) &&
+          djmeta_foobar::native_browser_selection_requires_reset(true,-1,0) &&
+          djmeta_foobar::native_browser_selection_requires_reset(true,1,0) &&
+          !djmeta_foobar::native_browser_selection_requires_reset(true,0,0) &&
+          !djmeta_foobar::native_browser_selection_requires_reset(true,3,3),
+          "a reused owner-data list row can never stand in for a new release ID");
     // The real production search button must advertise explicit, bounded
     // progression; native rendering uses this pure caption contract.
     const auto mb_caption=djmeta_foobar::native_discogs_search_caption(
