@@ -8,6 +8,7 @@
 #include "cue_readonly_source.h"
 #include "musicbrainz_http.h"
 #include "discogs_http.h"
+#include "beatport_public_http.h"
 #include "readonly_network_request.h"
 #include "batch_table_settings.h"
 #include "legacy_routing_profiles.h"
@@ -33,6 +34,7 @@
 #include "djmeta/cue_original_inventory.h"
 #include "djmeta/beatport_manual_intake.h"
 #include "djmeta/beatport_public_page.h"
+#include "djmeta/beatport_public_html.h"
 #include "djmeta/beatport_release_review.h"
 #include "djmeta/discogs_release_review.h"
 #include "djmeta/native_candidate_labels.h"
@@ -117,6 +119,13 @@ struct PendingMusicBrainzContext {
     std::string release_mbid;
 };
 
+struct PendingBeatportPageContext {
+    std::size_t source_index=0;
+    std::uint64_t context_version=0;
+    std::string url;
+    djmeta::MetadataDocument originals;
+    std::int64_t duration_ms=-1;
+};
 struct PreviewState {
     HWND dialog = nullptr;
     HWND help_tooltips = nullptr; // Native tooltip HWND lives/dies with dialog.
@@ -167,6 +176,8 @@ struct PreviewState {
     std::optional<PendingMusicBrainzContext> musicbrainz_context;
     std::shared_ptr<ReadOnlyNetworkJob> discogs_request;
     std::optional<PendingDiscogsContext> discogs_context;
+    std::shared_ptr<ReadOnlyNetworkJob> beatport_public_request;
+    std::optional<PendingBeatportPageContext> beatport_public_context;
     bool online_close_requested=false;
     ReadOnlyContextVersion online_context_version;
     bool discogs_provider_selected = false; // visible runtime-only source selector
@@ -241,6 +252,8 @@ void invalidate_online_request(PreviewState& state) {
         request_readonly_network_stop(*state.discogs_request);
     if(state.musicbrainz_request)
         request_readonly_network_stop(*state.musicbrainz_request);
+    if(state.beatport_public_request)
+        request_readonly_network_stop(*state.beatport_public_request);
 }
 
 // External CUE files may appear as top-level physical handles in foobar. They
@@ -1309,9 +1322,9 @@ void update_metadata_table(PreviewState& state) {
         EnableWindow(GetDlgItem(state.dialog, IDC_METADATA_INSPECT_CUE),
                      cue_readable ? TRUE : FALSE);
         EnableWindow(GetDlgItem(state.dialog, IDC_METADATA_MB_SEARCH),
-                     !state.beatport_offline_selected &&
-                     (physical || cue_readable) &&
-                     !state.discogs_request && !state.musicbrainz_request ? TRUE : FALSE);
+                     (physical || (!state.beatport_offline_selected && cue_readable)) &&
+                     !state.discogs_request && !state.musicbrainz_request &&
+                     !state.beatport_public_request && !state.stale ? TRUE : FALSE);
         // Preserve the candidate, not its old sorted view row.
         std::string selected_browser_id;
         const int selected_before=ListView_GetNextItem(
@@ -1546,24 +1559,30 @@ void update_live_provider_controls(PreviewState& state) {
         state.discogs_master_page<state.discogs_master_pages &&
         state.discogs_master_page<
             djmeta::online::discogs::max_master_version_page;
-    const bool pending=state.discogs_request || state.musicbrainz_request;
+    const bool pending=state.discogs_request || state.musicbrainz_request ||
+                       state.beatport_public_request;
     const bool published_search=discogs && state.discogs_live_view &&
         !state.discogs_result_first_path.empty() &&
         state.search_plan_identity==state.discogs_result_identity &&
         !state.discogs_results.empty();
     SetDlgItemTextW(state.dialog,IDC_METADATA_MB_SEARCH,
-        state.beatport_offline_selected ? L"Beatport API locked" :
+        state.beatport_offline_selected ? L"Load Beatport URL" :
         native_discogs_search_caption(state.discogs_provider_selected,
             next_master,published_search,
             state.candidate_source_index==state.selected_track_index,
             state.musicbrainz_release_loaded,pending,
             state.discogs_result_attempt_index,
             state.discogs_result_attempt_total));
-    if(state.beatport_offline_selected)
-        EnableWindow(GetDlgItem(state.dialog,IDC_METADATA_MB_SEARCH),FALSE);
-    // Re-enable of official provider searches belongs to the qualified
-    // source snapshot check in update_metadata_table(), not a cosmetic
-    // caption/visibility refresh.
+    if(state.beatport_offline_selected) {
+        const bool selected=state.selected_track_index<state.entries.size();
+        const bool physical=selected &&
+            state.entries[state.selected_track_index].input.physical_source_qualified &&
+            state.entries[state.selected_track_index].handle->get_subsong_index()==0 &&
+            !is_external_cue_locator(
+                state.entries[state.selected_track_index].input.source_path);
+        EnableWindow(GetDlgItem(state.dialog,IDC_METADATA_MB_SEARCH),
+                     state.show_candidate && physical && !pending && !state.stale);
+    }
     SetDlgItemTextW(state.dialog,IDC_METADATA_IMPORT_CANDIDATE,
         state.beatport_offline_selected ? L"Import Beatport" : L"Import clipboard");
     const bool next_result=discogs && state.discogs_live_view &&
@@ -2788,7 +2807,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_METADATA_ONLINE_PROVIDER,L"MusicBrainz and Discogs use authorized official APIs. Beatport (offline) accepts lawfully sourced complete track/release JSON or explicit facts without scraping. Live API is locked pending separate partner authorization."},
         {IDC_METADATA_DISCOGS_TOKEN_LABEL,L"Discogs token only lives in this password control."},
         {IDC_METADATA_DISCOGS_TOKEN,L"Personal Discogs API token. Not saved, logged, embedded or copied into URLs."},
-        {IDC_METADATA_MB_SEARCH,L"MusicBrainz/Discogs: bounded official HTTPS lookup. Beatport: locked without approved partner credentials; use Import Beatport for separately licensed JSON or explicit facts. No tag writes."},
+        {IDC_METADATA_MB_SEARCH,L"Beatport: paste an exact public https://www.beatport.com/track/slug/id URL to retrieve ONE public HTML page. No login, redirects or scraping bypass. MusicBrainz and Discogs use their official APIs. No tag writes."},
         {IDC_METADATA_DISCOGS_NEXT_PAGE,L"Explicitly load ONE more page of the same official Discogs query. Never a match or write approval."},
         {IDC_METADATA_MB_LOAD_RELEASE,L"Inspect a verified exact release; unmatched Discogs track credits remain blocked."},
         {IDC_ONLINE_INCLUDE_FIELDS,L"Include highlighted exact edition album fields or independently verified release-track credits in a detached preview. No files are changed."},
@@ -2887,7 +2906,8 @@ void show_workspace_help(HWND dialog) {
 void begin_discogs_network(HWND dialog, PreviewState& state,
                            std::string path, std::string token,
                            PendingDiscogsContext context) {
-    if(state.discogs_request || state.musicbrainz_request)
+    if(state.discogs_request || state.musicbrainz_request ||
+       state.beatport_public_request)
         throw std::runtime_error("An official provider request is already active.");
     // A worker-owned token is wiped whether WinHTTP succeeds or throws.
     auto transport=[route=std::move(path),secret=std::move(token)](
@@ -2915,7 +2935,8 @@ void begin_discogs_network(HWND dialog, PreviewState& state,
 void perform_discogs_search(HWND dialog, PreviewState& state) {
     using namespace djmeta::online;
     using namespace djmeta::online::discogs;
-    if(state.discogs_request || state.musicbrainz_request)
+    if(state.discogs_request || state.musicbrainz_request ||
+       state.beatport_public_request)
         throw std::runtime_error("Wait for the previous official provider request.");
     if(!state.show_candidate || state.selected_track_index>=state.entries.size())
         throw std::invalid_argument("Select a qualified audio or CUE source first.");
@@ -3577,7 +3598,8 @@ void consume_discogs_network(HWND dialog, PreviewState& state) {
 // SDK access, local-CUE identity checks and presentation are main-thread only.
 void begin_musicbrainz_network(HWND dialog, PreviewState& state,
                                std::string path, PendingMusicBrainzContext ctx) {
-    if(state.discogs_request || state.musicbrainz_request)
+    if(state.discogs_request || state.musicbrainz_request ||
+       state.beatport_public_request)
         throw std::runtime_error("Another official provider request is active.");
     ctx.context_version=state.online_context_version.current();
     auto job=start_readonly_network(dialog,
@@ -4058,6 +4080,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             request_readonly_network_stop(*state->musicbrainz_request);
         if(state->discogs_request)
             request_readonly_network_stop(*state->discogs_request);
+        if(state->beatport_public_request)
+            request_readonly_network_stop(*state->beatport_public_request);
+        state->beatport_public_request.reset();
+        state->beatport_public_context.reset();
         state->musicbrainz_request.reset();
         state->musicbrainz_context.reset();
         state->discogs_request.reset();
@@ -4084,6 +4110,9 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         else if(state->musicbrainz_request &&
                 readonly_network_finished(*state->musicbrainz_request))
             consume_musicbrainz_network(dialog,*state);
+        else if(state->beatport_public_request &&
+                readonly_network_finished(*state->beatport_public_request))
+            consume_beatport_public_network(dialog,*state);
         return TRUE;
     }
     if (message == WM_CLOSE) {
@@ -4092,12 +4121,16 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         if((state->discogs_request &&
             !readonly_network_finished(*state->discogs_request)) ||
            (state->musicbrainz_request &&
-            !readonly_network_finished(*state->musicbrainz_request))) {
+            !readonly_network_finished(*state->musicbrainz_request)) ||
+           (state->beatport_public_request &&
+            !readonly_network_finished(*state->beatport_public_request))) {
             state->online_close_requested=true;
             if(state->discogs_request)
                 request_readonly_network_stop(*state->discogs_request);
             if(state->musicbrainz_request)
                 request_readonly_network_stop(*state->musicbrainz_request);
+            if(state->beatport_public_request)
+                request_readonly_network_stop(*state->beatport_public_request);
             // Keep HWND alive for the worker's completion notification;
             // a blocking WinHTTP call still observes its fixed timeouts.
             ShowWindow(dialog,SW_HIDE);
@@ -4681,6 +4714,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 dialog,IDC_METADATA_ONLINE_PROVIDER,CB_GETCURSEL,0,0);
             state->discogs_provider_selected=selected_provider==1;
             state->beatport_offline_selected=selected_provider==2;
+            if(state->beatport_offline_selected)
+                SetDlgItemTextW(dialog,IDC_METADATA_MB_QUERY,L"");
             if(!state->discogs_provider_selected)
                 SetDlgItemTextW(dialog,IDC_METADATA_DISCOGS_TOKEN,L"");
             state->musicbrainz_live_view=false;
@@ -4710,7 +4745,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                     L"authorized track-detail JSON "
                     L"(@beatport-track-json), complete edition+tracks JSON "
                     L"or explicit @beatport-track-facts, then Import Beatport. "
-                    L"Live Beatport API requires separate partner approval.");
+                    L"Alternatively enter ONE public track URL and click "
+                    L"Load Beatport URL. Catalog API access remains separate.");
             return TRUE;
         }
         if (id == IDCANCEL) {
@@ -4768,12 +4804,12 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             return TRUE;
         }
         if (id == IDC_METADATA_MB_SEARCH && HIWORD(wp) == BN_CLICKED) {
-            if(state->beatport_offline_selected)
-                throw std::invalid_argument(
-                    "Beatport live API is unavailable without an approved partner "
-                    "license and authorized transport. Use Import Beatport for "
-                    "separately obtained structured track or release data.");
-            if(state->musicbrainz_request || state->discogs_request)
+            if(state->beatport_offline_selected) {
+                perform_beatport_public_page_lookup(dialog,*state);
+                return TRUE;
+            }
+            if(state->musicbrainz_request || state->discogs_request ||
+               state->beatport_public_request)
                 throw std::runtime_error("Wait for the current provider lookup.");
             if(state->discogs_provider_selected) {
                 perform_discogs_search(dialog,*state);
