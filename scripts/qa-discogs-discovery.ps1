@@ -38,7 +38,11 @@ function Assert-ExactEdition($Payload,[string]$Id) {
 # A linked master year never borrows the year of an exact edition.
 function Test-LinkedMasterYear($Payload,[string]$ExpectedId) {
     Assert-QA ($null -ne $Payload -and [string]$Payload.id -ceq $ExpectedId) 'linked master ID mismatch'
-    $year=[string]$Payload.year
+    $year=''
+    if ($null -ne $Payload -and
+        $null -ne $Payload.PSObject.Properties['year']) {
+        $year=[string]$Payload.year
+    }
     if ($year -notmatch '^[0-9]{4}
     if ([string]::IsNullOrWhiteSpace($Core)) { $Core=$Title }
     $t=[uri]::EscapeDataString($Title)
@@ -98,6 +102,7 @@ if ($Mode -eq 'SelfTest') {
     $master_fixture=ConvertFrom-Json '{"id":4343,"year":1998,"main_release":37332711}'
     Assert-QA ((Test-LinkedMasterYear $master_fixture '4343') -eq '1998') 'linked master year fixture failed'
     Assert-QA ((Test-LinkedMasterYear (ConvertFrom-Json '{"id":4343,"year":0}') '4343') -eq '') 'unknown master year inferred from edition'
+    Assert-QA ((Test-LinkedMasterYear (ConvertFrom-Json '{"id":4343}') '4343') -eq '') 'missing master year fabricated'
     $bad_master=$false
     try { [void](Test-LinkedMasterYear $master_fixture '4344') }
     catch { $bad_master=$true }
@@ -135,7 +140,10 @@ try {
     $edition=Get-OfficialJson "/releases/$ReleaseId" $token
     Assert-ExactEdition $edition $ReleaseId
     Write-Output 'PASS: authorized exact edition and tracklist'
-    $masterIdText=[string]$edition.master_id
+    $masterIdText=''
+    if ($null -ne $edition.PSObject.Properties['master_id']) {
+        $masterIdText=[string]$edition.master_id
+    }
     if (-not [string]::IsNullOrWhiteSpace($masterIdText)) {
         Assert-QA ($masterIdText -cmatch '^[1-9][0-9]{0,11}
     $stage=0
