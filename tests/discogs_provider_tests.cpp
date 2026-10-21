@@ -103,6 +103,36 @@ int main() {
               R"({"pagination":{"page":1,"per_page":20,"pages":0},"results":[]})",1)
                   .pages==1,
           "genuinely empty official search may have zero reported pages");
+    check(master_detail_path(4343)=="/masters/4343" &&
+          allowed_readonly_path(master_detail_path(4343)) &&
+          !allowed_readonly_path("/masters/04343") &&
+          !allowed_readonly_path("/masters/4343/") &&
+          !allowed_readonly_path("/masters/4343?token=secret"),
+          "only canonical official Discogs master detail is permitted");
+    rejects([]{(void)master_detail_path(0);},
+            "master detail path has a qualified positive identity");
+    const auto year_master=parse_master_year(
+        R"({"id":4343,"year":1998,"main_release":321})",4343);
+    check(year_master && year_master->field=="DATE" &&
+          year_master->values==std::vector<std::string>{"1998"} &&
+          year_master->source_id=="master:4343" &&
+          year_master->scope==EvidenceScope::Release &&
+          year_master->date_meaning==DateMeaning::OriginalRelease,
+          "Master year is source-qualified original-release evidence, not edition date");
+    check(!parse_master_year(R"({"id":4343,"year":0})",4343) &&
+          !parse_master_year(R"({"id":4343})",4343) &&
+          !parse_master_year(R"({"id":4343,"year":20265})",4343),
+          "unknown or malformed master year cannot fabricate a tag");
+    rejects([]{(void)parse_master_year(R"({"id":4344,"year":1998})",4343);},
+            "master response with mismatched ID fails closed");
+    const auto linked_master=parse_release(
+        R"({"id":321,"master_id":4343,"title":"Verified edition",
+            "year":2024,"tracklist":[{"title":"Original Mix","duration":"4:00"}]})",
+        321);
+    check(linked_master.master_id=="4343" &&
+          linked_master.fields[1].values==std::vector<std::string>{"2024"} &&
+          linked_master.fields[1].date_meaning==DateMeaning::EditionRelease,
+          "exact release links the separate master identity but retains its own year");
     const auto master_request=master_search_path("1000 Years");
     check(master_request==
               "/database/search?q=1000%20Years&type=master&page=1&per_page=20" &&

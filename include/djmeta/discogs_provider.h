@@ -516,6 +516,11 @@ inline std::string release_path(std::uint64_t id) {
         throw std::invalid_argument("Unqualified Discogs release identifier");
     return "/releases/"+std::to_string(id);
 }
+inline std::string master_detail_path(std::uint64_t id) {
+    if(!id || id>999999999999ULL)
+        throw std::invalid_argument("Unqualified Discogs master identifier");
+    return "/masters/"+std::to_string(id);
+}
 // Every additional page is separately user-initiated; never scrape/scan all.
 inline constexpr std::uint64_t max_master_version_page=100000;
 inline std::string master_versions_path(std::uint64_t id,
@@ -592,7 +597,15 @@ inline bool allowed_readonly_path(std::string_view path) {
     if(path.starts_with(master_prefix)) {
         const auto rest=path.substr(master_prefix.size());
         const auto separator=rest.find('/');
-        if(separator==std::string_view::npos) return false;
+        if(separator==std::string_view::npos) {
+            if(rest.empty() || rest.size()>12) return false;
+            std::uint64_t id=0;
+            const auto [end,ec]=std::from_chars(
+                rest.data(),rest.data()+rest.size(),id);
+            return ec==std::errc{} &&
+                end==rest.data()+rest.size() && id>0 &&
+                id<=999999999999ULL && path==master_detail_path(id);
+        }
         const auto digits=rest.substr(0,separator);
         if(digits.empty() || digits.size()>12) return false;
         std::uint64_t id=0;
@@ -820,6 +833,21 @@ inline SearchResults parse_master_versions(
     std::string_view json,std::uint64_t expected_master_id) {
     return parse_master_versions_page(json,expected_master_id).results;
 }
+// Master release YEAR is separate verified API data, never an edition year.
+inline std::optional<FieldEvidence> parse_master_year(
+    std::string_view json,std::uint64_t expected_master_id) {
+    if(!expected_master_id || expected_master_id>999999999999ULL)
+        throw std::invalid_argument("Invalid Discogs master identity");
+    const auto root=musicbrainz::JsonParser(json).parse();
+    if(id_field(root)!=expected_master_id)
+        throw std::invalid_argument("Discogs master detail identity mismatch");
+    const auto year=year_field(root);
+    if(year.empty()) return std::nullopt; // Unknown is never a fabricated date.
+    return FieldEvidence{"DATE",{year},"discogs",
+        "master:"+std::to_string(expected_master_id),
+        EvidenceScope::Release,DateMeaning::OriginalRelease};
+}
+
 inline ReleaseEdition parse_release(std::string_view json,std::uint64_t expected_id) {
     if(!expected_id || expected_id>999999999999ULL)
         throw std::invalid_argument("Missing expected Discogs edition ID");
@@ -832,6 +860,10 @@ inline ReleaseEdition parse_release(std::string_view json,std::uint64_t expected
     ReleaseEdition edition;
     edition.provider="discogs";
     edition.edition_id=std::to_string(expected_id);
+    if(const auto* master=root.get("master_id")) {
+        const auto number=object_id(*master);
+        if(number) edition.master_id=std::to_string(number);
+    }
     const auto add=[&](std::string field,std::vector<std::string> values,
                        DateMeaning meaning=DateMeaning::NotDate) {
         if(values.empty()) return;

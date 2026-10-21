@@ -48,6 +48,9 @@ struct ReleaseEdition {
     std::string edition_id; // Exact release edition ID, not release-group/master ID.
     std::vector<FieldEvidence> fields;
     std::vector<EditionTrack> tracks;
+    // Discogs only: official exact edition -> linked master identity.
+    // No master field can be inferred from the edition's date.
+    std::string master_id;
 };
 
 inline constexpr std::size_t no_release_track = std::numeric_limits<std::size_t>::max();

@@ -341,6 +341,13 @@ int main() {
           unchanged_date_projection.explicitly_changed==0 &&
           unchanged_date_projection.planned==stage_original,
           "unchanged typed edition date remains a genuine zero-change preview");
+    check(online_date_requires_explicit_target(FieldEvidence{
+              "RELEASEDATE",{"2024"},"discogs","release:100",
+              EvidenceScope::Edition,DateMeaning::EditionRelease}) &&
+          online_date_requires_explicit_target(FieldEvidence{
+              "DATE",{"1998"},"discogs","master:4343",
+              EvidenceScope::Release,DateMeaning::OriginalRelease}),
+          "all qualified master and exact-edition dates require explicit target mapping");
     // A deliberate target policy can stage the exact verified edition date
     // to a separate field without changing the user's existing DATE.
     const auto chosen_edition_date=stage_selected_online_fields(

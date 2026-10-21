@@ -17,9 +17,7 @@ namespace djmeta::online {
 // mapping decision is required before any changed physical DATE/DATE_RAW
 // value can be staged; exactly matching values remain harmless no-ops.
 inline bool online_date_requires_explicit_target(const FieldEvidence& field) {
-    const auto name=ascii_upper_field(field.field);
-    return (name=="DATE" || name=="DATE_RAW") &&
-           field.date_meaning!=DateMeaning::NotDate;
+    return field.date_meaning!=DateMeaning::NotDate;
 }
 
 struct OnlineFieldReviewSnapshot {
