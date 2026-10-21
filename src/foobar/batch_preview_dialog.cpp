@@ -2928,6 +2928,127 @@ void begin_discogs_network(HWND dialog, PreviewState& state,
     EnableWindow(GetDlgItem(dialog,IDC_METADATA_DISCOGS_NEXT_PAGE),FALSE);
 }
 
+
+// A Beatport public URL is not a catalog API identity or staging authority.
+// Exactly one user-requested page is fetched on an isolated cancellable worker.
+void perform_beatport_public_page_lookup(HWND dialog,PreviewState& state) {
+    using namespace djmeta::online;
+    if(!state.beatport_offline_selected || !state.show_candidate ||
+       state.selected_track_index>=state.entries.size())
+        throw std::invalid_argument("Select a physical audio track in Beatport mode.");
+    if(state.beatport_public_request || state.discogs_request ||
+       state.musicbrainz_request)
+        throw std::runtime_error("Another provider request is still running.");
+    const auto& entry=state.entries[state.selected_track_index];
+    verify_online_source_snapshot(state,entry);
+    verify_rules_snapshot(state.captured_rules);
+    if(!entry.input.physical_source_qualified ||
+       entry.handle->get_subsong_index()!=0 ||
+       is_external_cue_locator(entry.input.source_path))
+        throw std::invalid_argument(
+            "Beatport page requires one qualified physical track, not virtual CUE.");
+    const auto target=qualify_beatport_public_track_url(
+        to_utf8(read_control(dialog,IDC_METADATA_MB_QUERY)));
+    const auto info=entry.handle->get_info_ref();
+    PendingBeatportPageContext ctx;
+    ctx.source_index=state.selected_track_index;
+    ctx.context_version=state.online_context_version.current();
+    ctx.url=target.canonical_url;
+    ctx.originals=metadata_from_file_info(info->info());
+    const double seconds=info->info().get_length();
+    if(seconds>0 && seconds<=36000)
+        ctx.duration_ms=static_cast<std::int64_t>(seconds*1000.0+0.5);
+    verify_online_source_snapshot(state,entry);
+    auto job=start_readonly_network(dialog,
+        [route=ctx.url](std::stop_token stop) {
+            return fetch_beatport_public_html_readonly(route,stop);
+        });
+    state.beatport_public_context.emplace(std::move(ctx));
+    state.beatport_public_request=std::move(job);
+    EnableWindow(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH),FALSE);
+    SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+        L"Loading ONE public Beatport page. Access denials stop without "
+        L"retry, bypass or changes to your files.");
+}
+void consume_beatport_public_network(HWND dialog,PreviewState& state) {
+    auto job=state.beatport_public_request;
+    if(!job || !readonly_network_finished(*job)) return;
+    if(job->worker.joinable()) job->worker.join();
+    auto ctx=std::move(state.beatport_public_context);
+    state.beatport_public_request.reset();
+    state.beatport_public_context.reset();
+    if(state.online_close_requested) {
+        DestroyWindow(dialog);
+        return;
+    }
+    try {
+        if(!ctx || !state.online_context_version.matches(ctx->context_version)) {
+            update_metadata_table(state);
+            return; // provider/track/source changed while HTTP was running
+        }
+        if(!job->error.empty()) throw std::runtime_error(job->error);
+        if(state.stale || state.refreshing || !state.show_candidate ||
+           !state.beatport_offline_selected ||
+           ctx->source_index>=state.entries.size() ||
+           state.selected_track_index!=ctx->source_index)
+            throw std::invalid_argument("Public-page request is stale.");
+        const auto& entry=state.entries[ctx->source_index];
+        verify_online_source_snapshot(state,entry);
+        verify_rules_snapshot(state.captured_rules);
+        if(!entry.input.physical_source_qualified ||
+           entry.handle->get_subsong_index()!=0 ||
+           is_external_cue_locator(entry.input.source_path))
+            throw std::invalid_argument("Source is no longer qualified audio.");
+        const auto info=entry.handle->get_info_ref();
+        const auto current=metadata_from_file_info(info->info());
+        const double duration=info->info().get_length();
+        const auto current_ms=duration>0 && duration<=36000
+            ? static_cast<std::int64_t>(duration*1000.0+0.5)
+            : std::int64_t{-1};
+        if(current!=ctx->originals || current_ms!=ctx->duration_ms)
+            throw std::invalid_argument("Original audio metadata/duration changed.");
+        const auto record=djmeta::online::parse_beatport_public_html(
+            ctx->url,job->response);
+        auto reviewed=djmeta::online::review_beatport_user_track(
+            current,ctx->duration_ms,record);
+        for(auto& row:reviewed.fields) {
+            if(djmeta::online::is_local_physical_original(row))
+                row.field="Physical / "+row.field;
+            else row.field="Beatport Track / "+row.field;
+        }
+        auto grouped=group_musicbrainz_release_rows(reviewed.fields);
+        verify_online_source_snapshot(state,entry);
+        verify_rules_snapshot(state.captured_rules);
+        state.candidate_rows=std::move(grouped.summary);
+        state.musicbrainz_detail_groups=std::move(grouped.detail);
+        state.candidate_source_index=ctx->source_index;
+        state.cue_inspection_mode=false;
+        state.cue_candidate_comparison_mode=false;
+        state.musicbrainz_live_view=true; // grouped browser, not MB authorization
+        state.musicbrainz_release_loaded=true;
+        state.musicbrainz_kind=djmeta::online::musicbrainz::SearchKind::Recording;
+        state.discogs_live_view=false;
+        state.online_physical_edition.reset(); // NOT authenticated API data
+        state.online_field_snapshot.reset();
+        state.online_field_preview.reset();
+        state.online_included_fields.clear();
+        state.online_date_targets.clear();
+        state.search_attempt_notice=
+            L"Public Beatport HTML (unverified website facts). Independent "
+            L"track/mix/ISRC/duration comparison only; never auto-stage or write.";
+        update_metadata_table(state);
+        SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+            state.search_attempt_notice.c_str());
+    } catch(const std::exception& error) {
+        if(state.stale) return;
+        state.search_attempt_notice=L"Beatport public HTML: "+
+            from_utf8(error.what())+L" No metadata or files were changed.";
+        update_metadata_table(state);
+        SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+            state.search_attempt_notice.c_str());
+    }
+}
+
 // Official Discogs requests share the existing foobar snapshot/rules guards.
 // Token is entered in a password-style control and never persisted or logged.
 // One deliberate Search starts a bounded official plan: zero-hit responses
