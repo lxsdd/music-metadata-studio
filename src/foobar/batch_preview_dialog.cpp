@@ -3377,7 +3377,7 @@ void publish_musicbrainz_search(
         from_utf8(request.strategy)+L": "+
         std::to_wstring(result.candidates.size())+L" result(s). "+
         (result.candidates.empty() && request.attempt_index+1<request.total
-            ? L"Click Search again to try the next, broader strategy."
+            ? L"No hits; trying the next bounded strategy automatically."
             : result.candidates.empty()
             ? L"No more search variants. Edit the title to retry."
             : L"Compare recording, artist and version. Nothing approved for writing.");
@@ -3456,10 +3456,31 @@ void consume_musicbrainz_network(HWND dialog, PreviewState& state) {
         if(!request)
             throw std::runtime_error("MusicBrainz request lost its context.");
         if(!job->error.empty())throw std::runtime_error(job->error);
-        if(request->operation==PendingMusicBrainzContext::Kind::Search)
+        if(request->operation==PendingMusicBrainzContext::Kind::Search) {
             publish_musicbrainz_search(state,*request,job->response);
-        else
+            // One user-initiated Search may advance through its finite
+            // already-reviewed strategy plan. Unlike ordinary track
+            // selection, this is a continuation of the SAME explicit user
+            // action and only while its source, kind and request generation
+            // remain valid. No writer and no foobar UI-thread wait.
+            const bool qualified =
+                !state.stale && !state.refreshing && state.show_candidate &&
+                !state.discogs_provider_selected && state.musicbrainz_live_view &&
+                state.musicbrainz_kind==request->kind &&
+                state.selected_track_index==request->source_index &&
+                state.candidate_source_index==request->source_index &&
+                state.online_context_version.matches(request->context_version) &&
+                !state.musicbrainz_request && !state.discogs_request;
+            if(djmeta::online::musicbrainz::continue_empty_search_plan(
+                    request->attempt_index,request->total,
+                    state.musicbrainz_results.empty(),qualified))
+                SendMessageW(dialog,WM_COMMAND,
+                    MAKEWPARAM(IDC_METADATA_MB_SEARCH,BN_CLICKED),
+                    reinterpret_cast<LPARAM>(
+                        GetDlgItem(dialog,IDC_METADATA_MB_SEARCH)));
+        } else {
             publish_musicbrainz_release(state,*request,job->response);
+        }
     } catch(const std::exception& error) {
         if(state.stale) return; // Never re-enable actions after file replacement.
         state.search_attempt_notice=L"MusicBrainz read-only lookup failed: "+

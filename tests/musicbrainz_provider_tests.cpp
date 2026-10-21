@@ -30,6 +30,15 @@ int main() {
           request_spacing_wait_ms(100,1600)==0 &&
           request_spacing_wait_ms(500,200)==1200,
           "MusicBrainz worker reserves a bounded, cancelable request slot");
+    check(continue_empty_search_plan(0,4,true,true) &&
+          continue_empty_search_plan(2,4,true,true) &&
+          !continue_empty_search_plan(3,4,true,true) &&
+          !continue_empty_search_plan(0,4,false,true) &&
+          !continue_empty_search_plan(0,4,true,false) &&
+          !continue_empty_search_plan(0,0,true,true) &&
+          !continue_empty_search_plan(0,9,true,true) &&
+          !continue_empty_search_plan(4,4,true,true),
+          "a clicked MusicBrainz search can continue only on empty bounded qualified stages");
     const auto request=make_search_path(SearchKind::Recording,
         "Björk: It's \"Alive\" & 東京", "Artist / Guest");
     check(request.starts_with("/ws/2/recording?query=") &&

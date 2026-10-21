@@ -329,6 +329,16 @@ struct RecordingSearchPlan {
     std::vector<RecordingSearchAttempt> attempts;
 };
 
+// Only a bounded plan produced by an explicit Search gesture may continue
+// after an empty provider response. The host separately rechecks source,
+// selected tab, cancellation generation and fresh physical/CUE snapshot.
+inline constexpr bool continue_empty_search_plan(
+    std::size_t attempted_index, std::size_t total,
+    bool result_empty, bool context_qualified) noexcept {
+    return context_qualified && result_empty &&
+           total>1 && total<=8 && attempted_index<total-1;
+}
+
 // Exact recording/mix identity and search recall are separate questions.
 // Remove a *known trailing* parenthetical version ONLY for discovery, never
 // for metadata replacement or match approval. Unknown parentheticals stay.
