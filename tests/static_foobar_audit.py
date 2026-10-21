@@ -824,6 +824,34 @@ if (
 ):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: track activation must search exactly once from every tab")
 
+# Track navigation and an explicit track activation must have different
+# search-prefill semantics. A mere selection NEVER resets manual edits or
+# triggers online lookup. Refresh may reset provider result caches, but keeps
+# the selected source and any manual query across snapshot replacement.
+track_selection = batch_rules_guard.split(
+    "if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&\\n"
+    "            header->code == LVN_ITEMCHANGED) {", 1)[1].split(
+    "if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&\\n"
+    "            header->code == LVN_GETINFOTIPW)", 1)[0]
+if (
+    "prefill_musicbrainz_query(*state);" not in track_selection
+    or "prefill_musicbrainz_query(*state,true);" in track_selection
+    or "IDC_METADATA_MB_SEARCH,BN_CLICKED" in track_selection
+):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: ordinary track selection overwrites manual query")
+for token in (
+    "const auto selected_before_refresh=state.selected_track_index;",
+    "const auto query_before_refresh=read_control(",
+    "!djmeta::should_replace_auto_online_query(",
+    "preserve_manual_query ? query_before_refresh.c_str() : L\"\"",
+    "state.selected_track_index=selected_before_refresh<state.entries.size()",
+    "prefill_musicbrainz_query(state);",
+):
+    if token not in refresh_source:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: refresh discards manual search or selected source: " + token)
+if "prefill_musicbrainz_query(state,true);" in refresh_source:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: refresh unconditionally overwrites manual search")
+
 # External-CUE inventories may involve slow multi-FILE source probes. All
 # distinct references must be rechecked together after the initial scan and
 # before publishing even advisory PRESENT/MISSING/ALIAS labels.

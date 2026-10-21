@@ -2550,6 +2550,15 @@ void refresh_workspace_snapshot(PreviewState& state) {
     invalidate_online_request(state);
     state.refreshing=true;
     try {
+        // Refresh replaces captured metadata, not user-authored search text.
+        // Keep its selected physical track so the manual query stays bound to
+        // the same source instead of silently moving to row zero.
+        const auto selected_before_refresh=state.selected_track_index;
+        const auto query_before_refresh=read_control(
+            state.dialog,IDC_METADATA_MB_QUERY);
+        const bool preserve_manual_query=
+            !djmeta::should_replace_auto_online_query(
+                query_before_refresh,state.auto_search_text,false);
         const RoutePreviewChoice choice=read_choice(state.dialog);
         metadb_handle_list handles;
         for (const auto& entry: state.entries) handles.add_item(entry.handle);
@@ -2598,13 +2607,15 @@ void refresh_workspace_snapshot(PreviewState& state) {
         state.search_attempt_index=0;
         state.search_attempt_notice.clear();
         state.auto_search_track=(std::numeric_limits<std::size_t>::max)();
-        SetDlgItemTextW(state.dialog,IDC_METADATA_MB_QUERY,L"");
+        SetDlgItemTextW(state.dialog,IDC_METADATA_MB_QUERY,
+            preserve_manual_query ? query_before_refresh.c_str() : L"");
         state.musicbrainz_live_view=false;
         state.musicbrainz_release_loaded=false;
         state.cue_inspection_mode=false;
         state.cue_candidate_comparison_mode=false;
         state.candidate_source_index=(std::numeric_limits<std::size_t>::max)();
-        state.selected_track_index=0;
+        state.selected_track_index=selected_before_refresh<state.entries.size()
+            ? selected_before_refresh : 0;
         state.focused_track_index=(std::numeric_limits<std::size_t>::max)();
         state.track_discovery=djmeta::TrackDiscovery::All;
         state.focused_metadata_rows.clear();
@@ -2612,7 +2623,7 @@ void refresh_workspace_snapshot(PreviewState& state) {
         state.metadata_view_order.clear();
         state.view_order.clear();
         state.stale=false;
-        prefill_musicbrainz_query(state,true);
+        prefill_musicbrainz_query(state);
         for (int id : {IDC_METADATA_ACCEPT, IDC_METADATA_REJECT,
                        IDC_METADATA_RESET, IDC_METADATA_USE_VALUE,
                        IDC_BATCH_APPLY_SELECTED, IDC_BATCH_APPLY_ALL})
@@ -3809,7 +3820,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 if(*track!=state->selected_track_index)
                     invalidate_online_request(*state);
                 state->selected_track_index = *track;
-                prefill_musicbrainz_query(*state,true);
+                // Ordinary selection must not override manually typed terms.
+                // Only a deliberate track activation (double-click/Enter)
+                // is allowed to force a new query and issue a request.
+                prefill_musicbrainz_query(*state);
                 update_metadata_table(*state);
             }
             return TRUE;
