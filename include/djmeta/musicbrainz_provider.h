@@ -339,7 +339,8 @@ inline std::string search_title_core(std::string_view full) {
         "album mix","radio edit","radio version","radio mix",
         "extended version","extended mix","extended","club mix",
         "single version","single mix","instrumental","edit",
-        "remastered","remaster","remastered version"
+        "remastered","remaster","remastered version",
+        "dj version","dj mix","dj edit"
     };
     bool known=false;
     for(auto key:generic) if(qualifier==key) {known=true;break;}
@@ -366,6 +367,35 @@ inline std::string search_title_core(std::string_view full) {
     if(last==std::string::npos) return trimmed;
     core.resize(last+1);
     return core;
+}
+
+// Extract a leading artist for OPTIONAL search recall when the recording
+// credit is a collaboration. This is deliberately not a normalization rule:
+// the complete ARTIST value and exact candidate identity are preserved.
+inline std::string lead_credit_search_artist(std::string_view credit) {
+    const auto first=credit.find_first_not_of(" \t");
+    if(first==std::string_view::npos) return {};
+    const auto last=credit.find_last_not_of(" \t");
+    const std::string trimmed(credit.substr(first,last-first+1));
+    std::string folded=trimmed;
+    for(char& c:folded)
+        if(c>='A' && c<='Z') c=static_cast<char>(c+('a'-'A'));
+    static constexpr std::string_view separators[]={
+        " x ", " vs. ", " vs ", " feat. ", " feat ",
+        " ft. ", " ft ", " featuring ", " w/ "
+    };
+    std::size_t cut=std::string::npos;
+    for(const auto separator:separators) {
+        const auto pos=folded.find(separator);
+        if(pos!=std::string::npos && (cut==std::string::npos || pos<cut))
+            cut=pos;
+    }
+    if(cut==std::string::npos) return {};
+    std::string lead=trimmed.substr(0,cut);
+    const auto end=lead.find_last_not_of(" \t");
+    if(end==std::string::npos) return {};
+    lead.resize(end+1);
+    return lead.size()>=3 ? lead : std::string{};
 }
 
 inline bool valid_search_isrc(std::string_view value) {
@@ -412,6 +442,20 @@ inline RecordingSearchPlan recording_search_plan(
         if(p.core_title!=p.full_title)
             add("Full title + artist",make_search_path(
                 SearchKind::Recording,p.full_title,p.artist));
+    }
+    // MusicBrainz may credit collaborators as separate artists or with
+    // different join phrases. Try the lead credit as another explicit,
+    // bounded request BEFORE falling back to title-only; never mark that
+    // result as an artist match or silently approve metadata.
+    const auto lead=lead_credit_search_artist(p.artist);
+    if(!lead.empty() && lead!=p.artist) {
+        add(p.full_title==p.core_title ?
+            "Original title + lead credited artist" :
+            "Main title + lead credited artist (identity review)",
+            make_search_path(SearchKind::Recording,p.core_title,lead));
+        if(p.core_title!=p.full_title)
+            add("Full title + lead credited artist (identity review)",
+                make_search_path(SearchKind::Recording,p.full_title,lead));
     }
     add(p.full_title==p.core_title ? "Title only" :
         "Main title only (version kept for review)",

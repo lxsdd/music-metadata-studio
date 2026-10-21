@@ -82,6 +82,27 @@ int main() {
           search_title_core("Title (Unknown Remixer Club Dub)")==
               "Title (Unknown Remixer Club Dub)",
           "known bracket/version suffix is discovery-only; unknown qualifiers survive");
+    const auto collab=recording_search_plan(
+        "1000 Years (Dj Version)","Kyau & Albert X Maywave");
+    check(collab.core_title=="1000 Years" &&
+          collab.full_title=="1000 Years (Dj Version)" &&
+          collab.attempts.size()==6 &&
+          collab.attempts[0].path==make_search_path(
+              SearchKind::Recording,"1000 Years","Kyau & Albert X Maywave") &&
+          collab.attempts[2].path==make_search_path(
+              SearchKind::Recording,"1000 Years","Kyau & Albert") &&
+          collab.attempts[4].path==make_search_path(
+              SearchKind::Recording,"1000 Years","") &&
+          recording_identity_label("1000 Years (Dj Version)",
+              "Kyau & Albert X Maywave","1000 Years","Kyau & Albert")==
+              "Artist differs",
+          "DJ version and split collaboration improve search only, never authorize a match");
+    check(lead_credit_search_artist("Artist feat. Guest")=="Artist" &&
+          lead_credit_search_artist("Artist vs. Guest")=="Artist" &&
+          lead_credit_search_artist("Artist w/ Guest")=="Artist" &&
+          lead_credit_search_artist("Artist & Guest").empty() &&
+          lead_credit_search_artist("A x B").empty(),
+          "only explicit collaboration separators add a bounded leading-artist search");
     const auto by_isrc=recording_search_plan("Track (Radio Edit)","Artist","usrc17607839");
     check(by_isrc.attempts.size()==5 &&
           by_isrc.attempts[0].label=="Exact ISRC identifier" &&
