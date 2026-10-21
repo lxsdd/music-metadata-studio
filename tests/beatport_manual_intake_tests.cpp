@@ -1,5 +1,6 @@
 #include "djmeta/beatport_release_review.h"
 #include "djmeta/beatport_public_page.h"
+#include "djmeta/beatport_public_html.h"
 #include "djmeta/native_candidate_labels.h"
 
 #include <algorithm>
@@ -83,6 +84,57 @@ int main() {
         forged.replace(key,55,"\"url\":\"https://www.beatport.com/track/other/322\"");
         (void)parse_beatport_public_jsonld_clipboard(forged);
     }, "public page URL mismatch fails closed");
+    const std::string public_html=
+        "<!doctype html><html><head><script data-provenance='visible' "
+        "TYPE='application/ld+json'>"
+        "{\"@context\":\"https://schema.org\",\"@graph\":["
+        "{\"@type\":\"WebPage\",\"url\":\"https://www.beatport.com\"},"
+        "{\"@type\":[\"Thing\",\"MusicRecording\"],"
+        "\"@id\":\"https://www.beatport.com/track/home/321\","
+        "\"name\":\"Home (Extended Mix)\","
+        "\"byArtist\":{\"name\":\"DJ Example\"},"
+        "\"duration\":\"PT6M42S\",\"isrcCode\":\"GBXYZ2601234\"}"
+        "]}</script></head></html>";
+    const auto page=parse_beatport_public_html(
+        "https://www.beatport.com/track/home/321",public_html);
+    check(page.id==321 && page.title=="Home" &&
+          page.mix_name=="Extended Mix" &&
+          page.artists==std::vector<std::string>{"DJ Example"} &&
+          page.duration_ms==402000 && page.isrc=="GBXYZ2601234",
+          "bounded public HTML JSON-LD @graph matches only the requested track");
+    check(parse_beatport_public_html(
+        "https://www.beatport.com/track/home/321",
+        "<script type='application/ld+json'>"
+        "{\"@type\":\"MusicRecording\","
+        "\"url\":\"https://www.beatport.com/track/home/321\","
+        "\"name\":\"Home (Extended Mix)\","
+        "\"byArtist\":\"DJ Example\",\"duration\":\"PT6M42S\"}"
+        "</script>").id==321,
+        "public single-quoted script type and artist text both qualify");
+    rejects([&]{(void)parse_beatport_public_html(
+        "https://www.beatport.com/track/home/322",public_html);},
+        "related track JSON-LD cannot be silently promoted to selected track");
+    rejects([]{(void)parse_beatport_public_html(
+        "https://www.beatport.com/track/home/321",
+        "<script type='application/ld+json'>"
+        "{\"@type\":\"MusicRecording\",\"name\":\"Home\","
+        "\"byArtist\":\"DJ Example\",\"duration\":\"PT6M42S\"}"
+        "</script>");},
+        "native webpage requires its own embedded track identity");
+    rejects([&]{(void)parse_beatport_public_html(
+        "https://www.beatport.com/track/home/321",public_html+public_html);},
+        "ambiguous duplicate public recording nodes are not accepted");
+    rejects([]{(void)parse_beatport_public_html(
+        "https://www.beatport.com/track/home/321",
+        "<script type='text/html'>"
+        "{\"@type\":\"MusicRecording\","
+        "\"url\":\"https://www.beatport.com/track/home/321\"}"
+        "</script>");},
+        "HTML and unrelated script content are not JSON-LD evidence");
+    rejects([]{(void)parse_beatport_public_html(
+        "https://www.beatport.com/track/home/321",
+        "<html><div>Consent or access challenge</div></html>");},
+        "access challenges never trigger an anti-bot fallback");
     const auto track=parse_beatport_user_json_clipboard(raw);
     check(track.id==321 && track.release_id==987 &&
           track.mix_name=="Extended Mix" && track.duration_ms==402500,
