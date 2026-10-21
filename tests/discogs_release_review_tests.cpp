@@ -269,10 +269,10 @@ int main() {
             field(isrc_not_in_catalog,"Physical / ISRC")->original_values==
                 std::vector<std::string>{"USABC2601234"},
             "one-sided local ISRC is retained but not treated as Discogs evidence");
-    const auto no_duration=review_discogs_physical_edition(physical,exact);
-    require(field(no_duration,"Release Track 1 / REMIXER")->state==
+    const auto no_duration_review=review_discogs_physical_edition(physical,exact);
+    require(field(no_duration_review,"Release Track 1 / REMIXER")->state==
                 FieldReviewState::Blocked &&
-            field(no_duration,"Release Track 1 / MATCH")->reason==
+            field(no_duration_review,"Release Track 1 / MATCH")->reason==
                 "discogs_live_match_duration_unavailable",
             "missing duration cannot verify a remix; rationale is visible");
     auto wrong_mix=physical;
