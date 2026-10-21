@@ -385,6 +385,13 @@ void test_foobar_physical_mp3_path_admission() {
         R"(FILE://D:\Music\Synthetic.mp3)") == local);
     assert(precision_cue_foobar_local_windows_mp3_path(
         "file:///D:/Music/Synthetic.mp3") == local);
+    // The standalone parser must NEVER guess a base directory for a
+    // portable foobar file-relative:// URI. Host filesystem_v3 must first
+    // resolve it to a real drive-absolute native path and verify identity.
+    assert(!precision_cue_foobar_local_windows_mp3_path(
+        "file-relative://Music/Synthetic.mp3"));
+    assert(!precision_cue_foobar_local_windows_mp3_path(
+        "file-relative://../Music/Synthetic.mp3"));
     assert(precision_cue_foobar_path_form("FILE://D:/Music/Synthetic.mp3") ==
            "file-uri");
     assert(precision_cue_foobar_safe_scheme_token("foobar+file://private/path")==

@@ -31,6 +31,7 @@
 #include "djmeta/precision_cue_window_geometry.h"
 #include "metadata_adapter.h"
 #include <SDK/cfg_var.h>
+#include <SDK/filesystem.h>
 
 #include <array>
 #include <atomic>
@@ -318,13 +319,24 @@ std::vector<LocalFile> capture_files(metadb_handle_list_cref handles) {
         const auto& handle = handles[index];
         if (handle->get_subsong_index() != 0)
             throw std::invalid_argument("Select physical MP3 files, not virtual CUE subsongs");
-        const auto parsed = djmeta::precision_cue_foobar_local_windows_mp3_path(
-            handle->get_path());
+        // foobar2000 2.25+ may use file-relative:// in a portable host.
+        // NEVER interpret it relative to the process cwd or to a guessed
+        // profile folder. Only foobar's own filesystem_v3 provider may resolve
+        // it to an actual native path, followed by the SAME strict physical,
+        // canonical and file-identity checks as an ordinary file:// source.
+        pfc::string8 resolved_native;
+        const bool native_ok=filesystem::g_get_native_path(
+            handle->get_path(),resolved_native);
+        const auto parsed=native_ok
+            ? djmeta::precision_cue_foobar_local_windows_mp3_path(
+                  resolved_native.get_ptr())
+            : std::optional<std::string>{};
         if (!parsed) {
             // A context-menu command may receive another playlist entry than
             // its nominal CLI argument. Report only the type and URI form;
             // never expose a user's physical path in diagnostics.
-            const std::string_view selected(handle->get_path());
+            const std::string_view selected(
+                native_ok ? resolved_native.get_ptr():handle->get_path());
             const auto suffix = selected.size() >= 4
                 ? selected.substr(selected.size() - 4) : std::string_view{};
             const bool mp3 = suffix == ".mp3" || suffix == ".MP3";
