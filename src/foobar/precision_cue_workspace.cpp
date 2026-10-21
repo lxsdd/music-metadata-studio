@@ -1384,7 +1384,23 @@ void open_precision_workspace(metadb_handle_list_cref handles) {
                 why.find("virtual CUE subsongs")!=std::string::npos
                     ? "Precision CUE - Reject virtual subsong" :
                 why.find("requires a physical local drive MP3 path")!=std::string::npos
-                    ? "Precision CUE - Reject path form" :
+                    ? (why.find("path form=file-uri")!=std::string::npos
+                        ? "Precision CUE - Reject file-uri path" :
+                       why.find("path form=drive-absolute")!=std::string::npos
+                        ? "Precision CUE - Reject drive-absolute path" :
+                       why.find("path form=slash-drive-absolute")!=std::string::npos
+                        ? "Precision CUE - Reject slash-drive path" :
+                       why.find("path form=extended-device-path")!=std::string::npos
+                        ? "Precision CUE - Reject device path" :
+                       why.find("path form=unc-path")!=std::string::npos
+                        ? "Precision CUE - Reject UNC path" :
+                       why.find("path form=rooted-no-drive")!=std::string::npos
+                        ? "Precision CUE - Reject rooted path" :
+                       why.find("path form=relative-or-unknown")!=std::string::npos
+                        ? "Precision CUE - Reject relative path" :
+                       why.find("path form=other-uri")!=std::string::npos
+                        ? "Precision CUE - Reject alternate URI" :
+                        "Precision CUE - Reject unknown path form") :
                 why.find("symlinks/aliases unsupported")!=std::string::npos
                     ? "Precision CUE - Reject noncanonical source" :
                 why.find("identity could not be verified")!=std::string::npos
