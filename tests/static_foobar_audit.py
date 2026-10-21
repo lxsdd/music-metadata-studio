@@ -227,6 +227,28 @@ for label, source, token in [
     if token not in source:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing " + label)
 
+# Reopening the native context command with a different selection must
+# invalidate all prior approvals and reject stale source files, even if a
+# background provider request has not finished. This is only a static gate;
+# the exact-head Win32/x64 real-host smoke remains independently mandatory.
+reopen_body = precision.split(
+    "if (g_precision_workspace && IsWindow(g_precision_workspace)) {", 1
+)[-1].split("    try {\n        auto state = std::make_unique<Workspace>();", 1)[0]
+for token in (
+    "active->input_revision.input_changed();",
+    "active->job.reset();",
+    "reset_disc_controls(*active);",
+    "clear_search_results(*active);",
+    "active->deezer_reference.reset();",
+    "active->files.clear();",
+    "active->files = capture_files(handles);",
+):
+    if token not in reopen_body:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: stale selection reuse: " + token)
+if reopen_body.find("active->files.clear();") > reopen_body.find(
+        "active->files = capture_files(handles);"):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: old physical selection retained")
+
 # Precision CUE native mapping must be explicitly selectable and validated.
 precision = (foobar / "precision_cue_workspace.cpp").read_text(encoding="utf-8")
 for token in (

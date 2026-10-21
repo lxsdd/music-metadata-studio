@@ -47,6 +47,23 @@ void must_reject(Callback callback) {
     assert(rejected);
 }
 
+void test_foobar_scheme_diagnostics_are_bounded() {
+    using djmeta::precision_cue_foobar_scheme_kind;
+    using namespace std::string_view_literals;
+    assert(precision_cue_foobar_scheme_kind(R"(D:\\Music\\Synthetic.mp3)") == "none"sv);
+    assert(precision_cue_foobar_scheme_kind("unpack://private/archive/Synthetic.mp3") ==
+           "virtual-unpack"sv);
+    assert(precision_cue_foobar_scheme_kind("https://private/Synthetic.mp3") ==
+           "remote-http"sv);
+    assert(precision_cue_foobar_scheme_kind("file://D:/Music/Synthetic.mp3") ==
+           "local-file"sv);
+    assert(precision_cue_foobar_scheme_kind("proprietary://private/Synthetic.mp3") ==
+           "unrecognized"sv);
+    // The diagnostic never reflects a filename, provider URL or arbitrary scheme.
+    assert(precision_cue_foobar_scheme_kind("proprietary://secret-1") ==
+           precision_cue_foobar_scheme_kind("proprietary://secret-2"));
+}
+
 void test_integer_cumulative_rounding() {
     const auto result = djmeta::make_precision_cue(synthetic_disc());
     assert(result.boundaries.size() == 3);
@@ -474,6 +491,7 @@ void test_precision_cue_window_geometry_persistence() {
 
 int main() {
     test_foobar_physical_mp3_path_admission();
+    test_foobar_scheme_diagnostics_are_bounded();
     test_integer_cumulative_rounding();
     test_precision_cue_window_geometry_persistence();
     test_physical_cue_index_bounds_and_create_gate();

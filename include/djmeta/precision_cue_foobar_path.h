@@ -21,6 +21,21 @@ inline bool precision_cue_foobar_file_scheme(std::string_view uri) noexcept {
 }
 
 // Privacy-preserving diagnostics: never return source path or basename.
+// Only fixed, non-identifying scheme categories are reported in public CI logs.
+// This does NOT authorize opening a virtual, remote or unsupported URI.
+inline std::string_view precision_cue_foobar_scheme_kind(
+    std::string_view uri) noexcept {
+    const auto delimiter = uri.find("://");
+    if (delimiter == std::string_view::npos) return "none";
+    const auto scheme = uri.substr(0, delimiter);
+    if (scheme == "unpack") return "virtual-unpack";
+    if (scheme == "http" || scheme == "https") return "remote-http";
+    if (scheme == "file" || scheme == "FILE") return "local-file";
+    if (scheme == "zip" || scheme == "rar") return "virtual-archive";
+    return "unrecognized";
+}
+
+// Privacy-preserving diagnostics: never return source path or basename.
 // Distinguishes foobar CLI path representations without broadening admission.
 inline std::string_view precision_cue_foobar_path_form(std::string_view uri) noexcept {
     const auto drive = [](char c) {

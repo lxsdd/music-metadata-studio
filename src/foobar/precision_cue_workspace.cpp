@@ -356,6 +356,7 @@ std::vector<LocalFile> capture_files(metadb_handle_list_cref handles) {
                 " (path form=" + std::string(path_form) +
                 (drive_absolute ? ", absolute drive" : ", no absolute drive") +
                 (safe_basename ? ", safe basename" : ", invalid basename") +
+                ", scheme=" + std::string(djmeta::precision_cue_foobar_scheme_kind(selected)) +
                 (percent_escape ? ", percent escape" : ", no percent escape") +
                 (quote ? ", quoted" : ", unquoted") +
                 (trailing_separator ? ", trailing separator)" : ", no trailing separator)"));
@@ -1324,11 +1325,39 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
 
 void open_precision_workspace(metadb_handle_list_cref handles) {
     if (g_precision_workspace && IsWindow(g_precision_workspace)) {
+        // A second context-menu invocation is a NEW selection, not an
+        // authorization to reuse the previous MP3, album or reviewed CUE.
+        // Cancel only the UI's interest in an in-flight lookup; the job pool
+        // still owns and safely joins its worker independently of the HWND.
+        auto* active = reinterpret_cast<Workspace*>(
+            GetWindowLongPtrW(g_precision_workspace, GWLP_USERDATA));
+        if (active) {
+            KillTimer(g_precision_workspace, kPollTimer);
+            active->input_revision.input_changed();
+            active->job.reset();
+            reset_disc_controls(*active);
+            clear_search_results(*active);
+            active->deezer_reference.reset();
+            active->lookup_url.clear();
+            active->files.clear(); // A rejected new selection cannot reuse old files.
+            EnableWindow(GetDlgItem(g_precision_workspace, IDC_PRECISION_SEARCH), TRUE);
+            EnableWindow(GetDlgItem(g_precision_workspace, IDC_PRECISION_LOOKUP), TRUE);
+            try {
+                active->files = capture_files(handles); // physical read-only revalidation
+                show_text(g_precision_workspace,
+                    L"Selection refreshed from the current foobar context menu.\r\n"
+                    L"Previous edition, disc assignments and CUE approval were cleared.\r\n"
+                    L"Look up the exact album again; no media or CUE was changed.");
+            } catch (const std::exception& error) {
+                show_error(g_precision_workspace, error.what());
+            }
+        }
         if (IsIconic(g_precision_workspace))
             ShowWindow(g_precision_workspace, SW_RESTORE);
         else
             ShowWindow(g_precision_workspace, SW_SHOW);
         SetForegroundWindow(g_precision_workspace);
+        SetFocus(GetDlgItem(g_precision_workspace, IDC_PRECISION_APPLE_LINK));
         return;
     }
     try {
