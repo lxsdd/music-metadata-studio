@@ -1138,6 +1138,10 @@ void refresh_musicbrainz_detail_rows(PreviewState& state) {
             local_original ? L"Keep original" :
             local_cue ? L"Keep original CUE" :
             included ? L"Included (preview)" :
+            qualified_online_field_preview(state) &&
+            row.state==djmeta::online::FieldReviewState::NeedsReview &&
+            djmeta::online::online_date_requires_explicit_target(row.candidate)
+                ? L"Date policy needed" :
             row.reason=="musicbrainz_live_search_edition_date_display_only"
                 ? L"Edition date only" :
             row.reason=="musicbrainz_live_search_isrc_identity_only"
@@ -3668,7 +3672,7 @@ void change_online_field_preview(PreviewState& state,int action) {
         std::to_wstring(state.online_included_fields.size())+
         L" selected, "+std::to_wstring(result.explicitly_changed)+
         L" proposed changes, "+std::to_wstring(result.exact_noops)+
-        L" no-ops. No tags, CUE or music files were written.";
+        L" no-ops (memory only). File Locations unchanged; no writes.";
     SetDlgItemTextW(state.dialog,IDC_BATCH_HINT,notice.c_str());
 }
 
