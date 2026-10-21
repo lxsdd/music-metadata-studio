@@ -132,7 +132,7 @@ inline std::vector<FieldEvidence> physical_discogs_stageable_evidence(
 inline std::optional<std::size_t> physical_discogs_stageable_field_index(
     const ReleaseEdition& edition,
     const std::vector<FieldEvidence>& allowed,
-    const FieldReviewRow& detail) {
+    const FieldReviewRow& detail, bool explicit_date_target=false) {
     // Each rendered album row must correspond to an exact edition field.
     // Track rows additionally require the independent physical alignment.
     const auto album=physical_discogs_edition_field_index(edition,detail);
@@ -141,7 +141,8 @@ inline std::optional<std::size_t> physical_discogs_stageable_field_index(
     // No implicit DATE -> edition-date replacement. This field requires an
     // independent named target policy, not just inclusion in the preview.
     if(detail.state==FieldReviewState::NeedsReview &&
-       online_date_requires_explicit_target(detail.candidate))
+       online_date_requires_explicit_target(detail.candidate) &&
+       !explicit_date_target)
         return std::nullopt;
     std::optional<std::size_t> result;
     for(std::size_t i=0;i<allowed.size();++i) {

@@ -187,6 +187,7 @@ struct PreviewState {
     std::optional<djmeta::online::OnlineFieldReviewSnapshot> online_field_snapshot;
     std::optional<djmeta::online::OnlineFieldStagedPreview> online_field_preview;
     std::vector<std::size_t> online_included_fields;
+    std::map<std::size_t,std::string> online_date_targets;
     std::size_t online_edition_source=(std::numeric_limits<std::size_t>::max)();
     std::vector<std::vector<djmeta::online::FieldReviewRow>> musicbrainz_detail_groups;
     std::string musicbrainz_original_title;
@@ -1088,7 +1089,8 @@ void update_online_field_preview_controls(PreviewState& state) {
     if(!state.dialog) return;
     const bool ready=qualified_online_field_preview(state);
     for(int id:{IDC_ONLINE_INCLUDE_FIELDS,IDC_ONLINE_IGNORE_FIELDS,
-                IDC_ONLINE_RESET_FIELDS}) {
+                IDC_ONLINE_RESET_FIELDS,IDC_ONLINE_DATE_TARGET_LABEL,
+                IDC_ONLINE_DATE_TARGET}) {
         ShowWindow(GetDlgItem(state.dialog,id),ready?SW_SHOW:SW_HIDE);
         EnableWindow(GetDlgItem(state.dialog,id),ready?TRUE:FALSE);
     }
@@ -1122,7 +1124,8 @@ void refresh_musicbrainz_detail_rows(PreviewState& state) {
         if (qualified_online_field_preview(state)) {
             const auto field_index=djmeta::online::physical_discogs_stageable_field_index(
                 *state.online_physical_edition,
-                state.online_field_snapshot->evidence,row);
+                state.online_field_snapshot->evidence,row,
+                !state.online_date_targets.empty());
             included=field_index && std::find(
                 state.online_included_fields.begin(),
                 state.online_included_fields.end(),*field_index)!=
@@ -2773,6 +2776,8 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_METADATA_IMPORT_CANDIDATE,L"Import manual facts with @beatport-track-facts or lawfully supplied @beatport-track-json. Offline, unverified, read-only; requires physical match."},
         {IDC_METADATA_LIST,L"Select a candidate or proposed change to inspect its source and status."},
         {IDC_METADATA_MB_DETAILS,L"Field-by-field evidence for the selected online candidate. REVIEW is not a tag-write authorization."},
+        {IDC_ONLINE_DATE_TARGET_LABEL,L"Do not infer an edition date from your current physical DATE."},
+        {IDC_ONLINE_DATE_TARGET,L"Select the destination tag before including an exact edition date. Keep original is the default. Preview only."},
         {IDC_METADATA_FILTER,L"Limit the local normalization review to music, extended or all tags."},
         {IDC_METADATA_TRACK_FILTER,L"Filter original tracks by whether they have rule proposals. This never removes files."},
         {IDC_METADATA_REVIEW_SCOPE,L"Choose whether to review selected change rows, selected tracks or all tracks. Review decisions are preview-only."},
@@ -3384,6 +3389,7 @@ void publish_discogs_release(HWND dialog, PreviewState& state,
         : std::nullopt;
     state.online_field_snapshot=std::move(physical_review);
     state.online_included_fields.clear();
+    state.online_date_targets.clear();
     state.online_field_preview.reset();
     state.online_edition_source=state.online_physical_edition
         ? request.source_index:(std::numeric_limits<std::size_t>::max)();
@@ -3627,8 +3633,10 @@ void change_online_field_preview(PreviewState& state,int action) {
 
     std::set<std::size_t> included(state.online_included_fields.begin(),
                                    state.online_included_fields.end());
+    auto date_targets=state.online_date_targets;
     if(action==IDC_ONLINE_RESET_FIELDS) {
         included.clear();
+        date_targets.clear();
     } else {
         const int active=ListView_GetNextItem(state.metadata_list,-1,LVNI_SELECTED);
         if(active<0 || static_cast<std::size_t>(active)>=
@@ -3644,16 +3652,29 @@ void change_online_field_preview(PreviewState& state,int action) {
                 state.musicbrainz_details,row,LVNI_SELECTED))>=0) {
             if(static_cast<std::size_t>(row)>=rows.size() || row>=1024)
                 throw std::invalid_argument("Visible edition field index expired.");
+            const auto& detail=rows[static_cast<std::size_t>(row)];
+            const bool is_date=djmeta::online::online_date_requires_explicit_target(
+                detail.candidate);
+            const int target_choice=static_cast<int>(SendDlgItemMessageW(
+                state.dialog,IDC_ONLINE_DATE_TARGET,CB_GETCURSEL,0,0));
+            static constexpr const char* target_names[]={
+                "", "DATE", "RELEASEDATE", "ORIGINALDATE", "DATE_RAW", "PUBLISHDATE"};
+            const bool target_chosen=target_choice>0 && target_choice<6;
             const auto index=djmeta::online::physical_discogs_stageable_field_index(
                 *state.online_physical_edition,
-                state.online_field_snapshot->evidence,
-                rows[static_cast<std::size_t>(row)]);
+                state.online_field_snapshot->evidence,detail,
+                is_date && (target_chosen || action==IDC_ONLINE_IGNORE_FIELDS));
             if(!index)
                 throw std::invalid_argument(
                     "Only verified edition fields and uniquely matched release tracks "
                     "are selectable. CUE, search, blocked or local-only tags cannot be staged.");
-            if(action==IDC_ONLINE_INCLUDE_FIELDS) included.insert(*index);
-            else included.erase(*index);
+            if(action==IDC_ONLINE_INCLUDE_FIELDS) {
+                included.insert(*index);
+                if(is_date) date_targets[*index]=target_names[target_choice];
+            } else {
+                included.erase(*index);
+                date_targets.erase(*index);
+            }
             ++selected_count;
         }
         if(!selected_count)
@@ -3665,8 +3686,9 @@ void change_online_field_preview(PreviewState& state,int action) {
     // before committing any in-memory selection. An exception leaves all
     // previous selections and the original untouched.
     auto projected=djmeta::online::stage_selected_online_fields(
-        *state.online_field_snapshot,current,proposed);
+        *state.online_field_snapshot,current,proposed,date_targets);
     state.online_included_fields=proposed;
+    state.online_date_targets=std::move(date_targets);
     state.online_field_preview=std::move(projected);
     refresh_musicbrainz_detail_rows(state);
     const auto& result=*state.online_field_preview;
@@ -3754,6 +3776,12 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         SendDlgItemMessageW(dialog, IDC_METADATA_MANUAL_INPUT, EM_LIMITTEXT, 16384, 0);
         SendDlgItemMessageW(dialog, IDC_METADATA_MB_QUERY, EM_LIMITTEXT, 150, 0);
         SendDlgItemMessageW(dialog, IDC_METADATA_DISCOGS_TOKEN, EM_LIMITTEXT, 256, 0);
+        for(const wchar_t* target:{
+                L"Keep original date",L"DATE (explicit replace)",
+                L"RELEASEDATE",L"ORIGINALDATE",L"DATE_RAW",L"PUBLISHDATE"})
+            SendDlgItemMessageW(dialog,IDC_ONLINE_DATE_TARGET,CB_ADDSTRING,
+                0,reinterpret_cast<LPARAM>(target));
+        SendDlgItemMessageW(dialog,IDC_ONLINE_DATE_TARGET,CB_SETCURSEL,0,0);
         for(const wchar_t* name:{L"MusicBrainz",L"Discogs (token)"})
             SendDlgItemMessageW(dialog,IDC_METADATA_ONLINE_PROVIDER,CB_ADDSTRING,
                 0,reinterpret_cast<LPARAM>(name));
@@ -4029,6 +4057,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 if(*track!=state->selected_track_index) {
                     invalidate_online_request(*state);
                     state->online_included_fields.clear();
+            state->online_date_targets.clear();
                     state->online_field_preview.reset();
                     state->online_physical_edition.reset();
                     state->online_field_snapshot.reset();
@@ -4481,6 +4510,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             state->online_field_snapshot.reset();
             state->online_field_preview.reset();
             state->online_included_fields.clear();
+            state->online_date_targets.clear();
             state->online_edition_source=(std::numeric_limits<std::size_t>::max)();
             state->musicbrainz_results.clear();
             state->musicbrainz_detail_groups.clear();

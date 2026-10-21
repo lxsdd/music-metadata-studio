@@ -587,6 +587,18 @@ int main() {
     check(previous_action.right+3<=close_online.left,
           "reset online preview never overlaps Close");
 
+    const HWND date_combo=GetDlgItem(dialog,IDC_ONLINE_DATE_TARGET);
+    const HWND date_label=GetDlgItem(dialog,IDC_ONLINE_DATE_TARGET_LABEL);
+    check(date_combo && date_label &&
+          (GetWindowLongPtrW(date_combo,GWL_STYLE)&0x3u)==CBS_DROPDOWNLIST,
+          "date target is a native non-editable selection");
+    const RECT date_bounds=bounds_in_dialog(date_combo);
+    const RECT help_bounds=bounds_in_dialog(GetDlgItem(dialog,IDC_BATCH_HELP));
+    const RECT hint_bounds=bounds_in_dialog(GetDlgItem(dialog,IDC_BATCH_HINT));
+    check(date_bounds.left>=help_bounds.right+3 &&
+          date_bounds.right<=online_client.right &&
+          date_bounds.top>=0 && date_bounds.top<hint_bounds.top,
+          "date destination control stays apart from Help and status rows");
     HWND review_scope = GetDlgItem(dialog, IDC_METADATA_REVIEW_SCOPE);
     HWND manual = GetDlgItem(dialog, IDC_METADATA_MANUAL_INPUT);
     check(review_scope && manual &&
