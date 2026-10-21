@@ -314,6 +314,39 @@ inline std::string edition_identifier_search_path(
         throw std::invalid_argument("Discogs identifier request too large");
     return result;
 }
+// Distinctly joined collaboration credits may be indexed under a SECOND
+// artist rather than the full source credit. This value is only an additional
+// read-only search hint: never replace ARTIST or infer a match from it.
+// Intentionally do NOT split "&": "Kyau & Albert" is itself an artist name.
+// Ambiguous multiple joins abstain rather than guessing at a collaborator.
+inline std::string collaboration_tail_search_artist(std::string_view artist) {
+    constexpr std::string_view joins[]={
+        " x ", " vs. ", " vs ", " feat. ", " feat ",
+        " featuring ", " ft. ", " ft "
+    };
+    const auto ascii_lower=[](char c) {
+        return c>='A' && c<='Z' ? static_cast<char>(c-'A'+'a') : c;
+    };
+    std::size_t at=std::string_view::npos, length=0, count=0;
+    for(const auto join: joins)
+        for(std::size_t i=0; i+join.size()<=artist.size(); ++i) {
+            bool same=true;
+            for(std::size_t j=0;j<join.size();++j)
+                if(ascii_lower(artist[i+j])!=join[j]) {same=false;break;}
+            if(same) {
+                // Avoid treating " vs " as a second match within " vs. ".
+                if(count && at==i) continue;
+                ++count; at=i; length=join.size();
+            }
+        }
+    if(count!=1 || at==0 || at+length>=artist.size()) return {};
+    auto right=artist.substr(at+length);
+    while(!right.empty() && right.front()==' ') right.remove_prefix(1);
+    while(!right.empty() && right.back()==' ') right.remove_suffix(1);
+    if(right.empty() || right.size()>150 ||
+       !musicbrainz::valid_search_term(right)) return {};
+    return std::string(right);
+}
 struct SearchAttempt {
     std::string label; // Displayable reason for this fixed official request.
     std::string path;  // Only official relative API paths. No tokens or URL I/O.
@@ -372,6 +405,17 @@ inline std::vector<SearchAttempt> track_search_plan(
     if (!title.empty()) {
         add("Release title with artist", search_path(title,artist));
         add("Exact track in release", track_search_path(title,artist));
+        // Real collaborative releases may be indexed under the separately
+        // credited guest instead of the raw combined ARTIST. Try exactly
+        // one independently qualified collaborator before title-only search.
+        // These hits remain unverified candidates, not imported metadata.
+        const auto collaborator=collaboration_tail_search_artist(artist);
+        if(!collaborator.empty()) {
+            add("Track with credited collaborator (identity review)",
+                track_search_path(core,collaborator));
+            add("Release with credited collaborator (identity review)",
+                search_path(core,collaborator));
+        }
         if (!artist.empty())
             add("Track without artist restriction",track_search_path(title));
         if (core != title)

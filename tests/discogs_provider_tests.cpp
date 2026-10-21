@@ -205,9 +205,16 @@ int main() {
     // End-to-end discovery for a common physical layout: TITLE holds the
     // base name, VERSION holds the mix. Search both exact mix and fallback
     // without ever treating a search hit as a verified recording/edition.
+    check(collaboration_tail_search_artist("Kyau & Albert X Maywave")=="Maywave" &&
+          collaboration_tail_search_artist("Kyau & Albert x Maywave")=="Maywave" &&
+          collaboration_tail_search_artist("Artist feat. Guest")=="Guest" &&
+          collaboration_tail_search_artist("Kyau & Albert").empty() &&
+          collaboration_tail_search_artist("A x B vs C").empty() &&
+          collaboration_tail_search_artist("A x ").empty(),
+          "explicit collaborator-only search hint preserves raw joined artist identity");
     const auto versioned=track_search_plan(
         "1000 Years","Kyau & Albert x Maywave",{}, {}, {}, true,"DJ Version");
-    check(versioned.size()==8 &&
+    check(versioned.size()==10 &&
           versioned[0].path==track_search_path(
               "1000 Years (DJ Version)","Kyau & Albert x Maywave") &&
           versioned[1].path==search_path(
@@ -221,7 +228,7 @@ int main() {
     const auto already_annotated=track_search_plan(
         "1000 Years (DJ Version)","Kyau & Albert x Maywave",
         {}, {}, {}, true,"DJ Version");
-    check(already_annotated.size()==7 &&
+    check(already_annotated.size()==9 &&
           already_annotated[0].path==search_path(
               "1000 Years (DJ Version)","Kyau & Albert x Maywave"),
           "an already annotated title must not duplicate its mix suffix");
@@ -236,22 +243,26 @@ int main() {
     const auto master_staged=track_search_plan(
         "1000 Years (DJ Version)", "Kyau & Albert x Maywave",
         {}, {}, {}, true);
-    check(master_staged.size()==7 &&
+    check(master_staged.size()==9 &&
           master_staged.back().path==master_search_path("1000 Years") &&
           master_staged.back().label.find("navigation only")!=std::string::npos,
           "native opt-in search adds one bounded master navigation stage");
     const auto staged=track_search_plan(
         "1000 Years (DJ Version)", "Kyau & Albert x Maywave");
-    check(staged.size()==6 &&
+    check(staged.size()==8 &&
           staged[0].path==search_path("1000 Years (DJ Version)",
                                      "Kyau & Albert x Maywave") &&
           staged[1].path.find("track=1000%20Years%20%28DJ%20Version%29")!=
               std::string::npos &&
-          staged[2].path==track_search_path("1000 Years (DJ Version)") &&
-          staged[3].path==track_search_path("1000 Years") &&
-          staged[4].path==search_path("1000 Years") &&
-          staged[5].path==artist_search_path("Kyau & Albert x Maywave") &&
-          staged[0].label!=staged[2].label,
+          staged[2].path==track_search_path("1000 Years","Maywave") &&
+          staged[3].path==search_path("1000 Years","Maywave") &&
+          staged[4].path==track_search_path("1000 Years (DJ Version)") &&
+          staged[5].path==track_search_path("1000 Years") &&
+          staged[6].path==search_path("1000 Years") &&
+          staged[7].path==artist_search_path("Kyau & Albert x Maywave") &&
+          staged[0].label!=staged[2].label &&
+          std::all_of(staged.begin(),staged.end(),
+              [](const auto& stage){return allowed_readonly_path(stage.path);}),
           "tiered Discogs queries broaden artist, track and version constraints");
     check(next_search_attempt("old","new",3,5)==0 &&
           next_search_attempt("same","same",0,5)==1 &&
