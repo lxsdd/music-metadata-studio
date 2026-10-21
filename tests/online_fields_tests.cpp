@@ -1,4 +1,5 @@
 #include "djmeta/online_fields.h"
+#include "djmeta/online_field_staging.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -218,5 +219,79 @@ int main() {
         append_local_physical_inventory(no_room,seventy,1);
     } catch(const std::invalid_argument&) {rejected_unrenderable=true;}
     check(rejected_unrenderable,"cannot silently discard a local inventory");
+
+    // Field-selective online intake is still a pure preview. Nothing is
+    // accepted without a selection, and unknown physical tags survive.
+    const MetadataDocument stage_original{{
+        {"TITLE",{"Song (Original Mix)"}},
+        {"ARTIST",{"Primary","Collaborator"}},
+        {"GENRE",{"Trance","Progressive"}},
+        {"DATE",{"1998"}},
+        {"CUSTOM",{"A","B"}},
+        {"COMMENT",{"Leave intact"}}
+    }};
+    const std::vector<FieldEvidence> stage_evidence{
+        {"ARTIST",{"Wrong"}, "discogs","release:100",EvidenceScope::Edition},
+        {"GENRE",{"House","Progressive House"}, "discogs","release:100",
+         EvidenceScope::Edition},
+        {"DATE",{"2026-10-21"}, "discogs","release:100",
+         EvidenceScope::Edition,DateMeaning::EditionRelease},
+        {"LABEL",{"Synthetic Label"}, "discogs","release:100",
+         EvidenceScope::Edition},
+        {"CUESHEET",{"Unsafe"}, "discogs","release:100",
+         EvidenceScope::Edition},
+        {"GENRE",{"Tech House"}, "musicbrainz","release:200",
+         EvidenceScope::Edition},
+        {"COMMENT",{"Leave intact"}, "musicbrainz","release:200",
+         EvidenceScope::Edition}
+    };
+    const auto session=capture_online_field_review(stage_original,stage_evidence,true,true);
+    const auto untouched=stage_selected_online_fields(session,stage_original,{});
+    check(untouched.planned==stage_original &&
+          untouched.explicitly_changed==0 && untouched.exact_noops==0,
+          "no online selection means no tag modification in preview");
+    const auto selected=stage_selected_online_fields(session,stage_original,{1,3});
+    check(selected.explicitly_changed==2 &&
+          selected.planned.fields.size()==stage_original.fields.size()+1 &&
+          selected.planned.fields[2].values==
+              std::vector<std::string>({"House","Progressive House"}) &&
+          selected.planned.fields[3]==stage_original.fields[3] &&
+          selected.planned.fields[4]==stage_original.fields[4] &&
+          selected.planned.fields.back()==MetadataField{"LABEL",{"Synthetic Label"}} &&
+          stage_original.fields[2].values==
+              std::vector<std::string>({"Trance","Progressive"}),
+          "explicitly staged fields do not flatten or delete original multivalues");
+    const auto same=stage_selected_online_fields(session,stage_original,{6});
+    check(same.planned==stage_original &&
+          same.explicitly_changed==0 && same.exact_noops==1,
+          "selection of an identical remote value yields a zero-change preview");
+    const auto refuses=[&](const auto& captured,
+                           const MetadataDocument& live,
+                           std::vector<std::size_t> choice) {
+        try {(void)stage_selected_online_fields(captured,live,choice);}
+        catch(const std::invalid_argument&) {return true;}
+        return false;
+    };
+    check(refuses(session,stage_original,{4}) &&
+          refuses(session,stage_original,{1,5}) &&
+          refuses(session,stage_original,{1,1}) &&
+          refuses(session,stage_original,{999}),
+          "protected CUE, conflicting provider, duplicate or unknown choice is blocked");
+    auto altered_original=stage_original;
+    altered_original.fields[4].values.push_back("External edit");
+    check(refuses(session,altered_original,{1}),
+          "modifying even a non-selected custom tag invalidates staged review");
+    auto forged=session;
+    forged.comparisons[1].candidate.values={"Forged"};
+    check(refuses(forged,stage_original,{1}),
+          "modified review cannot launder a different proposed value");
+    bool invalid_source=false;
+    try {(void)capture_online_field_review(stage_original,stage_evidence,false,true);}
+    catch(const std::invalid_argument&) {invalid_source=true;}
+    check(invalid_source,"virtual CUE and unqualified physical sources are ineligible");
+    invalid_source=false;
+    try {(void)capture_online_field_review(stage_original,stage_evidence,true,false);}
+    catch(const std::invalid_argument&) {invalid_source=true;}
+    check(invalid_source,"unverified search snippet is ineligible for staging");
     std::cout << "PASS: online field provenance, duplicate-origin safety, bounds, no-op and review-only\\n";
 }
