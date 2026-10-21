@@ -85,7 +85,7 @@ int main() {
           safe_album_control[0].path==safe_album_long_artist[0].path,
           "ASCII controls in optional CUE artist never become provider query");
     check(make_release_lookup_path(first)==std::string("/ws/2/release/")+first+
-          "?inc=recordings%2Bartist-credits%2Bisrcs&fmt=json",
+          "?inc=recordings%2Bartist-credits%2Bisrcs%2Blabels&fmt=json",
           "release lookup only uses MBID to prevent URL injection");
     rejects([]{(void)make_release_lookup_path("../ws/2/recording");},
             "invalid MBIDs never become URL paths");
@@ -364,6 +364,54 @@ int main() {
           edition.tracks[1].disc_number==1 && edition.tracks[1].track_number==2 &&
           edition.tracks[2].disc_number==2 && edition.tracks[2].track_number==1,
           "release lookup preserves exact edition, recording, date/disc/track scope");
+
+    const auto enriched_release_json=std::string(R"MB({
+      "id":"11111111-1111-1111-1111-111111111111",
+      "title":"Album With More Than Two Tags",
+      "artist-credit":[{"name":"Album Performer"}],
+      "date":"2026-10-20",
+      "barcode":"0001234567895",
+      "label-info":[
+        {"catalog-number":"001-A",
+         "label":{"id":"22222222-2222-2222-2222-222222222222","name":"Label Alpha"}},
+        {"catalog-number":"001-B","label":{"name":"Label Beta"}},
+        {"catalog-number":"001-A","label":{"name":"Label Alpha"}},
+        {"catalog-number":null,"label":null}
+      ],
+      "media":[{"position":1,"tracks":[{"position":1,
+          "title":"Track (Original Version)","length":180000,
+          "artist-credit":[{"name":"Album Performer"}]}]}]
+    })MB");
+    const auto enriched=parse_release_lookup(enriched_release_json,first);
+    check(enriched.fields.size()==6 &&
+          enriched.fields[3].field=="LABEL" &&
+          enriched.fields[3].values==
+              std::vector<std::string>({"Label Alpha","Label Beta"}) &&
+          enriched.fields[4].field=="CATALOGNUMBER" &&
+          enriched.fields[4].values==
+              std::vector<std::string>({"001-A","001-B"}) &&
+          enriched.fields[5].field=="BARCODE" &&
+          enriched.fields[5].values==
+              std::vector<std::string>({"0001234567895"}) &&
+          enriched.fields[3].scope==EvidenceScope::Edition &&
+          enriched.fields[3].source_id==first &&
+          enriched.tracks.size()==1,
+          "verified edition loads label, catalog and barcode multivalues with exact provenance");
+    const auto missing_label=parse_release_lookup(R"MB({
+      "id":"11111111-1111-1111-1111-111111111111",
+      "title":"No Label", "artist-credit":[{"name":"Artist"}],
+      "label-info":null, "barcode":"invalid-barcode",
+      "media":[{"tracks":[{"title":"A","artist-credit":[{"name":"Artist"}]}]}]
+    })MB",first);
+    check(missing_label.fields.size()==2 &&
+          missing_label.fields[0].field=="ALBUM" &&
+          missing_label.fields[1].field=="ALBUM ARTIST",
+          "unknown label and invalid barcode do not create invented tag evidence");
+    rejects([&]{(void)parse_release_lookup(R"MB({
+      "id":"11111111-1111-1111-1111-111111111111",
+      "label-info":[{"catalog-number":"Unsafe\nCatalog"}],
+      "media":[{"tracks":[{"title":"A","artist-credit":[{"name":"Artist"}]}]}]
+    })MB",first);},"control-bearing catalogue identity rejected at exact release boundary");
 
     // Official release track IDs are distinct from recording IDs. A recording
     // may recur on an edition without becoming a duplicate release-track ID.

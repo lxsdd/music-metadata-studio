@@ -575,7 +575,7 @@ inline std::string make_release_lookup_path(std::string_view mbid) {
     if (!valid_mbid(mbid))
         throw std::invalid_argument("Invalid MusicBrainz release identity");
     return "/ws/2/release/"+std::string(mbid)+
-        "?inc=recordings%2Bartist-credits%2Bisrcs&fmt=json";
+        "?inc=recordings%2Bartist-credits%2Bisrcs%2Blabels&fmt=json";
 }
 
 inline SearchResult parse_search(std::string_view json, SearchKind kind) {
@@ -657,6 +657,49 @@ inline ReleaseEdition parse_release_lookup(std::string_view json,
     if (!date.empty())
         edition.fields.push_back({"DATE",{date},"musicbrainz",edition.edition_id,
                                   EvidenceScope::Edition,DateMeaning::EditionRelease});
+    // Labels are an official per-EDITION subquery, never inferred from a
+    // release-group or recording search hit. Preserve distinct entries as
+    // true multivalues, but don't treat null/unknown metadata as deletions.
+    // All source IDs are the verified exact release MBID.
+    const auto* label_info=obj.get("label-info");
+    if (label_info && label_info->type!=Json::Type::Null) {
+        if (label_info->type!=Json::Type::Array || label_info->array.size()>64)
+            throw std::invalid_argument("MusicBrainz release label data exceeds bounds");
+        std::vector<std::string> labels, catalog_numbers;
+        const auto append_valid=[](std::vector<std::string>& into,
+                                   const std::string& value) {
+            if (value.empty()) return;
+            if (value.size()>256 || !valid_utf8_metadata_text(value))
+                throw std::invalid_argument("MusicBrainz edition label text invalid");
+            if (std::find(into.begin(),into.end(),value)==into.end())
+                into.push_back(value);
+        };
+        for (const auto& entry:label_info->array) {
+            if (entry.type!=Json::Type::Object)
+                throw std::invalid_argument("Malformed MusicBrainz label information");
+            append_valid(catalog_numbers,str(entry,"catalog-number"));
+            const auto* label=entry.get("label");
+            if (label && label->type==Json::Type::Object)
+                append_valid(labels,str(*label,"name"));
+        }
+        if (!labels.empty())
+            edition.fields.push_back({"LABEL",std::move(labels),"musicbrainz",
+                edition.edition_id,EvidenceScope::Edition,DateMeaning::NotDate});
+        if (!catalog_numbers.empty())
+            edition.fields.push_back({"CATALOGNUMBER",std::move(catalog_numbers),
+                "musicbrainz",edition.edition_id,EvidenceScope::Edition,
+                DateMeaning::NotDate});
+    }
+    // A release barcode belongs to this exact edition. Admit digits only;
+    // unverified punctuation, empty placeholders and wrong lengths are not
+    // synthesized into physical BARCODE tags.
+    const auto barcode=str(obj,"barcode");
+    if (barcode.size()>=8 && barcode.size()<=14 &&
+        std::all_of(barcode.begin(),barcode.end(),[](char c) {
+            return c>='0' && c<='9';
+        }))
+        edition.fields.push_back({"BARCODE",{barcode},"musicbrainz",
+            edition.edition_id,EvidenceScope::Edition,DateMeaning::NotDate});
     const auto* media=obj.get("media");
     if (!media || media->type!=Json::Type::Array)
         throw std::invalid_argument("MusicBrainz release missing track media");
