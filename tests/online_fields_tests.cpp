@@ -1,5 +1,6 @@
 #include "djmeta/online_fields.h"
 #include "djmeta/online_field_staging.h"
+#include "djmeta/online_field_ui_selection.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -245,6 +246,56 @@ int main() {
         {"COMMENT",{"Leave intact"}, "musicbrainz","release:200",
          EvidenceScope::Edition}
     };
+    // Only physical release-level rows from the verified exact Discogs
+    // edition may be projected. The visible list-row index is not evidence.
+    const ReleaseEdition approved_edition{
+        "discogs","release:100",
+        {stage_evidence[1],stage_evidence[3]},{}
+    };
+    const auto album_review=review_online_fields(stage_original,approved_edition.fields);
+    auto first_album=album_review[0];
+    first_album.field="Album / "+first_album.field;
+    first_album.reason="discogs_live_release_edition_"+first_album.reason;
+    auto second_album=album_review[1];
+    second_album.field="Album / "+second_album.field;
+    second_album.reason="discogs_live_release_edition_"+second_album.reason;
+    check(physical_discogs_edition_field_index(approved_edition,first_album)==0 &&
+          physical_discogs_edition_field_index(approved_edition,second_album)==1,
+          "exact edition album evidence resolves by source and field, not sorted view index");
+    auto excluded=first_album;
+    excluded.reason="discogs_live_release_cue_track_match_review";
+    check(!physical_discogs_edition_field_index(approved_edition,excluded),
+          "CUE track evidence must not join a physical-field preview");
+    excluded=first_album;
+    excluded.field="Physical / GENRE";
+    check(!physical_discogs_edition_field_index(approved_edition,excluded),
+          "raw original physical tag is not selectable online evidence");
+    excluded=first_album;
+    excluded.state=FieldReviewState::Blocked;
+    check(!physical_discogs_edition_field_index(approved_edition,excluded),
+          "blocked or ambiguous edition match cannot be staged");
+    excluded=first_album;
+    excluded.candidate.source_id="release:other";
+    check(!physical_discogs_edition_field_index(approved_edition,excluded),
+          "another release identity cannot select this edition's fields");
+    excluded=first_album;
+    excluded.candidate.values={"Forged"};
+    check(!physical_discogs_edition_field_index(approved_edition,excluded),
+          "displayed evidence must byte-match a verified provider field");
+    excluded=first_album;
+    excluded.reason="discogs_live_search_unverified_field";
+    check(!physical_discogs_edition_field_index(approved_edition,excluded),
+          "search snippets remain evidence-only without staging rights");
+    const auto exact_staged=capture_online_field_review(
+        stage_original,approved_edition.fields,true,true);
+    const auto exact_projected=stage_selected_online_fields(
+        exact_staged,stage_original,{*physical_discogs_edition_field_index(
+            approved_edition,second_album)});
+    check(exact_projected.planned.fields.back()==
+          MetadataField{"LABEL",{"Synthetic Label"}} &&
+          exact_projected.explicitly_changed==1,
+          "visible exact-album selection reaches detached stage with no writer");
+
     const auto session=capture_online_field_review(stage_original,stage_evidence,true,true);
     const auto untouched=stage_selected_online_fields(session,stage_original,{});
     check(untouched.planned==stage_original &&
