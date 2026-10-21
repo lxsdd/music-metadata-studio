@@ -168,6 +168,11 @@ BatchPlanReview review_batch_plan(
         std::set<std::string> eligible_overwrite_source_ids;
         for (const auto& item : items)
             if (active_file_action(item) &&
+                // A nominal rename/move whose exact source and target
+                // paths/keys are identical is a no-op, not an overwrite.
+                !(item.action != FileAction::Copy &&
+                  item.source_key == item.target_key &&
+                  item.source_path == item.target_path) &&
                 item.target_presence == TargetPresence::Existing &&
                 !item.physical_id.empty() &&
                 !item.target_guard.empty() &&

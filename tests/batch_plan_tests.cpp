@@ -84,7 +84,14 @@ void test_individual_overwrite_approval_selection_is_exact() {
     tag_only.action = djmeta::FileAction::None;
     tag_only.target_path.clear();
     tag_only.target_key.clear();
-    const std::vector<djmeta::FilePlanItem> batch = {replace, missing, tag_only};
+    auto exact_noop = audio("AlreadyAtTarget");
+    exact_noop.target_path = exact_noop.source_path;
+    exact_noop.target_key = exact_noop.source_key;
+    exact_noop.target_presence = djmeta::TargetPresence::Existing;
+    exact_noop.target_guard = "observed-same-source-target";
+    exact_noop.target_physical_id = "self-os-file-id";
+    const std::vector<djmeta::FilePlanItem> batch = {
+        replace, missing, tag_only, exact_noop};
     const auto preview = djmeta::review_batch_plan(batch);
     require(preview.requires_overwrite == 1 && preview.blocked == 0,
             "only one existing destination needs explicit individual overwrite consent");
@@ -100,6 +107,7 @@ void test_individual_overwrite_approval_selection_is_exact() {
              {"ApprovedExisting","ApprovedExisting"},
              {"NotAnOverwrite"},
              {"MetadataOnly"},
+             {"AlreadyAtTarget"},
              {""}}) {
         const djmeta::BatchApproval unsafe{preview.plan_fingerprint,false,ids};
         const auto rejected = djmeta::review_batch_plan(batch,&unsafe);
