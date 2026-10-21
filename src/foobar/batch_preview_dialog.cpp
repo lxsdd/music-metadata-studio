@@ -1558,8 +1558,11 @@ void update_live_provider_controls(PreviewState& state) {
             state.musicbrainz_release_loaded,pending,
             state.discogs_result_attempt_index,
             state.discogs_result_attempt_total));
-    EnableWindow(GetDlgItem(state.dialog,IDC_METADATA_MB_SEARCH),
-        !state.beatport_offline_selected && !pending && !state.stale);
+    if(state.beatport_offline_selected)
+        EnableWindow(GetDlgItem(state.dialog,IDC_METADATA_MB_SEARCH),FALSE);
+    // Re-enable of official provider searches belongs to the qualified
+    // source snapshot check in update_metadata_table(), not a cosmetic
+    // caption/visibility refresh.
     SetDlgItemTextW(state.dialog,IDC_METADATA_IMPORT_CANDIDATE,
         state.beatport_offline_selected ? L"Import Beatport" : L"Import clipboard");
     const bool next_result=discogs && state.discogs_live_view &&
@@ -4168,6 +4171,17 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             TabCtrl_SetCurSel(state->tabs,0);
             show_preview_page(dialog,*state,true,true);
             prefill_musicbrainz_query(*state,true);
+            if(state->beatport_offline_selected) {
+                // This mode intentionally has NO unauthorized API transport.
+                // Track activation selects the local source for a pasted
+                // Beatport evidence comparison; it never dispatches a faux
+                // MusicBrainz or Discogs request.
+                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                    L"Beatport offline: this track is selected. "
+                    L"Copy lawfully sourced Beatport JSON or explicit facts "
+                    L"and click Import Beatport. No HTTP request was sent.");
+                return TRUE;
+            }
             // Double-click/Return on a track is an explicit request to
             // search, regardless of the tab where the gesture occurred.
             // Reuse the native button's complete validation/rate-limit path

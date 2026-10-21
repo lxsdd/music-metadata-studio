@@ -172,6 +172,22 @@ int main() {
           (GetWindowLongPtrW(provider,GWL_STYLE)&0x3u)==CBS_DROPDOWNLIST &&
           (GetWindowLongPtrW(token,GWL_STYLE)&ES_PASSWORD)!=0,
           "production provider selector and non-echoing Discogs token field exist");
+    // Provider 3 deliberately reuses native controls; it must not require
+    // a second modal window or an embedded browser.
+    check(SendMessageW(provider,CB_ADDSTRING,0,
+          reinterpret_cast<LPARAM>(L"MusicBrainz"))>=0 &&
+          SendMessageW(provider,CB_ADDSTRING,0,
+          reinterpret_cast<LPARAM>(L"Discogs (token)"))>=0 &&
+          SendMessageW(provider,CB_ADDSTRING,0,
+          reinterpret_cast<LPARAM>(L"Beatport (offline)"))>=0 &&
+          SendMessageW(provider,CB_GETCOUNT,0,0)==3 &&
+          SendMessageW(provider,CB_SETCURSEL,2,0)==2,
+          "native provider selector supports distinct Beatport offline mode");
+    wchar_t beatport_provider[96]{};
+    SendMessageW(provider,CB_GETLBTEXT,2,
+        reinterpret_cast<LPARAM>(beatport_provider));
+    check(std::wcscmp(beatport_provider,L"Beatport (offline)")==0,
+          "Beatport mode is clearly labelled offline rather than misleadingly live");
     RECT provider_rect{}, token_rect{}, query_rect{}, track_rect{};
     check(GetWindowRect(provider,&provider_rect) &&
           GetWindowRect(token,&token_rect) &&

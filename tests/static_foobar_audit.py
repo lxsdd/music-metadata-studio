@@ -931,3 +931,24 @@ for token in (
 ):
     if token not in batch_rules_guard:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: virtual CUE source guard missing: " + token)
+
+# Beatport must appear as a distinct native offline provider, not silently
+# obtain token access by reusing the official MB/Discogs worker. Preserve
+# source provenance and the existing bounded matching/clipboard parser.
+for marker in (
+    'L"Beatport (offline)"',
+    'state->beatport_offline_selected=selected_provider==2;',
+    'if(state->beatport_offline_selected)',
+    'L"Import Beatport"',
+    'if(beatport_user_release || beatport_user_track)',
+    'djmeta::online::parse_beatport_user_release_clipboard(text)',
+    'djmeta::online::review_beatport_user_edition_physical(',
+    'djmeta::online::review_beatport_user_edition_cue(',
+    'djmeta::online::review_beatport_user_track(',
+    'row.field="Beatport Track / "+row.field;',
+    'state->musicbrainz_live_view = beatport_user_release || beatport_user_track;',
+):
+    if marker not in batch_rules_guard:
+        raise SystemExit('STATIC FOOBAR AUDIT FAIL: Beatport native integration missing: '+marker)
+if 'fetch_beatport_json(' in batch_rules_guard or 'void begin_beatport_network(' in batch_rules_guard:
+    raise SystemExit('STATIC FOOBAR AUDIT FAIL: Beatport API must remain license-gated')
