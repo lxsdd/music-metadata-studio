@@ -480,7 +480,8 @@ productive writer; no such claim is made.
 The pure no-I/O planner now validates every individual overwrite approval
 against one explicitly observed **existing** destination and one active,
 independently identified physical source. Unknown IDs, duplicate IDs, empty
-IDs, or approvals for a missing destination or tag-only row invalidate the
+IDs, or approvals for a missing destination, tag-only row or an exact
+source-equals-target rename/move no-op invalidate the
 **whole** batch, including otherwise no-op rows. Blanket overwrite approval
 cannot mask an inconsistent individual subset. A frozen preview refuses these
 cases. Large 15,000-track explicit approval and ordinary blanket-overwrite
