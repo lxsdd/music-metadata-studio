@@ -448,6 +448,24 @@ inline bool insert_native_preview_detail_row(HWND list, int index,
     return true;
 }
 
+// Search progress is visible in the actual native button, not buried in a
+// status label: a second deliberate click broadens nonmatching first-page
+// Discogs hits without browsing an artist tree. No request starts merely
+// because this caption is shown. Direct editions and master pagination never
+// masquerade as a new search stage.
+inline const wchar_t* native_discogs_search_caption(
+    bool discogs_selected, bool master_next, bool has_published_results,
+    bool correct_source, bool exact_edition_loaded, bool request_pending,
+    std::size_t completed_stage, std::size_t stage_count) noexcept {
+    if(!discogs_selected) return L"Search MusicBrainz";
+    if(master_next) return L"Next master page";
+    const bool may_broaden=has_published_results && correct_source &&
+        !exact_edition_loaded && !request_pending &&
+        stage_count>1 && stage_count<=16 &&
+        completed_stage<stage_count-1;
+    return may_broaden ? L"Broaden Discogs" : L"Search Discogs";
+}
+
 // Native single-line EDIT fields put text near the TOP of a tall box;
 // moving that tall box cannot align its glyphs with a themed button.
 // Size the field to the actual UI font plus bounded padding first, and

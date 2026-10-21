@@ -1443,9 +1443,18 @@ void update_live_provider_controls(PreviewState& state) {
         state.discogs_master_page<state.discogs_master_pages &&
         state.discogs_master_page<
             djmeta::online::discogs::max_master_version_page;
+    const bool pending=state.discogs_request || state.musicbrainz_request;
+    const bool published_search=discogs && state.discogs_live_view &&
+        !state.discogs_result_first_path.empty() &&
+        state.search_plan_identity==state.discogs_result_identity &&
+        !state.discogs_results.empty();
     SetDlgItemTextW(state.dialog,IDC_METADATA_MB_SEARCH,
-        next_master?L"Next master page":
-        state.discogs_provider_selected?L"Search Discogs":L"Search MusicBrainz");
+        native_discogs_search_caption(state.discogs_provider_selected,
+            next_master,published_search,
+            state.candidate_source_index==state.selected_track_index,
+            state.musicbrainz_release_loaded,pending,
+            state.discogs_result_attempt_index,
+            state.discogs_result_attempt_total));
     const bool next_result=discogs && state.discogs_live_view &&
         !state.musicbrainz_release_loaded && !state.discogs_master_id &&
         state.candidate_source_index==state.selected_track_index &&
@@ -3066,11 +3075,13 @@ void publish_discogs_search(HWND dialog, PreviewState& state,
             ? L"No hits; trying the next bounded official query automatically."
             : state.discogs_results.empty()
                 ? L"No release found. Paste an exact HTTPS Discogs release URL."
+                : request.attempt_index+1<request.total
+                    ? L"Review any exact release or click Broaden Discogs "
+                      L"to try the next official strategy. "
+                      L"Nonmatching results are never accepted."
                 : state.discogs_result_page<state.discogs_result_pages &&
                   state.discogs_result_page<max_search_result_page
                     ? L"Next results page available; select only an exact edition."
-                : request.attempt_index+1<request.total
-                    ? L"Select an exact release, or click Search to broaden."
                     : L"Select an exact release; Search restarts the plan.");
     ListView_SetItemState(state.metadata_list,-1,0,LVIS_SELECTED);
     update_metadata_table(state);

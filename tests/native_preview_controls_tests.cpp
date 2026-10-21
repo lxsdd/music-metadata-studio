@@ -805,6 +805,37 @@ int main() {
               "DPI capture retains logical width and hidden column width");
     }
 
+    // The real production search button must advertise explicit, bounded
+    // progression; native rendering uses this pure caption contract.
+    const auto mb_caption=djmeta_foobar::native_discogs_search_caption(
+        false,false,false,false,false,false,0,0);
+    const auto new_caption=djmeta_foobar::native_discogs_search_caption(
+        true,false,false,true,false,false,0,8);
+    const auto broaden_caption=djmeta_foobar::native_discogs_search_caption(
+        true,false,true,true,false,false,1,8);
+    check(std::wstring(mb_caption)==L"Search MusicBrainz" &&
+          std::wstring(new_caption)==L"Search Discogs" &&
+          std::wstring(broaden_caption)==L"Broaden Discogs" &&
+          std::wstring(djmeta_foobar::native_discogs_search_caption(
+              true,true,true,true,false,false,1,8))==L"Next master page" &&
+          std::wstring(djmeta_foobar::native_discogs_search_caption(
+              true,false,true,false,false,false,1,8))==L"Search Discogs" &&
+          std::wstring(djmeta_foobar::native_discogs_search_caption(
+              true,false,true,true,true,false,1,8))==L"Search Discogs" &&
+          std::wstring(djmeta_foobar::native_discogs_search_caption(
+              true,false,true,true,false,true,1,8))==L"Search Discogs" &&
+          std::wstring(djmeta_foobar::native_discogs_search_caption(
+              true,false,true,true,false,false,7,8))==L"Search Discogs" &&
+          std::wstring(djmeta_foobar::native_discogs_search_caption(
+              true,false,true,true,false,false,1,17))==L"Search Discogs",
+          "native Discogs button distinguishes deliberate staged breadth "
+          "from stale, pending, master, exhausted or loaded editions");
+    SetDlgItemTextW(dialog, IDC_METADATA_MB_SEARCH, broaden_caption);
+    wchar_t action_label[64]{};
+    GetWindowTextW(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH),action_label,64);
+    check(std::wstring(action_label)==L"Broaden Discogs",
+          "actual production RC HWND reflects explicit multi-strategy action");
+    SetDlgItemTextW(dialog,IDC_METADATA_MB_SEARCH,mb_caption);
     djmeta_foobar::align_native_preview_form(dialog);
     RECT aligned_query{}, aligned_search{}, aligned_review_button{};
     COMBOBOXINFO scope_info{};
