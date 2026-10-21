@@ -64,7 +64,9 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 20
     strategy:
-      fail-fast: true
+      # An SDK transport failure in one architecture must not suppress
+      # independent Win32/x64 diagnosis. Both gates remain mandatory.
+      fail-fast: false
       matrix:
         platform: [Win32, x64]
     steps:
