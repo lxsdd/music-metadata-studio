@@ -112,6 +112,21 @@ for token in [
     if token not in preview:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: stale-input preview guard missing " + token)
 
+# A failed official transport may use only the immutable, owner-controlled
+# SDK template tree. Never fall back on an official archive hash mismatch.
+bootstrap = (root / "scripts" / "bootstrap-sdk.ps1").read_text(encoding="utf-8")
+for token in (
+    "31a35947a7527826c2199491692802e3ce3d8bd7",
+    "2ba8caeb73f72633ad7f60ee5f72ed8074a0eb17",
+    "if ($downloaded) {",
+    "SDK archive integrity failed:",
+    "Pinned SDK template tree hash does not match.",
+    "SDK-PIN.json",
+    ".sdk-template-tree.sha1",
+):
+    if token not in bootstrap:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: unsafe/unpinned SDK transport fallback: " + token)
+
 host_probe = (foobar / "host_file_probe.cpp").read_text(encoding="utf-8")
 for token in (
     "filesystem::g_get_canonical_path",
@@ -752,6 +767,10 @@ for function in (
 # receive the Discogs QA secret; PR, fork, push, and regular workflow runs
 # must remain credential-free. No manual run may publish a draft artifact.
 workflow = (root / ".github" / "workflows" / "foobar.yml").read_text(encoding="utf-8")
+if workflow.count("repository: lxsdd/foobar2000_component_template") != 2 or (
+    workflow.count("ref: 31a35947a7527826c2199491692802e3ce3d8bd7") != 2
+) or workflow.count("persist-credentials: false") < 2:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: SDK fallback checkout is not pinned on both Windows jobs")
 if "pull_request_target:" in workflow or workflow.count(
     "secrets.MMS_DISCOGS_QA_TOKEN"
 ) != 1:

@@ -71,6 +71,12 @@ jobs:
         platform: [Win32, x64]
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: lxsdd/foobar2000_component_template
+          ref: 31a35947a7527826c2199491692802e3ce3d8bd7
+          path: external/sdk-template
+          persist-credentials: false
       - uses: microsoft/setup-msbuild@v2
       - name: Build foobar preview component
         shell: pwsh
@@ -127,6 +133,12 @@ jobs:
         platform: [Win32, x64]
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: lxsdd/foobar2000_component_template
+          ref: 31a35947a7527826c2199491692802e3ce3d8bd7
+          path: external/sdk-template
+          persist-credentials: false
       - uses: microsoft/setup-msbuild@v2
       - name: Build the exact checked-out foobar component for Discogs QA
         shell: pwsh

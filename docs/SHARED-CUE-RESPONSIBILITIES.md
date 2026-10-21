@@ -188,3 +188,20 @@ reserved devices, drive/ADS escapes, traversal and malformed carrier paths.
 This is an advisory source-lookup preflight, **not** a FileOps destination
 sanitizer, final physical dependency association, CUE creation or writer.
 Precision CUE PR #52 remains independent and unchanged.
+
+## SDK transport fallback: pinned template tree (2026-10-21)
+
+Studio first attempts the same official foobar2000 SDK 2026-10-01 HTTPS
+download with bounded retries and requires the exact original 793738-byte
+archive SHA-256, valid 7z and correct SDK version. If **transport alone**
+fails, the Windows runner may use the already vendored, license-noticed
+SDK from our own public `foobar2000_component_template`, checked out at
+Git commit `31a35947a7527826c2199491692802e3ce3d8bd7`, after checking
+that the `vendor/sdk` Git tree is exactly
+`2ba8caeb73f72633ad7f60ee5f72ed8074a0eb17`. Its `SDK-PIN.json`,
+license, version and required project files must match as well. This
+**Git-tree proof is not claimed to be a SHA-256 of a downloaded archive**.
+An official download with mismatched hash, wrong size or invalid extraction
+never switches to the fallback. No SDK bytes are added to Studio history,
+and no component DLL is published from a draft PR. This does not solve
+unavailability of a separately downloaded official foobar2000 host installer.
