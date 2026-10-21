@@ -424,6 +424,10 @@ void invalidate_cue_copy(Workspace& state) {
     state.reviewed_cues.clear();
     state.reviewed_exports.clear();
     state.reviewed_preview_ready = false;
+    // Consent is bound to the exact reviewed edition and disc mapping.
+    // Any invalidation requires a NEW deliberate checkbox action, even if
+    // a subsequent preview happens to look similar to the previous one.
+    CheckDlgButton(state.dialog, IDC_PRECISION_EDITION_CONFIRMED, BST_UNCHECKED);
     EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_COPY_CUE), FALSE);
     EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_SAVE_CUE), FALSE);
 }

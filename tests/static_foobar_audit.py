@@ -251,6 +251,12 @@ if reopen_body.find("active->files.clear();") > reopen_body.find(
 
 # Precision CUE native mapping must be explicitly selectable and validated.
 precision = (foobar / "precision_cue_workspace.cpp").read_text(encoding="utf-8")
+# Regression: an earlier edition confirmation must never silently authorize
+# a newly reviewed disc mapping or a new provider response.
+invalidation = precision.split("void invalidate_cue_copy(Workspace& state) {", 1)[-1].split(
+    "void update_reviewed_actions(Workspace& state)", 1)[0]
+if "CheckDlgButton(state.dialog, IDC_PRECISION_EDITION_CONFIRMED, BST_UNCHECKED)" not in invalidation:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: stale Precision CUE edition approval survives preview invalidation")
 for token in (
     "initialize_disc_controls(*state)", "assign_selected_disc(*state)",
     "review_precision_cue_disc_mapping(totals, physicals, *reviewed)",
