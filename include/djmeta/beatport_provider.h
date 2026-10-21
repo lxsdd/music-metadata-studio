@@ -64,6 +64,9 @@ struct SearchAttempt {
     std::string reason; // Human-readable disclosure of the bounded query.
     std::string path;   // Inert until an authorized host transport exists.
 };
+// Shared lowercase helper is implemented further below for parsing and
+// mix classification. Forward-declare it for the search-only planner.
+inline std::string ascii_lower(std::string_view value);
 // Search-only fallback: featured-artist suffixes often make strict catalog
 // queries return no results, even where a matching base track exists. Keep
 // the complete original identity in the independent matcher; NEVER use the
