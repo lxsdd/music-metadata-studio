@@ -75,6 +75,7 @@
     <ClCompile Include="src\foobar\cue_readonly_source.cpp" />
     <ClCompile Include="src\foobar\musicbrainz_http.cpp" />
     <ClCompile Include="src\foobar\discogs_http.cpp" />
+    <ClCompile Include="src\foobar\beatport_public_http.cpp" />
     <ClCompile Include="src\core\external_cue.cpp" />
     <ClCompile Include="src\core\cue_metadata.cpp" />
     <ClCompile Include="src\foobar\preview.cpp" />
@@ -104,6 +105,7 @@
     <ClInclude Include="src\foobar\metadata_adapter.h" />
     <ClInclude Include="src\foobar\host_file_probe.h" />
     <ClInclude Include="src\foobar\discogs_http.h" />
+    <ClInclude Include="src\foobar\beatport_public_http.h" />
     <ClInclude Include="src\foobar\cue_readonly_source.h" />
     <ClInclude Include="src\foobar\musicbrainz_http.h" />
     <ClInclude Include="include\djmeta\musicbrainz_provider.h" />
