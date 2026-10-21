@@ -189,7 +189,7 @@ int main() {
     rejects([&]{(void)recording_search_plan(long_title,"Artist");},
             "overlong TITLE without valid ISRC has no unsafe broad fallback");
     const auto hidden_title=recording_search_plan(
-        std::string("Track\\nHidden"),"Artist","USRC17607839");
+        std::string("Track\nHidden"),"Artist","USRC17607839");
     check(hidden_title.attempts.size()==1 &&
           hidden_title.attempts[0].label=="Exact ISRC identifier",
           "hidden TITLE controls cannot be silently stripped into Lucene");
