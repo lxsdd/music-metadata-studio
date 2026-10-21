@@ -829,9 +829,9 @@ if (
 # triggers online lookup. Refresh may reset provider result caches, but keeps
 # the selected source and any manual query across snapshot replacement.
 track_selection = batch_rules_guard.split(
-    "if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&\\n"
+    "if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&\n"
     "            header->code == LVN_ITEMCHANGED) {", 1)[1].split(
-    "if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&\\n"
+    "if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&\n"
     "            header->code == LVN_GETINFOTIPW)", 1)[0]
 if (
     "prefill_musicbrainz_query(*state);" not in track_selection
