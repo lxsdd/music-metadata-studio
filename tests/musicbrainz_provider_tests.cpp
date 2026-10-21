@@ -135,6 +135,17 @@ int main() {
             "invalid ISRC does not bypass empty-title denial");
     rejects([]{(void)recording_search_plan(" \t","Artist","");},
             "whitespace-only title with no identifier remains invalid");
+    check(recording_identity_label("Track","","Track","Artist")==
+              "Artist unverified" &&
+          recording_identity_label("Track","Artist","Track","")==
+              "Artist unverified" &&
+          recording_identity_label("Track","","Track","")==
+              "Artist unverified" &&
+          recording_identity_label("Track","   ","Track","Artist")==
+              "Artist unverified" &&
+          recording_identity_label("Track","Artist","Track","Other Artist")==
+              "Artist differs",
+          "title equality never invents artist confirmation for incomplete metadata");
     check(recording_identity_label("What Time Is Love (Original Version)","The KLF",
           "What Time Is Love?","The KLF")=="Version review" &&
           recording_identity_label("What Time Is Love (Original Version)","The KLF",

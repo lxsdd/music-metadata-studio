@@ -499,7 +499,12 @@ inline std::string recording_identity_label(std::string_view source_title,
     std::string_view candidate_artist) {
     const auto artist=comparable_search_key(source_artist);
     const auto matched_artist=comparable_search_key(candidate_artist);
-    if(!artist.empty() && artist!=matched_artist)
+    // Equal titles are NOT "Title+artist" evidence when either source or
+    // provider lacks an artist. This is particularly important for records
+    // being searched precisely because their original tags are incomplete.
+    if(artist.empty() || matched_artist.empty())
+        return "Artist unverified";
+    if(artist!=matched_artist)
         return "Artist differs";
     const auto full=comparable_search_key(source_title);
     const auto match=comparable_search_key(candidate_title);
