@@ -319,6 +319,17 @@ else()
     target_compile_options(djmeta_cue_online_review_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+# Host file physical-key validity must be qualified without loading foobar.
+# Strictly source/destination read-only verification; no native I/O in this test.
+add_executable(djmeta_host_file_probe_identity_tests tests/host_file_probe_identity_tests.cpp)
+target_include_directories(djmeta_host_file_probe_identity_tests PRIVATE src/foobar)
+target_compile_features(djmeta_host_file_probe_identity_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_host_file_probe_identity_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_host_file_probe_identity_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 # DPI-independent persisted Win32 dialog-size schema (core-only C++ test).
 add_executable(djmeta_preview_window_geometry_tests tests/preview_window_geometry_tests.cpp)
 target_include_directories(djmeta_preview_window_geometry_tests PRIVATE include)
@@ -410,6 +421,7 @@ add_test(NAME djmeta_discogs_release_review_tests COMMAND djmeta_discogs_release
 add_test(NAME djmeta_musicbrainz_provider_tests COMMAND djmeta_musicbrainz_provider_tests)
 add_test(NAME djmeta_cue_manual_preview_tests COMMAND djmeta_cue_manual_preview_tests)
 add_test(NAME djmeta_preview_window_geometry_tests COMMAND djmeta_preview_window_geometry_tests)
+add_test(NAME djmeta_host_file_probe_identity_tests COMMAND djmeta_host_file_probe_identity_tests)
 add_test(NAME djmeta_cue_online_review_tests COMMAND djmeta_cue_online_review_tests)
 add_test(NAME djmeta_cue_online_bridge_tests COMMAND djmeta_cue_online_bridge_tests)
 add_test(NAME djmeta_cue_metadata_tests COMMAND djmeta_cue_metadata_tests)

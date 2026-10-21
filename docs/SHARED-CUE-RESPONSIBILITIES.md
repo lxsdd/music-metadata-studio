@@ -205,3 +205,15 @@ An official download with mismatched hash, wrong size or invalid extraction
 never switches to the fallback. No SDK bytes are added to Studio history,
 and no component DLL is published from a draft PR. This does not solve
 unavailability of a separately downloaded official foobar2000 host installer.
+
+## Physical OS file ID sentinel guard (2026-10-21)
+
+The native Win32 read-only host probe now rejects *either* a zero volume
+serial **or** a zero file index, and rejects an all-ones index as an unknown
+sentinel. Previously a nonzero volume serial could inadvertently qualify
+an unsupported filesystem that reported `fileIndex=0` for every file.
+That could collapse different audio sources into one apparent physical
+identity. A new portable regression covers the exact sentinel combinations
+and snapshot version guards. Ordinary foobar source/target access remains
+read-only, while unusual unsupported/network file systems fail closed until
+their identity can be proven. No changes to Precision CUE timing/writers.

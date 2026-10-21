@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 namespace djmeta_foobar {
@@ -46,6 +47,17 @@ inline bool stable_raw_target_observation(
     default:
         return false;
     }
+}
+
+// The Windows file index is the identity component, not an optional hint.
+// Some virtual/network filesystem implementations return a nonzero volume
+// serial but an unusable zero file index (or vice versa). Treat EITHER zero
+// as unsupported rather than collapsing distinct music files to one key.
+// This pure validation does not read from disk or enable writes.
+inline bool valid_native_file_identity(
+    std::uint32_t volume_serial, std::uint64_t file_index) noexcept {
+    return volume_serial != 0 && file_index != 0 &&
+        file_index != UINT64_MAX;
 }
 
 // Missing is a legitimate observation for a proposed target but NOT for a

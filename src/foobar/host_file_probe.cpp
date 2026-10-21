@@ -94,9 +94,10 @@ HostFileObservation probe_host_file_readonly(const std::string& path) {
         }
         const auto index = file_number(native_info.nFileIndexHigh,
                                        native_info.nFileIndexLow);
-        // Unusable identifiers are common on unsupported virtual/network
-        // filesystems. Never mistake a shared zero identity for proof.
-        if (index == 0 && native_info.dwVolumeSerialNumber == 0) {
+        // Unsupported virtual/network filesystems can return an absent
+        // index with a nonzero volume serial or the reverse. BOTH parts
+        // must be usable; a shared zero index is never a source identity.
+        if (!valid_native_file_identity(native_info.dwVolumeSerialNumber, index)) {
             out.detail = "Physical file identity is unavailable.";
             return out;
         }
