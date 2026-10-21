@@ -247,3 +247,25 @@ to Crates' private API or a transferable Beatport developer token**. Any
 future direct Crates data connector requires provider authorization and a
 separate secure login consent/permissions path, without requesting passwords
 in chat.
+
+## Browser-only Crates track-link helper
+
+`scripts/crates-copy-selected-beatport-link.js` can be run on an already
+open Crates.co tab (in a browser console, or as a user-created bookmarklet).
+It examines **visible** track links and copies only a fully qualified public
+Beatport `https://www.beatport.com/track/slug/id` URL. It never accesses
+cookies, network, Crates' private API or application login state. If the
+user has selected text in a specific track row, that row has priority.
+Without a selected row exactly one visible matching link must exist on
+the page. Multiple links fail closed instead of taking the first search hit.
+
+This helper is **conditional on the Crates DOM exposing ordinary public
+Beatport anchors**. That is supported as a plausible use case by an
+independent Crates link-extraction extension, but actual 2026 logged-in
+page markup has **not yet been verified**. When no link is present, the
+helper reports that fact without inspecting private application state.
+No extension is required; the alternative is the built-in Crates share
+feature (shortcut S) and manual lookup of the visible Beatport link.
+
+Never request the user's Beatport password, session cookie, Crates
+OAuth token or authentication code in chat, CI or a public issue.
