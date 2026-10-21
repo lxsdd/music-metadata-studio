@@ -2156,6 +2156,18 @@ void append_external_cue_file_reference_evidence(
                    "NOT QUALIFIED: source identity or filesystem unsupported");
         }
     }
+    // The inventory can involve many FILE entries and slow network storage.
+    // Before publishing any PRESENT/MISSING/ALIAS labels, re-observe EVERY
+    // distinct physical reference. A CUE could remain byte-identical while
+    // one of its audio dependencies is replaced, created or modified.
+    // A stale or unsupported re-probe invalidates the entire preview.
+    for (const auto& [candidate_path, earlier] : probes) {
+        const HostFileObservation latest =
+            probe_host_file_readonly(candidate_path);
+        if (!stable_raw_target_observation(earlier, latest))
+            throw std::runtime_error(
+                "External CUE FILE dependency changed during read-only inspection. Refresh snapshot.");
+    }
     const auto current = probe_host_file_readonly(entry.input.source_path);
     if (current.state != HostFileState::ExistingFile ||
         current.host_physical_key != original.host_physical_key ||
