@@ -1,4 +1,6 @@
 #include "djmeta/discogs_release_review.h"
+#include "djmeta/online_field_ui_selection.h"
+#include "djmeta/online_field_staging.h"
 #include "djmeta/native_candidate_labels.h"
 #include "djmeta/discogs_search_hints.h"
 
@@ -184,6 +186,45 @@ int main() {
             matched_credit->candidate.source_id=="4243/track/1" &&
             other_title && other_title->state==FieldReviewState::Blocked,
             "qualified physical track compares only its exact edition row");
+    // End-to-end *detached* staging of unique verified track credits:
+    // the other release track must NEVER be admitted by index or title.
+    const auto permitted=physical_discogs_stageable_evidence(exact,verified);
+    const auto verified_remixer=physical_discogs_stageable_field_index(
+        exact,permitted,*matched_credit);
+    const auto verified_title=physical_discogs_stageable_field_index(
+        exact,permitted,*matched_title);
+    require(verified_remixer.has_value() && verified_title.has_value() &&
+            *verified_remixer>=exact.fields.size() &&
+            !physical_discogs_stageable_field_index(exact,permitted,*other_title),
+            "only uniquely verified edition-track credits appear in allowed staging");
+    const auto snapshot=capture_online_field_review(physical,permitted,true,true);
+    const auto staged_remixer=stage_selected_online_fields(
+        snapshot,physical,{*verified_remixer});
+    require(staged_remixer.explicitly_changed==1 &&
+            staged_remixer.planned.fields.back()==
+                djmeta::MetadataField{"REMIXER",{"DJ One"}} &&
+            staged_remixer.planned.fields[3]==physical.fields[3] &&
+            staged_remixer.planned.fields[4]==physical.fields[4] &&
+            physical.fields.size()==5,
+            "explicit verified REMIXER preview preserves ReplayGain and custom values");
+    const auto one_noop=stage_selected_online_fields(
+        snapshot,physical,{*verified_title});
+    require(one_noop.exact_noops==1 && one_noop.explicitly_changed==0 &&
+            one_noop.planned==physical,
+            "identical verified TITLE cannot rewrite or stage a physical change");
+    auto forged_track=*matched_credit;
+    forged_track.candidate.source_id="4243/track/2";
+    require(!physical_discogs_stageable_field_index(exact,permitted,forged_track),
+            "cross-track recording credit cannot enter staging");
+    forged_track=*matched_credit;
+    forged_track.field="Release Track 2 / REMIXER";
+    require(!physical_discogs_stageable_field_index(exact,permitted,forged_track),
+            "visible track ordinal must match its provider field source");
+    forged_track=*matched_credit;
+    forged_track.reason="discogs_live_release_track_unassigned";
+    require(!physical_discogs_stageable_field_index(exact,permitted,forged_track),
+            "unassigned evidence cannot borrow a verified candidate value");
+
     require(field(verified,"Physical / CUSTOM") &&
             field(verified,"Physical / CUSTOM")->original_values==
                 std::vector<std::string>({"First","Second"}) &&
@@ -259,6 +300,13 @@ int main() {
             field(unsafe,"Release Track 1 / REMIXER")->state==
                 FieldReviewState::Blocked,
             "tainted track field provenance blocks all track comparisons");
+    const auto tainted_allowed=physical_discogs_stageable_evidence(
+        tainted_edition,unsafe);
+    require(tainted_allowed.size()==tainted_edition.fields.size() &&
+            !physical_discogs_stageable_field_index(
+                tainted_edition,tainted_allowed,
+                *field(unsafe,"Release Track 1 / REMIXER")),
+            "tainted source fields can never enter the physically stageable inventory");
     const auto* tainted_album=field(unsafe,"Album / ALBUM");
     require(tainted_album && tainted_album->state==FieldReviewState::Blocked &&
             tainted_album->reason.starts_with(

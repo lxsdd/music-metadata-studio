@@ -1120,8 +1120,9 @@ void refresh_musicbrainz_detail_rows(PreviewState& state) {
         const bool local_cue=djmeta::online::is_local_cue_inventory(row);
         bool included=false;
         if (qualified_online_field_preview(state)) {
-            const auto field_index=djmeta::online::physical_discogs_edition_field_index(
-                *state.online_physical_edition,row);
+            const auto field_index=djmeta::online::physical_discogs_stageable_field_index(
+                *state.online_physical_edition,
+                state.online_field_snapshot->evidence,row);
             included=field_index && std::find(
                 state.online_included_fields.begin(),
                 state.online_included_fields.end(),*field_index)!=
@@ -2761,7 +2762,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_METADATA_MB_SEARCH,L"One deliberate official HTTPS lookup; bounded zero-hit stages broaden with pacing. No tag writes."},
         {IDC_METADATA_DISCOGS_NEXT_PAGE,L"Explicitly load ONE more page of the same official Discogs query. Never a match or write approval."},
         {IDC_METADATA_MB_LOAD_RELEASE,L"Inspect a verified exact release; unmatched Discogs track credits remain blocked."},
-        {IDC_ONLINE_INCLUDE_FIELDS,L"Include highlighted album fields of this exact Discogs edition in a detached in-memory physical tag preview. No files are changed."},
+        {IDC_ONLINE_INCLUDE_FIELDS,L"Include highlighted exact edition album fields or independently verified release-track credits in a detached preview. No files are changed."},
         {IDC_ONLINE_IGNORE_FIELDS,L"Remove highlighted edition fields from the in-memory preview. Existing tags remain intact."},
         {IDC_ONLINE_RESET_FIELDS,L"Clear every included online field for this exact edition. Does not modify any file or saved metadata."},
         {IDC_METADATA_INSPECT_CUE,L"Read the source CUE and show its album/track fields. Embedded and external CUE are never written here."},
@@ -3369,7 +3370,9 @@ void publish_discogs_release(HWND dialog, PreviewState& state,
     if(!cue && entry.input.physical_source_qualified &&
        entry.handle->get_subsong_index()==0)
         physical_review=djmeta::online::capture_online_field_review(
-            originals,edition.fields,true,true);
+            originals,
+            djmeta::online::physical_discogs_stageable_evidence(edition,flat),
+            true,true);
     state.online_physical_edition=physical_review
         ? std::optional<djmeta::online::ReleaseEdition>{edition}
         : std::nullopt;
@@ -3635,12 +3638,14 @@ void change_online_field_preview(PreviewState& state,int action) {
                 state.musicbrainz_details,row,LVNI_SELECTED))>=0) {
             if(static_cast<std::size_t>(row)>=rows.size() || row>=1024)
                 throw std::invalid_argument("Visible edition field index expired.");
-            const auto index=djmeta::online::physical_discogs_edition_field_index(
-                *state.online_physical_edition,rows[static_cast<std::size_t>(row)]);
+            const auto index=djmeta::online::physical_discogs_stageable_field_index(
+                *state.online_physical_edition,
+                state.online_field_snapshot->evidence,
+                rows[static_cast<std::size_t>(row)]);
             if(!index)
                 throw std::invalid_argument(
-                    "Only verified album fields may be included. Search snippets, "
-                    "CUE fields, blocked matches and local-only tags are not eligible.");
+                    "Only verified edition fields and uniquely matched release tracks "
+                    "are selectable. CUE, search, blocked or local-only tags cannot be staged.");
             if(action==IDC_ONLINE_INCLUDE_FIELDS) included.insert(*index);
             else included.erase(*index);
             ++selected_count;
