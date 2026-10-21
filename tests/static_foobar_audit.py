@@ -127,6 +127,8 @@ for token in (
 for token in ("GENERIC_WRITE", "CREATE_ALWAYS", "CREATE_NEW", "TRUNCATE_EXISTING"):
     if token in host_probe:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: mutating host probe: " + token)
+if '"UNSAFE_RAW_DESTINATION_ROOT"' not in batch_rules_guard:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: unsafe root lacks native status")
 if "djmeta::qualify_physical_selection(evidence)" not in batch_rules_guard:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing physical-identity collision gate")
 for token in (
@@ -135,6 +137,7 @@ for token in (
     "reset_raw_target_observation(entry)",
     "input.filesystem_target_checked = false; // invariant: final target unknown",
     "raw_relative_path_lexically_safe(entry.input.raw_relative_path)",
+    "raw_destination_root_lexically_safe(entry.input.destination_root)",
     "Physical source changed during raw destination inspection. Reopen Prepare Tracks.",
     "stable_raw_target_observation(result.observed, current)",
     "Raw destination changed during filesystem inspection. Refresh preview.",

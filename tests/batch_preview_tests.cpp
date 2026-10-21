@@ -50,6 +50,36 @@ int main() {
         check(!raw_relative_path_lexically_safe(dangerous),
               "unsafe Title Formatting output must not resemble an approved target");
 
+    // The editable destination root must be absolute, independently of the
+    // raw relative Title Formatting expression. Neither check is final FileOps.
+    using djmeta::raw_destination_root_lexically_safe;
+    for (const std::string& root : {
+             std::string("Z:\\Music\\Singles"), std::string("C:\\"),
+             std::string("D:/Music/Albums/"), std::string("\\\\nas\\Music\\Trance"),
+             std::string("\\\\nas\\share"), std::string("Z:\\Björk")})
+        check(raw_destination_root_lexically_safe(root),
+              "absolute Windows drive or UNC routing root");
+    for (const std::string& root : {
+             std::string(""), std::string("Music\\Singles"),
+             std::string("Z:relative"), std::string("\\Music"),
+             std::string("../escape"), std::string("C:\\Music\\..\\other"),
+             std::string("C:\\Music\\.\\x"), std::string("C:\\Music\\\\x"),
+             std::string("C:\\name:stream"), std::string("C:\\CON\\tracks"),
+             std::string("C:\\bad?name"), std::string("C:\\trailing.\\album"),
+             std::string("\\\\nas"), std::string("\\\\nas\\"),
+             std::string("\\\\?\\C:\\Music"), std::string("\\\\.\\C:\\Music"),
+             std::string("\\\\nas\\share\\..\\audio"),
+             std::string("\\\\nas\\share\\\\music"),
+             std::string("C:\\null\0tail", 12)})
+        check(!raw_destination_root_lexically_safe(root),
+              "ambiguous destination root must fail closed");
+    auto unsafe_root = sample("absolute-root.mp3");
+    unsafe_root.destination_root = "Z:relative\\path";
+    const auto unsafe_root_rows = djmeta::describe_batch_preview({unsafe_root});
+    check(contains(unsafe_root_rows.rows[0], "UNSAFE_RAW_DESTINATION_ROOT") &&
+          contains(unsafe_root_rows.rows[0], "FILESYSTEM_TARGET_UNCHECKED"),
+          "unsafe root visibly unqualified even with safe basename");
+
     auto a = sample("a.mp3"), b = sample("b.mp3");
     const std::vector<djmeta::BatchPreviewInputRow> batch = {a,b};
     const auto c = djmeta::describe_batch_preview(batch);

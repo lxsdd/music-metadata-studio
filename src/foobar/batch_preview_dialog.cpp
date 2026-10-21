@@ -405,6 +405,7 @@ std::string status_text(const djmeta::BatchPreviewRow& row) {
     for (const auto& issue : row.issues) {
         if (issue == "PHYSICAL_SOURCE_UNQUALIFIED") return "Physical source: REVIEW";
         if (issue == "TARGET_EXPRESSION_EMPTY") return "Empty target: REVIEW";
+        if (issue == "UNSAFE_RAW_DESTINATION_ROOT") return "Destination root: unsafe";
         if (issue == "UNSAFE_RAW_RELATIVE_TARGET") return "Raw target: unsafe";
         if (issue == "DUPLICATE_RAW_TARGET") return "Duplicate raw target";
         if (issue == "RAW_TARGET_CASE_OR_SEPARATOR_COLLISION")
@@ -2219,10 +2220,10 @@ void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
             entry.observed_source_guard.empty())
             throw std::invalid_argument(
                 "An unqualified physical source cannot be inspected as a file move.");
-        if (entry.input.destination_root.empty() ||
+        if (!djmeta::raw_destination_root_lexically_safe(entry.input.destination_root) ||
             !djmeta::raw_relative_path_lexically_safe(entry.input.raw_relative_path))
             throw std::invalid_argument(
-                "A raw filename is empty/unsafe; adjust routing before inspection.");
+                "Destination root or raw filename is unsafe; adjust routing before inspection.");
 
         const HostFileObservation latest =
             probe_host_file_readonly(entry.input.source_path);

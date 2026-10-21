@@ -46,6 +46,9 @@ struct BatchPreviewTable {
 // True means only that the relative fragment has no obvious Windows path
 // traps; it is NOT proof of final foobar File Operations sanitization.
 bool raw_relative_path_lexically_safe(std::string_view raw);
+// Preliminary absolute Windows drive/UNC destination root validation.
+// This does not assert host File Operations sanitation or approval.
+bool raw_destination_root_lexically_safe(std::string_view root);
 
 // Pure read-only table description; no filesystem I/O, no OS path identity
 // assumptions, no use of this result as an executor approval token.

@@ -77,6 +77,38 @@ bool raw_relative_path_lexically_safe(std::string_view raw) {
     return false;
 }
 
+bool raw_destination_root_lexically_safe(std::string_view root) {
+    if (root.empty() || root.size() > 32767 || !valid_utf8_metadata_text(root))
+        return false;
+    const auto separator = [](char c) { return c == '\\' || c == '/'; };
+    std::size_t first = 0;
+    bool unc = false;
+    if (root.size() >= 3 &&
+        ((root[0] >= 'A' && root[0] <= 'Z') ||
+         (root[0] >= 'a' && root[0] <= 'z')) &&
+        root[1] == ':' && separator(root[2])) {
+        first = 3; // Drive absolute: Z:\Music
+    } else if (root.size() >= 5 && separator(root[0]) &&
+               separator(root[1]) && !separator(root[2])) {
+        first = 2; // UNC: \\server\share\optional-subfolders
+        unc = true;
+    } else {
+        return false; // drive-relative, root-relative, device namespaces
+    }
+    std::size_t components = 0;
+    while (first < root.size()) {
+        const auto end = root.find_first_of("/\\", first);
+        const auto last = end == std::string_view::npos ? root.size() : end;
+        if (!safe_component(root.substr(first, last - first))) return false;
+        ++components;
+        if (end == std::string_view::npos) break;
+        first = end + 1;
+        // Permit one trailing slash, never empty interior components.
+        if (first == root.size()) break;
+    }
+    return !unc || components >= 2; // UNC requires server and share
+}
+
 BatchPreviewTable describe_batch_preview(
     const std::vector<BatchPreviewInputRow>& items) {
     BatchPreviewTable out;
@@ -112,6 +144,8 @@ BatchPreviewTable describe_batch_preview(
                 item.destination_root + "\\" + item.raw_relative_path;
         if (!item.physical_source_qualified)
             row.issues.emplace_back("PHYSICAL_SOURCE_UNQUALIFIED");
+        if (!raw_destination_root_lexically_safe(item.destination_root))
+            row.issues.emplace_back("UNSAFE_RAW_DESTINATION_ROOT");
         if (row.raw_destination.empty())
             row.issues.emplace_back("TARGET_EXPRESSION_EMPTY");
         else if (!raw_relative_path_lexically_safe(item.raw_relative_path))
