@@ -3372,11 +3372,13 @@ void publish_discogs_release(HWND dialog, PreviewState& state,
     // comparison, and can never use the physical online staging controls.
     std::optional<djmeta::online::OnlineFieldReviewSnapshot> physical_review;
     if(!cue && entry.input.physical_source_qualified &&
-       entry.handle->get_subsong_index()==0)
-        physical_review=djmeta::online::capture_online_field_review(
-            originals,
-            djmeta::online::physical_discogs_stageable_evidence(edition,flat),
-            true,true);
+       entry.handle->get_subsong_index()==0) {
+        const auto stageable=djmeta::online::physical_discogs_stageable_evidence(
+            edition,originals,physical_duration_ms,flat);
+        if(!stageable.empty())
+            physical_review=djmeta::online::capture_online_field_review(
+                originals,stageable,true,true);
+    }
     state.online_physical_edition=physical_review
         ? std::optional<djmeta::online::ReleaseEdition>{edition}
         : std::nullopt;

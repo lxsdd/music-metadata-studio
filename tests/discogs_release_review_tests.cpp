@@ -188,7 +188,26 @@ int main() {
             "qualified physical track compares only its exact edition row");
     // End-to-end *detached* staging of unique verified track credits:
     // the other release track must NEVER be admitted by index or title.
-    const auto permitted=physical_discogs_stageable_evidence(exact,verified);
+    const auto permitted=physical_discogs_stageable_evidence(
+        exact,physical,242000,verified);
+    const auto no_duration=physical_discogs_stageable_evidence(
+        exact,physical,-1,verified);
+    require(no_duration.empty() &&
+            !independently_verified_discogs_track(physical,exact,-1),
+            "rendered verified-looking metadata is not stageable without live physical duration");
+    auto changed_title=physical;
+    changed_title.fields[0].values={"Completely Different Recording"};
+    require(physical_discogs_stageable_evidence(
+                exact,changed_title,242000,verified).empty(),
+            "stale rendered verified rows cannot promote an unrelated physical recording");
+    const auto forged_other=physical_discogs_stageable_evidence(
+        exact,physical,242000,{
+            *matched_credit,*other_title
+        });
+    require(forged_other.size()==1 &&
+            forged_other.front().field=="REMIXER" &&
+            forged_other.front().values==std::vector<std::string>({"DJ One"}),
+            "only the independently identified release-track ordinal enters provider evidence");
     const auto verified_remixer=physical_discogs_stageable_field_index(
         exact,permitted,*matched_credit);
     const auto verified_title=physical_discogs_stageable_field_index(
@@ -301,7 +320,7 @@ int main() {
                 FieldReviewState::Blocked,
             "tainted track field provenance blocks all track comparisons");
     const auto tainted_allowed=physical_discogs_stageable_evidence(
-        tainted_edition,unsafe);
+        tainted_edition,physical,242000,unsafe);
     require(tainted_allowed.size()==tainted_edition.fields.size() &&
             !physical_discogs_stageable_field_index(
                 tainted_edition,tainted_allowed,

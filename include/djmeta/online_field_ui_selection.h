@@ -4,6 +4,7 @@
 // are NOT valid inputs for the physical-only staged preview.
 #include "djmeta/online_fields.h"
 #include "djmeta/online_field_staging.h"
+#include "djmeta/discogs_release_review.h"
 #include <cstddef>
 #include <charconv>
 #include <vector>
@@ -83,15 +84,45 @@ inline bool verified_physical_discogs_track_field(
 // Stageable evidence is independent of the current sorted/native list row.
 // Only source-verified track rows constructed by the physical aligner can
 // supply recording credits. It is still NOT a permission to write files.
+inline std::optional<std::size_t> independently_verified_discogs_track(
+    const MetadataDocument& original, const ReleaseEdition& edition,
+    std::int64_t duration_ms) {
+    if(duration_ms<=0 || duration_ms>36000000 || edition.provider!="discogs")
+        return std::nullopt;
+    const auto local=discogs_physical_identity(original,duration_ms);
+    if(!local) return std::nullopt;
+    const auto alignment=align_release({*local},edition);
+    if(alignment.tracks.size()!=1) return std::nullopt;
+    const auto& match=alignment.tracks.front();
+    if(match.decision!=MatchDecision::Suggested ||
+       !match.conflicts.empty() ||
+       !discogs_edition_track_provenance_trusted(
+           edition,match.edition_track_index))
+        return std::nullopt;
+    return match.edition_track_index;
+}
+
 inline std::vector<FieldEvidence> physical_discogs_stageable_evidence(
     const ReleaseEdition& edition,
-    const std::vector<FieldReviewRow>& verified_physical_rows) {
+    const MetadataDocument& physical_originals,
+    std::int64_t physical_duration_ms,
+    const std::vector<FieldReviewRow>& reviewed_physical_rows) {
     if (edition.provider!="discogs" ||
         !valid_evidence_origin(edition.edition_id,512))
         throw std::invalid_argument("No exact verified Discogs edition");
-    std::vector<FieldEvidence> allowed=edition.fields;
-    for(const auto& row:verified_physical_rows) {
-        if(!verified_physical_discogs_track_field(edition,row)) continue;
+    std::vector<FieldEvidence> allowed;
+    // Recalculate a uniquely suggested, conflict-free physical match. Do
+    // not trust a UI reason/status string alone as proof of a match.
+    const auto confirmed=independently_verified_discogs_track(
+        physical_originals,edition,physical_duration_ms);
+    if(!confirmed) return allowed;
+    const auto exact_track_id=edition.edition_id+"/track/"+
+        std::to_string(*confirmed+1);
+    for(const auto& row:reviewed_physical_rows) {
+        const auto album=physical_discogs_edition_field_index(edition,row);
+        const bool track=verified_physical_discogs_track_field(edition,row) &&
+                         row.candidate.source_id==exact_track_id;
+        if(!album && !track) continue;
         if(std::find(allowed.begin(),allowed.end(),row.candidate)==allowed.end())
             allowed.push_back(row.candidate);
     }
