@@ -177,3 +177,27 @@ and does not authorize tag, CUE, file, artwork or ReplayGain writes.
 The next implementation gate is a bounded, explicit, public-page transport,
 if its applicable access policy can be checked without circumventing
 restrictions. No batch crawler, hidden endpoints, tokens or login capture.
+
+## Browser-assisted public page import (no added HTTP requests)
+
+The development helper `scripts/beatport-copy-public-jsonld.js` runs only
+when the user invokes it on a public **already open** Beatport track page.
+It reads standard `application/ld+json` data already present in the page,
+requires a single matching `MusicRecording` object, copies it in the bounded
+`@beatport-public-jsonld` format, and makes no further requests. Nothing
+is sent to a third party or persisted by the helper. No foobar writes occur.
+The user's action is then **Beatport (offline) > Import Beatport**.
+
+To experiment without extensions, paste the helper's JavaScript source into
+the browser console while viewing the public track page. Alternatively,
+prefix the complete single-line function with `javascript:` as the URL
+of a personally created bookmark. It is **not** a site-crawling service,
+and no background or batch mode exists.
+
+The structure actually embedded by Beatport is not yet verified: if
+`MusicRecording` JSON-LD is missing, ambiguous or inconsistent with the
+visible canonical URL, the helper refuses instead of scraping private
+JavaScript state, calling undocumented API endpoints, or guessing a mix.
+These failures are useful evidence for deciding on a qualified native
+single-page HTML/URL integration. The right to read public pages and the
+site's access policies must still be assessed for the intended use.
