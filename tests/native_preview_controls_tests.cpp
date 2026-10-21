@@ -511,6 +511,53 @@ int main() {
           (dialog_style & WS_THICKFRAME) != 0,
           "resizable production dialog supports native maximize/restore and clean clipping");
 
+    // Text baselines of both editable action rows share a single native
+    // layout routine. Exercise the actual font/resource HWNDs and verify that
+    // repeated recomputation and moving the entire dialog cannot accumulate
+    // displacement or send the input offscreen.
+    djmeta_foobar::align_native_preview_form(dialog);
+    const auto action_alignment = [&]() {
+        for (auto pair : {
+                std::pair{IDC_METADATA_MB_QUERY, IDC_METADATA_MB_SEARCH},
+                std::pair{IDC_METADATA_MANUAL_INPUT, IDC_METADATA_USE_VALUE}}) {
+            const RECT input = bounds_in_dialog(GetDlgItem(dialog,pair.first));
+            const RECT button = bounds_in_dialog(GetDlgItem(dialog,pair.second));
+            const int midpoint_delta = (input.top+input.bottom) -
+                                       (button.top+button.bottom);
+            check(midpoint_delta >= -6 && midpoint_delta <= 6 &&
+                  input.bottom-input.top <= button.bottom-button.top &&
+                  input.left >= 0 && input.right <= client.right &&
+                  input.top >= 0 && input.bottom <= client.bottom,
+                  "real font-measured Search and manual action rows align without clipping");
+        }
+    };
+    RECT move_before{};
+    check(GetWindowRect(dialog,&move_before)!=FALSE,"native placement for alignment test");
+    const RECT original_query_aligned=bounds_in_dialog(
+        GetDlgItem(dialog,IDC_METADATA_MB_QUERY));
+    const RECT original_manual_aligned=bounds_in_dialog(
+        GetDlgItem(dialog,IDC_METADATA_MANUAL_INPUT));
+    for (int n=0;n<6;++n) djmeta_foobar::align_native_preview_form(dialog);
+    action_alignment();
+    const RECT query_aligned_again=bounds_in_dialog(GetDlgItem(dialog,IDC_METADATA_MB_QUERY));
+    const RECT manual_aligned_again=bounds_in_dialog(GetDlgItem(dialog,IDC_METADATA_MANUAL_INPUT));
+    check(EqualRect(&original_query_aligned,&query_aligned_again)!=FALSE &&
+          EqualRect(&original_manual_aligned,&manual_aligned_again)!=FALSE,
+          "optical native edit alignment is idempotent");
+    check(SetWindowPos(dialog,nullptr,move_before.left+101,move_before.top+67,0,0,
+            SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE)!=FALSE,
+          "dialog can move before font alignment");
+    djmeta_foobar::align_native_preview_form(dialog);
+    action_alignment();
+    const RECT query_after_move=bounds_in_dialog(GetDlgItem(dialog,IDC_METADATA_MB_QUERY));
+    const RECT manual_after_move=bounds_in_dialog(GetDlgItem(dialog,IDC_METADATA_MANUAL_INPUT));
+    check(EqualRect(&original_query_aligned,&query_after_move)!=FALSE &&
+          EqualRect(&original_manual_aligned,&manual_after_move)!=FALSE,
+          "screen-to-client conversions do not move text actions after window relocation");
+    check(SetWindowPos(dialog,nullptr,move_before.left,move_before.top,0,0,
+            SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE)!=FALSE,
+          "dialog restores initial position after alignment test");
+
     HWND review_scope = GetDlgItem(dialog, IDC_METADATA_REVIEW_SCOPE);
     HWND manual = GetDlgItem(dialog, IDC_METADATA_MANUAL_INPUT);
     check(review_scope && manual &&

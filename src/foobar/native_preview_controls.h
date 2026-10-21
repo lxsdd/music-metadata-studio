@@ -483,9 +483,10 @@ inline const wchar_t* native_discogs_search_caption(
 // moving that tall box cannot align its glyphs with a themed button.
 // Size the field to the actual UI font plus bounded padding first, and
 // center the resulting edit *frame* against its adjacent action.
-inline bool align_native_search_field(HWND dialog) {
-    const HWND edit=GetDlgItem(dialog,IDC_METADATA_MB_QUERY);
-    const HWND button=GetDlgItem(dialog,IDC_METADATA_MB_SEARCH);
+inline bool align_native_edit_to_action(HWND dialog,
+                                        int edit_id, int button_id) {
+    const HWND edit=GetDlgItem(dialog,edit_id);
+    const HWND button=GetDlgItem(dialog,button_id);
     if (!edit || !button) return false;
     RECT field{}, action{};
     if (!GetWindowRect(edit,&field) || !GetWindowRect(button,&action))
@@ -512,6 +513,12 @@ inline bool align_native_search_field(HWND dialog) {
         field.right-field.left,height,SWP_NOZORDER|SWP_NOACTIVATE)!=FALSE;
 }
 
+// Keep the search field and its action aligned as one native toolbar.
+inline bool align_native_search_field(HWND dialog) {
+    return align_native_edit_to_action(
+        dialog,IDC_METADATA_MB_QUERY,IDC_METADATA_MB_SEARCH);
+}
+
 inline void align_native_preview_form(HWND dialog) {
     constexpr int rows[][2] = {
         {IDC_METADATA_FILTER_LABEL, IDC_METADATA_FILTER},
@@ -525,6 +532,11 @@ inline void align_native_preview_form(HWND dialog) {
     // Theme-dependent text in a standard EDIT normally sits slightly higher
     // than text in a PUSHBUTTON with the same outer frame height.
     align_native_search_field(dialog);
+    // The manual replacement EDIT is also a single-line native control.
+    // Use the same font-measured optical baseline as the Search EDIT so
+    // neither toolbar's value and action drift apart after a DPI resize.
+    align_native_edit_to_action(dialog, IDC_METADATA_MANUAL_INPUT,
+                                IDC_METADATA_USE_VALUE);
     // The combo RC height includes its dropdown; align *rcItem* with the
     // adjacent action buttons, not the full expanded list rectangle.
     align_native_action_row(dialog, IDC_METADATA_REVIEW_SCOPE,
