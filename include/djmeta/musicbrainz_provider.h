@@ -669,7 +669,10 @@ inline ReleaseEdition parse_release_lookup(std::string_view json,
         const auto append_valid=[](std::vector<std::string>& into,
                                    const std::string& value) {
             if (value.empty()) return;
-            if (value.size()>256 || !valid_utf8_metadata_text(value))
+            if (value.size()>256 || !valid_utf8_metadata_text(value) ||
+                std::any_of(value.begin(),value.end(),[](unsigned char c) {
+                    return c<0x20 || c==0x7f;
+                }))
                 throw std::invalid_argument("MusicBrainz edition label text invalid");
             if (std::find(into.begin(),into.end(),value)==into.end())
                 into.push_back(value);
