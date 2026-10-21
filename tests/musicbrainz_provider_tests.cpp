@@ -180,6 +180,29 @@ int main() {
     check(!valid_search_isrc("../bad-1234") &&
           recording_search_plan("Track","Artist","../bad-1234").attempts.size()==2,
           "invalid ISRC never submitted; query count bounded");
+    const std::string long_title(200,'T');
+    const auto long_isrc=recording_search_plan(
+        long_title,"Artist","USRC17607839");
+    check(long_isrc.attempts.size()==1 &&
+          long_isrc.attempts[0].label=="Exact ISRC identifier",
+          "overlong TITLE cannot suppress valid ISRC-only discovery");
+    rejects([&]{(void)recording_search_plan(long_title,"Artist");},
+            "overlong TITLE without valid ISRC has no unsafe broad fallback");
+    const auto hidden_title=recording_search_plan(
+        std::string("Track\\nHidden"),"Artist","USRC17607839");
+    check(hidden_title.attempts.size()==1 &&
+          hidden_title.attempts[0].label=="Exact ISRC identifier",
+          "hidden TITLE controls cannot be silently stripped into Lucene");
+    const auto long_remix_title=std::string(70,'X')+
+        " ("+std::string(95,'Y')+" Remix)";
+    const auto long_remix=recording_search_plan(long_remix_title,"Artist");
+    check(long_remix.core_title==std::string(70,'X') &&
+          long_remix.attempts.size()==2 &&
+          long_remix.attempts[0].path==make_search_path(
+              SearchKind::Recording,std::string(70,'X'),"Artist") &&
+          long_remix.attempts[1].path==make_search_path(
+              SearchKind::Recording,std::string(70,'X'),""),
+          "qualified main title remains searchable even when full remix suffix exceeds bound");
     const auto id_only=recording_search_plan("","Artist","usrc17607839");
     check(id_only.full_title.empty() && id_only.core_title.empty() &&
           id_only.attempts.size()==1 &&

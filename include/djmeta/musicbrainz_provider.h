@@ -472,42 +472,48 @@ inline RecordingSearchPlan recording_search_plan(
         add("Exact ISRC identifier", "/ws/2/recording?query="+
             encode_url_query("isrc:"+code)+"&fmt=json&limit=8");
     }
-    // A physical recording can carry a valid ISRC but no TITLE. Use its
-    // identifier as a single read-only discovery query rather than invent
-    // a broad/blank title search. Invalid or missing ISRC still fails closed.
-    if(p.core_title.empty()) {
+    // The original TITLE may be very long or include malformed/invisible
+    // bytes. Never send a lossy substring from an unsafe source. If its
+    // text is clean but merely overlong, a qualified shorter mix-core is
+    // still useful for read-only discovery. A valid ISRC is always allowed
+    // independently; an unqualified TITLE cannot cancel that lookup.
+    const bool clean_source_title=valid_utf8_metadata_text(full_title) &&
+        std::none_of(full_title.begin(),full_title.end(),[](unsigned char c) {
+            return c<0x20u || c==0x7fu;
+        });
+    const bool core_ok=clean_source_title && valid_search_term(p.core_title);
+    const bool full_ok=clean_source_title && valid_search_term(p.full_title);
+    if(!core_ok && !full_ok) {
         if(p.attempts.empty())
-            throw std::invalid_argument("A title or valid ISRC is required for discovery");
+            throw std::invalid_argument("A qualified title or valid ISRC is required for discovery");
         return p;
     }
+    const auto add_titles=[&](std::string_view who, std::string core_label,
+                              std::string full_label) {
+        if(core_ok) add(std::move(core_label),
+            make_search_path(SearchKind::Recording,p.core_title,who));
+        if(full_ok && (!core_ok || p.core_title!=p.full_title))
+            add(std::move(full_label),
+                make_search_path(SearchKind::Recording,p.full_title,who));
+    };
     if(valid_search_term(p.artist)) {
-        add(p.full_title==p.core_title ?
-            "Original title + artist" : "Main title + artist (version kept for review)",
-            make_search_path(SearchKind::Recording,p.core_title,p.artist));
-        if(p.core_title!=p.full_title)
-            add("Full title + artist",make_search_path(
-                SearchKind::Recording,p.full_title,p.artist));
+        add_titles(p.artist,
+            p.full_title==p.core_title ? "Original title + artist" :
+                "Main title + artist (version kept for review)",
+            "Full title + artist");
     }
-    // MusicBrainz may credit collaborators as separate artists or with
-    // different join phrases. Try the lead credit as another explicit,
-    // bounded request BEFORE falling back to title-only; never mark that
-    // result as an artist match or silently approve metadata.
+    // Collaboration fallbacks are strictly discovery-only, never approvals.
     const auto lead=lead_credit_search_artist(p.artist);
     if(!lead.empty() && lead!=p.artist && valid_search_term(lead)) {
-        add(p.full_title==p.core_title ?
-            "Original title + lead credited artist" :
-            "Main title + lead credited artist (identity review)",
-            make_search_path(SearchKind::Recording,p.core_title,lead));
-        if(p.core_title!=p.full_title)
-            add("Full title + lead credited artist (identity review)",
-                make_search_path(SearchKind::Recording,p.full_title,lead));
+        add_titles(lead,
+            p.full_title==p.core_title ? "Original title + lead credited artist" :
+                "Main title + lead credited artist (identity review)",
+            "Full title + lead credited artist (identity review)");
     }
-    add(p.full_title==p.core_title ? "Title only" :
-        "Main title only (version kept for review)",
-        make_search_path(SearchKind::Recording,p.core_title,""));
-    if(p.core_title!=p.full_title)
-        add("Full title only",make_search_path(
-            SearchKind::Recording,p.full_title,""));
+    add_titles("",
+        p.full_title==p.core_title ? "Title only" :
+            "Main title only (version kept for review)",
+        "Full title only");
     return p;
 }
 
