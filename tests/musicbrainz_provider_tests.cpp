@@ -90,6 +90,22 @@ int main() {
     check(!valid_search_isrc("../bad-1234") &&
           recording_search_plan("Track","Artist","../bad-1234").attempts.size()==2,
           "invalid ISRC never submitted; query count bounded");
+    const auto id_only=recording_search_plan("","Artist","usrc17607839");
+    check(id_only.full_title.empty() && id_only.core_title.empty() &&
+          id_only.attempts.size()==1 &&
+          id_only.attempts[0].label=="Exact ISRC identifier" &&
+          id_only.attempts[0].path.find("isrc%3AUSRC17607839")!=std::string::npos,
+          "missing TITLE with valid ISRC searches identifier only, without a broad artist query");
+    const auto whitespace_title=recording_search_plan(" \t","Artist","USRC17607839");
+    check(whitespace_title.attempts.size()==1 &&
+          whitespace_title.attempts[0].path==id_only.attempts[0].path,
+          "blank TITLE whitespace cannot create an unconstrained provider search");
+    rejects([]{(void)recording_search_plan("","Artist","");},
+            "missing title and missing identifier are rejected");
+    rejects([]{(void)recording_search_plan("","Artist","../bad-1234");},
+            "invalid ISRC does not bypass empty-title denial");
+    rejects([]{(void)recording_search_plan(" \t","Artist","");},
+            "whitespace-only title with no identifier remains invalid");
     check(recording_identity_label("What Time Is Love (Original Version)","The KLF",
           "What Time Is Love?","The KLF")=="Version review" &&
           recording_identity_label("What Time Is Love (Original Version)","The KLF",

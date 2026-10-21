@@ -397,6 +397,14 @@ inline RecordingSearchPlan recording_search_plan(
         add("Exact ISRC identifier", "/ws/2/recording?query="+
             encode_url_query("isrc:"+code)+"&fmt=json&limit=8");
     }
+    // A physical recording can carry a valid ISRC but no TITLE. Use its
+    // identifier as a single read-only discovery query rather than invent
+    // a broad/blank title search. Invalid or missing ISRC still fails closed.
+    if(p.core_title.empty()) {
+        if(p.attempts.empty())
+            throw std::invalid_argument("A title or valid ISRC is required for discovery");
+        return p;
+    }
     if(!p.artist.empty()) {
         add(p.full_title==p.core_title ?
             "Original title + artist" : "Main title + artist (version kept for review)",
