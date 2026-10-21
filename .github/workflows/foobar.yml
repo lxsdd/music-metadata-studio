@@ -91,7 +91,7 @@ jobs:
           component-dll: out/foobar/${{ matrix.platform }}/Release/foo_music_metadata_studio.dll
           context-command: 'Music Metadata Studio/Prepare Tracks (Preview)...'
           expected-window-title: 'Music Metadata Studio - Prepare Tracks (Read-only)'
-          required-control-ids: '270,273,271,291,292,293,294,299'
+          required-control-ids: '270,273,271,291,292,293,294,299,303,304,305'
           offline-clipboard-test: |
             @provider=discogs
             @id=release:123456
@@ -161,7 +161,7 @@ jobs:
           component-dll: out/foobar/${{ matrix.platform }}/Release/foo_music_metadata_studio.dll
           context-command: 'Music Metadata Studio/Prepare Tracks (Preview)...'
           expected-window-title: 'Music Metadata Studio - Prepare Tracks (Read-only)'
-          required-control-ids: '270,273,271,291,292,293,294,299,301'
+          required-control-ids: '270,273,271,291,292,293,294,299,301,303,304,305'
           authorized-discogs-probe: 'true'
           authorized-discogs-full-artist-probe: ${{ inputs.discogs_release_id == '37332711' && 'true' || 'false' }}
           discogs-release-id: ${{ inputs.discogs_release_id }}

@@ -26,6 +26,8 @@
 #include "djmeta/cue_manual_preview.h"
 #include "djmeta/musicbrainz_provider.h"
 #include "djmeta/musicbrainz_search_review.h"
+#include "djmeta/online_field_staging.h"
+#include "djmeta/online_field_ui_selection.h"
 #include "djmeta/discogs_provider.h"
 #include "djmeta/cue_release_review.h"
 #include "djmeta/cue_original_inventory.h"
@@ -178,6 +180,14 @@ struct PreviewState {
     std::string discogs_result_strategy;
     std::size_t discogs_result_attempt_index=0,discogs_result_attempt_total=0;
     std::optional<djmeta::online::ReleaseEdition> discogs_direct_edition;
+    // The only online field selections eligible for a detached preview:
+    // exact, API-verified Discogs EDITION and a qualified PHYSICAL file.
+    // Never enables a generic writer or virtual-CUE carrier.
+    std::optional<djmeta::online::ReleaseEdition> online_physical_edition;
+    std::optional<djmeta::online::OnlineFieldReviewSnapshot> online_field_snapshot;
+    std::optional<djmeta::online::OnlineFieldStagedPreview> online_field_preview;
+    std::vector<std::size_t> online_included_fields;
+    std::size_t online_edition_source=(std::numeric_limits<std::size_t>::max)();
     std::vector<std::vector<djmeta::online::FieldReviewRow>> musicbrainz_detail_groups;
     std::string musicbrainz_original_title;
     std::string musicbrainz_original_artist;
@@ -1052,6 +1062,42 @@ void layout_musicbrainz_detail_pane(PreviewState& state) {
             (std::max)(44,(width-8)*widths[i]/100));
 }
 
+// Separate the exact-edition physical lane from MusicBrainz CUE browsing,
+// unverified clipboard results and Discogs search snippets. The field choices
+// exist only in this in-memory HWND and have no writer access.
+bool qualified_online_field_preview(const PreviewState& state) {
+    if (!state.dialog || !state.show_candidate ||
+        !state.discogs_provider_selected || !state.discogs_live_view ||
+        !state.musicbrainz_live_view || !state.musicbrainz_release_loaded ||
+        state.stale || state.refreshing ||
+        state.discogs_request || state.musicbrainz_request ||
+        !state.online_physical_edition || !state.online_field_snapshot ||
+        state.selected_track_index!=state.candidate_source_index ||
+        state.selected_track_index!=state.online_edition_source ||
+        state.selected_track_index>=state.entries.size())
+        return false;
+    const auto& entry=state.entries[state.selected_track_index];
+    return entry.input.physical_source_qualified &&
+           entry.handle->get_subsong_index()==0 &&
+           !is_external_cue_locator(entry.input.source_path) &&
+           state.online_physical_edition->provider=="discogs" &&
+           !state.online_physical_edition->edition_id.empty();
+}
+
+void update_online_field_preview_controls(PreviewState& state) {
+    if(!state.dialog) return;
+    const bool ready=qualified_online_field_preview(state);
+    for(int id:{IDC_ONLINE_INCLUDE_FIELDS,IDC_ONLINE_IGNORE_FIELDS,
+                IDC_ONLINE_RESET_FIELDS}) {
+        ShowWindow(GetDlgItem(state.dialog,id),ready?SW_SHOW:SW_HIDE);
+        EnableWindow(GetDlgItem(state.dialog,id),ready?TRUE:FALSE);
+    }
+    // Inspect release and the dedicated field-preview reset share a physical
+    // row only when the latter is NOT active; never overlap visible actions.
+    ShowWindow(GetDlgItem(state.dialog,IDC_METADATA_MB_LOAD_RELEASE),
+        state.show_candidate && !ready?SW_SHOW:SW_HIDE);
+}
+
 void refresh_musicbrainz_detail_rows(PreviewState& state) {
     if (!state.musicbrainz_details) return;
     ListView_DeleteAllItems(state.musicbrainz_details);
@@ -1072,6 +1118,15 @@ void refresh_musicbrainz_detail_rows(PreviewState& state) {
         const auto original=show_field_values(row.original_values);
         const bool local_original=djmeta::online::is_local_physical_original(row);
         const bool local_cue=djmeta::online::is_local_cue_inventory(row);
+        bool included=false;
+        if (qualified_online_field_preview(state)) {
+            const auto field_index=djmeta::online::physical_discogs_edition_field_index(
+                *state.online_physical_edition,row);
+            included=field_index && std::find(
+                state.online_included_fields.begin(),
+                state.online_included_fields.end(),*field_index)!=
+                    state.online_included_fields.end();
+        }
         const auto proposed=(local_original || local_cue)
             ? L"(not supplied)" : show_field_values(row.candidate.values);
         const std::wstring status=row.reason=="local_physical_inventory_overflow"
@@ -1081,6 +1136,7 @@ void refresh_musicbrainz_detail_rows(PreviewState& state) {
                 ? L"Suggested identity only" : L"Not safely matched") :
             local_original ? L"Keep original" :
             local_cue ? L"Keep original CUE" :
+            included ? L"Included (preview)" :
             row.reason=="musicbrainz_live_search_edition_date_display_only"
                 ? L"Edition date only" :
             row.reason=="musicbrainz_live_search_isrc_identity_only"
@@ -1176,10 +1232,12 @@ void update_online_release_load_button(PreviewState& state) {
         selected_identity,exact_ids);
     EnableWindow(GetDlgItem(state.dialog,IDC_METADATA_MB_LOAD_RELEASE),
                  ready?TRUE:FALSE);
+    update_online_field_preview_controls(state);
 }
 
 void update_metadata_table(PreviewState& state) {
     if (state.show_candidate) {
+        update_online_field_preview_controls(state);
         // Candidate counts describe result identities, not field-change rows.
         // Update headers when entering live search, not just on tab switch.
         const wchar_t* candidate_headers[3]={
@@ -1544,6 +1602,7 @@ void show_preview_page(HWND dialog, PreviewState& state,
     update_live_provider_controls(state); // also gates search page navigation
     ShowWindow(GetDlgItem(dialog, IDC_METADATA_MB_LOAD_RELEASE),
         candidate ? SW_SHOW : SW_HIDE);
+    update_online_field_preview_controls(state);
     layout_musicbrainz_detail_pane(state);
     update_musicbrainz_browse_headers(state);
     const wchar_t* headers[2] = {
@@ -2484,6 +2543,8 @@ void mark_stale_workspace(PreviewState& state) {
                    IDC_BATCH_APPLY_SELECTED, IDC_BATCH_APPLY_ALL,
                    IDC_METADATA_MB_SEARCH, IDC_METADATA_MB_LOAD_RELEASE,
                    IDC_METADATA_DISCOGS_NEXT_PAGE,
+                   IDC_ONLINE_INCLUDE_FIELDS,IDC_ONLINE_IGNORE_FIELDS,
+                   IDC_ONLINE_RESET_FIELDS,
                    IDC_METADATA_INSPECT_CUE, IDC_METADATA_IMPORT_CANDIDATE})
         EnableWindow(GetDlgItem(state.dialog,id), FALSE);
     SetWindowTextW(state.dialog,L"Music Metadata Studio - STALE snapshot (Read-only)");
@@ -2700,6 +2761,9 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_METADATA_MB_SEARCH,L"One deliberate official HTTPS lookup; bounded zero-hit stages broaden with pacing. No tag writes."},
         {IDC_METADATA_DISCOGS_NEXT_PAGE,L"Explicitly load ONE more page of the same official Discogs query. Never a match or write approval."},
         {IDC_METADATA_MB_LOAD_RELEASE,L"Inspect a verified exact release; unmatched Discogs track credits remain blocked."},
+        {IDC_ONLINE_INCLUDE_FIELDS,L"Include highlighted album fields of this exact Discogs edition in a detached in-memory physical tag preview. No files are changed."},
+        {IDC_ONLINE_IGNORE_FIELDS,L"Remove highlighted edition fields from the in-memory preview. Existing tags remain intact."},
+        {IDC_ONLINE_RESET_FIELDS,L"Clear every included online field for this exact edition. Does not modify any file or saved metadata."},
         {IDC_METADATA_INSPECT_CUE,L"Read the source CUE and show its album/track fields. Embedded and external CUE are never written here."},
         {IDC_METADATA_IMPORT_CANDIDATE,L"Import manual facts with @beatport-track-facts or lawfully supplied @beatport-track-json. Offline, unverified, read-only; requires physical match."},
         {IDC_METADATA_LIST,L"Select a candidate or proposed change to inspect its source and status."},
@@ -3298,6 +3362,22 @@ void publish_discogs_release(HWND dialog, PreviewState& state,
     auto grouped=group_musicbrainz_release_rows(flat);
     verify_online_source_snapshot(state, entry);
     verify_rules_snapshot(state.captured_rules);
+    // Store verified immutable field evidence, but ONLY for qualified
+    // physical sources. A Discogs CUE release still has full read-only
+    // comparison, and can never use the physical online staging controls.
+    std::optional<djmeta::online::OnlineFieldReviewSnapshot> physical_review;
+    if(!cue && entry.input.physical_source_qualified &&
+       entry.handle->get_subsong_index()==0)
+        physical_review=djmeta::online::capture_online_field_review(
+            originals,edition.fields,true,true);
+    state.online_physical_edition=physical_review
+        ? std::optional<djmeta::online::ReleaseEdition>{edition}
+        : std::nullopt;
+    state.online_field_snapshot=std::move(physical_review);
+    state.online_included_fields.clear();
+    state.online_field_preview.reset();
+    state.online_edition_source=state.online_physical_edition
+        ? request.source_index:(std::numeric_limits<std::size_t>::max)();
     state.candidate_rows=std::move(grouped.summary);
     state.musicbrainz_detail_groups=std::move(grouped.detail);
     state.musicbrainz_release_loaded=true;
@@ -3524,6 +3604,67 @@ void consume_musicbrainz_network(HWND dialog, PreviewState& state) {
         update_metadata_table(state);
         SetDlgItemTextW(dialog,IDC_BATCH_HINT,state.search_attempt_notice.c_str());
     }
+}
+
+void change_online_field_preview(PreviewState& state,int action) {
+    if(!qualified_online_field_preview(state))
+        throw std::invalid_argument(
+            "Load a verified exact Discogs edition for a physical audio file first.");
+    const auto& entry=state.entries[state.selected_track_index];
+    verify_online_source_snapshot(state,entry);
+    verify_rules_snapshot(state.captured_rules);
+    const auto info=entry.handle->get_info_ref();
+    const auto current=metadata_from_file_info(info->info());
+
+    std::set<std::size_t> included(state.online_included_fields.begin(),
+                                   state.online_included_fields.end());
+    if(action==IDC_ONLINE_RESET_FIELDS) {
+        included.clear();
+    } else {
+        const int active=ListView_GetNextItem(state.metadata_list,-1,LVNI_SELECTED);
+        if(active<0 || static_cast<std::size_t>(active)>=
+                state.candidate_view_order.size())
+            throw std::invalid_argument("Choose an exact edition field group first.");
+        const auto group=state.candidate_view_order[static_cast<std::size_t>(active)];
+        if(group>=state.musicbrainz_detail_groups.size())
+            throw std::invalid_argument("Edition detail group expired.");
+        const auto& rows=state.musicbrainz_detail_groups[group];
+        int row=-1;
+        std::size_t selected_count=0;
+        while((row=ListView_GetNextItem(
+                state.musicbrainz_details,row,LVNI_SELECTED))>=0) {
+            if(static_cast<std::size_t>(row)>=rows.size() || row>=1024)
+                throw std::invalid_argument("Visible edition field index expired.");
+            const auto index=djmeta::online::physical_discogs_edition_field_index(
+                *state.online_physical_edition,rows[static_cast<std::size_t>(row)]);
+            if(!index)
+                throw std::invalid_argument(
+                    "Only verified album fields may be included. Search snippets, "
+                    "CUE fields, blocked matches and local-only tags are not eligible.");
+            if(action==IDC_ONLINE_INCLUDE_FIELDS) included.insert(*index);
+            else included.erase(*index);
+            ++selected_count;
+        }
+        if(!selected_count)
+            throw std::invalid_argument(
+                "Highlight one or more fields in the lower comparison table first.");
+    }
+    const std::vector<std::size_t> proposed(included.begin(),included.end());
+    // Recompute the ENTIRE projection against the immutable physical snapshot
+    // before committing any in-memory selection. An exception leaves all
+    // previous selections and the original untouched.
+    auto projected=djmeta::online::stage_selected_online_fields(
+        *state.online_field_snapshot,current,proposed);
+    state.online_included_fields=proposed;
+    state.online_field_preview=std::move(projected);
+    refresh_musicbrainz_detail_rows(state);
+    const auto& result=*state.online_field_preview;
+    const std::wstring notice=L"Online tag preview: "+
+        std::to_wstring(state.online_included_fields.size())+
+        L" selected, "+std::to_wstring(result.explicitly_changed)+
+        L" proposed changes, "+std::to_wstring(result.exact_noops)+
+        L" no-ops. No tags, CUE or music files were written.";
+    SetDlgItemTextW(state.dialog,IDC_BATCH_HINT,notice.c_str());
 }
 
 INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
@@ -3874,8 +4015,14 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             const auto* changed = reinterpret_cast<const NMLISTVIEW*>(lp);
             if (const auto track = native_selected_track_change(
                     *changed, state->track_view_order, state->updating_track_selection)) {
-                if(*track!=state->selected_track_index)
+                if(*track!=state->selected_track_index) {
                     invalidate_online_request(*state);
+                    state->online_included_fields.clear();
+                    state->online_field_preview.reset();
+                    state->online_physical_edition.reset();
+                    state->online_field_snapshot.reset();
+                    state->online_edition_source=(std::numeric_limits<std::size_t>::max)();
+                }
                 state->selected_track_index = *track;
                 // Ordinary selection must not override manually typed terms.
                 // Only a deliberate track activation (double-click/Enter)
@@ -4319,6 +4466,11 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             state->discogs_master_id=0;
             state->discogs_master_page=state->discogs_master_pages=0;
             state->discogs_direct_edition.reset();
+            state->online_physical_edition.reset();
+            state->online_field_snapshot.reset();
+            state->online_field_preview.reset();
+            state->online_included_fields.clear();
+            state->online_edition_source=(std::numeric_limits<std::size_t>::max)();
             state->musicbrainz_results.clear();
             state->musicbrainz_detail_groups.clear();
             state->candidate_rows.clear();
@@ -4341,6 +4493,11 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         }
         if (id == IDC_BATCH_HELP && HIWORD(wp) == BN_CLICKED) {
             show_workspace_help(dialog);
+            return TRUE;
+        }
+        if ((id==IDC_ONLINE_INCLUDE_FIELDS || id==IDC_ONLINE_IGNORE_FIELDS ||
+             id==IDC_ONLINE_RESET_FIELDS) && HIWORD(wp)==BN_CLICKED) {
+            change_online_field_preview(*state,id);
             return TRUE;
         }
         const bool consequential = native_command == PreviewCommand::Accept ||

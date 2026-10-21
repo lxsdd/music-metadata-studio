@@ -561,6 +561,29 @@ int main() {
             SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE)!=FALSE,
           "dialog restores initial position after alignment test");
 
+    // Three read-only online field decisions are physically separate from
+    // the native Close button, and have actual resource-backed HWNDs.
+    RECT previous_action{};
+    bool first_online_action=true;
+    for (const int id:{IDC_ONLINE_INCLUDE_FIELDS,IDC_ONLINE_IGNORE_FIELDS,
+                       IDC_ONLINE_RESET_FIELDS}) {
+        const HWND button=GetDlgItem(dialog,id);
+        check(button!=nullptr,"exact-edition native preview action exists");
+        const RECT bounds=bounds_in_dialog(button);
+        check(bounds.left>=0 && bounds.right<=client.right &&
+              bounds.top>=0 && bounds.bottom<=client.bottom,
+              "field preview action fits the minimum native dialog");
+        if(!first_online_action)
+            check(previous_action.right+3<=bounds.left &&
+                  previous_action.top==bounds.top,
+                  "field preview controls have no overlap or row drift");
+        previous_action=bounds;
+        first_online_action=false;
+    }
+    const RECT close_online=bounds_in_dialog(GetDlgItem(dialog,IDCANCEL));
+    check(previous_action.right+3<=close_online.left,
+          "reset online preview never overlaps Close");
+
     HWND review_scope = GetDlgItem(dialog, IDC_METADATA_REVIEW_SCOPE);
     HWND manual = GetDlgItem(dialog, IDC_METADATA_MANUAL_INPUT);
     check(review_scope && manual &&
