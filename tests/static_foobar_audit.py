@@ -783,6 +783,22 @@ if workflow.count(
 # An external .cue selected as a virtual foobar subsong must still retain
 # a physical *read-only* carrier guard. This is independent of its status
 # as an ineligible physical audio/tag/CUE write target.
+# An explicit double-click/Return on a master track must actually search
+# MusicBrainz even when originating from Review/File locations, and must use
+# the same one-shot guarded handler as the visible Search button.
+track_activation = batch_rules_guard.split(
+    "if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&\\n"
+    "            (header->code == NM_DBLCLK || header->code == LVN_KEYDOWN)) {", 1)[1].split(
+    "if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&\\n"
+    "            header->code == LVN_GETDISPINFOW)", 1)[0]
+if (
+    "prefill_musicbrainz_query(*state,true);" not in track_activation
+    or track_activation.count("MAKEWPARAM(IDC_METADATA_MB_SEARCH,BN_CLICKED)") != 1
+    or "already_searching" in track_activation
+    or "header->code == LVN_ITEMACTIVATE" in track_activation
+):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: track activation must search exactly once from every tab")
+
 # External-CUE inventories may involve slow multi-FILE source probes. All
 # distinct references must be rechecked together after the initial scan and
 # before publishing even advisory PRESENT/MISSING/ALIAS labels.
