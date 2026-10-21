@@ -200,6 +200,15 @@ int main() {
           recording_identity_label("Track","Artist","Track","Other Artist")==
               "Artist differs",
           "title equality never invents artist confirmation for incomplete metadata");
+    check(recording_identity_label("Track","","Different Song","Artist")==
+              "Identity review" &&
+          recording_identity_label("","", "Candidate Title","Artist")==
+              "Identity review" &&
+          recording_identity_label("Track (Extended Mix)","","Track","Artist")==
+              "Version and artist review" &&
+          recording_identity_label("Track","Artist","Track (Extended Mix)","")==
+              "Version and artist review",
+          "unknown artist never hides missing, unrelated or changed recording title");
     check(recording_identity_label("What Time Is Love (Original Version)","The KLF",
           "What Time Is Love?","The KLF")=="Version review" &&
           recording_identity_label("What Time Is Love (Original Version)","The KLF",

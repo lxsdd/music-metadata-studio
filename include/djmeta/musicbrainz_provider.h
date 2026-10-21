@@ -533,20 +533,20 @@ inline std::string recording_identity_label(std::string_view source_title,
     std::string_view candidate_artist) {
     const auto artist=comparable_search_key(source_artist);
     const auto matched_artist=comparable_search_key(candidate_artist);
-    // Equal titles are NOT "Title+artist" evidence when either source or
-    // provider lacks an artist. This is particularly important for records
-    // being searched precisely because their original tags are incomplete.
-    if(artist.empty() || matched_artist.empty())
-        return "Artist unverified";
-    if(artist!=matched_artist)
+    // An absent local TITLE or ARTIST must not masquerade as confirmation:
+    // distinguish exact-title/artist-unknown from version differences and
+    // unrelated candidates. None of these labels is write authorization.
+    const bool artist_verified=!artist.empty() && !matched_artist.empty();
+    if(artist_verified && artist!=matched_artist)
         return "Artist differs";
     const auto full=comparable_search_key(source_title);
     const auto match=comparable_search_key(candidate_title);
-    if(full==match && !full.empty()) return "Title+artist";
+    if(full==match && !full.empty())
+        return artist_verified ? "Title+artist" : "Artist unverified";
     const auto core=comparable_search_key(search_title_core(source_title));
     const auto candidate_core=comparable_search_key(search_title_core(candidate_title));
     if(!core.empty() && core==candidate_core)
-        return "Version review";
+        return artist_verified ? "Version review" : "Version and artist review";
     return "Identity review";
 }
 
