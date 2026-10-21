@@ -1,4 +1,5 @@
 #include "djmeta/beatport_provider.h"
+#include "djmeta/crates_browser_bridge.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -33,6 +34,33 @@ int main() {
     using namespace djmeta::online;
     using namespace djmeta::online::beatport;
 
+    const auto local_crates=prepare_crates_browser_search(
+        "Home (Extended Mix)","DJ Example");
+    check(local_crates.search_text=="DJ Example Home (Extended Mix)" &&
+          local_crates.browser_url=="https://crates.co/",
+          "Crates search retains exact mix while revealing no tag values in URL");
+    const MetadataDocument crates_document{{{"TITLE",{"Home (Extended Mix)"}},
+        {"ARTIST",{"DJ Example"}},{"DATE",{"2026-10-16"}},
+        {"CUESHEET",{"DO NOT COPY"}},{"BEATPORT_TOKEN",{"NEVER COPY"}}}};
+    check(prepare_crates_browser_search(crates_document).search_text==
+              "DJ Example Home (Extended Mix)",
+          "Crates bridge excludes paths, secrets and unrelated original tags");
+    check(prepare_crates_browser_search(MetadataDocument{{
+        {"TITLE",{"Together (Extended Mix)"}},
+        {"ARTIST",{"DJ A","DJ B"}}}}).search_text==
+              "Together (Extended Mix)",
+          "multivalued artist credits remain untouched and no primary artist is invented");
+    check(prepare_crates_browser_search("Home",std::string(149,'A')).search_text==
+              "Home",
+          "oversize joint search safely preserves the original full title");
+    refuses([]{(void)prepare_crates_browser_search(
+        "Track\nInjected","DJ");},"Crates search refuses control-bearing tags");
+    refuses([]{(void)prepare_crates_browser_search(
+        MetadataDocument{{{"TITLE",{"Home"}},{"TITLE",{"Other"}}}});},
+        "Crates search rejects ambiguous physical TITLE");
+    refuses([]{(void)prepare_crates_browser_search(
+        MetadataDocument{{{"ARTIST",{"Example"}}}});},
+        "Crates search refuses to invent missing local track titles");
     check(search_path("Artist & Song (Extended Mix)") ==
           "/v4/catalog/search/?q=Artist%20%26%20Song%20%28Extended%20Mix%29"
           "&type=tracks&per_page=20&page=1" &&
