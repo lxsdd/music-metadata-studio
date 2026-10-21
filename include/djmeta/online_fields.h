@@ -217,8 +217,14 @@ inline std::vector<FieldReviewRow> review_online_fields(
             rows.push_back(std::move(row));
             continue;
         }
-        if ((name == "DATE" || name == "DATE_RAW") &&
-            evidence.date_meaning == DateMeaning::NotDate) {
+        // Every physical date-like tag must carry a known temporal meaning.
+        // A provider cannot disguise an untyped RELEASEDATE as a safe value,
+        // nor smuggle a claimed original date into a non-date target.
+        const bool date_name=name=="DATE" || name=="DATE_RAW" ||
+            name=="ORIGINALDATE" || name=="RELEASEDATE" ||
+            name=="PUBLISHDATE";
+        if (date_name !=
+            (evidence.date_meaning!=DateMeaning::NotDate)) {
             row.reason = "unknown_date_semantics";
             rows.push_back(std::move(row));
             continue;

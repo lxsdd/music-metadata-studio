@@ -74,6 +74,20 @@ int main() {
           rows[9].candidate.values.size() == 2,
           "unknown future custom fields and multivalue inputs remain visible");
 
+    const auto typed_date_guard=review_online_fields(original,{
+        {"RELEASEDATE",{"2026-10-21"},"discogs","release:100"},
+        {"ORIGINALDATE",{"1998"},"discogs","master:4343"},
+        {"GENRE",{"2005"},"discogs","master:4343",
+         EvidenceScope::Release,DateMeaning::OriginalRelease},
+        {"ORIGINALDATE",{"1998"},"discogs","master:4343",
+         EvidenceScope::Release,DateMeaning::OriginalRelease}
+    });
+    check(typed_date_guard[0].state==FieldReviewState::Blocked &&
+          typed_date_guard[1].state==FieldReviewState::Blocked &&
+          typed_date_guard[2].state==FieldReviewState::Blocked &&
+          typed_date_guard[3].state==FieldReviewState::NeedsReview,
+          "untyped release/original dates and date-masquerading nondate fields fail closed");
+
     const MetadataDocument duplicate{{{"TITLE", {"a"}}, {"title", {"b"}}}};
     const auto duplicates = review_online_fields(
         duplicate, {{"title", {"c"}, "deezer", "track:3"}});

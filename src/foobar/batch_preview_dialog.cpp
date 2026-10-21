@@ -853,6 +853,7 @@ MusicBrainzBrowseRows group_musicbrainz_release_rows(
         auto& summary=out.summary.back();
         if (row.field.ends_with(" / TITLE") ||
             row.field.ends_with(" / ALBUM") ||
+            row.field=="Discogs Master / DATE" ||
             (summary.candidate.values.empty() &&
              row.field.ends_with(" / PERFORMER"))) {
             summary.original_values=row.original_values;
