@@ -93,8 +93,8 @@ if "invalidate_online_request(*state);\n            refresh_workspace_snapshot(*
 # Search and release completion for BOTH providers must reject context
 # mutations even if the visible query returns to the original text.
 if batch_rules_guard.count(
-        "state.online_context_version.matches(request.context_version)") != 5:
-    raise SystemExit("STATIC FOOBAR AUDIT FAIL: five provider epoch gates required (including public-page gate)")
+        "state.online_context_version.matches(request.context_version)") != 4:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: four official-provider epoch gates required; public page has its own ctx guard")
 for token in ("HIWORD(wp)==EN_CHANGE",
               "invalidate_online_request(*state)",
               "state.online_context_version.invalidate()",
@@ -569,8 +569,8 @@ for token in ("@beatport-track-json", "parse_track_object(root)",
             raise SystemExit("STATIC FOOBAR AUDIT FAIL: manual Beatport origin guard missing")
     elif token not in beatport_manual:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: manual Beatport safety missing: " + token)
-if "fetch_beatport" in batch_table_dialog:
-    raise SystemExit("STATIC FOOBAR AUDIT FAIL: unauthorized Beatport network client")
+if "fetch_beatport_json(" in batch_table_dialog or "begin_beatport_network(" in batch_table_dialog:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: unlicensed Beatport catalog API client")
 
 # Explicit trusted-host read-only transport is permitted; generic web scraping
 # or transport in core is NOT. Do not overfit the previous offline-only policy.
