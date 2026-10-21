@@ -794,6 +794,10 @@ if not (
     and "probe_host_file_readonly(candidate_path)" in cue_inventory
     and "stable_raw_target_observation(earlier, latest)" in cue_inventory
     and "External CUE FILE dependency changed during read-only inspection." in cue_inventory
+    and "observed.host_physical_key == original.host_physical_key" in cue_inventory
+    and "NOT QUALIFIED: FILE resolves to the CUE carrier itself" in cue_inventory
+    and cue_inventory.index("observed.host_physical_key == original.host_physical_key") <
+        cue_inventory.index("observed_ids.insert(observed.host_physical_key)")
     and cue_inventory.index("stable_raw_target_observation(earlier, latest)") <
         cue_inventory.index("const auto current = probe_host_file_readonly(entry.input.source_path);")
 ):
