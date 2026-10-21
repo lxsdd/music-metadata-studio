@@ -824,7 +824,7 @@ for token in (
     "FB2K_DISCOGS_QA_TOKEN:",
     "secrets.MMS_DISCOGS_QA_TOKEN",
     "authorized-discogs-probe: 'true'",
-    "authorized-discogs-full-artist-probe: 'true'",
+    "authorized-discogs-full-artist-probe: ${{ inputs.discogs_release_id == '37332711' && 'true' || 'false' }}",
 ):
     if token not in protected_job:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing protected live QA guard: " + token)

@@ -163,7 +163,7 @@ jobs:
           expected-window-title: 'Music Metadata Studio - Prepare Tracks (Read-only)'
           required-control-ids: '270,273,271,291,292,293,294,299,301'
           authorized-discogs-probe: 'true'
-          authorized-discogs-full-artist-probe: 'true'
+          authorized-discogs-full-artist-probe: ${{ inputs.discogs_release_id == '37332711' && 'true' || 'false' }}
           discogs-release-id: ${{ inputs.discogs_release_id }}
 
   # Internal PRs may publish short-lived QA artifacts, never GitHub Releases.
