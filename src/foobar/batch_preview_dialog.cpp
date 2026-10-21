@@ -2635,7 +2635,7 @@ void install_workspace_tooltips(PreviewState& state) {
     static constexpr HelpText texts[] = {
         {IDC_BATCH_TABS,L"1. Search online and compare. 2. Review local rule-based suggestions. 3. Preview file locations. These previews do not write files."},
         {IDC_BATCH_GUIDE,L"Follow the steps from left to right. A MusicBrainz match is evidence, not an approved tag edit."},
-        {IDC_METADATA_TRACK_LIST,L"Choose a track. Double-click in Find to search online; double-click in Review to switch to Find."},
+        {IDC_METADATA_TRACK_LIST,L"Choose a track. Double-click or press Enter to search MusicBrainz from any tab (read-only)."},
         {IDC_METADATA_MB_QUERY,L"TITLE, album or official Discogs release/master URL. Master editions: page 1 only. No automatic network calls."},
         {IDC_METADATA_ONLINE_PROVIDER,L"Select MusicBrainz (free read-only) or Discogs (your authorized personal token required)."},
         {IDC_METADATA_DISCOGS_TOKEN_LABEL,L"Discogs token only lives in this password control."},
@@ -3735,21 +3735,16 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             invalidate_online_request(*state);
             state->selected_track_index =
                 state->track_view_order[static_cast<std::size_t>(row)];
-            const bool already_searching = state->show_candidate;
             TabCtrl_SetCurSel(state->tabs,0);
             show_preview_page(dialog,*state,true,true);
             prefill_musicbrainz_query(*state,true);
-            if (already_searching) {
-                // Double-click on Search tab is a deliberate explicit online action.
-                // Reuse the button path with all existing source/rules/rate-limit gates.
-                SendMessageW(dialog,WM_COMMAND,
-                    MAKEWPARAM(IDC_METADATA_MB_SEARCH,BN_CLICKED),
-                    reinterpret_cast<LPARAM>(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH)));
-            } else {
-                // On other tabs, first open search without unexpected network I/O.
-                SetFocus(GetDlgItem(dialog,IDC_METADATA_MB_QUERY));
-                SendDlgItemMessageW(dialog,IDC_METADATA_MB_QUERY,EM_SETSEL,0,-1);
-            }
+            // Double-click/Return on a track is an explicit request to
+            // search, regardless of the tab where the gesture occurred.
+            // Reuse the native button's complete validation/rate-limit path
+            // exactly once; ordinary selection never starts network I/O.
+            SendMessageW(dialog,WM_COMMAND,
+                MAKEWPARAM(IDC_METADATA_MB_SEARCH,BN_CLICKED),
+                reinterpret_cast<LPARAM>(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH)));
             return TRUE;
         }
         if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&
