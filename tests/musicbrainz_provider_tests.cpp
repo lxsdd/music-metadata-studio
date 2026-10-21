@@ -334,6 +334,37 @@ int main() {
       ]}]
     })MB");
     const auto identified=parse_release_lookup(identified_json,first);
+    const auto duplicate_track_id=std::string(R"({
+        "id":"11111111-1111-1111-1111-111111111111",
+        "media":[{"tracks":[
+          {"id":"33333333-3333-3333-3333-333333333333",
+           "title":"First","artist-credit":[{"name":"Artist"}]},
+          {"id":"33333333-3333-3333-3333-333333333333",
+           "title":"Second","artist-credit":[{"name":"Artist"}]}
+        ]}]
+    })");
+    rejects([&]{(void)parse_release_lookup(duplicate_track_id,first);},
+            "duplicate release-track MBID is ambiguous and cannot identify two tracks");
+    const auto forged_track_id=std::string(R"({
+        "id":"11111111-1111-1111-1111-111111111111",
+        "media":[{"tracks":[
+          {"id":"../release/foreign",
+           "title":"First","artist-credit":[{"name":"Artist"}]}
+        ]}]
+    })");
+    rejects([&]{(void)parse_release_lookup(forged_track_id,first);},
+            "invalid provider release-track MBID rejected without path normalization");
+    const auto invalid_isrc_release=std::string(R"({
+        "id":"11111111-1111-1111-1111-111111111111",
+        "media":[{"tracks":[
+          {"title":"First","artist-credit":[{"name":"Artist"}],
+           "recording":{"isrcs":["NOT/AN/ISRC"]}}
+        ]}]
+    })");
+    const auto no_unverified_isrc=parse_release_lookup(invalid_isrc_release,first);
+    check(no_unverified_isrc.tracks.size()==1 &&
+          no_unverified_isrc.tracks[0].recording.isrc.empty(),
+          "invalid optional provider ISRC never participates in edition-track matching");
     check(identified.tracks.size()==2 &&
           identified.tracks[0].source_track_id==
               "33333333-3333-3333-3333-333333333333" &&

@@ -631,6 +631,9 @@ inline ReleaseEdition parse_release_lookup(std::string_view json,
     if (!media || media->type!=Json::Type::Array)
         throw std::invalid_argument("MusicBrainz release missing track media");
     std::size_t disc=0;
+    // A release-track MBID identifies ONE exact edition position. The
+    // recording MBID may legitimately recur; never confuse the two.
+    std::set<std::string> release_track_ids;
     for (const auto& medium:media->array) {
         if (medium.type!=Json::Type::Object) continue;
         ++disc;
@@ -648,6 +651,11 @@ inline ReleaseEdition parse_release_lookup(std::string_view json,
             // MBID identifies audio and may legitimately recur across tracks.
             // Never substitute a recording ID for a missing release-track ID.
             row.source_track_id=str(raw,"id");
+            if(!row.source_track_id.empty() &&
+               (!valid_mbid(row.source_track_id) ||
+                !release_track_ids.insert(row.source_track_id).second))
+                throw std::invalid_argument(
+                    "MusicBrainz release has ambiguous track MBID");
             row.recording.title=str(raw,"title");
             if (row.recording.title.empty()&&rec)
                 row.recording.title=str(*rec,"title");
@@ -667,7 +675,8 @@ inline ReleaseEdition parse_release_lookup(std::string_view json,
             if (rec) {
                 const auto* isrc=rec->get("isrcs");
                 if (isrc&&isrc->type==Json::Type::Array&&
-                    isrc->array.size()==1&&isrc->array.front().type==Json::Type::String)
+                    isrc->array.size()==1&&isrc->array.front().type==Json::Type::String&&
+                    valid_search_isrc(isrc->array.front().text))
                     row.recording.isrc=isrc->array.front().text;
             }
             if (row.recording.title.empty()||row.recording.primary_artist.empty())
