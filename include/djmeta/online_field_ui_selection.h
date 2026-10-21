@@ -3,6 +3,7 @@
 // Search hits, CUE carriers, unverified track associations and local inventory
 // are NOT valid inputs for the physical-only staged preview.
 #include "djmeta/online_fields.h"
+#include "djmeta/online_field_staging.h"
 #include <cstddef>
 #include <charconv>
 #include <vector>
@@ -105,6 +106,11 @@ inline std::optional<std::size_t> physical_discogs_stageable_field_index(
     // Track rows additionally require the independent physical alignment.
     const auto album=physical_discogs_edition_field_index(edition,detail);
     if(!album && !verified_physical_discogs_track_field(edition,detail))
+        return std::nullopt;
+    // No implicit DATE -> edition-date replacement. This field requires an
+    // independent named target policy, not just inclusion in the preview.
+    if(detail.state==FieldReviewState::NeedsReview &&
+       online_date_requires_explicit_target(detail.candidate))
         return std::nullopt;
     std::optional<std::size_t> result;
     for(std::size_t i=0;i<allowed.size();++i) {

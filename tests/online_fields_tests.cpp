@@ -324,10 +324,23 @@ int main() {
         return false;
     };
     check(refuses(session,stage_original,{4}) &&
+          refuses(session,stage_original,{2}) &&
           refuses(session,stage_original,{1,5}) &&
           refuses(session,stage_original,{1,1}) &&
           refuses(session,stage_original,{999}),
-          "protected CUE, conflicting provider, duplicate or unknown choice is blocked");
+          "protected CUE, unmapped edition DATE, conflicting providers and duplicate or unknown choices are blocked");
+    const auto unchanged_date_evidence=std::vector<FieldEvidence>{
+        {"DATE",{"1998"},"discogs","release:100",EvidenceScope::Edition,
+         DateMeaning::EditionRelease}
+    };
+    const auto unchanged_date_session=capture_online_field_review(
+        stage_original,unchanged_date_evidence,true,true);
+    const auto unchanged_date_projection=stage_selected_online_fields(
+        unchanged_date_session,stage_original,{0});
+    check(unchanged_date_projection.exact_noops==1 &&
+          unchanged_date_projection.explicitly_changed==0 &&
+          unchanged_date_projection.planned==stage_original,
+          "unchanged typed edition date remains a genuine zero-change preview");
     auto altered_original=stage_original;
     altered_original.fields[4].values.push_back("External edit");
     check(refuses(session,altered_original,{1}),

@@ -10,6 +10,17 @@
 
 namespace djmeta::online {
 
+// A tagged original DATE may represent original release, a later edition,
+// digital publication or user-defined chronology. An online search/edition
+// must never silently choose among these meanings. A dedicated target-field
+// mapping decision is required before any changed physical DATE/DATE_RAW
+// value can be staged; exactly matching values remain harmless no-ops.
+inline bool online_date_requires_explicit_target(const FieldEvidence& field) {
+    const auto name=ascii_upper_field(field.field);
+    return (name=="DATE" || name=="DATE_RAW") &&
+           field.date_meaning!=DateMeaning::NotDate;
+}
+
 struct OnlineFieldReviewSnapshot {
     MetadataDocument physical_before;
     std::vector<FieldEvidence> evidence;
@@ -83,6 +94,9 @@ inline OnlineFieldStagedPreview stage_selected_online_fields(
         }
         if(row.state!=FieldReviewState::NeedsReview)
             throw std::invalid_argument("Unknown online review status");
+        if(online_date_requires_explicit_target(row.candidate))
+            throw std::invalid_argument(
+                "Online edition/original date needs explicit target-field mapping");
         if(row.local_field_index!=no_local_field) {
             if(row.local_field_index>=result.planned.fields.size())
                 throw std::invalid_argument("Missing physical field identity");
