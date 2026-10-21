@@ -35,17 +35,31 @@ function Assert-ExactEdition($Payload,[string]$Id) {
     })
     Assert-QA ($named.Count -gt 0) 'no named release tracks'
 }
-function Get-OfficialSearchPaths([string]$Title,[string]$Artist) {
+function Get-OfficialSearchPaths([string]$Title,[string]$Artist,[string]$Core='') {
+    if ([string]::IsNullOrWhiteSpace($Core)) { $Core=$Title }
     $t=[uri]::EscapeDataString($Title)
+    $c=[uri]::EscapeDataString($Core)
     $a=[uri]::EscapeDataString($Artist)
-    # Documented Discogs C++ provider path variants: never a scrape.
-    return @(
-        "/database/search?track=$t&type=release&artist=$a&page=1&per_page=20"
-        "/database/search?track=$t&type=release&page=1&per_page=20"
-        "/database/search?release_title=$t&type=release&page=1&per_page=20"
-        "/database/search?q=$t&type=release&page=1&per_page=20"
-        "/database/search?q=$a&type=release&page=1&per_page=20"
-    )
+    # Mirrors the native C++ track_search_plan on these qualified fixtures.
+    # The FIRST requests always contain the original complete ARTIST.
+    $paths=[System.Collections.Generic.List[string]]::new()
+    $paths.Add("/database/search?q=$t&type=release&artist=$a&page=1&per_page=20")
+    $paths.Add("/database/search?track=$t&type=release&artist=$a&page=1&per_page=20")
+    # Only a deliberately joined X collaboration is broadened here;
+    # the ampersand in "Kyau & Albert" is part of the same artist name.
+    if ($Artist -cmatch '^(.+?) [xX] ([^\r\n]+)$') {
+        $guest=[uri]::EscapeDataString($Matches[2])
+        $paths.Add("/database/search?track=$c&type=release&artist=$guest&page=1&per_page=20")
+        $paths.Add("/database/search?q=$c&type=release&artist=$guest&page=1&per_page=20")
+    }
+    $paths.Add("/database/search?track=$t&type=release&page=1&per_page=20")
+    if ($Core -cne $Title) {
+        $paths.Add("/database/search?track=$c&type=release&page=1&per_page=20")
+    }
+    $paths.Add("/database/search?q=$c&type=release&page=1&per_page=20")
+    $paths.Add("/database/search?artist=$a&type=release&page=1&per_page=20")
+    Assert-QA ($paths.Count -gt 0 -and $paths.Count -le 16) 'unbounded Discogs stages'
+    return @($paths.ToArray())
 }
 function Get-OfficialJson([string]$Path,[string]$Token) {
     Assert-QA ($Path.StartsWith('/releases/') -or
@@ -79,19 +93,25 @@ if ($Mode -eq 'SelfTest') {
     $blocked=$false
     try { Assert-ExactEdition (ConvertFrom-Json '{"id":37332711,"title":"Empty","tracklist":[]}') '37332711' } catch { $blocked=$true }
     Assert-QA $blocked 'empty edition accepted'
-    $paths=Get-OfficialSearchPaths '1000 Years' 'Maywave'
-    Assert-QA ($paths.Count -eq 5 -and
-        $paths[0].Contains('track=1000%20Years') -and
-        $paths[0].Contains('artist=Maywave') -and
-        $paths[1] -notmatch 'artist=' -and
-        $paths[4].Contains('q=Maywave')) 'bounded search contract mismatch'
+    $paths=Get-OfficialSearchPaths '1000 Years (DJ Version)' 'Kyau & Albert X Maywave' '1000 Years'
+    Assert-QA ($paths.Count -eq 8 -and
+        $paths[0] -eq '/database/search?q=1000%20Years%20%28DJ%20Version%29&type=release&artist=Kyau%20%26%20Albert%20X%20Maywave&page=1&per_page=20' -and
+        $paths[1].Contains('artist=Kyau%20%26%20Albert%20X%20Maywave') -and
+        $paths[2] -eq '/database/search?track=1000%20Years&type=release&artist=Maywave&page=1&per_page=20' -and
+        $paths[3] -eq '/database/search?q=1000%20Years&type=release&artist=Maywave&page=1&per_page=20' -and
+        $paths[4] -notmatch 'artist=' -and
+        $paths[7].Contains('artist=Kyau%20%26%20Albert%20X%20Maywave')) 'full original artist / collaborator discovery plan unqualified'
+    $simple=Get-OfficialSearchPaths 'Only You' 'Matt Fax'
+    Assert-QA ($simple.Count -eq 5 -and
+        $simple[0].Contains('artist=Matt%20Fax') -and
+        $simple[2] -notmatch 'artist=') 'normal solo-artist discovery changed'
     Write-Output 'PASS: protected Discogs search-to-edition contract (offline; no secrets)'
     return
 }
 
 $cases=@{
     '38012673'=@{Title='Via Balearia';Artist='Estiva'}
-    '37332711'=@{Title='1000 Years';Artist='Maywave'}
+    '37332711'=@{Title='1000 Years (DJ Version)';Core='1000 Years';Artist='Kyau & Albert X Maywave'}
     '36397609'=@{Title='Only You';Artist='Matt Fax'}
     '36819730'=@{Title='Till You Let Go';Artist='Matt Fax'}
 }
@@ -105,14 +125,23 @@ try {
     Write-Output 'PASS: authorized exact edition and tracklist'
     $found=$false
     $stage=0
-    foreach ($path in (Get-OfficialSearchPaths $case.Title $case.Artist)) {
+    $core=if ($case.ContainsKey('Core')) { [string]$case.Core } else { [string]$case.Title }
+    $paths=@(Get-OfficialSearchPaths $case.Title $case.Artist $core)
+    if ($ReleaseId -eq '37332711') {
+        Assert-QA ($paths.Count -eq 8 -and
+            $paths[0].Contains('artist=Kyau%20%26%20Albert%20X%20Maywave') -and
+            $paths[2].Contains('artist=Maywave')) 'original complete artist query was bypassed'
+    }
+    foreach ($path in $paths) {
         Start-Sleep -Milliseconds 1700
         $stage++
         $search=Get-OfficialJson $path $token
         if (Test-ExactSearchIdentity $search $ReleaseId) { $found=$true; break }
+        # Production auto-continues after empty hits, otherwise the user
+        # explicitly clicks Search to advance from an irrelevant result.
     }
-    Assert-QA $found "exact release not discovered after five bounded first-page strategies (public ID $ReleaseId)"
-    Write-Output "PASS: AUTHORIZED_SEARCH -> EXACT_EDITION -> TRACKLIST, stage $stage/5, public ID $ReleaseId"
+    Assert-QA $found "exact edition not discovered from full original ARTIST through $($paths.Count) bounded first-page strategies (public ID $ReleaseId)"
+    Write-Output "PASS: FULL_ORIGINAL_ARTIST -> AUTHORIZED_SEARCH -> EXACT_EDITION -> TRACKLIST, stage $stage/$($paths.Count), public ID $ReleaseId"
 } finally {
     # PowerShell cannot guarantee secure erasure of immutable strings.
     # No token or payload is written to any log, URL, file or artifact.
