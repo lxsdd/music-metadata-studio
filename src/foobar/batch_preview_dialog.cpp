@@ -2890,7 +2890,7 @@ void show_workspace_help(HWND dialog) {
         L"Online hits are NOT automatically imported as tag edits. "
         L"Discogs shows linked master and edition dates separately; "
         L"choose a tag for each or PAIR to preview both in one click.\n\n"
-        L"Beatport (offline) is a full local track/edition comparison mode, "
+        L"Beatport + Crates offers direct public track URL review, plus "
         L"NOT an authorized live API connection. Select it as provider, then "
         L"Import Beatport for lawfully sourced @beatport-track-json "
         L"on the first line, followed by track JSON already lawfully supplied "
@@ -4176,7 +4176,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         SendDlgItemMessageW(dialog,IDC_ONLINE_DATE_TARGET,
             CB_SETDROPPEDWIDTH,360,0);
         for(const wchar_t* name:{L"MusicBrainz",L"Discogs (token)",
-                                 L"Beatport (offline)"})
+                                 L"Beatport + Crates"})
             SendDlgItemMessageW(dialog,IDC_METADATA_ONLINE_PROVIDER,CB_ADDSTRING,
                 0,reinterpret_cast<LPARAM>(name));
         SendDlgItemMessageW(dialog,IDC_METADATA_ONLINE_PROVIDER,CB_SETCURSEL,0,0);

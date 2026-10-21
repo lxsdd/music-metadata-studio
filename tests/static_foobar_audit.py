@@ -936,7 +936,7 @@ for token in (
 # obtain token access by reusing the official MB/Discogs worker. Preserve
 # source provenance and the existing bounded matching/clipboard parser.
 for marker in (
-    'L"Beatport (offline)"',
+    'L"Beatport + Crates"',
     'state->beatport_offline_selected=selected_provider==2;',
     'if(state->beatport_offline_selected)',
     'L"Import Beatport"',
@@ -971,3 +971,17 @@ for marker in ("perform_beatport_public_page_lookup(dialog,*state)",
                "ctx->url,job->response)"):
     if marker not in batch_rules_guard:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: native Beatport page safety missing: "+marker)
+
+# Account-safe Crates is a browser hand-off, not an undocumented logged-in API.
+for marker in (
+    'L"Find in Crates"',
+    'prepare_crates_browser_search(original)',
+    'L"https://crates.co/"',
+    'ShellExecuteW(dialog,L"open",url.c_str()',
+    'copy_crates_search_text(dialog,from_utf8(search.search_text))',
+):
+    if marker not in batch_rules_guard:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: native Crates browser hand-off absent: "+marker)
+for marker in ("crates.co/api", "Crates token=", "beatport_password", "crates_session"):
+    if marker in batch_rules_guard:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: Crates credentials/undocumented API leaked into native host")

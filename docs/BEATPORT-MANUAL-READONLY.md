@@ -106,9 +106,8 @@ remains visible and no writer is invoked.
 
 ## Integrated foobar provider mode (21 October 2026)
 
-The **Find & compare** provider selector now lists **Beatport (offline)**
-alongside MusicBrainz and Discogs. It intentionally has **no live Beatport
-Search**: the button is disabled and labeled `Beatport API locked`, because
+The **Find & compare** provider selector now lists **Beatport + Crates**
+alongside MusicBrainz and Discogs. It intentionally has **no licensed Beatport catalog API Search**; a **single public track URL lookup** is now supported, because
 Beatport does not supply a licensed application credential/partner agreement to
 this project. The existing button becomes **Import Beatport**. Users can
 explicitly import complete track-detail JSON, complete edition plus tracklist,
@@ -186,7 +185,7 @@ It reads standard `application/ld+json` data already present in the page,
 requires a single matching `MusicRecording` object, copies it in the bounded
 `@beatport-public-jsonld` format, and makes no further requests. Nothing
 is sent to a third party or persisted by the helper. No foobar writes occur.
-The user's action is then **Beatport (offline) > Import Beatport**.
+The user's action is then **Beatport + Crates > Import Beatport**.
 
 To experiment without extensions, paste the helper's JavaScript source into
 the browser console while viewing the public track page. Alternatively,
@@ -204,7 +203,7 @@ site's access policies must still be assessed for the intended use.
 
 ## Direct public Beatport URL retrieval in foobar (read-only)
 
-In Find & compare choose Beatport (offline), select a physical audio recording,
+In Find & compare choose Beatport + Crates, select a physical audio recording,
 paste its exact public HTTPS URL in the query field, and click Load Beatport URL.
 The component performs ONE bounded GET to www.beatport.com; it never sends
 cookies/credentials, follows redirects, retries, uses partner APIs or bypasses
@@ -218,3 +217,33 @@ stop immediately. The user-initiated browser helper remains the fallback.
 This feature is not automatic search, not a batch crawl, and not a verified
 live Beatport API integration. Genuine public-page layout and permissions
 have not yet been qualified by a real Beatport fetch.
+
+## Crates.co account-safe browser search (2026-10-21)
+
+In the native **Beatport + Crates** provider, select a physical recording and
+click **Find in Crates**. The browser hand-off copies only the original
+physical artist and full title (including e.g. Extended Mix) to the Windows
+clipboard and opens the **verified public** https://crates.co/ homepage in
+the user's default browser. Paste the copied query into Crates' existing
+Search field. There is **no assumed deep-link URL or undocumented search
+API**. Crates is usable without login; when the user logs into Crates with
+their **own Beatport account inside the normal browser**, that login stays
+there. Neither a username/password nor a session/OAuth token is read by
+foobar, stored in a component, copied to GitHub or sent to this application.
+
+After choosing a Crates hit, copy its *actual exact Beatport track link*
+using the visible site's normal link/share functionality when available,
+paste that link into the studio query box, and click **Load Beatport URL**.
+The existing pinned-host one-page HTML review checks independent title,
+artist, mix, ID, ISRC and duration. A Crates suggestion is **discovery,
+not a verified source**; it never lifts the no-write gate and does not
+automatically authorize a different recording or mix. If the public Beatport
+site denies HTTP access or lacks its required JSON-LD, the component stops;
+use the separately user-triggered Beatport browser helper if appropriate.
+
+Crates account login is **optional for metadata discovery** (though useful
+for My Beatport/account-specific browsing), but is **not an entitlement
+to Crates' private API or a transferable Beatport developer token**. Any
+future direct Crates data connector requires provider authorization and a
+separate secure login consent/permissions path, without requesting passwords
+in chat.

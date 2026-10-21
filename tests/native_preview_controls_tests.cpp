@@ -179,14 +179,14 @@ int main() {
           SendMessageW(provider,CB_ADDSTRING,0,
           reinterpret_cast<LPARAM>(L"Discogs (token)"))>=0 &&
           SendMessageW(provider,CB_ADDSTRING,0,
-          reinterpret_cast<LPARAM>(L"Beatport (offline)"))>=0 &&
+          reinterpret_cast<LPARAM>(L"Beatport + Crates"))>=0 &&
           SendMessageW(provider,CB_GETCOUNT,0,0)==3 &&
           SendMessageW(provider,CB_SETCURSEL,2,0)==2,
           "native provider selector supports distinct Beatport offline mode");
     wchar_t beatport_provider[96]{};
     SendMessageW(provider,CB_GETLBTEXT,2,
         reinterpret_cast<LPARAM>(beatport_provider));
-    check(std::wcscmp(beatport_provider,L"Beatport (offline)")==0,
+    check(std::wcscmp(beatport_provider,L"Beatport + Crates")==0,
           "Beatport mode is clearly labelled offline rather than misleadingly live");
     RECT provider_rect{}, token_rect{}, query_rect{}, track_rect{};
     check(GetWindowRect(provider,&provider_rect) &&
