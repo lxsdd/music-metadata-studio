@@ -376,6 +376,7 @@ void test_eight_disc_99_track_plan() {
 void test_foobar_physical_mp3_path_admission() {
     using djmeta::precision_cue_foobar_local_windows_mp3_path;
     using djmeta::precision_cue_foobar_path_form;
+    using djmeta::precision_cue_foobar_safe_scheme_token;
     const std::string local = R"(D:\Music\Synthetic.mp3)";
     assert(precision_cue_foobar_local_windows_mp3_path(local) == local);
     assert(precision_cue_foobar_local_windows_mp3_path(
