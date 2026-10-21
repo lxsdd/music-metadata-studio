@@ -178,3 +178,13 @@ The read-only Studio File locations table now flags `RAW_TARGET_OBSERVATION_CONT
 ## SDK host-runner transport resilience (2026-10-21)
 
 The official foobar SDK bootstrap uses three bounded retries only when the HTTPS transport fails, deleting incomplete download files between attempts. The original official URL, pinned expected archive length, SHA-256 digest, archive integrity and version checks remain unchanged; a hash mismatch fails closed instead of selecting an unaudited mirror. This addresses an observed remote host outage and does not qualify or enable media writing.
+
+## Lexical existing-CUE FILE safety parity (2026-10-21)
+
+The Studio-only same-directory `FILE` locator now rejects malformed UTF-8
+and Win32 device aliases with spaces before extensions or superscript COM/LPT
+digits. A cross-platform core regression covers accepted UTF-8 basenames,
+reserved devices, drive/ADS escapes, traversal and malformed carrier paths.
+This is an advisory source-lookup preflight, **not** a FileOps destination
+sanitizer, final physical dependency association, CUE creation or writer.
+Precision CUE PR #52 remains independent and unchanged.

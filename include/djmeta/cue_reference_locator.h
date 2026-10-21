@@ -2,6 +2,7 @@
 // Read-only Studio File-organization preflight of EXISTING external CUE FILE
 // paths. The path is a candidate to probe, not proof of physical association,
 // canonical destination, file safety or any right to write.
+#include "djmeta/structural_guard.h"
 #include <string>
 #include <string_view>
 
@@ -19,6 +20,9 @@ inline CueSiblingLocator preview_cue_sibling_locator(
         raw_filename.size() > 1024 ||
         raw_filename == "." || raw_filename == "..")
         return {{}, "CUE_FILE_PATH_UNQUALIFIED", false};
+    if (!valid_utf8_metadata_text(cue_locator) ||
+        !valid_utf8_metadata_text(raw_filename))
+        return {{}, "CUE_FILE_ENCODING_UNQUALIFIED", false};
     // Initially only same-directory FILE basenames are safely resolved.
     // No traversal, ADS/drive aliases, URI escapes, device paths, UNC
     // injection or wildcard targets. Nested directories need a separately
@@ -36,9 +40,18 @@ inline CueSiblingLocator preview_cue_sibling_locator(
         stem += c >= 'a' && c <= 'z'
             ? static_cast<char>(c - 'a' + 'A') : c;
     }
+    // Win32 ignores spaces preceding an extension when resolving device
+    // aliases (CON .flac) and reserves superscript COM/LPT digits as well.
+    while (!stem.empty() && stem.back() == ' ') stem.pop_back();
+    const bool com_lpt = stem.starts_with("COM") || stem.starts_with("LPT");
+    const auto suffix = stem.size() >= 3
+        ? std::string_view(stem).substr(3) : std::string_view{};
+    const bool device_digit =
+        suffix.size() == 1 && suffix.front() >= '1' && suffix.front() <= '9';
+    const bool device_superscript =
+        suffix == "\xC2\xB9" || suffix == "\xC2\xB2" || suffix == "\xC2\xB3";
     if (stem=="CON" || stem=="PRN" || stem=="AUX" || stem=="NUL" ||
-        (stem.size()==4 && (stem.starts_with("COM") || stem.starts_with("LPT")) &&
-         stem[3]>='1' && stem[3]<='9'))
+        (com_lpt && (device_digit || device_superscript)))
         return {{}, "CUE_FILE_RESERVED_DEVICE", false};
     const auto split = cue_locator.find_last_of("/\\");
     if (split == std::string_view::npos || split+1 >= cue_locator.size())
