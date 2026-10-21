@@ -126,6 +126,9 @@ BatchPreviewTable describe_batch_preview(
         switch (item.raw_target_presence) {
         case RawTargetPresence::NotInspected:
         case RawTargetPresence::Missing:
+            if (!item.raw_target_physical_key.empty() ||
+                !item.raw_target_guard.empty())
+                row.issues.emplace_back("RAW_TARGET_OBSERVATION_CONTRADICTORY");
             break;
         case RawTargetPresence::Existing:
             if (item.raw_target_physical_key.empty() || item.raw_target_guard.empty())
@@ -142,6 +145,9 @@ BatchPreviewTable describe_batch_preview(
             break;
         case RawTargetPresence::Unqualified:
         default:
+            if (!item.raw_target_physical_key.empty() ||
+                !item.raw_target_guard.empty())
+                row.issues.emplace_back("RAW_TARGET_OBSERVATION_CONTRADICTORY");
             row.issues.emplace_back("RAW_TARGET_PROBE_UNQUALIFIED");
             break;
         }

@@ -106,6 +106,17 @@ int main() {
           contains(observed.rows[0], "FILESYSTEM_TARGET_UNCHECKED"),
           "missing raw candidate cannot clear final target verification");
 
+    a.raw_target_physical_key = "stale-physical-file";
+    a.raw_target_guard = "stale-version";
+    observed = djmeta::describe_batch_preview({a});
+    check(contains(observed.rows[0], "RAW_TARGET_OBSERVATION_CONTRADICTORY"),
+          "missing destination must not retain an existing physical file observation");
+    a.raw_target_presence = djmeta::RawTargetPresence::NotInspected;
+    observed = djmeta::describe_batch_preview({a});
+    check(contains(observed.rows[0], "RAW_TARGET_OBSERVATION_CONTRADICTORY"),
+          "not-inspected destination cannot retain a prior target identity");
+    a.raw_target_physical_key.clear();
+    a.raw_target_guard.clear();
     a.raw_target_presence = djmeta::RawTargetPresence::Existing;
     observed = djmeta::describe_batch_preview({a});
     check(contains(observed.rows[0], "RAW_TARGET_PROBE_UNQUALIFIED"),
@@ -138,6 +149,8 @@ int main() {
 
     a.raw_target_presence = djmeta::RawTargetPresence::Unqualified;
     observed = djmeta::describe_batch_preview({a});
+    check(contains(observed.rows[0], "RAW_TARGET_OBSERVATION_CONTRADICTORY"),
+          "unqualified destination must not silently retain existing target ID");
     check(contains(observed.rows[0], "RAW_TARGET_PROBE_UNQUALIFIED"),
           "unsupported raw candidate must not pass silently");
     a.raw_target_presence = static_cast<djmeta::RawTargetPresence>(99);

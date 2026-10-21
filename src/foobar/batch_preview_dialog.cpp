@@ -413,6 +413,8 @@ std::string status_text(const djmeta::BatchPreviewRow& row) {
         if (issue == "RAW_TARGET_IS_BATCH_SOURCE") return "Raw target: batch source";
         if (issue == "RAW_TARGET_SHARED_PHYSICAL_ID") return "Raw targets: same file";
         if (issue == "RAW_TARGET_EXISTS") return "Raw candidate exists";
+        if (issue == "RAW_TARGET_OBSERVATION_CONTRADICTORY")
+            return "Raw target: inconsistent observation";
         if (issue == "RAW_TARGET_PROBE_UNQUALIFIED") return "Raw target: unqualified";
         if (issue == "UNAPPROVED_METADATA_PROPOSALS") return "Metadata: REVIEW";
     }
