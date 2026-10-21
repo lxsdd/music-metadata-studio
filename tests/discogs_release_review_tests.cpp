@@ -68,10 +68,14 @@ int main() {
     hints=physical_search_hints(separate_mix);
     const auto stages=track_search_plan(
         hints.title,hints.artist,{}, {}, {},true,hints.version);
-    require(hints.version=="DJ Version" && stages.size()==8 &&
+    require(hints.version=="DJ Version" && stages.size()==10 &&
             stages.front().path==track_search_path(
                 "1000 Years (DJ Version)","Kyau & Albert x Maywave") &&
-            allowed_readonly_path(stages.front().path),
+            stages[4].path==track_search_path("1000 Years","Maywave") &&
+            stages[5].path==search_path("1000 Years","Maywave") &&
+            allowed_readonly_path(stages.front().path) &&
+            allowed_readonly_path(stages[4].path) &&
+            allowed_readonly_path(stages[5].path),
             "qualified physical VERSION reaches fixed official mix-aware search");
     separate_mix.fields.push_back({"VERSION",{"Radio Edit"}});
     require(physical_search_hints(separate_mix).version.empty(),
