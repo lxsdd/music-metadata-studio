@@ -153,4 +153,88 @@ inline std::optional<std::size_t> physical_discogs_stageable_field_index(
     return result;
 }
 
+// A master date is NOT an edition tag. It may join an exact edition's
+// detached preview only with a separately authenticated master detail and
+// the master ID linked by that exact edition. Selection still requires a
+// uniquely qualified physical track (checked by the caller on fresh info).
+inline bool verified_discogs_master_year(
+    const ReleaseEdition& edition,const FieldEvidence& candidate) {
+    if(edition.provider!="discogs" || edition.master_id.empty() ||
+       edition.master_id.size()>12) return false;
+    std::uint64_t id=0;
+    const auto [end,ec]=std::from_chars(
+        edition.master_id.data(),
+        edition.master_id.data()+edition.master_id.size(),id);
+    if(ec!=std::errc{} ||
+       end!=edition.master_id.data()+edition.master_id.size() ||
+       !id || id>999999999999ULL ||
+       edition.master_id!=std::to_string(id)) return false;
+    if(candidate.provider!="discogs" ||
+       candidate.source_id!="master:"+edition.master_id ||
+       candidate.scope!=EvidenceScope::Release ||
+       candidate.field!="DATE" ||
+       candidate.date_meaning!=DateMeaning::OriginalRelease ||
+       candidate.values.size()!=1 ||
+       candidate.values.front().size()!=4) return false;
+    const auto& year=candidate.values.front();
+    int number=0;
+    const auto [last,error]=std::from_chars(
+        year.data(),year.data()+year.size(),number);
+    return error==std::errc{} && last==year.data()+year.size() &&
+           number>=1850 && number<=2200;
+}
+
+inline std::optional<std::size_t> physical_discogs_master_field_index(
+    const ReleaseEdition& edition,const std::vector<FieldEvidence>& allowed,
+    const FieldReviewRow& row,bool explicit_date_target=false) {
+    if(row.field!="Discogs Master / DATE" ||
+       !row.reason.starts_with("discogs_live_master_year_verified_") ||
+       row.state==FieldReviewState::Blocked ||
+       (row.state==FieldReviewState::NeedsReview && !explicit_date_target) ||
+       !verified_discogs_master_year(edition,row.candidate))
+        return std::nullopt;
+    std::optional<std::size_t> found;
+    for(std::size_t i=0;i<allowed.size();++i)
+        if(allowed[i]==row.candidate) {
+            if(found) return std::nullopt;
+            found=i;
+        }
+    return found;
+}
+
+struct DiscogsDatePair {
+    std::size_t master_index=0;
+    std::size_t edition_index=0;
+};
+
+// Prefer a full edition release date when the official edition supplies it,
+// falling back to its year. Never infer one from the other, and never combine
+// two different dates into one target tag.
+inline std::optional<DiscogsDatePair> discogs_dual_date_indices(
+    const ReleaseEdition& edition,
+    const std::vector<FieldEvidence>& allowed) {
+    std::optional<std::size_t> master,edition_year,edition_full;
+    for(std::size_t i=0;i<allowed.size();++i) {
+        const auto& candidate=allowed[i];
+        if(verified_discogs_master_year(edition,candidate)) {
+            if(master) return std::nullopt;
+            master=i;
+        }
+        if(candidate.provider=="discogs" &&
+           candidate.source_id==edition.edition_id &&
+           candidate.scope==EvidenceScope::Edition &&
+           candidate.date_meaning==DateMeaning::EditionRelease &&
+           candidate.values.size()==1) {
+            auto* slot=candidate.field=="RELEASEDATE"?&edition_full:
+                       candidate.field=="DATE"?&edition_year:nullptr;
+            if(slot) {
+                if(*slot) return std::nullopt;
+                *slot=i;
+            }
+        }
+    }
+    if(!master || (!edition_full && !edition_year)) return std::nullopt;
+    return DiscogsDatePair{*master,edition_full?*edition_full:*edition_year};
+}
+
 } // namespace djmeta::online

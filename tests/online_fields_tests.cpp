@@ -378,6 +378,55 @@ int main() {
           refuses_date_target({1},{{1,"RELEASEDATE"}}) &&
           refuses_date_target({2,1},{{2,"GENRE"}}),
           "invalid, unselected, nondate and conflicting target mappings are blocked");
+    // Two independent official date meanings can be staged to two explicit
+    // targets without changing DATE or flattening any original values.
+    auto master_linked=approved_edition;
+    master_linked.master_id="4343";
+    const FieldEvidence genuine_master{"DATE",{"1998"},"discogs",
+        "master:4343",EvidenceScope::Release,DateMeaning::OriginalRelease};
+    const FieldEvidence newer_edition{"RELEASEDATE",{"2026-10-21"},"discogs",
+        master_linked.edition_id,EvidenceScope::Edition,
+        DateMeaning::EditionRelease};
+    check(verified_discogs_master_year(master_linked,genuine_master) &&
+          !verified_discogs_master_year(approved_edition,genuine_master),
+          "master date requires exact edition-linked master provenance");
+    const auto pair_snapshot=capture_online_field_review(
+        stage_original,{genuine_master,newer_edition},true,true);
+    const auto pair=discogs_dual_date_indices(master_linked,pair_snapshot.evidence);
+    check(pair && pair->master_index==0 && pair->edition_index==1,
+          "master date A and exact edition date B remain independent");
+    auto master_row=pair_snapshot.comparisons[0];
+    master_row.field="Discogs Master / DATE";
+    master_row.reason="discogs_live_master_year_verified_"+master_row.reason;
+    check(physical_discogs_master_field_index(
+              master_linked,pair_snapshot.evidence,master_row) == 0,
+          "verified no-op master field stays eligible for an explicit new target");
+    const auto both=stage_selected_online_fields(
+        pair_snapshot,stage_original,
+        {pair->master_index,pair->edition_index},
+        {{pair->master_index,"ORIGINALDATE"},
+         {pair->edition_index,"RELEASEDATE"}});
+    check(both.explicitly_changed==2 &&
+          both.planned.fields[3]==stage_original.fields[3] &&
+          both.planned.fields[both.planned.fields.size()-2]==
+              MetadataField{"ORIGINALDATE",{"1998"}} &&
+          both.planned.fields.back()==
+              MetadataField{"RELEASEDATE",{"2026-10-21"}},
+          "dual date preview maps master and edition to distinct tags without touching DATE");
+    check(refuses_date_target({2},{{2,"GENRE"}}),
+          "invalid date targets remain blocked after paired preview");
+    auto forged_master=genuine_master;
+    forged_master.source_id="master:9999";
+    check(!verified_discogs_master_year(master_linked,forged_master) &&
+          !discogs_dual_date_indices(
+              master_linked,{forged_master,newer_edition}),
+          "wrong Discogs master ID cannot enter date pairing");
+    check(!discogs_dual_date_indices(master_linked,{newer_edition}) &&
+          !discogs_dual_date_indices(master_linked,{genuine_master}),
+          "missing master or edition date blocks atomic pairing");
+    check(!discogs_dual_date_indices(master_linked,
+              {genuine_master,genuine_master,newer_edition}),
+          "conflicting duplicate master dates block atomic pairing");
     auto altered_original=stage_original;
     altered_original.fields[4].values.push_back("External edit");
     check(refuses(session,altered_original,{1}),
