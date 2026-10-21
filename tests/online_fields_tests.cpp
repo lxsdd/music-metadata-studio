@@ -341,6 +341,36 @@ int main() {
           unchanged_date_projection.explicitly_changed==0 &&
           unchanged_date_projection.planned==stage_original,
           "unchanged typed edition date remains a genuine zero-change preview");
+    // A deliberate target policy can stage the exact verified edition date
+    // to a separate field without changing the user's existing DATE.
+    const auto chosen_edition_date=stage_selected_online_fields(
+        session,stage_original,{2},{{2,"RELEASEDATE"}});
+    check(chosen_edition_date.explicitly_changed==1 &&
+          chosen_edition_date.planned.fields[3]==stage_original.fields[3] &&
+          chosen_edition_date.planned.fields.back()==
+              MetadataField{"RELEASEDATE",{"2026-10-21"}},
+          "explicit edition date target keeps original DATE intact");
+    const auto chosen_date_override=stage_selected_online_fields(
+        session,stage_original,{2},{{2,"DATE"}});
+    check(chosen_date_override.explicitly_changed==1 &&
+          chosen_date_override.planned.fields[3].values==
+              std::vector<std::string>{"2026-10-21"} &&
+          stage_original.fields[3].values==std::vector<std::string>{"1998"},
+          "only explicit named DATE choice may replace physical DATE in memory");
+    const auto refuses_date_target=[&](
+        const std::vector<std::size_t>& indices,
+        const std::map<std::size_t,std::string>& target) {
+        try {(void)stage_selected_online_fields(
+            session,stage_original,indices,target);}
+        catch(const std::invalid_argument&) {return true;}
+        return false;
+    };
+    check(refuses_date_target({2},{{2,"GENRE"}}) &&
+          refuses_date_target({2},{{2,"CUESHEET"}}) &&
+          refuses_date_target({1},{{2,"DATE"}}) &&
+          refuses_date_target({1},{{1,"RELEASEDATE"}}) &&
+          refuses_date_target({2,1},{{2,"GENRE"}}),
+          "invalid, unselected, nondate and conflicting target mappings are blocked");
     auto altered_original=stage_original;
     altered_original.fields[4].values.push_back("External edit");
     check(refuses(session,altered_original,{1}),

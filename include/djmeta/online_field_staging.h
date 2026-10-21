@@ -3,6 +3,7 @@
 // No foobar handles, network calls or filesystem I/O are available here.
 #include "djmeta/online_fields.h"
 #include <cstddef>
+#include <map>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -65,7 +66,8 @@ inline bool same_online_field_review_row(const FieldReviewRow& a,
 inline OnlineFieldStagedPreview stage_selected_online_fields(
     const OnlineFieldReviewSnapshot& capture,
     const MetadataDocument& current_physical,
-    const std::vector<std::size_t>& selected_indices) {
+    const std::vector<std::size_t>& selected_indices,
+    const std::map<std::size_t,std::string>& explicit_date_targets={}) {
     if (current_physical!=capture.physical_before)
         throw std::invalid_argument("Stale physical original metadata");
     if (capture.evidence.size()>1024 ||
@@ -77,12 +79,37 @@ inline OnlineFieldStagedPreview stage_selected_online_fields(
         if (!same_online_field_review_row(verified[i],capture.comparisons[i]))
             throw std::invalid_argument("Mutated online review snapshot");
     OnlineFieldStagedPreview result{current_physical};
+    // Every date mapping is a deliberate choice for an actually selected
+    // evidence row. Extra or forged mappings are rejected, not ignored.
+    for(const auto& [index,target]:explicit_date_targets) {
+        if(index>=verified.size() ||
+           std::find(selected_indices.begin(),selected_indices.end(),index)==
+               selected_indices.end() ||
+           !online_date_requires_explicit_target(verified[index].candidate))
+            throw std::invalid_argument("Unselected or nondate target mapping");
+        const auto name=ascii_upper_field(target);
+        if(name!="DATE" && name!="ORIGINALDATE" &&
+           name!="RELEASEDATE" && name!="DATE_RAW" && name!="PUBLISHDATE")
+            throw std::invalid_argument("Unqualified explicit date target");
+    }
     std::set<std::size_t> chosen_rows;
     std::set<std::string> chosen_tags;
     for(const auto index:selected_indices) {
         if (index>=verified.size() || !chosen_rows.insert(index).second)
             throw std::invalid_argument("Unknown or duplicate online field index");
-        const auto& row=verified[index];
+        const auto& verified_row=verified[index];
+        auto row=verified_row;
+        // Re-review exact provider evidence against the selected TARGET
+        // field. The original DATE is not automatically an edition date.
+        if(const auto it=explicit_date_targets.find(index);
+           it!=explicit_date_targets.end()) {
+            auto mapped=verified_row.candidate;
+            mapped.field=ascii_upper_field(it->second);
+            const auto remapped=review_online_fields(current_physical,{mapped});
+            if(remapped.size()!=1 || remapped[0].state==FieldReviewState::Blocked)
+                throw std::invalid_argument("Explicit date target cannot be reviewed");
+            row=remapped[0];
+        }
         if(row.state==FieldReviewState::Blocked)
             throw std::invalid_argument("Unqualified online field");
         const auto canonical=ascii_upper_field(row.candidate.field);
@@ -94,7 +121,8 @@ inline OnlineFieldStagedPreview stage_selected_online_fields(
         }
         if(row.state!=FieldReviewState::NeedsReview)
             throw std::invalid_argument("Unknown online review status");
-        if(online_date_requires_explicit_target(row.candidate))
+        if(online_date_requires_explicit_target(row.candidate) &&
+           !explicit_date_targets.contains(index))
             throw std::invalid_argument(
                 "Online edition/original date needs explicit target-field mapping");
         if(row.local_field_index!=no_local_field) {
