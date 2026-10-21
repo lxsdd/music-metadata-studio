@@ -14,15 +14,23 @@ bool ascii_reserved_windows_device(std::string_view component) {
     // Windows rejects device aliases even with a filename extension.
     // Compare only the base before the first dot using ASCII case folding.
     const auto dot = component.find('.');
-    const auto base = component.substr(0, dot);
+    auto base = component.substr(0, dot);
+    // Win32 also treats trailing spaces immediately before an extension
+    // as insignificant for device aliases, e.g. "CON .mp3".
+    while (!base.empty() && base.back() == ' ') base.remove_suffix(1);
     std::string up;
     up.reserve(base.size());
     for (char ch : base)
         up.push_back(ch >= 'a' && ch <= 'z' ? static_cast<char>(ch - 'a' + 'A') : ch);
     if (up == "CON" || up == "PRN" || up == "AUX" || up == "NUL") return true;
-    if (up.size() == 4 && up[3] >= '1' && up[3] <= '9' &&
-        (up.substr(0, 3) == "COM" || up.substr(0, 3) == "LPT")) return true;
-    return false;
+    if (up.size() < 4 || (up.substr(0, 3) != "COM" &&
+                           up.substr(0, 3) != "LPT")) return false;
+    if (up.size() == 4 && up[3] >= '1' && up[3] <= '9') return true;
+    // Windows reserves the ISO-8859-1 superscript digits as COM/LPT
+    // suffixes too. Our metadata is validated UTF-8 before this point.
+    const std::string_view suffix(up.data() + 3, up.size() - 3);
+    return suffix == "\xC2\xB9" || suffix == "\xC2\xB2" ||
+           suffix == "\xC2\xB3";
 }
 
 // A *warning* for Windows-style raw Title Formatting destinations,
