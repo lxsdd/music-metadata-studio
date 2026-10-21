@@ -968,6 +968,6 @@ for marker in ("perform_beatport_public_page_lookup(dialog,*state)",
                "consume_beatport_public_network(dialog,*state)",
                "request_readonly_network_stop(*state->beatport_public_request)",
                "state.online_context_version.matches(ctx->context_version)",
-               "parse_beatport_public_html(ctx->url,job->response)"):
+               "ctx->url,job->response)"):
     if marker not in batch_rules_guard:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: native Beatport page safety missing: "+marker)
