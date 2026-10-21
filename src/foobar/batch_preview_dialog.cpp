@@ -80,7 +80,7 @@ struct PreviewEntry {
 // official Discogs GET. The network worker never reads foobar SDK handles,
 // local music files, CUE carriers, or native dialog HWND controls.
 struct PendingDiscogsContext {
-    enum class Kind { Search, Release };
+    enum class Kind { Search, Release, MasterYear };
     Kind kind=Kind::Search;
     std::size_t source_index=0;
     std::uint64_t context_version=0;
@@ -3402,6 +3402,109 @@ void publish_discogs_release(HWND dialog, PreviewState& state,
         L" loaded. Unverified track fields remain blocked. Read-only.";
     ListView_SetItemState(state.metadata_list,-1,0,LVIS_SELECTED);
     update_metadata_table(state);
+    // Master lookup is a distinct official GET, initiated only as part of
+    // this explicit exact-release Load action, never by browsing or focus.
+    if(state.online_field_snapshot && !edition.master_id.empty()) {
+        std::uint64_t id=0;
+        const auto [end,ec]=std::from_chars(
+            edition.master_id.data(),
+            edition.master_id.data()+edition.master_id.size(),id);
+        if(ec==std::errc{} &&
+           end==edition.master_id.data()+edition.master_id.size() &&
+           id>0 && id<=999999999999ULL) {
+            auto token=to_utf8(read_control(dialog,IDC_METADATA_DISCOGS_TOKEN));
+            if(!token.empty()) {
+                PendingDiscogsContext ctx;
+                ctx.kind=PendingDiscogsContext::Kind::MasterYear;
+                ctx.source_index=request.source_index;
+                ctx.release_id=request.release_id;
+                ctx.master_id=id;
+                begin_discogs_network(dialog,state, 
+                    djmeta::online::discogs::master_detail_path(id),
+                    std::move(token),std::move(ctx));
+                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                    L"Exact edition qualified. Fetching its linked master year "
+                    L"from the official API (read-only)...");
+            }
+        }
+    }
+}
+
+void publish_discogs_master_year(
+    HWND dialog,PreviewState& state,const PendingDiscogsContext& ctx,
+    std::string_view json) {
+    using namespace djmeta::online;
+    using namespace djmeta::online::discogs;
+    if(ctx.kind!=PendingDiscogsContext::Kind::MasterYear ||
+       !state.online_context_version.matches(ctx.context_version) ||
+       state.stale || state.refreshing || !state.show_candidate ||
+       !state.discogs_provider_selected || !state.discogs_live_view ||
+       !state.musicbrainz_release_loaded ||
+       state.selected_track_index!=ctx.source_index ||
+       state.candidate_source_index!=ctx.source_index ||
+       state.online_edition_source!=ctx.source_index ||
+       ctx.source_index>=state.entries.size() ||
+       !state.online_physical_edition || !state.online_field_snapshot ||
+       state.online_physical_edition->edition_id!=std::to_string(ctx.release_id) ||
+       state.online_physical_edition->master_id!=std::to_string(ctx.master_id))
+        throw std::invalid_argument("Stale or unqualified Discogs master-year response");
+    const auto candidate=parse_master_year(json,ctx.master_id);
+    if(!candidate) {
+        update_metadata_table(state);
+        SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+            L"Discogs master year unavailable. Existing tags unchanged; "
+            L"the edition's separate date remains selectable.");
+        return;
+    }
+    if(!verified_discogs_master_year(*state.online_physical_edition,*candidate))
+        throw std::invalid_argument("Discogs master date provenance is unqualified");
+    const auto& entry=state.entries[ctx.source_index];
+    verify_online_source_snapshot(state,entry);
+    verify_rules_snapshot(state.captured_rules);
+    if(!entry.input.physical_source_qualified ||
+       entry.handle->get_subsong_index()!=0 ||
+       is_external_cue_locator(entry.input.source_path))
+        throw std::invalid_argument("Master-year stage requires physical audio");
+    const auto info=entry.handle->get_info_ref();
+    const auto current=metadata_from_file_info(info->info());
+    if(current!=state.online_field_snapshot->physical_before)
+        throw std::invalid_argument("Physical tag snapshot changed during master lookup");
+    const double seconds=info->info().get_length();
+    const auto duration=seconds>0 && seconds<=36000
+        ? static_cast<std::int64_t>(seconds*1000.0+0.5)
+        : std::int64_t{-1};
+    if(!independently_verified_discogs_track(
+           current,*state.online_physical_edition,duration))
+        throw std::invalid_argument("Master-year physical recording no longer verified");
+    auto evidence=state.online_field_snapshot->evidence;
+    if(evidence.size()>=1024 ||
+       std::find(evidence.begin(),evidence.end(),*candidate)!=evidence.end())
+        throw std::invalid_argument("Duplicate or excessive master-year evidence");
+    evidence.push_back(*candidate);
+    auto snapshot=capture_online_field_review(current,evidence,true,true);
+    auto reviewed=review_online_fields(current,{*candidate});
+    if(reviewed.size()!=1 || reviewed.front().state==FieldReviewState::Blocked)
+        throw std::invalid_argument("Master-year field review refused");
+    reviewed.front().field="Discogs Master / DATE";
+    reviewed.front().reason="discogs_live_master_year_verified_"+
+                             reviewed.front().reason;
+    auto grouped=group_musicbrainz_release_rows(reviewed);
+    if(grouped.summary.size()!=1 || grouped.detail.size()!=1)
+        throw std::invalid_argument("Master date review group ambiguous");
+    std::optional<OnlineFieldStagedPreview> preserved;
+    if(!state.online_included_fields.empty())
+        preserved=stage_selected_online_fields(
+            snapshot,current,state.online_included_fields,
+            state.online_date_targets);
+    state.online_field_snapshot=std::move(snapshot);
+    state.online_field_preview=std::move(preserved);
+    state.candidate_rows.push_back(std::move(grouped.summary.front()));
+    state.musicbrainz_detail_groups.push_back(
+        std::move(grouped.detail.front()));
+    update_metadata_table(state);
+    SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+        L"Master year and exact edition date are separate. "
+        L"Select a destination tag for each (preview only, no writes).");
 }
 
 void consume_discogs_network(HWND dialog, PreviewState& state) {
@@ -3428,6 +3531,8 @@ void consume_discogs_network(HWND dialog, PreviewState& state) {
             throw std::runtime_error(job->error);
         if(context->kind==PendingDiscogsContext::Kind::Search)
             publish_discogs_search(dialog,state,*context,job->response);
+        else if(context->kind==PendingDiscogsContext::Kind::MasterYear)
+            publish_discogs_master_year(dialog,state,*context,job->response);
         else
             publish_discogs_release(dialog,state,*context,
                 djmeta::online::discogs::parse_release(
