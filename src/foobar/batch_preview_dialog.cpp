@@ -25,6 +25,7 @@
 #include "djmeta/online_query_prefill.h"
 #include "djmeta/cue_manual_preview.h"
 #include "djmeta/musicbrainz_provider.h"
+#include "djmeta/musicbrainz_search_review.h"
 #include "djmeta/discogs_provider.h"
 #include "djmeta/cue_release_review.h"
 #include "djmeta/cue_original_inventory.h"
@@ -571,9 +572,15 @@ MusicBrainzBrowseRows musicbrainz_search_rows(
             row.reason="musicbrainz_live_candidate_detail";
             detail.push_back(std::move(row));
         };
-        add(hit.kind==musicbrainz::SearchKind::Release ? "ALBUM" : "TITLE",
-            local_title,hit.title);
-        add("ARTIST",local_artist,hit.artist);
+        // Search title/artist describe DIFFERENT physical tag scopes:
+        // recording TITLE + ARTIST, versus edition ALBUM + ALBUM ARTIST.
+        // Compare with the complete local snapshot, never with the track
+        // title as a surrogate album and never flatten multivalue originals.
+        const auto mapped=review_musicbrainz_search_hit_fields(
+            original_tags,hit.mbid,
+            hit.kind==musicbrainz::SearchKind::Release,
+            hit.title,hit.artist);
+        detail.insert(detail.end(),mapped.begin(),mapped.end());
         if(hit.kind==musicbrainz::SearchKind::Recording) {
             add("IDENTITY (read-only)", "",
                 musicbrainz::recording_identity_label(

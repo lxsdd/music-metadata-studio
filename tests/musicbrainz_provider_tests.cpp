@@ -1,4 +1,5 @@
 #include "djmeta/musicbrainz_provider.h"
+#include "djmeta/musicbrainz_search_review.h"
 #include "djmeta/cue_online_bridge.h"
 
 #include <cstdlib>
@@ -434,6 +435,56 @@ int main() {
     const auto assigned=align_release(local.tracks,edition);
     check(assigned.matched==3 && assigned.unmatched==0,
           "real provider release edition feeds existing whole-CUE matching engine");
+
+
+    // A search-hit TITLE is NOT a substitute for the existing ALBUM field;
+    // release artist credit is album-artist evidence, not recording ARTIST.
+    const MetadataDocument source_tags{{
+        {"TITLE", {"Track (Extended Mix)"}},
+        {"ARTIST", {"Track Performer"}},
+        {"ALBUM", {"Existing Album"}},
+        {"ALBUM ARTIST", {"Album Group", "Featured Artist"}},
+        {"GENRE", {"Trance", "Progressive"}},
+        {"X_PRIVATE_FIELD", {"Preserve exact custom value"}}
+    }};
+    const auto untouched_tags=source_tags;
+    const auto release_hits=review_musicbrainz_search_hit_fields(
+        source_tags,first,true,"New Album","Album Group");
+    check(release_hits.size()==2 &&
+          release_hits[0].field=="ALBUM" &&
+          release_hits[0].original_values==std::vector<std::string>{"Existing Album"} &&
+          release_hits[0].candidate.values==std::vector<std::string>{"New Album"} &&
+          release_hits[0].candidate.scope==EvidenceScope::Edition &&
+          release_hits[0].state==FieldReviewState::NeedsReview &&
+          release_hits[1].field=="ALBUM ARTIST" &&
+          release_hits[1].original_values==
+              std::vector<std::string>({"Album Group","Featured Artist"}) &&
+          release_hits[1].state==FieldReviewState::NeedsReview,
+          "release search maps ALBUM and multivalue ALBUM ARTIST without track aliasing");
+    const auto recording_hits=review_musicbrainz_search_hit_fields(
+        source_tags,second,false,"Track (Extended Mix)","Track Performer");
+    check(recording_hits.size()==2 &&
+          recording_hits[0].field=="TITLE" &&
+          recording_hits[0].state==FieldReviewState::Unchanged &&
+          recording_hits[0].candidate.scope==EvidenceScope::Recording &&
+          recording_hits[1].field=="ARTIST" &&
+          recording_hits[1].state==FieldReviewState::Unchanged,
+          "recording search maps only TITLE and ARTIST and detects exact no-op");
+    const auto no_remote_artist=review_musicbrainz_search_hit_fields(
+        source_tags,first,true,"Existing Album","");
+    check(no_remote_artist.size()==1 &&
+          no_remote_artist[0].field=="ALBUM" &&
+          no_remote_artist[0].state==FieldReviewState::Unchanged &&
+          source_tags==untouched_tags,
+          "provider-absent artist never proposes a deletion and originals are immutable");
+    const auto no_local_album=review_musicbrainz_search_hit_fields(
+        MetadataDocument{{{"TITLE",{"Existing Track"}}}},
+        first,true,"New Album","");
+    check(no_local_album.size()==1 &&
+          no_local_album[0].field=="ALBUM" &&
+          no_local_album[0].original_values.empty() &&
+          no_local_album[0].reason=="musicbrainz_live_search_new_field_proposal",
+          "missing local ALBUM is not falsely compared against TITLE");
 
     std::cout << "PASS: official MusicBrainz query encoding, bounded JSON, artist roles and release alignment\n";
 }
