@@ -35,6 +35,7 @@
 #include "djmeta/beatport_manual_intake.h"
 #include "djmeta/beatport_public_page.h"
 #include "djmeta/beatport_public_html.h"
+#include "djmeta/crates_browser_bridge.h"
 #include "djmeta/beatport_release_review.h"
 #include "djmeta/discogs_release_review.h"
 #include "djmeta/native_candidate_labels.h"
@@ -50,6 +51,7 @@
 #include "djmeta/rules_snapshot.h"
 
 #include <commctrl.h>
+#include <shellapi.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -1599,10 +1601,20 @@ void update_live_provider_controls(PreviewState& state) {
         state.discogs_result_page>0 &&
         state.discogs_result_page<state.discogs_result_pages &&
         state.discogs_result_page<djmeta::online::discogs::max_search_result_page;
+    const bool crates_search=state.show_candidate &&
+        state.beatport_offline_selected && !state.stale &&
+        !state.refreshing && !pending &&
+        state.selected_track_index<state.entries.size() &&
+        state.entries[state.selected_track_index].input.physical_source_qualified &&
+        state.entries[state.selected_track_index].handle->get_subsong_index()==0 &&
+        !is_external_cue_locator(
+            state.entries[state.selected_track_index].input.source_path);
+    SetDlgItemTextW(state.dialog,IDC_METADATA_DISCOGS_NEXT_PAGE,
+        state.beatport_offline_selected ? L"Find in Crates" : L"Next results page");
     ShowWindow(GetDlgItem(state.dialog,IDC_METADATA_DISCOGS_NEXT_PAGE),
-               next_result?SW_SHOW:SW_HIDE);
+               next_result || crates_search?SW_SHOW:SW_HIDE);
     EnableWindow(GetDlgItem(state.dialog,IDC_METADATA_DISCOGS_NEXT_PAGE),
-                 next_result?TRUE:FALSE);
+                 next_result || crates_search?TRUE:FALSE);
 }
 
 void show_preview_page(HWND dialog, PreviewState& state,
@@ -2807,11 +2819,11 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_BATCH_GUIDE,L"Follow the steps from left to right. A MusicBrainz match is evidence, not an approved tag edit."},
         {IDC_METADATA_TRACK_LIST,L"Choose a track. Double-click or press Enter to search MusicBrainz from any tab (read-only)."},
         {IDC_METADATA_MB_QUERY,L"TITLE, album or official Discogs release/master URL. Master editions: page 1 only. No automatic network calls."},
-        {IDC_METADATA_ONLINE_PROVIDER,L"MusicBrainz and Discogs use authorized official APIs. Beatport (offline) accepts lawfully sourced complete track/release JSON or explicit facts without scraping. Live API is locked pending separate partner authorization."},
+        {IDC_METADATA_ONLINE_PROVIDER,L"MusicBrainz and Discogs use official APIs. Beatport + Crates supports single public Beatport URLs, lawful clipboard evidence and a hand-off to your existing Crates browser account; no logged-in API impersonation."},
         {IDC_METADATA_DISCOGS_TOKEN_LABEL,L"Discogs token only lives in this password control."},
         {IDC_METADATA_DISCOGS_TOKEN,L"Personal Discogs API token. Not saved, logged, embedded or copied into URLs."},
         {IDC_METADATA_MB_SEARCH,L"Beatport: paste an exact public https://www.beatport.com/track/slug/id URL to retrieve ONE public HTML page. No login, redirects or scraping bypass. MusicBrainz and Discogs use their official APIs. No tag writes."},
-        {IDC_METADATA_DISCOGS_NEXT_PAGE,L"Explicitly load ONE more page of the same official Discogs query. Never a match or write approval."},
+        {IDC_METADATA_DISCOGS_NEXT_PAGE,L"Discogs: explicitly load one more page. Beatport: Find in Crates copies only ARTIST and full TITLE (including mix) to the clipboard, then opens crates.co in your usual browser. Paste into Search. No Beatport credentials, cookies or metadata files are transferred."},
         {IDC_METADATA_MB_LOAD_RELEASE,L"Inspect a verified exact release; unmatched Discogs track credits remain blocked."},
         {IDC_ONLINE_INCLUDE_FIELDS,L"Include highlighted exact edition album fields or independently verified release-track credits in a detached preview. No files are changed."},
         {IDC_ONLINE_IGNORE_FIELDS,L"Remove highlighted edition fields from the in-memory preview. Existing tags remain intact."},
@@ -2931,6 +2943,67 @@ void begin_discogs_network(HWND dialog, PreviewState& state,
     EnableWindow(GetDlgItem(dialog,IDC_METADATA_DISCOGS_NEXT_PAGE),FALSE);
 }
 
+
+
+// Explicit Crates browser hand-off. The normal browser owns any Beatport
+// account login. Only this one local TITLE+ARTIST search phrase crosses via
+// the user's clipboard; no cookies, OAuth/session tokens, music paths,
+// file bytes, ISRC inventory, or hidden Crates API requests leave foobar.
+void copy_crates_search_text(HWND dialog,std::wstring_view query) {
+    if(query.empty() || query.size()>200)
+        throw std::invalid_argument("Crates clipboard query is invalid");
+    if(!OpenClipboard(dialog))
+        throw std::runtime_error("Could not open Windows clipboard for Crates search");
+    struct Close { ~Close(){CloseClipboard();} } closer;
+    const auto bytes=(query.size()+1)*sizeof(wchar_t);
+    HGLOBAL handle=GlobalAlloc(GMEM_MOVEABLE,bytes);
+    if(!handle) throw std::bad_alloc();
+    auto* memory=static_cast<wchar_t*>(GlobalLock(handle));
+    if(!memory) {
+        GlobalFree(handle);
+        throw std::runtime_error("Could not prepare Crates search clipboard text");
+    }
+    std::copy(query.begin(),query.end(),memory);
+    memory[query.size()]=L'\0';
+    GlobalUnlock(handle);
+    if(!EmptyClipboard() || !SetClipboardData(CF_UNICODETEXT,handle)) {
+        GlobalFree(handle);
+        throw std::runtime_error("Could not copy Crates query to clipboard");
+    }
+    // System owns handle only after SetClipboardData succeeds.
+}
+void open_crates_for_selected_physical_track(
+    HWND dialog,PreviewState& state) {
+    if(!state.show_candidate || !state.beatport_offline_selected ||
+       state.selected_track_index>=state.entries.size() ||
+       state.stale || state.refreshing ||
+       state.beatport_public_request || state.discogs_request ||
+       state.musicbrainz_request)
+        throw std::invalid_argument("Crates search requires a stable selected physical track");
+    const auto& entry=state.entries[state.selected_track_index];
+    verify_online_source_snapshot(state,entry);
+    verify_rules_snapshot(state.captured_rules);
+    if(!entry.input.physical_source_qualified ||
+       entry.handle->get_subsong_index()!=0 ||
+       is_external_cue_locator(entry.input.source_path))
+        throw std::invalid_argument("Crates search cannot use a virtual CUE track");
+    const auto info=entry.handle->get_info_ref();
+    const auto original=metadata_from_file_info(info->info());
+    const auto search=djmeta::online::prepare_crates_browser_search(original);
+    verify_online_source_snapshot(state,entry);
+    copy_crates_search_text(dialog,from_utf8(search.search_text));
+    const std::wstring url=L"https://crates.co/";
+    const HINSTANCE launched=ShellExecuteW(dialog,L"open",url.c_str(),
+                                            nullptr,nullptr,SW_SHOWNORMAL);
+    if(reinterpret_cast<INT_PTR>(launched)<=32)
+        throw std::runtime_error(
+            "Default browser could not open Crates. The safe search query is still in clipboard.");
+    SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+        L"Crates opened in the default browser. Paste the copied full "
+        L"ARTIST + TITLE into Crates Search (Ctrl+V). Your Beatport login "
+        L"stays in the browser. Copy the exact Beatport track URL back to "
+        L"Load Beatport URL; no metadata was changed.");
+}
 
 // A Beatport public URL is not a catalog API identity or staging authority.
 // Exactly one user-requested page is fetched on an isolated cancellable worker.
@@ -4927,7 +5000,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             if (state->stale) return TRUE;
         }
         if(id==IDC_METADATA_DISCOGS_NEXT_PAGE && HIWORD(wp)==BN_CLICKED) {
-            perform_discogs_next_page(dialog,*state);
+            if(state->beatport_offline_selected)
+                open_crates_for_selected_physical_track(dialog,*state);
+            else
+                perform_discogs_next_page(dialog,*state);
             return TRUE;
         }
         if (id == IDC_METADATA_MB_SEARCH && HIWORD(wp) == BN_CLICKED) {
