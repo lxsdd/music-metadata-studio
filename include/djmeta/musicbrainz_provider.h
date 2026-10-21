@@ -285,8 +285,11 @@ inline std::string lucene_literal(std::string_view value) {
     std::string out="\"";
     for (char c:value) {
         // Backslash and quote are escaped within Lucene quoted strings;
-        // control chars are forbidden even when valid UTF-8.
-        if (c=='\0'||c=='\r'||c=='\n'||c=='\t')
+        // every ASCII control and DEL is forbidden even when UTF-8-valid.
+        // Percent-encoding alone cannot make such invisible metadata a
+        // qualified, user-intended provider query.
+        if (static_cast<unsigned char>(c) < 0x20u ||
+            static_cast<unsigned char>(c) == 0x7fu)
             throw std::invalid_argument("MusicBrainz search control character");
         if (c=='"' || c=='\\') out.push_back('\\');
         out.push_back(c);

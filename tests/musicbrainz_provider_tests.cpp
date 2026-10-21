@@ -40,6 +40,12 @@ int main() {
             "invalid MBIDs never become URL paths");
     rejects([]{(void)make_search_path(SearchKind::Release,"Album\nOther","");},
             "CRLF injection in search rejected");
+    rejects([]{(void)make_search_path(SearchKind::Recording,
+                                     std::string("Track\x01",6),"");},
+            "hidden ASCII control in source TITLE must not reach MusicBrainz");
+    rejects([]{(void)make_search_path(SearchKind::Recording,
+                                     std::string("Track\x7f",6),"");},
+            "DEL byte in source TITLE must not reach MusicBrainz");
     rejects([]{(void)make_search_path(SearchKind::Release,"","");},
             "empty search title rejected");
 
