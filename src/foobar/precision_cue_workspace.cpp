@@ -1366,7 +1366,17 @@ void open_precision_workspace(metadb_handle_list_cref handles) {
     }
     try {
         auto state = std::make_unique<Workspace>();
-        state->files = capture_files(handles);
+        // A rejected physical selection is NOT a failed native HWND load.
+        // Distinguish these cases in the real Win32/x64 host diagnostics
+        // without logging a user's audio path, basename or private tags.
+        // Continue to reject unqualified sources before any CUE operation.
+        try {
+            state->files = capture_files(handles);
+        } catch (const std::exception& error) {
+            popup_message::g_show(error.what(),
+                "Precision CUE - Source qualification refused");
+            return;
+        }
         // This is a standalone modeless top-level window, not a child/owner
         // that disables foobar playback or playlist navigation.
         Workspace* const raw = state.release();
@@ -1387,7 +1397,8 @@ void open_precision_workspace(metadb_handle_list_cref handles) {
         ShowWindow(window, raw->restore_maximized ? SW_SHOWMAXIMIZED : SW_SHOW);
         UpdateWindow(window);
     } catch (const std::exception& error) {
-        popup_message::g_show(error.what(), "Precision CUE Preview");
+        popup_message::g_show(error.what(),
+            "Precision CUE - Native workspace failed");
     }
 }
 
