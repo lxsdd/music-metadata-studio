@@ -5064,7 +5064,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             std::optional<djmeta::online::ReleaseEdition> user_edition;
             if(beatport_user_release)
                 user_edition=djmeta::online::parse_beatport_user_release_clipboard(text);
-            else if(!beatport_user_json && !beatport_user_facts)
+            else if(!beatport_user_track)
                 user_candidate=djmeta::online::parse_manual_candidate(text);
             std::vector<djmeta::online::FieldReviewRow> rows;
             if (compare_cue) {
