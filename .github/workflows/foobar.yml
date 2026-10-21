@@ -58,6 +58,9 @@ jobs:
       - name: Test isolated host acceptance preparation and integrity verification
         shell: pwsh
         run: ./tests/host_acceptance_noop_tests.ps1
+      - name: Validate authenticated Discogs discovery contract offline
+        shell: pwsh
+        run: ./tests/discogs_discovery_contract_tests.ps1
 
   windows-build:
     needs: static-audit
@@ -143,6 +146,12 @@ jobs:
       - name: Build the exact checked-out foobar component for Discogs QA
         shell: pwsh
         run: ./scripts/build-foobar.ps1 -Platform '${{ matrix.platform }}' -Configuration Release -PlatformToolset v143
+      - name: Authorized official Discogs staged search and exact-edition QA
+        if: matrix.platform == 'Win32'
+        shell: pwsh
+        env:
+          MMS_DISCOGS_QA_TOKEN: ${{ secrets.MMS_DISCOGS_QA_TOKEN }}
+        run: ./scripts/qa-discogs-discovery.ps1 -Mode Live -ReleaseId '${{ inputs.discogs_release_id }}'
       - name: Authorized official Discogs native exact-edition gate
         uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@35369054c56f4c6ccb2f802944e9675852fd35ec
         env:
