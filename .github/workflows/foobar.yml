@@ -2,7 +2,8 @@ name: foobar Preview Component
 
 on:
   push:
-    branches: [ main ]
+    # Run safe read-only tests even while the long-running draft PR is conflicted.
+    branches: [ main, feature/precision-cue-generator-20261017 ]
     paths:
       - 'include/**'
       - 'src/core/**'
