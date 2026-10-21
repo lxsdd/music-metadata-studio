@@ -174,3 +174,7 @@ approved file operation and does not write files.
 ## Contradictory raw destination observation (2026-10-21)
 
 The read-only Studio File locations table now flags `RAW_TARGET_OBSERVATION_CONTRADICTORY` whenever a destination marked Missing, NotInspected, or Unqualified still carries a previous physical target ID or version guard. The native status makes this inconsistency visible before any subsequent final foobar File Operations qualification. This is not proof of a canonical target, does not approve a write, and does not touch Precision CUE.
+
+## SDK host-runner transport resilience (2026-10-21)
+
+The official foobar SDK bootstrap uses three bounded retries only when the HTTPS transport fails, deleting incomplete download files between attempts. The original official URL, pinned expected archive length, SHA-256 digest, archive integrity and version checks remain unchanged; a hash mismatch fails closed instead of selecting an unaudited mirror. This addresses an observed remote host outage and does not qualify or enable media writing.

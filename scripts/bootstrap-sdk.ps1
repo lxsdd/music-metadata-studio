@@ -35,7 +35,25 @@ if (-not (Test-Path -LiteralPath $SevenZip)) {
 }
 $SdkUrl = "https://www.foobar2000.org/downloads/SDK-$SdkVersion.7z"
 if (-not (Test-Path -LiteralPath $Archive)) {
-    Invoke-WebRequest -UseBasicParsing -Uri $SdkUrl -OutFile $Archive -MaximumRedirection 5
+    # Fail closed: never accept a partial archive from a failed transport.
+    # Retry only network failures. The pinned size, SHA-256 and 7z archive
+    # verification below remain mandatory and never retry a hash mismatch.
+    $downloaded = $false
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        try {
+            Invoke-WebRequest -UseBasicParsing -Uri $SdkUrl -OutFile $Archive -MaximumRedirection 5 -TimeoutSec 35
+            $downloaded = $true
+            break
+        } catch {
+            Remove-Item -LiteralPath $Archive -Force -ErrorAction SilentlyContinue
+            if ($attempt -eq 3) {
+                throw "Pinned official SDK download failed after 3 attempts: $($_.Exception.Message)"
+            }
+            Write-Warning "Official SDK transport unavailable (attempt $attempt of 3); retrying without accepting any partial archive."
+            Start-Sleep -Seconds (2 * $attempt)
+        }
+    }
+    if (-not $downloaded) { throw 'Pinned official SDK download incomplete.' }
 }
 $size = (Get-Item -LiteralPath $Archive).Length
 $hash = (Get-FileHash -LiteralPath $Archive -Algorithm SHA256).Hash.ToLowerInvariant()
