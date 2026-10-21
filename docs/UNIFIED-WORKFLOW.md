@@ -474,3 +474,15 @@ tag-only vs move-only isolation and proving that virtual subsongs never cause
 partial physical ID3 serialization. The current preview-only component
 cannot independently demonstrate writer-call suppression because it has no
 productive writer; no such claim is made.
+
+### Exact individual overwrite approval membership (October 2026)
+
+The pure no-I/O planner now validates every individual overwrite approval
+against one explicitly observed **existing** destination and one active,
+independently identified physical source. Unknown IDs, duplicate IDs, empty
+IDs, or approvals for a missing destination or tag-only row invalidate the
+**whole** batch, including otherwise no-op rows. Blanket overwrite approval
+cannot mask an inconsistent individual subset. A frozen preview refuses these
+cases. Large 15,000-track explicit approval and ordinary blanket-overwrite
+regressions remain part of Core CI. This is advisory in-memory approval
+validation, not an executor, and does not enable physical file operations.

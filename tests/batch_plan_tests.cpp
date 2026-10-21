@@ -74,6 +74,57 @@ void test_ready_and_immutable() {
             "routing profile edit must change plan");
 }
 
+void test_individual_overwrite_approval_selection_is_exact() {
+    auto replace = audio("ApprovedExisting");
+    replace.target_presence = djmeta::TargetPresence::Existing;
+    replace.target_guard = "observed-existing-target-v1";
+    replace.target_physical_id = "target-physical-existing";
+    auto missing = audio("NotAnOverwrite");
+    auto tag_only = audio("MetadataOnly");
+    tag_only.action = djmeta::FileAction::None;
+    tag_only.target_path.clear();
+    tag_only.target_key.clear();
+    const std::vector<djmeta::FilePlanItem> batch = {replace, missing, tag_only};
+    const auto preview = djmeta::review_batch_plan(batch);
+    require(preview.requires_overwrite == 1 && preview.blocked == 0,
+            "only one existing destination needs explicit individual overwrite consent");
+    const djmeta::BatchApproval exact{
+        preview.plan_fingerprint, false, {"ApprovedExisting"}};
+    const auto good = djmeta::review_batch_plan(batch, &exact);
+    require(good.ready_to_apply && good.blocked == 0 &&
+            good.decisions[0].will_replace_existing_target,
+            "valid exact overwrite subset may approve the selected existing target");
+
+    for (const std::vector<std::string>& ids : {
+             std::vector<std::string>{"ApprovedExisting","UnknownId"},
+             {"ApprovedExisting","ApprovedExisting"},
+             {"NotAnOverwrite"},
+             {"MetadataOnly"},
+             {""}}) {
+        const djmeta::BatchApproval unsafe{preview.plan_fingerprint,false,ids};
+        const auto rejected = djmeta::review_batch_plan(batch,&unsafe);
+        require(!rejected.ready_to_apply && rejected.blocked == batch.size(),
+                "unknown, repeated, empty or non-overwrite selection must block whole batch");
+        for (const auto& decision : rejected.decisions)
+            require(decision.status == djmeta::PlanStatus::Blocked &&
+                    has_reason(decision,"INVALID_OVERWRITE_APPROVAL_SELECTION") &&
+                    !decision.will_replace_existing_target &&
+                    !decision.metadata_write_needed &&
+                    !decision.cue_bytes_write_needed &&
+                    !decision.file_operation_needed,
+                    "invalid overwrite subset must clear every mutation intent");
+        try {
+            (void)djmeta::freeze_reviewed_batch_preview(batch,unsafe);
+            require(false,"invalid overwrite selection must not freeze");
+        } catch(const std::invalid_argument&) {}
+    }
+    const djmeta::BatchApproval invalid_blanket{
+        preview.plan_fingerprint,true,{"UnknownId"}};
+    const auto blanket = djmeta::review_batch_plan(batch,&invalid_blanket);
+    require(!blanket.ready_to_apply && blanket.blocked == batch.size(),
+            "blanket overwrite cannot hide an invalid individually selected identifier");
+}
+
 void test_large_batch_one_confirmation() {
     std::vector<djmeta::FilePlanItem> batch;
     for (int i = 0; i < 100; ++i) {
@@ -1262,6 +1313,7 @@ int main() {
     test_batch_overwrite_once_and_target_guard();
     test_existing_target_physical_identity_and_hardlink_alias_gates();
     test_large_batch_one_confirmation();
+    test_individual_overwrite_approval_selection_is_exact();
     test_many_individual_overwrite_approvals_are_indexed();
     test_missing_target_guard_and_no_inspection();
     test_new_target_after_clean_review_requires_new_consent();

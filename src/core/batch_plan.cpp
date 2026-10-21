@@ -157,10 +157,28 @@ BatchPlanReview review_batch_plan(
     // Build once: linear searches for each existing target used to make
     // individually approved large batches O(N * approval_count).
     std::set<std::string> individually_approved;
-    if (approval && !stale_approval)
-        individually_approved.insert(
-            approval->individually_approved_physical_ids.begin(),
-            approval->individually_approved_physical_ids.end());
+    // An individual overwrite approval is valid only for a DISTINCT source
+    // whose active file action has a separately observed EXISTING target.
+    // Unknown, repeated, empty, tag-only and missing-target identifiers must
+    // never be silently ignored by an otherwise valid blanket/batch approval.
+    // Reject the entire approval set, including rows that need no overwrite:
+    // approval is an indivisible snapshot of user intent.
+    bool invalid_overwrite_approval_selection = false;
+    if (approval && !stale_approval) {
+        std::set<std::string> eligible_overwrite_source_ids;
+        for (const auto& item : items)
+            if (active_file_action(item) &&
+                item.target_presence == TargetPresence::Existing &&
+                !item.physical_id.empty() &&
+                !item.target_guard.empty() &&
+                !item.target_physical_id.empty())
+                eligible_overwrite_source_ids.insert(item.physical_id);
+        for (const auto& id : approval->individually_approved_physical_ids)
+            if (id.empty() ||
+                eligible_overwrite_source_ids.count(id) == 0 ||
+                !individually_approved.insert(id).second)
+                invalid_overwrite_approval_selection = true;
+    }
 
     // The preview must correspond to ONE immutable ruleset across audio,
     // CUE and companion rows, including rows with no physical file action.
@@ -228,10 +246,14 @@ BatchPlanReview review_batch_plan(
             !valid_presence(item.target_presence) || !valid_cue_state(item.cue_links)) {
             block(decision, "UNKNOWN_PLAN_ENUM_VALUE");
             if (stale_approval) block(decision, "STALE_BATCH_APPROVAL");
+            if (invalid_overwrite_approval_selection)
+                block(decision, "INVALID_OVERWRITE_APPROVAL_SELECTION");
             ++review.blocked;
             continue;
         }
 
+        if (invalid_overwrite_approval_selection)
+            block(decision, "INVALID_OVERWRITE_APPROVAL_SELECTION");
         if (contains_embedded_nul(item))
             block(decision, "EMBEDDED_NUL_IN_PLAN_IDENTITY");
         if (!valid_cue_participants(item))
