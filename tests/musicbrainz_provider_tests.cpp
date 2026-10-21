@@ -63,7 +63,7 @@ int main() {
               SearchKind::Release,"Qualified CUE album",""),
           "overlong CUE artist preserves safe release-title-only search");
     const auto safe_album_control=release_search_plan("Qualified CUE album",
-        std::string("Artist\\nInjected"));
+        std::string("Artist\nInjected"));
     check(safe_album_control.size()==1 &&
           safe_album_control[0].path==safe_album_long_artist[0].path,
           "ASCII controls in optional CUE artist never become provider query");
@@ -144,7 +144,7 @@ int main() {
               SearchKind::Recording,"Known Track",""),
           "overlong ARTIST stays intact as original and cannot disable title-only discovery");
     const auto safe_control_artist=recording_search_plan(
-        "Known Track",std::string("Guest\\nInjected"));
+        "Known Track",std::string("Guest\nInjected"));
     check(safe_control_artist.attempts.size()==1 &&
           safe_control_artist.attempts[0].path==safe_recording.attempts[0].path,
           "control-character ARTIST cannot reach official HTTPS search path");
