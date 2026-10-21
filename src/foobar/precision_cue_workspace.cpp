@@ -1373,8 +1373,28 @@ void open_precision_workspace(metadb_handle_list_cref handles) {
         try {
             state->files = capture_files(handles);
         } catch (const std::exception& error) {
-            popup_message::g_show(error.what(),
-                "Precision CUE - Source qualification refused");
+            // Public Windows runner logs may include window TITLES but must
+            // never contain the user's path or metadata values. Classify the
+            // qualification gate using fixed, privacy-safe categories. The
+            // existing fail-closed safety check remains exactly unchanged.
+            const std::string why(error.what());
+            const char* const category=
+                why.find("between one and eight")!=std::string::npos
+                    ? "Precision CUE - Reject selection count" :
+                why.find("virtual CUE subsongs")!=std::string::npos
+                    ? "Precision CUE - Reject virtual subsong" :
+                why.find("requires a physical local drive MP3 path")!=std::string::npos
+                    ? "Precision CUE - Reject path form" :
+                why.find("symlinks/aliases unsupported")!=std::string::npos
+                    ? "Precision CUE - Reject noncanonical source" :
+                why.find("identity could not be verified")!=std::string::npos
+                    ? "Precision CUE - Reject file identity" :
+                why.find("changed during metadata inspection")!=std::string::npos
+                    ? "Precision CUE - Reject source race" :
+                why.find("Duplicate MP3 basenames")!=std::string::npos
+                    ? "Precision CUE - Reject duplicate names" :
+                    "Precision CUE - Reject metadata inspection";
+            popup_message::g_show(error.what(),category);
             return;
         }
         // This is a standalone modeless top-level window, not a child/owner
