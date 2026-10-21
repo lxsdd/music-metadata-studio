@@ -563,6 +563,9 @@ int main() {
 
     // Three read-only online field decisions are physically separate from
     // the native Close button, and have actual resource-backed HWNDs.
+    RECT online_client{};
+    check(GetClientRect(dialog,&online_client)!=FALSE,
+          "client bounds for native online edit controls");
     RECT previous_action{};
     bool first_online_action=true;
     for (const int id:{IDC_ONLINE_INCLUDE_FIELDS,IDC_ONLINE_IGNORE_FIELDS,
@@ -570,8 +573,8 @@ int main() {
         const HWND button=GetDlgItem(dialog,id);
         check(button!=nullptr,"exact-edition native preview action exists");
         const RECT bounds=bounds_in_dialog(button);
-        check(bounds.left>=0 && bounds.right<=client.right &&
-              bounds.top>=0 && bounds.bottom<=client.bottom,
+        check(bounds.left>=0 && bounds.right<=online_client.right &&
+              bounds.top>=0 && bounds.bottom<=online_client.bottom,
               "field preview action fits the minimum native dialog");
         if(!first_online_action)
             check(previous_action.right+3<=bounds.left &&
