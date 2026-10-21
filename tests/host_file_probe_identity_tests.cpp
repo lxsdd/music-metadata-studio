@@ -22,6 +22,16 @@ int main() {
             "missing OS file identity is refused");
     require(!valid_native_file_identity(1, UINT64_MAX),
             "all-bits-set file index is a sentinel, not identity");
+    require(valid_native_regular_file_attributes(0x80u),
+            "regular FILE_ATTRIBUTE_NORMAL remains inspectable");
+    require(valid_native_regular_file_attributes(0x20u | 0x1u),
+            "ordinary archive/read-only flags are not rejected");
+    require(!valid_native_regular_file_attributes(0x400u | 0x20u),
+            "a file handle reporting reparse point must not qualify");
+    require(!valid_native_regular_file_attributes(0x10u),
+            "a directory handle is never a regular music file");
+    require(!valid_native_regular_file_attributes(UINT32_MAX),
+            "invalid native attribute sentinel must fail closed");
     const HostFileObservation stable{
         HostFileState::ExistingFile,"file:///C:/Audio/A.mp3",
         "win-file-v1:199:10023","guard-001","Physical source observed"};

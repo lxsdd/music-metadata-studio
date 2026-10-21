@@ -67,8 +67,7 @@ HostFileObservation probe_host_file_readonly(const std::string& path) {
             }
             return out;
         }
-        if ((attrs & FILE_ATTRIBUTE_DIRECTORY) != 0 ||
-            (attrs & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+        if (!valid_native_regular_file_attributes(attrs)) {
             out.detail = "Directory or reparse-point file is not qualified.";
             return out;
         }
@@ -79,7 +78,8 @@ HostFileObservation probe_host_file_readonly(const std::string& path) {
         const HANDLE file_handle = CreateFileW(native_path.c_str(),
             FILE_READ_ATTRIBUTES,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            nullptr, OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
         if (file_handle == INVALID_HANDLE_VALUE) {
             out.detail = "Cannot open physical file for read-only attributes.";
             return out;
@@ -90,6 +90,13 @@ HostFileObservation probe_host_file_readonly(const std::string& path) {
         CloseHandle(file_handle);
         if (!have_native_info) {
             out.detail = "Host cannot provide a physical file ID.";
+            return out;
+        }
+        // A last-component symlink/reparse substitute must never inherit
+        // the originally inspected physical file's eligibility. The handle
+        // was opened without following that reparse point.
+        if (!valid_native_regular_file_attributes(native_info.dwFileAttributes)) {
+            out.detail = "Physical file became a reparse point or directory.";
             return out;
         }
         const auto index = file_number(native_info.nFileIndexHigh,

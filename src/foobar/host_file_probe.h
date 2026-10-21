@@ -60,6 +60,15 @@ inline bool valid_native_file_identity(
         file_index != UINT64_MAX;
 }
 
+// The native handle's flags are checked separately from path attributes.
+// A reparse-point file can replace an ordinary source between the initial
+// attribute check and CreateFileW; fail closed even with a plausible file ID.
+// The two Windows flag values are stable SDK constants (DIRECTORY=0x10,
+// REPARSE_POINT=0x400), kept pure for cross-platform regression tests.
+inline bool valid_native_regular_file_attributes(std::uint32_t attrs) noexcept {
+    return attrs != UINT32_MAX && (attrs & (0x10u | 0x400u)) == 0;
+}
+
 // Missing is a legitimate observation for a proposed target but NOT for a
 // selected source. The caller enforces that distinction.
 // No files are opened for writing, created, moved or modified.

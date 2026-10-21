@@ -136,6 +136,8 @@ for token in (
     "OPEN_EXISTING",
     "GetFileInformationByHandle",
     "FILE_SHARE_DELETE",
+    "FILE_FLAG_OPEN_REPARSE_POINT",
+    "valid_native_regular_file_attributes(native_info.dwFileAttributes)",
 ):
     if token not in host_probe:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing read-only host probe: " + token)
