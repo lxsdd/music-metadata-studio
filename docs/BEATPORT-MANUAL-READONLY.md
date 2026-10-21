@@ -103,3 +103,22 @@ one-to-one association. Weak/missing/mismatched mix assignments remain
 read-only evidence; other provider-only fields have no fabricated CUE target.
 The entire original CUE inventory (including repeated REM/FILE tokens)
 remains visible and no writer is invoked.
+
+## Integrated foobar provider mode (21 October 2026)
+
+The **Find & compare** provider selector now lists **Beatport (offline)**
+alongside MusicBrainz and Discogs. It intentionally has **no live Beatport
+Search**: the button is disabled and labeled `Beatport API locked`, because
+Beatport does not supply a licensed application credential/partner agreement to
+this project. The existing button becomes **Import Beatport**. Users can
+explicitly import complete track-detail JSON, complete edition plus tracklist,
+or fully specified factual records from an independently lawful source.
+A raw copied webpage is **not** a JSON API response. The app refuses it.
+
+Both the single-track comparison and complete release comparison now use
+**one grouped source row per recording/album**, with original physical fields
+in a separate group and all field-level evidence in the selected details pane.
+Every Beatport-only value stays labelled **user-provided/unverified** and
+never enters the verified official Discogs physical staging lane. Beatport
+URL/search/OAuth integration remains a separate **license-dependent** gate,
+not an undocumented scraper or borrowed public-client credential.

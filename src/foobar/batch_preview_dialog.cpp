@@ -169,6 +169,7 @@ struct PreviewState {
     bool online_close_requested=false;
     ReadOnlyContextVersion online_context_version;
     bool discogs_provider_selected = false; // visible runtime-only source selector
+    bool beatport_offline_selected = false; // no approved Beatport API transport
     bool discogs_live_view = false; // last response, never inferred from combo
     bool discogs_search_was_cue = false;
     std::vector<djmeta::online::discogs::SearchHit> discogs_results;
@@ -1307,6 +1308,7 @@ void update_metadata_table(PreviewState& state) {
         EnableWindow(GetDlgItem(state.dialog, IDC_METADATA_INSPECT_CUE),
                      cue_readable ? TRUE : FALSE);
         EnableWindow(GetDlgItem(state.dialog, IDC_METADATA_MB_SEARCH),
+                     !state.beatport_offline_selected &&
                      (physical || cue_readable) &&
                      !state.discogs_request && !state.musicbrainz_request ? TRUE : FALSE);
         // Preserve the candidate, not its old sorted view row.
@@ -1549,12 +1551,17 @@ void update_live_provider_controls(PreviewState& state) {
         state.search_plan_identity==state.discogs_result_identity &&
         !state.discogs_results.empty();
     SetDlgItemTextW(state.dialog,IDC_METADATA_MB_SEARCH,
+        state.beatport_offline_selected ? L"Beatport API locked" :
         native_discogs_search_caption(state.discogs_provider_selected,
             next_master,published_search,
             state.candidate_source_index==state.selected_track_index,
             state.musicbrainz_release_loaded,pending,
             state.discogs_result_attempt_index,
             state.discogs_result_attempt_total));
+    EnableWindow(GetDlgItem(state.dialog,IDC_METADATA_MB_SEARCH),
+        !state.beatport_offline_selected && !pending && !state.stale);
+    SetDlgItemTextW(state.dialog,IDC_METADATA_IMPORT_CANDIDATE,
+        state.beatport_offline_selected ? L"Import Beatport" : L"Import clipboard");
     const bool next_result=discogs && state.discogs_live_view &&
         !state.musicbrainz_release_loaded && !state.discogs_master_id &&
         state.candidate_source_index==state.selected_track_index &&
@@ -2774,17 +2781,17 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_BATCH_GUIDE,L"Follow the steps from left to right. A MusicBrainz match is evidence, not an approved tag edit."},
         {IDC_METADATA_TRACK_LIST,L"Choose a track. Double-click or press Enter to search MusicBrainz from any tab (read-only)."},
         {IDC_METADATA_MB_QUERY,L"TITLE, album or official Discogs release/master URL. Master editions: page 1 only. No automatic network calls."},
-        {IDC_METADATA_ONLINE_PROVIDER,L"Select MusicBrainz (free read-only) or Discogs (your authorized personal token required)."},
+        {IDC_METADATA_ONLINE_PROVIDER,L"MusicBrainz and Discogs use authorized official APIs. Beatport (offline) accepts lawfully sourced complete track/release JSON or explicit facts without scraping. Live API is locked pending separate partner authorization."},
         {IDC_METADATA_DISCOGS_TOKEN_LABEL,L"Discogs token only lives in this password control."},
         {IDC_METADATA_DISCOGS_TOKEN,L"Personal Discogs API token. Not saved, logged, embedded or copied into URLs."},
-        {IDC_METADATA_MB_SEARCH,L"One deliberate official HTTPS lookup; bounded zero-hit stages broaden with pacing. No tag writes."},
+        {IDC_METADATA_MB_SEARCH,L"MusicBrainz/Discogs: bounded official HTTPS lookup. Beatport: locked without approved partner credentials; use Import Beatport for separately licensed JSON or explicit facts. No tag writes."},
         {IDC_METADATA_DISCOGS_NEXT_PAGE,L"Explicitly load ONE more page of the same official Discogs query. Never a match or write approval."},
         {IDC_METADATA_MB_LOAD_RELEASE,L"Inspect a verified exact release; unmatched Discogs track credits remain blocked."},
         {IDC_ONLINE_INCLUDE_FIELDS,L"Include highlighted exact edition album fields or independently verified release-track credits in a detached preview. No files are changed."},
         {IDC_ONLINE_IGNORE_FIELDS,L"Remove highlighted edition fields from the in-memory preview. Existing tags remain intact."},
         {IDC_ONLINE_RESET_FIELDS,L"Clear every included online field for this exact edition. Does not modify any file or saved metadata."},
         {IDC_METADATA_INSPECT_CUE,L"Read the source CUE and show its album/track fields. Embedded and external CUE are never written here."},
-        {IDC_METADATA_IMPORT_CANDIDATE,L"Import manual facts with @beatport-track-facts or lawfully supplied @beatport-track-json. Offline, unverified, read-only; requires physical match."},
+        {IDC_METADATA_IMPORT_CANDIDATE,L"Beatport offline: import lawfully obtained @beatport-track-json, @beatport-track-facts or complete @beatport-release-json plus @beatport-tracks-json. Pure field comparison, no authentication claim or writers."},
         {IDC_METADATA_LIST,L"Select a candidate or proposed change to inspect its source and status."},
         {IDC_METADATA_MB_DETAILS,L"Field-by-field evidence for the selected online candidate. REVIEW is not a tag-write authorization."},
         {IDC_ONLINE_DATE_TARGET_LABEL,L"Do not infer an edition date from your current physical DATE."},
@@ -2845,7 +2852,9 @@ void show_workspace_help(HWND dialog) {
         L"Online hits are NOT automatically imported as tag edits. "
         L"Discogs shows linked master and edition dates separately; "
         L"choose a tag for each or PAIR to preview both in one click.\n\n"
-        L"Optional Beatport: Import clipboard also accepts @beatport-track-json "
+        L"Beatport (offline) is a full local track/edition comparison mode, "
+        L"NOT an authorized live API connection. Select it as provider, then "
+        L"Import Beatport for lawfully sourced @beatport-track-json "
         L"on the first line, followed by track JSON already lawfully supplied "
         L"to you. No Beatport login or network request is made. "
         L"Physical title, artist, version, ISRC and duration are compared. "
@@ -3940,7 +3949,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                                  L"Include fields (preview)");
         SendDlgItemMessageW(dialog,IDC_ONLINE_DATE_TARGET,
             CB_SETDROPPEDWIDTH,360,0);
-        for(const wchar_t* name:{L"MusicBrainz",L"Discogs (token)"})
+        for(const wchar_t* name:{L"MusicBrainz",L"Discogs (token)",
+                                 L"Beatport (offline)"})
             SendDlgItemMessageW(dialog,IDC_METADATA_ONLINE_PROVIDER,CB_ADDSTRING,
                 0,reinterpret_cast<LPARAM>(name));
         SendDlgItemMessageW(dialog,IDC_METADATA_ONLINE_PROVIDER,CB_SETCURSEL,0,0);
@@ -4652,9 +4662,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         }
         if(id==IDC_METADATA_ONLINE_PROVIDER && HIWORD(wp)==CBN_SELCHANGE) {
             invalidate_online_request(*state);
-            state->discogs_provider_selected=
-                SendDlgItemMessageW(dialog,IDC_METADATA_ONLINE_PROVIDER,
-                    CB_GETCURSEL,0,0)==1;
+            const auto selected_provider=SendDlgItemMessageW(
+                dialog,IDC_METADATA_ONLINE_PROVIDER,CB_GETCURSEL,0,0);
+            state->discogs_provider_selected=selected_provider==1;
+            state->beatport_offline_selected=selected_provider==2;
             if(!state->discogs_provider_selected)
                 SetDlgItemTextW(dialog,IDC_METADATA_DISCOGS_TOKEN,L"");
             state->musicbrainz_live_view=false;
@@ -4678,6 +4689,12 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             state->search_attempt_notice.clear();
             update_live_provider_controls(*state);
             update_metadata_table(*state);
+            if(state->beatport_offline_selected)
+                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                    L"Beatport offline: copy authorized track-detail JSON "
+                    L"(@beatport-track-json), complete edition+tracks JSON "
+                    L"or explicit @beatport-track-facts, then Import Beatport. "
+                    L"Live Beatport API requires separate partner approval.");
             return TRUE;
         }
         if (id == IDCANCEL) {
@@ -4735,6 +4752,11 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             return TRUE;
         }
         if (id == IDC_METADATA_MB_SEARCH && HIWORD(wp) == BN_CLICKED) {
+            if(state->beatport_offline_selected)
+                throw std::invalid_argument(
+                    "Beatport live API is unavailable without an approved partner "
+                    "license and authorized transport. Use Import Beatport for "
+                    "separately obtained structured track or release data.");
             if(state->musicbrainz_request || state->discogs_request)
                 throw std::runtime_error("Wait for the current provider lookup.");
             if(state->discogs_provider_selected) {
@@ -5011,6 +5033,14 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 djmeta::online::is_beatport_user_facts_clipboard(text);
             const bool beatport_user_release =
                 djmeta::online::is_beatport_user_release_clipboard(text);
+            const bool beatport_user_track=beatport_user_json || beatport_user_facts;
+            if(state->beatport_offline_selected &&
+               !beatport_user_release && !beatport_user_track)
+                throw std::invalid_argument(
+                    "Beatport mode requires @beatport-track-json, "
+                    "@beatport-track-facts or both @beatport-release-json "
+                    "and @beatport-tracks-json. Plain webpage text "
+                    "cannot be treated as authorized API evidence.");
             std::optional<djmeta::online::ManualCandidate> user_candidate;
             std::optional<djmeta::online::ReleaseEdition> user_edition;
             if(beatport_user_release)
@@ -5075,7 +5105,18 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             }
             verify_snapshot(entry);
             verify_rules_snapshot(state->captured_rules);
-            if(beatport_user_release) {
+            if(beatport_user_release || beatport_user_track) {
+                if(beatport_user_track) {
+                    // One recording is ONE browser item; all its field
+                    // comparisons belong to the independent details pane.
+                    // The complete original physical tag inventory stays in
+                    // a separate source group, not a flattened edit list.
+                    for(auto& row:rows) {
+                        if(djmeta::online::is_local_physical_original(row))
+                            row.field="Physical / "+row.field;
+                        else row.field="Beatport Track / "+row.field;
+                    }
+                }
                 auto grouped=group_musicbrainz_release_rows(rows);
                 state->candidate_rows=std::move(grouped.summary);
                 state->musicbrainz_detail_groups=std::move(grouped.detail);
@@ -5086,14 +5127,18 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             state->candidate_source_index = state->selected_track_index;
             state->cue_inspection_mode = false;
             state->cue_candidate_comparison_mode = compare_cue;
-            state->musicbrainz_live_view = beatport_user_release;
-            state->musicbrainz_release_loaded = beatport_user_release;
+            state->musicbrainz_live_view = beatport_user_release || beatport_user_track;
+            state->musicbrainz_release_loaded = beatport_user_release || beatport_user_track;
             state->musicbrainz_kind =
                 djmeta::online::musicbrainz::SearchKind::Release;
             state->search_attempt_notice = beatport_user_release
-                ? L"Pasted Beatport edition and complete tracklist. "
-                  L"Unmatched tracks blocked; no API authorization or writes."
-                : L"";
+                ? L"Beatport edition imported from user-provided JSON. "
+                  L"Complete tracklist compared. Source is UNVERIFIED; "
+                  L"no official API authentication or writes."
+                : beatport_user_track
+                ? L"Beatport track imported from user-provided evidence. "
+                  L"Mix/version, ISRC and duration checked. Source is "
+                  L"UNVERIFIED; preview only, no writes." : L"";
             state->discogs_live_view = false;
             state->discogs_results.clear();
             state->discogs_master_id=0;
