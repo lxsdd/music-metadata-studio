@@ -93,8 +93,8 @@ if "invalidate_online_request(*state);\n            refresh_workspace_snapshot(*
 # Search and release completion for BOTH providers must reject context
 # mutations even if the visible query returns to the original text.
 if batch_rules_guard.count(
-        "state.online_context_version.matches(request.context_version)") != 4:
-    raise SystemExit("STATIC FOOBAR AUDIT FAIL: four provider epoch gates required")
+        "state.online_context_version.matches(request.context_version)") != 5:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: five provider epoch gates required (including public-page gate)")
 for token in ("HIWORD(wp)==EN_CHANGE",
               "invalidate_online_request(*state)",
               "state.online_context_version.invalidate()",
@@ -952,3 +952,22 @@ for marker in (
         raise SystemExit('STATIC FOOBAR AUDIT FAIL: Beatport native integration missing: '+marker)
 if 'fetch_beatport_json(' in batch_rules_guard or 'void begin_beatport_network(' in batch_rules_guard:
     raise SystemExit('STATIC FOOBAR AUDIT FAIL: Beatport API must remain license-gated')
+
+# One user-click Beatport HTML GET uses a fixed TLS origin and never bypasses denial.
+transport=(foobar/"beatport_public_http.cpp").read_text(encoding="utf-8")
+for marker in ("L\"www.beatport.com\"", "WINHTTP_OPTION_REDIRECT_POLICY_NEVER",
+               "WINHTTP_AUTOLOGON_SECURITY_LEVEL_HIGH",
+               "status==401 || status==403 || status==429",
+               "WINHTTP_FLAG_SECURE"):
+    if marker not in transport:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: unsafe Beatport page transport: "+marker)
+for marker in ("Authorization:", "WINHTTP_ACCESS_TYPE_NO_PROXY"):
+    if marker in transport:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: public-page credentials/proxy bypass")
+for marker in ("perform_beatport_public_page_lookup(dialog,*state)",
+               "consume_beatport_public_network(dialog,*state)",
+               "request_readonly_network_stop(*state->beatport_public_request)",
+               "state.online_context_version.matches(ctx->context_version)",
+               "parse_beatport_public_html(ctx->url,job->response)"):
+    if marker not in batch_rules_guard:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: native Beatport page safety missing: "+marker)

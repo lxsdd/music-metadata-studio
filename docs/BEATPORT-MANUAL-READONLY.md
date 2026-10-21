@@ -201,3 +201,20 @@ JavaScript state, calling undocumented API endpoints, or guessing a mix.
 These failures are useful evidence for deciding on a qualified native
 single-page HTML/URL integration. The right to read public pages and the
 site's access policies must still be assessed for the intended use.
+
+## Direct public Beatport URL retrieval in foobar (read-only)
+
+In Find & compare choose Beatport (offline), select a physical audio recording,
+paste its exact public HTTPS URL in the query field, and click Load Beatport URL.
+The component performs ONE bounded GET to www.beatport.com; it never sends
+cookies/credentials, follows redirects, retries, uses partner APIs or bypasses
+access challenges. The HTML parser only recognizes exactly identified,
+uniquely matching MusicRecording JSON-LD, which is compared with local title,
+mix, ISRC and physical duration. Source data is NOT an authenticated API
+record and never receives tag/CUE/file writer authority.
+
+HTTP 401/403/429, redirect, missing embedded identity, or inaccessible markup
+stop immediately. The user-initiated browser helper remains the fallback.
+This feature is not automatic search, not a batch crawl, and not a verified
+live Beatport API integration. Genuine public-page layout and permissions
+have not yet been qualified by a real Beatport fetch.
