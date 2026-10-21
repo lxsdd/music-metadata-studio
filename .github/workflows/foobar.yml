@@ -85,7 +85,7 @@ jobs:
         shell: pwsh
         run: ./scripts/build-foobar.ps1 -Platform '${{ matrix.platform }}' -Configuration Release -PlatformToolset v143
       - name: HARD GATE - foobar2000 ${{ matrix.platform }} component host load
-        uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@35369054c56f4c6ccb2f802944e9675852fd35ec
+        uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@31930d4fca571f449f2c57044bea5ba2e01f0ca7
         with:
           architecture: ${{ matrix.platform }}
           component-dll: out/foobar/${{ matrix.platform }}/Release/foo_music_metadata_studio.dll
@@ -153,7 +153,7 @@ jobs:
           MMS_DISCOGS_QA_TOKEN: ${{ secrets.MMS_DISCOGS_QA_TOKEN }}
         run: ./scripts/qa-discogs-discovery.ps1 -Mode Live -ReleaseId '${{ inputs.discogs_release_id }}'
       - name: Authorized official Discogs native exact-edition gate
-        uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@35369054c56f4c6ccb2f802944e9675852fd35ec
+        uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@31930d4fca571f449f2c57044bea5ba2e01f0ca7
         env:
           FB2K_DISCOGS_QA_TOKEN: ${{ secrets.MMS_DISCOGS_QA_TOKEN }}
         with:
@@ -163,6 +163,7 @@ jobs:
           expected-window-title: 'Music Metadata Studio - Prepare Tracks (Read-only)'
           required-control-ids: '270,273,271,291,292,293,294,299,301'
           authorized-discogs-probe: 'true'
+          authorized-discogs-full-artist-probe: 'true'
           discogs-release-id: ${{ inputs.discogs_release_id }}
 
   # Internal PRs may publish short-lived QA artifacts, never GitHub Releases.

@@ -806,6 +806,8 @@ public_jobs, protected_job = workflow.split("  discogs-authorized-native:\n", 1)
 protected_job = protected_job.split("\n  # Internal PRs", 1)[0]
 if "secrets.MMS_DISCOGS_QA_TOKEN" in public_jobs:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: Discogs secret exposed to PR jobs")
+if "authorized-discogs-full-artist-probe:" in public_jobs:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: protected full-artist probe must not run in PR jobs")
 if protected_job.count("secrets.MMS_DISCOGS_QA_TOKEN") != 2 or (
     "      - name: Authorized official Discogs staged search and exact-edition QA\n"
     "        if: matrix.platform == 'Win32'\n"
@@ -822,12 +824,13 @@ for token in (
     "FB2K_DISCOGS_QA_TOKEN:",
     "secrets.MMS_DISCOGS_QA_TOKEN",
     "authorized-discogs-probe: 'true'",
+    "authorized-discogs-full-artist-probe: 'true'",
 ):
     if token not in protected_job:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing protected live QA guard: " + token)
 if workflow.count(
     "lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@"
-    "35369054c56f4c6ccb2f802944e9675852fd35ec"
+    "31930d4fca571f449f2c57044bea5ba2e01f0ca7"
 ) != 2:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: mismatched protected/ordinary host pins")
 if workflow.count(
