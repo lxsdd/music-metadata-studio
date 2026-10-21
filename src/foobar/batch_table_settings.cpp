@@ -15,6 +15,10 @@ constexpr GUID kBatchPreviewPlacementGuid =
 cfg_string g_batch_preview_placement(kBatchPreviewPlacementGuid, "");
 
 
+constexpr GUID kOnlineDateTargetGuid =
+    {0x60b91d2e,0x1564,0x41b0,{0xa5,0x63,0x72,0x99,0x06,0xd3,0xca,0x27}};
+cfg_string g_online_date_target_preference(kOnlineDateTargetGuid,"0");
+
 constexpr GUID kBatchTableLayoutGuid =
     {0xbca40f8b, 0x927b, 0x4fe6, {0xa1, 0x75, 0x16, 0x09, 0x63, 0xd1, 0x47, 0x21}};
 
@@ -68,6 +72,23 @@ void store_batch_preview_window_size(djmeta::PreviewWindowSize size) {
     const auto before = g_batch_preview_window_size.get();
     if (std::string_view(before.c_str()) != serialized)
         g_batch_preview_window_size.set(serialized.c_str());
+}
+
+int load_online_date_target_preference() {
+    const auto raw=g_online_date_target_preference.get();
+    const std::string_view stored(raw.c_str());
+    // Fail closed on corrupted/legacy settings; never preselect a write.
+    if(stored.size()!=1 || stored.front()<'0' || stored.front()>'7')
+        return 0;
+    return static_cast<int>(stored.front()-'0');
+}
+void store_online_date_target_preference(int choice) {
+    if(choice<0 || choice>7)
+        throw std::invalid_argument("Invalid online date target choice.");
+    const std::string expected(1,static_cast<char>('0'+choice));
+    const auto before=g_online_date_target_preference.get();
+    if(std::string_view(before.c_str())!=expected)
+        g_online_date_target_preference.set(expected.c_str());
 }
 
 djmeta::BatchTableLayout load_batch_table_layout() {

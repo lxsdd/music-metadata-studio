@@ -3932,7 +3932,12 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 L"PAIR: Master -> DATE, edition -> RELEASEDATE"})
             SendDlgItemMessageW(dialog,IDC_ONLINE_DATE_TARGET,CB_ADDSTRING,
                 0,reinterpret_cast<LPARAM>(target));
-        SendDlgItemMessageW(dialog,IDC_ONLINE_DATE_TARGET,CB_SETCURSEL,0,0);
+        const int remembered_date=load_online_date_target_preference();
+        SendDlgItemMessageW(dialog,IDC_ONLINE_DATE_TARGET,
+            CB_SETCURSEL,remembered_date,0);
+        SetDlgItemTextW(dialog,IDC_ONLINE_INCLUDE_FIELDS,
+            remembered_date>=6 ? L"Preview both dates" :
+                                 L"Include fields (preview)");
         SendDlgItemMessageW(dialog,IDC_ONLINE_DATE_TARGET,
             CB_SETDROPPEDWIDTH,360,0);
         for(const wchar_t* name:{L"MusicBrainz",L"Discogs (token)"})
@@ -4690,11 +4695,21 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             return TRUE;
         }
         if(id==IDC_ONLINE_DATE_TARGET && HIWORD(wp)==CBN_SELCHANGE) {
-            const auto choice=SendDlgItemMessageW(
-                dialog,IDC_ONLINE_DATE_TARGET,CB_GETCURSEL,0,0);
+            const auto choice=static_cast<int>(SendDlgItemMessageW(
+                dialog,IDC_ONLINE_DATE_TARGET,CB_GETCURSEL,0,0));
+            store_online_date_target_preference(choice);
             SetDlgItemTextW(dialog,IDC_ONLINE_INCLUDE_FIELDS,
                 choice==6 || choice==7
                   ? L"Preview both dates" : L"Include fields (preview)");
+            if(choice==6 || choice==7)
+                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                    choice==6
+                      ? L"Dual date preview: master year -> ORIGINALDATE; "
+                        L"exact edition date -> RELEASEDATE. "
+                        L"Click Preview both dates (nothing is written)."
+                      : L"Dual date preview: master year -> DATE; "
+                        L"exact edition date -> RELEASEDATE. "
+                        L"Click Preview both dates (nothing is written).");
             return TRUE;
         }
         if ((id==IDC_ONLINE_INCLUDE_FIELDS || id==IDC_ONLINE_IGNORE_FIELDS ||

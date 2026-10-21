@@ -29,7 +29,14 @@ On the **Find & compare** page, select and load a verified Discogs release.
 The comparison groups include the physical original, album/edition, matched
 tracks and — when independently verified — **Discogs Master**.
 
-The **Date target** dropdown defaults to `Keep original date`. Select
+The **Date target** dropdown initially defaults to `Keep original date`.
+The chosen *target preference only* is remembered in the current foobar
+profile across restarts. It NEVER preselects online evidence, fetches a
+release, stages a proposal, or writes audio automatically. Changing the
+preference stores only one bounded numeric code (0..7), not tag values or
+Discogs authorization.
+
+ Select
 a concrete source date row and choose a target (`DATE`, `ORIGINALDATE`,
 `RELEASEDATE`, `DATE_RAW` or `PUBLISHDATE`), then **Include fields
 (preview)**. Repeat for the other source if desired. Rejections leave the

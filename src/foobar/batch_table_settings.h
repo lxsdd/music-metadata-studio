@@ -15,6 +15,11 @@ void store_batch_preview_window_placement(djmeta::PreviewWindowPlacement value);
 std::optional<djmeta::PreviewWindowSize> load_batch_preview_window_size();
 void store_batch_preview_window_size(djmeta::PreviewWindowSize size);
 
+// Remember only the user's preferred date target choice (0..7). No selected
+// provider values, per-track decisions or authorization is persisted.
+int load_online_date_target_preference();
+void store_online_date_target_preference(int choice);
+
 djmeta::BatchTableLayout load_batch_table_layout();
 void store_batch_table_layout(const djmeta::BatchTableLayout& layout);
 
