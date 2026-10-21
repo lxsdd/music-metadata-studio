@@ -254,6 +254,8 @@ int main() {
           "title":"Bj\u00f6rk & \u6771\u4eac",
           "score":99,"length":215540,
           "artist-credit":[{"name":"Alpha","joinphrase":" feat. "},{"name":"Beta"}],
+          "isrcs":["gbabc2600001","GBABC2600001","USRC17607839",
+                   "invalid/ISRC"],
           "releases":[{"id":"ignored"}]},
          {"id":"22222222-2222-2222-2222-222222222222",
           "title":"Track (Radio Edit)",
@@ -269,8 +271,27 @@ int main() {
           found.candidates[0].artist=="Alpha feat. Beta" &&
           found.candidates[0].duration_ms==215540 &&
           found.candidates[0].search_score==99 &&
-          found.candidates[1].search_score==55,
-          "official recording response preserves Unicode, artist roles, duration, score");
+          found.candidates[1].search_score==55 &&
+          found.candidates[0].recording_isrcs==
+              std::vector<std::string>({"GBABC2600001","USRC17607839"}) &&
+          found.candidates[1].recording_isrcs.empty(),
+          "official recording response preserves Unicode, artist roles, duration, score and distinct ISRC evidence");
+    const auto unsafe_isrc_result=parse_search(R"({
+        "recordings":[{"id":"11111111-1111-1111-1111-111111111111",
+         "title":"Title","artist-credit":[{"name":"Artist"}],
+         "isrcs":23}]
+    })",SearchKind::Recording);
+    check(unsafe_isrc_result.candidates.size()==1 &&
+          unsafe_isrc_result.candidates[0].recording_isrcs.empty(),
+          "malformed ISRC source cannot be inferred or changed");
+    const auto edition_isrc_noise=parse_search(R"({
+        "releases":[{"id":"11111111-1111-1111-1111-111111111111",
+         "title":"Edition","artist-credit":[{"name":"Artist"}],
+         "isrcs":["USRC17607839"]}]
+    })",SearchKind::Release);
+    check(edition_isrc_noise.candidates.size()==1 &&
+          edition_isrc_noise.candidates[0].recording_isrcs.empty(),
+          "edition ISRC-like data cannot masquerade as recording identifier");
     const auto repeated=parse_search(R"({
         "recordings":[
             {"id":"11111111-1111-1111-1111-111111111111",

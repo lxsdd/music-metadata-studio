@@ -27,6 +27,9 @@ struct SearchCandidate {
     std::string title;
     std::string artist;
     std::string release_date;
+    // Optional recording-only API evidence; never a tag write or automatic
+    // choice between multiple legitimate ISRC identities.
+    std::vector<std::string> recording_isrcs;
     std::int64_t duration_ms = -1;
     int search_score = 0; // MusicBrainz search rank, NOT match confidence.
 };
@@ -597,6 +600,27 @@ inline SearchResult parse_search(std::string_view json, SearchKind kind) {
         row.title=str(raw,"title");
         row.artist=artist_credit(raw);
         row.release_date=str(raw,"date");
+        // Search results do not guarantee isrcs. If MusicBrainz explicitly
+        // supplies them, keep distinct valid identifiers as read-only
+        // recording evidence. An unsupported/oversized list stays absent;
+        // it must never be guessed from an edition or written to the source.
+        if (kind==SearchKind::Recording) {
+            const auto* isrcs=raw.get("isrcs");
+            if (isrcs && isrcs->type==Json::Type::Array &&
+                isrcs->array.size()<=32) {
+                std::set<std::string> unique;
+                for (const auto& item:isrcs->array) {
+                    if (item.type!=Json::Type::String ||
+                        !valid_search_isrc(item.text)) continue;
+                    auto code=item.text;
+                    for (auto& ch:code)
+                        if (ch>='a' && ch<='z')
+                            ch=static_cast<char>(ch-('a'-'A'));
+                    unique.insert(std::move(code));
+                }
+                row.recording_isrcs.assign(unique.begin(),unique.end());
+            }
+        }
         const auto length=number_or(raw.get("length"));
         if (length>=0 && length<=10LL*60*60*1000) row.duration_ms=length;
         const auto score=number_or(raw.get("score"),0);

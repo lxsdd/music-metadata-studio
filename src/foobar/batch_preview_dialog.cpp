@@ -582,6 +582,16 @@ MusicBrainzBrowseRows musicbrainz_search_rows(
             hit.title,hit.artist);
         detail.insert(detail.end(),mapped.begin(),mapped.end());
         if(hit.kind==musicbrainz::SearchKind::Recording) {
+            if (!hit.recording_isrcs.empty()) {
+                FieldReviewRow identifiers;
+                identifiers.field="RECORDING ISRC (read-only)";
+                identifiers.candidate={
+                    identifiers.field,hit.recording_isrcs,"musicbrainz",
+                    hit.mbid,EvidenceScope::Recording,DateMeaning::NotDate};
+                identifiers.state=FieldReviewState::NeedsReview;
+                identifiers.reason="musicbrainz_live_search_isrc_identity_only";
+                detail.push_back(std::move(identifiers));
+            }
             add("IDENTITY (read-only)", "",
                 musicbrainz::recording_identity_label(
                     local_title,local_artist,hit.title,hit.artist));
@@ -1073,6 +1083,8 @@ void refresh_musicbrainz_detail_rows(PreviewState& state) {
             local_cue ? L"Keep original CUE" :
             row.reason=="musicbrainz_live_search_edition_date_display_only"
                 ? L"Edition date only" :
+            row.reason=="musicbrainz_live_search_isrc_identity_only"
+                ? L"Recording ID only" :
             row.state==
             djmeta::online::FieldReviewState::Blocked ? L"Blocked"
             : row.state==djmeta::online::FieldReviewState::Unchanged
