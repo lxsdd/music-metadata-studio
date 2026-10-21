@@ -96,6 +96,9 @@ inline std::string online_evidence_origin_label(const FieldReviewRow& row) {
     if (row.reason == "cue_inventory_read_only" ||
         row.reason == "cue_inventory_unqualified")
         return "Local CUE";
+    if (row.candidate.provider == "beatport" &&
+        row.reason.starts_with("beatport_public_webpage_"))
+        return "Beatport public page (unverified)";
     if (row.candidate.provider == "discogs" &&
         row.reason.starts_with("discogs_live_"))
         return "Discogs API";

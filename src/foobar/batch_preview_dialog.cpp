@@ -861,6 +861,9 @@ MusicBrainzBrowseRows group_musicbrainz_release_rows(
                 local_cue ? "local_cue_group" :
                 row.candidate.provider=="discogs"
                     ? "discogs_live_release_group"
+                    : row.candidate.provider=="beatport" &&
+                      row.reason.starts_with("beatport_public_webpage_")
+                    ? "beatport_public_webpage_group"
                     : "musicbrainz_live_release_group";
             out.summary.push_back(std::move(summary));
             out.detail.emplace_back();
@@ -3014,7 +3017,10 @@ void consume_beatport_public_network(HWND dialog,PreviewState& state) {
         for(auto& row:reviewed.fields) {
             if(djmeta::online::is_local_physical_original(row))
                 row.field="Physical / "+row.field;
-            else row.field="Beatport Track / "+row.field;
+            else {
+                row.field="Beatport Track / "+row.field;
+                row.reason="beatport_public_webpage_"+row.reason;
+            }
         }
         auto grouped=group_musicbrainz_release_rows(reviewed.fields);
         verify_online_source_snapshot(state,entry);

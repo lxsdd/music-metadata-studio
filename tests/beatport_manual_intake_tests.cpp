@@ -135,6 +135,16 @@ int main() {
         "https://www.beatport.com/track/home/321",
         "<html><div>Consent or access challenge</div></html>");},
         "access challenges never trigger an anti-bot fallback");
+    FieldReviewRow public_source{};
+    public_source.candidate={"TITLE",{"Home"},"beatport","321",
+        EvidenceScope::Recording,DateMeaning::NotDate};
+    public_source.reason="beatport_public_webpage_readonly_exact_noop";
+    FieldReviewRow pasted_source=public_source;
+    pasted_source.reason="manual_beatport_readonly_exact_noop";
+    check(online_evidence_origin_label(public_source)==
+              "Beatport public page (unverified)" &&
+          online_evidence_origin_label(pasted_source)=="Pasted: beatport",
+          "page and pasted evidence are not mislabeled as authenticated API data");
     const auto track=parse_beatport_user_json_clipboard(raw);
     check(track.id==321 && track.release_id==987 &&
           track.mix_name=="Extended Mix" && track.duration_ms==402500,

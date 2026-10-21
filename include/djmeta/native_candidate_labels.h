@@ -11,6 +11,7 @@ inline bool native_candidate_group(const FieldReviewRow& row) {
     return row.reason.starts_with("musicbrainz_live_candidate_rank_") ||
         row.reason=="musicbrainz_live_release_group" ||
         row.reason=="discogs_live_release_group" ||
+        row.reason=="beatport_public_webpage_group" ||
         row.reason=="local_physical_group" ||
         row.reason=="local_cue_group";
 }
