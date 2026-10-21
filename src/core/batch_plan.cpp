@@ -283,6 +283,12 @@ BatchPlanReview review_batch_plan(
         if (item.target_presence != TargetPresence::Existing &&
             !item.target_physical_id.empty())
             block(decision, "TARGET_ID_WITHOUT_EXISTING_FILE");
+        // Missing/unchecked observations cannot carry an old EXISTING-target
+        // guard. Reject mixed snapshots even on tag-only/no-op rows, before
+        // those rows can return early from the read-only preflight.
+        if (item.target_presence != TargetPresence::Existing &&
+            !item.target_guard.empty())
+            block(decision, "TARGET_GUARD_WITHOUT_EXISTING_FILE");
 
         if (item.cue_references_will_change && item.role != FileRole::ExternalCue)
             block(decision, "CUE_REWRITE_ON_NON_CUE_ITEM");

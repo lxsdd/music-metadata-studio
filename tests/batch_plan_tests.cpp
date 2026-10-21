@@ -1292,6 +1292,41 @@ void test_exact_noop_write_intents() {
             "undeclared CUE postimage mutation must fail closed");
 }
 
+void test_absent_target_cannot_retain_existing_guard() {
+    for (const auto presence : {
+             djmeta::TargetPresence::Missing,
+             djmeta::TargetPresence::Unchecked}) {
+        for (const bool metadata_only : {false, true}) {
+            auto candidate = audio("stale-absence");
+            candidate.target_presence = presence;
+            candidate.target_guard = "old-existing-target-guard";
+            if (metadata_only) {
+                candidate.action = djmeta::FileAction::None;
+                candidate.target_path.clear();
+                candidate.target_key.clear();
+            }
+            const std::vector<djmeta::FilePlanItem> batch{candidate};
+            const auto reviewed = djmeta::review_batch_plan(batch);
+            require(!reviewed.ready_to_apply && reviewed.blocked == 1 &&
+                    reviewed.decisions[0].status == djmeta::PlanStatus::Blocked &&
+                    has_reason(reviewed.decisions[0],
+                               "TARGET_GUARD_WITHOUT_EXISTING_FILE") &&
+                    !reviewed.decisions[0].metadata_write_needed &&
+                    !reviewed.decisions[0].file_operation_needed,
+                    "absent or unchecked target must reject stale existing-target guard");
+            const djmeta::BatchApproval approve{reviewed.plan_fingerprint, true};
+            require(djmeta::review_batch_plan(batch, &approve).blocked == 1,
+                    "blanket overwrite approval cannot legalize contradictory target evidence");
+            try {
+                (void)djmeta::freeze_reviewed_batch_preview(batch, approve);
+                require(false, "contradictory target observation must not freeze");
+            } catch (const std::invalid_argument&) {}
+        }
+    }
+    require(djmeta::review_batch_plan({audio("clean-absent-target")}).ready_to_apply,
+            "ordinary missing target with no residual guard stays qualified");
+}
+
 void test_noop_and_missing_ids() {
     auto a = audio("A");
     a.target_key = a.source_key;
@@ -1324,6 +1359,7 @@ int main() {
     test_individual_overwrite_approval_selection_is_exact();
     test_many_individual_overwrite_approvals_are_indexed();
     test_missing_target_guard_and_no_inspection();
+    test_absent_target_cannot_retain_existing_guard();
     test_new_target_after_clean_review_requires_new_consent();
     test_intra_batch_conflicts_cannot_be_overridden();
     test_stale_approval_rejects_tag_only_and_noop_rows();
