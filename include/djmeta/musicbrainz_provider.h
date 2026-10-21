@@ -279,8 +279,18 @@ inline std::string encode_url_query(std::string_view value) {
     }
     return out;
 }
+// Optional ARTIST evidence must not make an otherwise valid TITLE/ISRC
+// search unusable. Keep the original tag untouched but never transmit an
+// invalid, control-character-bearing or unbounded Lucene term.
+inline bool valid_search_term(std::string_view value) {
+    if(value.empty() || value.size()>150 || !valid_utf8_metadata_text(value))
+        return false;
+    for(const unsigned char ch:value)
+        if(ch<0x20u || ch==0x7fu) return false;
+    return true;
+}
 inline std::string lucene_literal(std::string_view value) {
-    if (value.empty() || value.size()>150 || !valid_utf8_metadata_text(value))
+    if (!valid_search_term(value))
         throw std::invalid_argument("MusicBrainz search term invalid or too long");
     std::string out="\"";
     for (char c:value) {
@@ -448,7 +458,7 @@ inline RecordingSearchPlan recording_search_plan(
             throw std::invalid_argument("A title or valid ISRC is required for discovery");
         return p;
     }
-    if(!p.artist.empty()) {
+    if(valid_search_term(p.artist)) {
         add(p.full_title==p.core_title ?
             "Original title + artist" : "Main title + artist (version kept for review)",
             make_search_path(SearchKind::Recording,p.core_title,p.artist));
@@ -461,7 +471,7 @@ inline RecordingSearchPlan recording_search_plan(
     // bounded request BEFORE falling back to title-only; never mark that
     // result as an artist match or silently approve metadata.
     const auto lead=lead_credit_search_artist(p.artist);
-    if(!lead.empty() && lead!=p.artist) {
+    if(!lead.empty() && lead!=p.artist && valid_search_term(lead)) {
         add(p.full_title==p.core_title ?
             "Original title + lead credited artist" :
             "Main title + lead credited artist (identity review)",
@@ -485,7 +495,7 @@ inline RecordingSearchPlan recording_search_plan(
 inline std::vector<RecordingSearchAttempt> release_search_plan(
     std::string_view album, std::string_view artist) {
     std::vector<RecordingSearchAttempt> attempts;
-    if(!artist.empty())
+    if(valid_search_term(artist))
         attempts.push_back({"Release title + album artist",
             make_search_path(SearchKind::Release,album,artist)});
     attempts.push_back({"Release title only (artist unverified)",

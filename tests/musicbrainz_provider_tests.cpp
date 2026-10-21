@@ -55,6 +55,18 @@ int main() {
           "missing release artist never repeats the same provider URL");
     rejects([]{(void)release_search_plan("","Artist");},
             "empty release title cannot fall back to broad artist-only search");
+    const std::string too_long_artist(151,'A');
+    const auto safe_album_long_artist=release_search_plan(
+        "Qualified CUE album",too_long_artist);
+    check(safe_album_long_artist.size()==1 &&
+          safe_album_long_artist[0].path==make_search_path(
+              SearchKind::Release,"Qualified CUE album",""),
+          "overlong CUE artist preserves safe release-title-only search");
+    const auto safe_album_control=release_search_plan("Qualified CUE album",
+        std::string("Artist\\nInjected"));
+    check(safe_album_control.size()==1 &&
+          safe_album_control[0].path==safe_album_long_artist[0].path,
+          "ASCII controls in optional CUE artist never become provider query");
     check(make_release_lookup_path(first)==std::string("/ws/2/release/")+first+
           "?inc=recordings%2Bartist-credits%2Bisrcs&fmt=json",
           "release lookup only uses MBID to prevent URL injection");
@@ -125,6 +137,25 @@ int main() {
           lead_credit_search_artist("Artist & Guest").empty() &&
           lead_credit_search_artist("A x B").empty(),
           "only explicit collaboration separators add a bounded leading-artist search");
+    const auto safe_recording=recording_search_plan("Known Track",too_long_artist);
+    check(safe_recording.artist==too_long_artist &&
+          safe_recording.attempts.size()==1 &&
+          safe_recording.attempts[0].path==make_search_path(
+              SearchKind::Recording,"Known Track",""),
+          "overlong ARTIST stays intact as original and cannot disable title-only discovery");
+    const auto safe_control_artist=recording_search_plan(
+        "Known Track",std::string("Guest\\nInjected"));
+    check(safe_control_artist.attempts.size()==1 &&
+          safe_control_artist.attempts[0].path==safe_recording.attempts[0].path,
+          "control-character ARTIST cannot reach official HTTPS search path");
+    const auto invalid_utf8_artist=recording_search_plan(
+        "Known Track",std::string(1,static_cast<char>(0xff)));
+    check(invalid_utf8_artist.attempts.size()==1 &&
+          invalid_utf8_artist.attempts[0].path==safe_recording.attempts[0].path,
+          "invalid UTF-8 ARTIST falls back to qualified title-only discovery");
+    rejects([&]{(void)make_search_path(
+        SearchKind::Recording,"Known Track",too_long_artist);},
+        "direct query construction still rejects overlong artist");
     const auto by_isrc=recording_search_plan("Track (Radio Edit)","Artist","usrc17607839");
     check(by_isrc.attempts.size()==5 &&
           by_isrc.attempts[0].label=="Exact ISRC identifier" &&
