@@ -247,6 +247,33 @@ int main() {
           found.candidates[0].search_score==99 &&
           found.candidates[1].search_score==55,
           "official recording response preserves Unicode, artist roles, duration, score");
+    const auto repeated=parse_search(R"({
+        "recordings":[
+            {"id":"11111111-1111-1111-1111-111111111111",
+             "title":"Version A","artist-credit":[{"name":"DJ"}],"score":99},
+            {"id":"11111111-1111-1111-1111-111111111111",
+             "title":"Version A repeated","artist-credit":[{"name":"DJ"}],"score":70},
+            {"id":"22222222-2222-2222-2222-222222222222",
+             "title":"Version A","artist-credit":[{"name":"DJ"}],"score":80}
+        ]
+    })",SearchKind::Recording);
+    check(repeated.candidates.size()==2 &&
+          repeated.candidates[0].mbid==first &&
+          repeated.candidates[0].title=="Version A" &&
+          repeated.candidates[0].search_score==99 &&
+          repeated.candidates[1].mbid==second,
+          "same MBID is deduplicated but same-name distinct recording retained in API order");
+    const auto repeated_releases=parse_search(R"({
+        "releases":[
+            {"id":"11111111-1111-1111-1111-111111111111",
+             "title":"Edition","artist-credit":[{"name":"DJ"}]},
+            {"id":"11111111-1111-1111-1111-111111111111",
+             "title":"Repeated edition","artist-credit":[{"name":"DJ"}]}
+        ]
+    })",SearchKind::Release);
+    check(repeated_releases.candidates.size()==1 &&
+          repeated_releases.candidates[0].title=="Edition",
+          "duplicate edition identity cannot produce two selectable release rows");
     check(parse_search(R"({"releases":[]})",SearchKind::Release).candidates.empty(),
           "empty permitted source response never fabricates a hit");
     const auto release_search=std::string(R"MB({

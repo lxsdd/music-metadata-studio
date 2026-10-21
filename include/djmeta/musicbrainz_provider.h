@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <limits>
 #include <map>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -577,6 +578,10 @@ inline SearchResult parse_search(std::string_view json, SearchKind kind) {
         throw std::invalid_argument("MusicBrainz response has no expected candidates");
     SearchResult output;
     output.kind=kind;
+    // Provider relevance order is meaningful; retain the FIRST valid
+    // occurrence of each exact MBID, not multiple rows with one identity.
+    // Never deduplicate by title/artist: versions and editions may share names.
+    std::set<std::string> observed_mbids;
     for (const auto& raw:arr->array) {
         if (output.candidates.size() == 8) break;
         if (raw.type != Json::Type::Object) continue;
@@ -592,7 +597,8 @@ inline SearchResult parse_search(std::string_view json, SearchKind kind) {
         row.search_score=static_cast<int>((std::clamp<std::int64_t>)(score,0,100));
         if (!valid_mbid(row.mbid) ||
             row.title.empty() || row.artist.empty() ||
-            row.title.size()>1024 || row.artist.size()>512) continue;
+            row.title.size()>1024 || row.artist.size()>512 ||
+            !observed_mbids.insert(row.mbid).second) continue;
         output.candidates.push_back(std::move(row));
     }
     return output;
