@@ -3380,7 +3380,9 @@ void publish_musicbrainz_search(
             ? L"No hits; trying the next bounded strategy automatically."
             : result.candidates.empty()
             ? L"No more search variants. Edit the title to retry."
-            : L"Compare recording, artist and version. Nothing approved for writing.");
+            : request.attempt_index+1<request.total
+            ? L"Compare identity evidence. Click Search to try another strategy; no writes."
+            : L"Compare identity evidence. Search restarts this bounded plan; no writes.");
     update_metadata_table(state);
 }
 
@@ -4404,13 +4406,12 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 if(identity!=state->search_plan_identity) {
                     state->search_attempt_index=0;
                     state->search_plan_identity=identity;
-                } else if (state->musicbrainz_live_view &&
-                           state->musicbrainz_kind==kind &&
-                           state->musicbrainz_results.empty() &&
-                           state->search_attempt_index+1<plan.attempts.size()) {
-                    ++state->search_attempt_index;
-                } else if (!state->musicbrainz_results.empty()) {
-                    state->search_attempt_index=0; // explicit fresh search
+                } else {
+                    state->search_attempt_index=next_clicked_search_attempt(
+                        state->search_attempt_index,plan.attempts.size(),
+                        state->musicbrainz_live_view &&
+                        state->musicbrainz_kind==kind &&
+                        state->candidate_source_index==state->selected_track_index);
                 }
                 state->search_plan=plan;
                 const auto& attempt=plan.attempts.at(state->search_attempt_index);
@@ -4427,13 +4428,12 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 if(identity!=state->search_plan_identity) {
                     state->search_attempt_index=0;
                     state->search_plan_identity=identity;
-                } else if(state->musicbrainz_live_view &&
-                          state->musicbrainz_kind==kind &&
-                          state->musicbrainz_results.empty() &&
-                          state->search_attempt_index+1<release_attempts.size()) {
-                    ++state->search_attempt_index;
-                } else if(!state->musicbrainz_results.empty()) {
-                    state->search_attempt_index=0;
+                } else {
+                    state->search_attempt_index=next_clicked_search_attempt(
+                        state->search_attempt_index,release_attempts.size(),
+                        state->musicbrainz_live_view &&
+                        state->musicbrainz_kind==kind &&
+                        state->candidate_source_index==state->selected_track_index);
                 }
                 const auto& attempt=release_attempts.at(
                     state->search_attempt_index);

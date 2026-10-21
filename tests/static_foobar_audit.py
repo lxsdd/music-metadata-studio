@@ -359,6 +359,7 @@ for label, token in (
     ("MusicBrainz background request", "begin_musicbrainz_network(dialog,*state"),
     ("MusicBrainz main-thread completion", "consume_musicbrainz_network(dialog,*state)"),
     ("bounded zero-hit continuation", "continue_empty_search_plan("),
+    ("clicked next-strategy discovery", "next_clicked_search_attempt("),
     ("zero-hit continuation bound to same click", "state.online_context_version.matches(request->context_version)"),
     ("automatic search uses existing explicit command", "MAKEWPARAM(IDC_METADATA_MB_SEARCH,BN_CLICKED)"),
     ("MusicBrainz source revalidation", "publish_musicbrainz_search(state,*request,job->response)"),

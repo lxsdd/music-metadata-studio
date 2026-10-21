@@ -30,6 +30,13 @@ int main() {
           request_spacing_wait_ms(100,1600)==0 &&
           request_spacing_wait_ms(500,200)==1200,
           "MusicBrainz worker reserves a bounded, cancelable request slot");
+    check(next_clicked_search_attempt(0,4,true)==1 &&
+          next_clicked_search_attempt(1,4,true)==2 &&
+          next_clicked_search_attempt(3,4,true)==0 &&
+          next_clicked_search_attempt(0,4,false)==0 &&
+          next_clicked_search_attempt(0,0,true)==0 &&
+          next_clicked_search_attempt(0,9,true)==0,
+          "explicit Search click advances on irrelevant hits, cycles after final stage");
     check(continue_empty_search_plan(0,4,true,true) &&
           continue_empty_search_plan(2,4,true,true) &&
           !continue_empty_search_plan(3,4,true,true) &&

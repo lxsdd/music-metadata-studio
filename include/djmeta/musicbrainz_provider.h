@@ -339,6 +339,17 @@ inline constexpr bool continue_empty_search_plan(
            total>1 && total<=8 && attempted_index<total-1;
 }
 
+// Every explicit additional Search click may inspect another bounded
+// strategy, even when the previous stage returned unrelated candidates.
+// Fresh sources/queries start at zero; an exhausted plan cycles to zero.
+inline constexpr std::size_t next_clicked_search_attempt(
+    std::size_t attempted_index, std::size_t total,
+    bool same_qualified_result_view) noexcept {
+    if(!same_qualified_result_view || total==0 || total>8 ||
+       attempted_index>=total-1) return 0;
+    return attempted_index+1;
+}
+
 // Exact recording/mix identity and search recall are separate questions.
 // Remove a *known trailing* parenthetical version ONLY for discovery, never
 // for metadata replacement or match approval. Unknown parentheticals stay.
