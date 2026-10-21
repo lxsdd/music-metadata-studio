@@ -222,7 +222,7 @@ inline std::vector<FieldReviewRow> review_online_fields(
         // nor smuggle a claimed original date into a non-date target.
         const bool date_name=name=="DATE" || name=="DATE_RAW" ||
             name=="ORIGINALDATE" || name=="RELEASEDATE" ||
-            name=="PUBLISHDATE";
+            name=="PUBLISHDATE" || name=="PUBLISH_DATE";
         if (date_name !=
             (evidence.date_meaning!=DateMeaning::NotDate)) {
             row.reason = "unknown_date_semantics";
