@@ -27,6 +27,9 @@ on:
       - 'tests/c_api_tests.cpp'
       - 'tests/validate_rules.py'
       - 'tests/static_foobar_audit.py'
+      - 'tests/crates_browser_bridge_tests.js'
+      - 'scripts/beatport-copy-public-jsonld.js'
+      - 'scripts/crates-copy-selected-beatport-link.js'
       - 'rules/**'
       - 'CMakeLists.txt'
       - '.github/workflows/ci.yml'
@@ -57,6 +60,13 @@ jobs:
       - name: Validate persisted rules
         shell: bash
         run: python tests/validate_rules.py
+
+      - name: Check browser helpers without fetching or credentials
+        shell: bash
+        run: |
+          node --check scripts/beatport-copy-public-jsonld.js
+          node --check scripts/crates-copy-selected-beatport-link.js
+          node tests/crates_browser_bridge_tests.js
 
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
