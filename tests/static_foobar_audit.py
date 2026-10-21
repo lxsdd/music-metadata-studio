@@ -198,6 +198,7 @@ batch_table_dialog = (foobar / "batch_preview_dialog.cpp").read_text(encoding="u
 
 for token in (
     "prefill_musicbrainz_query(", "state->auto_search_track",
+    "djmeta::should_replace_auto_online_query(",
     "suggested_query?local_artist", "IDC_BATCH_GUIDE", "IDC_BATCH_HELP",
     "install_workspace_tooltips(", "TOOLTIPS_CLASSW", "TTM_ADDTOOLW",
     "show_workspace_help(", "header->code == NM_DBLCLK",

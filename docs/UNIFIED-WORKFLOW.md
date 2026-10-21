@@ -487,3 +487,15 @@ cannot mask an inconsistent individual subset. A frozen preview refuses these
 cases. Large 15,000-track explicit approval and ordinary blanket-overwrite
 regressions remain part of Core CI. This is advisory in-memory approval
 validation, not an executor, and does not enable physical file operations.
+
+### Online query provenance across track selection (October 2026)
+
+The modeless native Candidate comparison search no longer retains the
+**previous physical track's automatically filled title** when the next
+source has no unambiguous TITLE/ALBUM or is an external .cue awaiting its
+separate inventory. It clears only an **automatic** query on routine
+navigation; deliberately edited searches remain intact, including Unicode
+and exact provider URLs. Explicit source activation may reset the edit
+field to that source's suggestion. A cross-platform pure UI-state regression
+prevents inadvertent lookup of the previous track. This does not execute
+network requests by itself and does not change the zero-write boundary.

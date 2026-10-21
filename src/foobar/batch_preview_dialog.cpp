@@ -22,6 +22,7 @@
 #include "djmeta/batch_preview.h"
 #include "djmeta/metadata_diff.h"
 #include "djmeta/online_intake.h"
+#include "djmeta/online_query_prefill.h"
 #include "djmeta/cue_manual_preview.h"
 #include "djmeta/musicbrainz_provider.h"
 #include "djmeta/discogs_provider.h"
@@ -485,21 +486,25 @@ std::string unique_metadata_value(const djmeta::MetadataDocument& doc,
 void prefill_musicbrainz_query(PreviewState& state, bool force = false) {
     if (!state.dialog || state.selected_track_index >= state.entries.size()) return;
     const auto& entry = state.entries[state.selected_track_index];
-    if (is_external_cue_locator(entry.input.source_path)) return; // CUE needs Inspect CUE.
     std::string title;
-    try {
-        const auto info = entry.handle->get_info_ref();
-        const auto original = metadata_from_file_info(info->info());
-        title = unique_metadata_value(original, "TITLE");
-        if (title.empty()) title = unique_metadata_value(original, "ALBUM");
-    } catch (const std::exception&) {
-        return; // Ambiguous or malformed metadata: leave manual search available.
+    // A CUE needs an explicitly inspected album inventory before online
+    // search; its raw file handle is not a usable track TITLE source.
+    if (!is_external_cue_locator(entry.input.source_path)) {
+        try {
+            const auto info = entry.handle->get_info_ref();
+            const auto original = metadata_from_file_info(info->info());
+            title = unique_metadata_value(original, "TITLE");
+            if (title.empty()) title = unique_metadata_value(original, "ALBUM");
+        } catch (const std::exception&) {
+            // Ambiguous/malformed metadata has no automatic query. Do not
+            // leave the previous track's automatic query in the edit box.
+        }
     }
-    if (title.empty()) return;
     const auto suggested = from_utf8(title);
     const auto current = read_control(state.dialog, IDC_METADATA_MB_QUERY);
-    if (!force && !current.empty() && current != state.auto_search_text)
-        return; // User's manually edited query always wins on routine repaint.
+    if (!djmeta::should_replace_auto_online_query(
+            current, state.auto_search_text, force))
+        return; // A deliberate manual query survives ordinary repaint.
     state.auto_search_text = suggested;
     state.auto_search_track = state.selected_track_index;
     if (current != suggested)

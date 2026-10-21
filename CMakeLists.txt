@@ -268,6 +268,17 @@ else()
     target_compile_options(djmeta_online_fields_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+# Online source selection cannot retain the previous track's auto query.
+# Header-only, cross-platform UI policy regression, no host or network.
+add_executable(djmeta_online_query_prefill_tests tests/online_query_prefill_tests.cpp)
+target_include_directories(djmeta_online_query_prefill_tests PRIVATE include)
+target_compile_features(djmeta_online_query_prefill_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_online_query_prefill_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_online_query_prefill_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 # Manual candidate intake is a strictly read-only local parser; no foobar SDK or HTTP.
 add_executable(djmeta_online_intake_tests tests/online_intake_tests.cpp)
 target_include_directories(djmeta_online_intake_tests PRIVATE include)
@@ -403,6 +414,7 @@ add_test(NAME djmeta_cue_online_review_tests COMMAND djmeta_cue_online_review_te
 add_test(NAME djmeta_cue_online_bridge_tests COMMAND djmeta_cue_online_bridge_tests)
 add_test(NAME djmeta_cue_metadata_tests COMMAND djmeta_cue_metadata_tests)
 add_test(NAME djmeta_online_intake_tests COMMAND djmeta_online_intake_tests)
+add_test(NAME djmeta_online_query_prefill_tests COMMAND djmeta_online_query_prefill_tests)
 add_test(NAME djmeta_online_fields_tests COMMAND djmeta_online_fields_tests)
 add_test(NAME djmeta_online_release_tests COMMAND djmeta_online_release_tests)
 add_test(NAME djmeta_online_release_fuzz_tests COMMAND djmeta_online_release_fuzz_tests)
