@@ -1399,7 +1399,13 @@ void open_precision_workspace(metadb_handle_list_cref handles) {
                        why.find("path form=relative-or-unknown")!=std::string::npos
                         ? "Precision CUE - Reject relative path" :
                        why.find("path form=other-uri")!=std::string::npos
-                        ? "Precision CUE - Reject alternate URI" :
+                        ? (why.find("scheme=virtual-unpack")!=std::string::npos
+                            ? "Precision CUE - Reject virtual unpack" :
+                           why.find("scheme=remote-http")!=std::string::npos
+                            ? "Precision CUE - Reject remote stream" :
+                           why.find("scheme=virtual-archive")!=std::string::npos
+                            ? "Precision CUE - Reject archive stream" :
+                            "Precision CUE - Reject unsupported scheme") :
                         "Precision CUE - Reject unknown path form") :
                 why.find("symlinks/aliases unsupported")!=std::string::npos
                     ? "Precision CUE - Reject noncanonical source" :
