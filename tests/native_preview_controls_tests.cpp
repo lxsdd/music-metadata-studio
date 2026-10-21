@@ -515,6 +515,9 @@ int main() {
     // layout routine. Exercise the actual font/resource HWNDs and verify that
     // repeated recomputation and moving the entire dialog cannot accumulate
     // displacement or send the input offscreen.
+    RECT alignment_client{};
+    check(GetClientRect(dialog,&alignment_client)!=FALSE,
+          "native client bounds for edit alignment");
     djmeta_foobar::align_native_preview_form(dialog);
     const auto action_alignment = [&]() {
         for (auto pair : {
@@ -526,8 +529,8 @@ int main() {
                                        (button.top+button.bottom);
             check(midpoint_delta >= -6 && midpoint_delta <= 6 &&
                   input.bottom-input.top <= button.bottom-button.top &&
-                  input.left >= 0 && input.right <= client.right &&
-                  input.top >= 0 && input.bottom <= client.bottom,
+                  input.left >= 0 && input.right <= alignment_client.right &&
+                  input.top >= 0 && input.bottom <= alignment_client.bottom,
                   "real font-measured Search and manual action rows align without clipping");
         }
     };
