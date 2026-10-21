@@ -479,6 +479,20 @@ inline RecordingSearchPlan recording_search_plan(
     return p;
 }
 
+// Albums/CUE releases are often indexed with a different joined or release
+// artist credit. A second *user-triggered* exact-title-only query improves
+// discovery without treating missing artist evidence as a match.
+inline std::vector<RecordingSearchAttempt> release_search_plan(
+    std::string_view album, std::string_view artist) {
+    std::vector<RecordingSearchAttempt> attempts;
+    if(!artist.empty())
+        attempts.push_back({"Release title + album artist",
+            make_search_path(SearchKind::Release,album,artist)});
+    attempts.push_back({"Release title only (artist unverified)",
+        make_search_path(SearchKind::Release,album,"")});
+    return attempts;
+}
+
 inline std::string comparable_search_key(std::string_view v) {
     std::string s;
     bool separator=false;

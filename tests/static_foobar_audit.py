@@ -352,6 +352,8 @@ for label, token in (
 
 
     ("user clicked official MusicBrainz search", "id == IDC_METADATA_MB_SEARCH && HIWORD(wp) == BN_CLICKED"),
+    ("CUE MusicBrainz release staged fallback", "release_search_plan("),
+    ("MusicBrainz plan source/kind isolation", 'std::string("release|")'),
     ("official lookup is separate user action", "id == IDC_METADATA_MB_LOAD_RELEASE && HIWORD(wp)==BN_CLICKED"),
     ("fixed-host reader", "fetch_musicbrainz_json_readonly(route,cancel)"),
     ("MusicBrainz background request", "begin_musicbrainz_network(dialog,*state"),

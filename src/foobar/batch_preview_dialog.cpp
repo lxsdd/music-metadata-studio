@@ -4375,7 +4375,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 const auto plan=recording_search_plan(
                     term,suggested_query?local_artist:std::string{},
                     suggested_query?local_isrc:std::string{});
-                const auto identity=entry.input.source_path+"|"+
+                const auto identity=std::string("recording|")+
+                    entry.input.source_path+"|"+
                     std::to_string(state->selected_track_index)+"|"+
                     term+"|"+(suggested_query?local_artist:"")+"|"+
                     (suggested_query?local_isrc:"");
@@ -4383,6 +4384,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                     state->search_attempt_index=0;
                     state->search_plan_identity=identity;
                 } else if (state->musicbrainz_live_view &&
+                           state->musicbrainz_kind==kind &&
                            state->musicbrainz_results.empty() &&
                            state->search_attempt_index+1<plan.attempts.size()) {
                     ++state->search_attempt_index;
@@ -4395,10 +4397,28 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 strategy=attempt.label;
                 strategy_count=plan.attempts.size();
             } else {
-                state->search_plan_identity.clear();
-                state->search_attempt_index=0;
-                path=make_search_path(kind,term,suggested_query?local_artist:std::string{});
-                strategy="CUE release title + artist";
+                const auto release_attempts=release_search_plan(
+                    term,suggested_query?local_artist:std::string{});
+                const auto identity=std::string("release|")+
+                    entry.input.source_path+"|"+
+                    std::to_string(state->selected_track_index)+"|"+
+                    term+"|"+(suggested_query?local_artist:"");
+                if(identity!=state->search_plan_identity) {
+                    state->search_attempt_index=0;
+                    state->search_plan_identity=identity;
+                } else if(state->musicbrainz_live_view &&
+                          state->musicbrainz_kind==kind &&
+                          state->musicbrainz_results.empty() &&
+                          state->search_attempt_index+1<release_attempts.size()) {
+                    ++state->search_attempt_index;
+                } else if(!state->musicbrainz_results.empty()) {
+                    state->search_attempt_index=0;
+                }
+                const auto& attempt=release_attempts.at(
+                    state->search_attempt_index);
+                path=attempt.path;
+                strategy=attempt.label;
+                strategy_count=release_attempts.size();
             }
             const std::wstring status=std::wstring(L"Searching MusicBrainz (read-only): ")+
                 from_utf8(strategy)+L" ["+

@@ -41,6 +41,20 @@ int main() {
           "recording search encoded, Lucene quoted, bounded and UTF-8");
     check(make_search_path(SearchKind::Release,"Album","").find("/ws/2/release?")==0,
           "release search without unknown artist is permitted");
+    const auto album_stages=release_search_plan("Live Set","Artist feat. Guest");
+    check(album_stages.size()==2 &&
+          album_stages[0].path==make_search_path(
+              SearchKind::Release,"Live Set","Artist feat. Guest") &&
+          album_stages[1].path==make_search_path(
+              SearchKind::Release,"Live Set","") &&
+          album_stages[1].label.find("unverified")!=std::string::npos,
+          "CUE release offers bounded artist-free discovery without silently matching artist");
+    const auto album_without_artist=release_search_plan("Live Set","");
+    check(album_without_artist.size()==1 &&
+          album_without_artist[0].path==album_stages[1].path,
+          "missing release artist never repeats the same provider URL");
+    rejects([]{(void)release_search_plan("","Artist");},
+            "empty release title cannot fall back to broad artist-only search");
     check(make_release_lookup_path(first)==std::string("/ws/2/release/")+first+
           "?inc=recordings%2Bartist-credits%2Bisrcs&fmt=json",
           "release lookup only uses MBID to prevent URL injection");
