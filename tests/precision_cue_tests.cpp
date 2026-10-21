@@ -386,6 +386,16 @@ void test_foobar_physical_mp3_path_admission() {
         "file:///D:/Music/Synthetic.mp3") == local);
     assert(precision_cue_foobar_path_form("FILE://D:/Music/Synthetic.mp3") ==
            "file-uri");
+    assert(precision_cue_foobar_safe_scheme_token("foobar+file://private/path")==
+           "foobar+file");
+    assert(precision_cue_foobar_safe_scheme_token(
+        "https://username:password@host/private.mp3")=="https");
+    assert(precision_cue_foobar_safe_scheme_token("unpack://private.wav")=="unpack");
+    assert(precision_cue_foobar_safe_scheme_token("synthetic.mp3")=="unknown");
+    assert(precision_cue_foobar_safe_scheme_token(
+        "private_name@account://folder/song.mp3")=="unknown");
+    assert(precision_cue_foobar_safe_scheme_token(
+        "extraordinarilylongsecret://folder/song.mp3")=="unknown");
     assert(precision_cue_foobar_path_form("D:/Music/Synthetic.mp3") ==
            "drive-absolute");
     assert(precision_cue_foobar_path_form("synthetic.mp3") ==

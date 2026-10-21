@@ -357,6 +357,7 @@ std::vector<LocalFile> capture_files(metadb_handle_list_cref handles) {
                 (drive_absolute ? ", absolute drive" : ", no absolute drive") +
                 (safe_basename ? ", safe basename" : ", invalid basename") +
                 ", scheme=" + std::string(djmeta::precision_cue_foobar_scheme_kind(selected)) +
+                ", scheme-token=" + djmeta::precision_cue_foobar_safe_scheme_token(selected) +
                 (percent_escape ? ", percent escape" : ", no percent escape") +
                 (quote ? ", quoted" : ", unquoted") +
                 (trailing_separator ? ", trailing separator)" : ", no trailing separator)"));
@@ -1416,7 +1417,23 @@ void open_precision_workspace(metadb_handle_list_cref handles) {
                 why.find("Duplicate MP3 basenames")!=std::string::npos
                     ? "Precision CUE - Reject duplicate names" :
                     "Precision CUE - Reject metadata inspection";
-            popup_message::g_show(error.what(),category);
+            std::string caption(category);
+            if (why.find("requires a physical local drive MP3 path")!=std::string::npos) {
+                const auto start=why.find("scheme-token=");
+                if(start!=std::string::npos) {
+                    const auto first=start+std::string("scheme-token=").size();
+                    const auto last=why.find(',',first);
+                    const auto token=why.substr(first,last==std::string::npos
+                        ? std::string::npos:last-first);
+                    // Only protocol syntax; revalidate before putting it in
+                    // a window title that the public runner may record.
+                    if(token.size()<=18 && !token.empty() &&
+                       djmeta::precision_cue_foobar_safe_scheme_token(
+                           token+"://") == token)
+                        caption+=" ["+token+"]";
+                }
+            }
+            popup_message::g_show(error.what(),caption.c_str());
             return;
         }
         // This is a standalone modeless top-level window, not a child/owner

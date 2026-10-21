@@ -37,6 +37,24 @@ inline std::string_view precision_cue_foobar_scheme_kind(
 
 // Privacy-preserving diagnostics: never return source path or basename.
 // Distinguishes foobar CLI path representations without broadening admission.
+// A URI scheme is a protocol identifier, never its authority/path/query.
+// Diagnostics deliberately cap it at 18 RFC-style ASCII characters; user
+// filenames, hosts, usernames, tokens or directory data cannot reach CI logs.
+inline std::string precision_cue_foobar_safe_scheme_token(
+    std::string_view uri) {
+    const auto delimiter=uri.find("://");
+    if(delimiter==std::string_view::npos || delimiter==0 || delimiter>18)
+        return "unknown";
+    for(std::size_t i=0;i<delimiter;++i) {
+        const unsigned char c=static_cast<unsigned char>(uri[i]);
+        const bool letter=(c>='a'&&c<='z')||(c>='A'&&c<='Z');
+        const bool digit=c>='0'&&c<='9';
+        if(!letter && (i==0 || (!digit && c!='+' && c!='-' && c!='.')))
+            return "unknown";
+    }
+    return std::string(uri.substr(0,delimiter));
+}
+
 inline std::string_view precision_cue_foobar_path_form(std::string_view uri) noexcept {
     const auto drive = [](char c) {
         return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
