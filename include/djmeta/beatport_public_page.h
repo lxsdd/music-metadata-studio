@@ -1,0 +1,138 @@
+#pragma once
+// User-selected public Beatport webpage facts, bounded and source-only.
+// No HTTP/HTML automation, login, anti-bot circumvention, cookies, APIs,
+// credential reuse, CUE writer, or file modifications in this pure adapter.
+// The clipboard contents are USER-SUPPLIED and NOT authenticated Beatport.
+#include "djmeta/beatport_manual_intake.h"
+
+#include <charconv>
+#include <cstdint>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace djmeta::online {
+
+struct BeatportPublicTrackUrl {
+    std::uint64_t id;
+    std::string canonical_url;
+};
+inline BeatportPublicTrackUrl qualify_beatport_public_track_url(
+    std::string_view url) {
+    constexpr std::string_view prefix="https://www.beatport.com/track/";
+    if(!url.starts_with(prefix) || url.size()>220)
+        throw std::invalid_argument("Only a public canonical Beatport HTTPS track URL is accepted");
+    auto rest=url.substr(prefix.size());
+    const auto separator=rest.find('/');
+    if(separator==std::string_view::npos || separator==0 ||
+       separator>125 || separator+1>=rest.size())
+        throw std::invalid_argument("Missing canonical Beatport slug or track ID");
+    const auto slug=rest.substr(0,separator);
+    for(const char c:slug)
+        if(!((c>='a' && c<='z') || (c>='0' && c<='9') || c=='-'))
+            throw std::invalid_argument("Unqualified Beatport track slug");
+    const auto numeric=rest.substr(separator+1);
+    if(numeric.empty() || numeric.size()>12 || numeric.front()=='0')
+        throw std::invalid_argument("Unqualified Beatport public track ID");
+    std::uint64_t id=0;
+    const auto [end,error]=std::from_chars(
+        numeric.data(),numeric.data()+numeric.size(),id);
+    if(error!=std::errc{} || end!=numeric.data()+numeric.size() ||
+       id==0 || id>beatport::maximum_catalog_id)
+        throw std::invalid_argument("Unqualified Beatport public track identity");
+    return {id,std::string(url)};
+}
+
+inline bool is_beatport_public_page_clipboard(std::string_view raw) {
+    return raw.starts_with("@beatport-public-jsonld\n") ||
+           raw.starts_with("@beatport-public-jsonld\r\n");
+}
+
+inline std::optional<std::int64_t> public_iso_duration_ms(
+    std::string_view duration) {
+    if(duration.size()<4 || duration.size()>16 || !duration.starts_with("PT"))
+        return std::nullopt;
+    duration.remove_prefix(2);
+    std::int64_t seconds=0;
+    unsigned previous=0;
+    while(!duration.empty()) {
+        const auto count=duration.find_first_not_of("0123456789");
+        if(count==0 || count==std::string_view::npos || count>4 ||
+           count+1>duration.size()) return std::nullopt;
+        unsigned number=0;
+        auto [end,error]=std::from_chars(
+            duration.data(),duration.data()+count,number);
+        if(error!=std::errc{} ||
+           end!=duration.data()+count || count+1>duration.size())
+            return std::nullopt;
+        const char unit=duration[count];
+        const unsigned order=unit=='H'?1:unit=='M'?2:unit=='S'?3:0;
+        if(!order || order<=previous) return std::nullopt;
+        previous=order;
+        seconds+=static_cast<std::int64_t>(number)*
+            (unit=='H'?3600:unit=='M'?60:1);
+        duration.remove_prefix(count+1);
+    }
+    if(seconds<1 || seconds>21600) return std::nullopt;
+    return seconds*1000;
+}
+
+inline beatport::TrackEvidence parse_beatport_public_jsonld_clipboard(
+    std::string_view raw) {
+    if(!is_beatport_public_page_clipboard(raw) || raw.size()>65536 ||
+       raw.find('\0')!=std::string_view::npos)
+        throw std::invalid_argument("Unsupported or oversized public page metadata");
+    const auto first=raw.find('\n');
+    const auto second=raw.find('\n',first+1);
+    if(first==std::string_view::npos || second==std::string_view::npos ||
+       !raw.substr(first+1,second-first-1).starts_with("@url="))
+        throw std::invalid_argument("Public page requires exact @url= header");
+    auto url=raw.substr(first+1+5,second-first-1-5);
+    if(url.ends_with("\r")) url.remove_suffix(1);
+    const auto target=qualify_beatport_public_track_url(url);
+    const auto json=raw.substr(second+1);
+    const auto obj=musicbrainz::JsonParser(json).parse();
+    if(obj.type!=beatport::Json::Type::Object ||
+       musicbrainz::str(obj,"@type")!="MusicRecording")
+        throw std::invalid_argument("A single MusicRecording JSON-LD object is required");
+    if(const auto* canonical=obj.get("url");canonical &&
+       canonical->type!=beatport::Json::Type::Null &&
+       (canonical->type!=beatport::Json::Type::String ||
+        canonical->text!=target.canonical_url))
+        throw std::invalid_argument("Webpage JSON-LD URL differs from selected Beatport track");
+    if(const auto* identity=obj.get("@id");identity &&
+       identity->type!=beatport::Json::Type::Null &&
+       (identity->type!=beatport::Json::Type::String ||
+        identity->text!=target.canonical_url))
+        throw std::invalid_argument("Webpage JSON-LD identity differs from Beatport URL");
+    beatport::TrackEvidence track;
+    track.id=target.id;
+    const auto title=beatport::label(obj,"name",2048);
+    if(title.empty())
+        throw std::invalid_argument("Public page has no qualified recording title");
+    const auto annotated=split_title_mix(title);
+    track.title=annotated.version.empty()?title:annotated.base;
+    track.mix_name=annotated.version;
+    if(const auto* artist=obj.get("byArtist")) {
+        if(artist->type==beatport::Json::Type::Array)
+            track.artists=beatport::names(artist);
+        else {
+            const auto name=beatport::object_name(*artist);
+            if(!name.empty()) track.artists={name};
+        }
+    }
+    const auto duration=public_iso_duration_ms(musicbrainz::str(obj,"duration"));
+    if(!duration || track.artists.empty())
+        throw std::invalid_argument("Public page lacks separately qualified artist/duration");
+    track.duration_ms=*duration;
+    track.isrc=beatport::label(obj,"isrcCode",24);
+    if(const auto* genre=obj.get("genre")) track.genre=beatport::object_name(*genre);
+    // datePublished is NOT an original/master or exact edition release date.
+    track.publish_date=beatport::date_label(obj,"datePublished");
+    if(const auto* album=obj.get("inAlbum"))
+        track.release_title=beatport::object_name(*album);
+    return track;
+}
+} // namespace djmeta::online
