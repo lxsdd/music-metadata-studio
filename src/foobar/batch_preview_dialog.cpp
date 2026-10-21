@@ -2822,7 +2822,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_METADATA_ONLINE_PROVIDER,L"MusicBrainz and Discogs use official APIs. Beatport + Crates supports single public Beatport URLs, lawful clipboard evidence and a hand-off to your existing Crates browser account; no logged-in API impersonation."},
         {IDC_METADATA_DISCOGS_TOKEN_LABEL,L"Discogs token only lives in this password control."},
         {IDC_METADATA_DISCOGS_TOKEN,L"Personal Discogs API token. Not saved, logged, embedded or copied into URLs."},
-        {IDC_METADATA_MB_SEARCH,L"Beatport: paste an exact public https://www.beatport.com/track/slug/id URL to retrieve ONE public HTML page. No login, redirects or scraping bypass. MusicBrainz and Discogs use their official APIs. No tag writes."},
+        {IDC_METADATA_MB_SEARCH,L"Beatport: enter one exact public track URL, or leave the box empty and click after copying that URL from Crates. Only a canonical https://www.beatport.com/track/slug/id is accepted. No login, redirects, retries or tag writes."},
         {IDC_METADATA_DISCOGS_NEXT_PAGE,L"Discogs: explicitly load one more page. Beatport: Find in Crates copies only ARTIST and full TITLE (including mix) to the clipboard, then opens crates.co in your usual browser. Paste into Search. No Beatport credentials, cookies or metadata files are transferred."},
         {IDC_METADATA_MB_LOAD_RELEASE,L"Inspect a verified exact release; unmatched Discogs track credits remain blocked."},
         {IDC_ONLINE_INCLUDE_FIELDS,L"Include highlighted exact edition album fields or independently verified release-track credits in a detached preview. No files are changed."},
@@ -5008,6 +5008,17 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         }
         if (id == IDC_METADATA_MB_SEARCH && HIWORD(wp) == BN_CLICKED) {
             if(state->beatport_offline_selected) {
+                // Crates hand-off can place one exact track URL on clipboard.
+                // Read clipboard ONLY after this explicit click, and ONLY when
+                // the URL box is empty. Refuse anything other than an exact
+                // public Beatport HTTPS track path before network dispatch.
+                if(read_control(dialog,IDC_METADATA_MB_QUERY).empty()) {
+                    const auto pasted=read_manual_clipboard_text(dialog);
+                    const auto qualified=
+                        djmeta::online::qualify_beatport_public_track_url(pasted);
+                    SetDlgItemTextW(dialog,IDC_METADATA_MB_QUERY,
+                        from_utf8(qualified.canonical_url).c_str());
+                }
                 perform_beatport_public_page_lookup(dialog,*state);
                 return TRUE;
             }
