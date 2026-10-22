@@ -9,27 +9,40 @@
         const url = location.origin + path;
         if (location.protocol !== 'https:' ||
             location.hostname !== 'www.beatport.com' ||
+            (location.port && location.port !== '443') ||
             !/^\/track\/[a-z0-9-]{1,125}\/[1-9][0-9]{0,11}$/.test(path))
             fail('Open a public canonical Beatport track page first.');
         const found = [];
-        const scan = (item) => {
-            if (Array.isArray(item)) { item.forEach(scan); return; }
+        const scan = (item, depth = 0) => {
+            if (depth > 4 || found.length > 1) return;
+            if (Array.isArray(item)) {
+                if (item.length > 64) return;
+                item.forEach(entry => scan(entry, depth + 1));
+                return;
+            }
             if (!item || typeof item !== 'object') return;
-            if (Array.isArray(item['@graph'])) item['@graph'].forEach(scan);
+            if (Array.isArray(item['@graph']))
+                scan(item['@graph'], depth + 1);
             const type = item['@type'];
-            if (type === 'MusicRecording' ||
-                (Array.isArray(type) && type.includes('MusicRecording'))) {
-                // Prefer only the exact visible page, never a related track.
-                if ((item.url && item.url !== url) ||
-                    (item['@id'] && item['@id'] !== url)) return;
+            const matches = value => value === 'MusicRecording' ||
+                value === 'https://schema.org/MusicRecording';
+            if (matches(type) ||
+                (Array.isArray(type) && type.some(matches))) {
+                // JSON-LD must independently attest the CURRENT page identity.
+                // Without url/@id this might be an unrelated recommendation.
+                const identities = [item.url, item['@id']].filter(
+                    value => value !== undefined && value !== null);
+                if (!identities.length ||
+                    identities.some(value => value !== url)) return;
                 if (typeof item.name !== 'string' ||
                     typeof item.duration !== 'string' ||
                     !item.byArtist) return;
                 found.push(item);
             }
         };
-        for (const node of document.querySelectorAll(
-            'script[type="application/ld+json"]')) {
+        for (const node of document.querySelectorAll('script[type]')) {
+            if (node.getAttribute('type')?.trim().toLowerCase() !==
+                'application/ld+json') continue;
             if (node.textContent.length > 65536) continue;
             try { scan(JSON.parse(node.textContent)); }
             catch (e) { /* unrelated site markup is not useful */ }
@@ -38,8 +51,8 @@
             fail('No unique MusicRecording JSON-LD found on this page. ' +
                  'The current site layout may not expose it; nothing was copied.');
         const candidate = { ...found[0], '@type': 'MusicRecording' };
-        // The selected visible URL remains explicit even if JSON-LD omits it.
-        // Never silently replace a conflicting embedded identity.
+        // The recording already attested this exact canonical page URL.
+        // Never replace a conflicting embedded identity.
         if (candidate.url && candidate.url !== url)
             fail('Beatport page and recording URLs disagree.');
         candidate.url = url;
