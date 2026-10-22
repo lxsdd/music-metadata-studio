@@ -11,7 +11,9 @@
       throw new Error('Open Crates.co in your normal browser first.');
     const valid = (href) => {
       try {
-        const link = new URL(href, location.href);
+        if (typeof href !== 'string' || !href.startsWith('https://www.beatport.com/track/')) return null;
+        const link = new URL(href);
+        if (link.href !== href) return null;
         if (link.protocol !== 'https:' ||
             link.hostname !== 'www.beatport.com' ||
             link.username || link.password || link.port ||

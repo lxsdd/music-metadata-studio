@@ -57,6 +57,24 @@ async function scenario({host='crates.co',port='',all=[],row=null,selection=null
     assert.equal(r.copied,'');
     r=await scenario({all:[anchor('https://evil.org/track/x/321')]});
     assert.equal(r.copied,'');
+    // URL() can silently canonicalize links which Crates did not expose
+    // as an exact absolute public Beatport track identity. Fail closed.
+    for (const noncanonical of [
+        '//www.beatport.com/track/mix/321',
+        ' https://www.beatport.com/track/mix/321',
+        'https://www.beatport.com/track/mix/321 ',
+        'https://www.beatport.com:443/track/mix/321',
+        'https://www.beatport.com/track/mix/321?',
+        'https://www.beatport.com/track/mix/321#',
+        'HTTPS://www.beatport.com/track/mix/321',
+        'https://WWW.BEATPORT.COM/track/mix/321',
+        'https://www.beatport.com/track/mix/0321',
+        '/track/mix/321',
+    ]) {
+        r=await scenario({all:[anchor(noncanonical)]});
+        assert.equal(r.copied,'', 'noncanonical source link: '+noncanonical);
+        assert.match(r.message,/No visible canonical Beatport track URL/);
+    }
     r=await scenario({all:[anchor('https://www.beatport.com/track/mix/321?session=abc')]});
     assert.equal(r.copied,'');
     r=await scenario({all:[anchor('https://user:password@www.beatport.com/track/mix/321')]});
