@@ -18,30 +18,54 @@ inline std::string lowercase_ascii(std::string_view input) {
                       static_cast<char>(c));
     return out;
 }
+// Parse SCRIPT attributes rather than searching for the word "type":
+// data-note="type='application/ld+json'" is NOT a JSON-LD type attribute.
 inline bool public_jsonld_script_tag(std::string_view tag) {
-    // Accept both single and double quoted values and arbitrary attribute
-    // order, not an unquoted or partial "type" occurring in another value.
     const auto lower=lowercase_ascii(tag);
-    std::size_t pos=0;
-    while((pos=lower.find("type",pos))!=std::string::npos) {
-        if(pos>0 && ((lower[pos-1]>='a' && lower[pos-1]<='z') ||
-                     lower[pos-1]=='-' || lower[pos-1]=='_')) {
-            pos+=4; continue;
+    if(!lower.starts_with("<script")) return false;
+    auto space=[](char c) {
+        return c==' ' || c=='\t' || c=='\r' || c=='\n' || c=='\f';
+    };
+    auto name_char=[](char c) {
+        return (c>='a' && c<='z') || (c>='0' && c<='9') ||
+               c=='-' || c=='_' || c==':';
+    };
+    std::size_t pos=7;
+    bool found_type=false;
+    bool jsonld=false;
+    while(pos<lower.size()) {
+        while(pos<lower.size() && space(lower[pos])) ++pos;
+        if(pos<lower.size() && lower[pos]=='>') return jsonld;
+        const auto name_start=pos;
+        while(pos<lower.size() && name_char(lower[pos])) ++pos;
+        if(pos==name_start) return false;
+        const auto name=std::string_view(lower).substr(name_start,pos-name_start);
+        while(pos<lower.size() && space(lower[pos])) ++pos;
+        if(pos==lower.size()) return false;
+        if(lower[pos]!='=') {
+            if(name=="type") return false; // Unqualified missing value.
+            continue; // Another boolean HTML attribute.
         }
-        std::size_t n=pos+4;
-        while(n<lower.size() && (lower[n]==' ' || lower[n]=='\t')) ++n;
-        if(n>=lower.size() || lower[n]!='=') { pos+=4; continue; }
-        ++n;
-        while(n<lower.size() && (lower[n]==' ' || lower[n]=='\t')) ++n;
-        if(n>=lower.size() || (lower[n]!='"' && lower[n]!='\'')) {
-            pos+=4; continue;
+        ++pos;
+        while(pos<lower.size() && space(lower[pos])) ++pos;
+        if(pos==lower.size()) return false;
+        const char quote=lower[pos];
+        if(quote!='"' && quote!='\'') {
+            if(name=="type") return false; // Deliberately require quotes.
+            while(pos<lower.size() && !space(lower[pos]) && lower[pos]!='>')
+                ++pos;
+            continue;
         }
-        const char quote=lower[n++];
-        const auto end=lower.find(quote,n);
-        if(end!=std::string::npos &&
-           lower.substr(n,end-n)=="application/ld+json")
-            return true;
-        pos+=4;
+        ++pos;
+        const auto value_end=lower.find(quote,pos);
+        if(value_end==std::string::npos) return false;
+        if(name=="type") {
+            if(found_type) return false; // Conflicting/duplicate type.
+            found_type=true;
+            jsonld=std::string_view(lower).substr(pos,value_end-pos)==
+                   "application/ld+json";
+        }
+        pos=value_end+1;
     }
     return false;
 }
