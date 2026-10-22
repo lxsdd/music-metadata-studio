@@ -129,7 +129,9 @@ async function scenario({host='crates.co',port='',all=[],row=null,selection=null
     // Selecting across TWO result rows must not silently pick the anchor's mix.
     const first={items:[anchor(beatport(321))]};
     const second={items:[anchor(beatport(322))]};
-    const nodeFor=(row)=>({nodeType:3,parentElement:{closest:()=>row}});
+    const nodeFor=(row)=>({nodeType:3,parentElement:{
+        closest:selector=>selector==='a[href]'?null:row
+    }});
     r=await scenario({
         all:[...first.items,...second.items],row:first,
         selection:{isCollapsed:false,anchorNode:nodeFor(first),
@@ -168,6 +170,48 @@ async function scenario({host='crates.co',port='',all=[],row=null,selection=null
         row:{items:[anchor(beatport(321)),focused]},
     });
     assert.equal(r.copied,beatport(322));
+
+    // An exact link containing keyboard focus inside a nested span is still
+    // explicit user selection; do not choose a neighboring mix.
+    const parentRow={items:[anchor(beatport(321)),focused]};
+    const nestedFocus={tagName:'SPAN',closest:selector=>
+        selector==='a[href]'?focused:parentRow};
+    r=await scenario({
+        all:parentRow.items,focus:nestedFocus,row:parentRow
+    });
+    assert.equal(r.copied,beatport(322));
+    // Selecting text inside ONE specific anchor is also exact evidence.
+    const within=(link,row)=>({nodeType:3,parentElement:{
+        closest:selector=>selector==='a[href]'?link:row
+    }});
+    r=await scenario({
+        all:parentRow.items,row:parentRow,
+        selection:{isCollapsed:false,
+            anchorNode:within(focused,parentRow),
+            focusNode:within(focused,parentRow)}
+    });
+    assert.equal(r.copied,beatport(322));
+    // Selection spanning two different links within ONE row is ambiguous.
+    r=await scenario({
+        all:parentRow.items,row:parentRow,
+        selection:{isCollapsed:false,
+            anchorNode:within(parentRow.items[0],parentRow),
+            focusNode:within(focused,parentRow)}
+    });
+    assert.equal(r.copied,'');
+    assert.match(r.message,/More than one/);
+    // A selected unsafe Beatport anchor cannot be rescued by a good
+    // neighbor in the same row.
+    const unsafeSelected=anchor(beatport(322)+'?session=secret');
+    const mixedRow={items:[anchor(beatport(321)),unsafeSelected]};
+    r=await scenario({
+        all:mixedRow.items,row:mixedRow,
+        selection:{isCollapsed:false,
+            anchorNode:within(unsafeSelected,mixedRow),
+            focusNode:within(unsafeSelected,mixedRow)}
+    });
+    assert.equal(r.copied,'');
+    assert.match(r.message,/hidden or noncanonical/);
     // An unsafe/hidden focused Beatport anchor must not silently fall back
     // to a different visible track in the same row or document.
     for (const bad of [

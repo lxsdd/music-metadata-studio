@@ -325,3 +325,14 @@ Malformed surrogates, controls, sub-second durations and oversized Unicode
 payloads fail closed. This prevents misleading success messages followed by
 native import rejection; it does not verify live Beatport markup, obtain Crates
 permissions or authorize any provider API, login capture or metadata writes.
+
+## Precise Crates row selection without guessing mixes (22 October 2026)
+
+When the user deliberately focuses a nested element inside one visible
+Beatport track anchor, or selects text wholly inside the same anchor, the
+optional Crates helper can copy that exact canonical URL even if the row
+contains multiple mixes. Cross-row and cross-anchor text selections remain
+ambiguous; hidden, credential-bearing or noncanonical Beatport links fail
+closed instead of falling back to a different mix. This is browser-only and
+read-only, with no Crates API calls or account/session access. Live Crates
+page markup remains an independent acceptance requirement.

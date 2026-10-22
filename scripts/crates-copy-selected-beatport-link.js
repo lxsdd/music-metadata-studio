@@ -51,7 +51,13 @@
     // when the endpoint itself is a track-row Element.
     const endpointElement = (node) =>
       node?.nodeType === 3 ? node.parentElement : node;
+    // Text can be selected inside nested spans of one exact Beatport anchor.
+    // A direct anchor choice is stronger than a row with multiple mixes.
+    const anchorFrom = element =>
+      element?.tagName?.toLowerCase() === 'a' ? element :
+      element?.closest?.('a[href]') || null;
     let selected = null;
+    let selectedAnchor = null;
     const selection = window.getSelection();
     if (selection && !selection.isCollapsed) {
       // The two ends of a text selection must belong to the SAME row.
@@ -61,24 +67,27 @@
       if (!start || start !== end)
         throw new Error('Select text within one exact track row only.');
       selected = start;
+      const firstLink = anchorFrom(endpointElement(selection.anchorNode));
+      const lastLink = anchorFrom(endpointElement(selection.focusNode));
+      if (firstLink && firstLink === lastLink) selectedAnchor = firstLink;
     }
-    // Keyboard focus on an actual Beatport anchor is a more precise user
-    // choice than its containing row, which may expose multiple mixes.
-    // Never fall back to a neighboring mix if the focused Beatport link
-    // is malformed, hidden, credential-bearing or otherwise unsafe.
-    let focusedUrl = null;
+    // Exact visible anchor selection (including nested keyboard focus) wins
+    // over a row with multiple mixes. Invalid Beatport links never fall back.
+    const directBeatportUrl = anchor => {
+      if (!anchor) return null;
+      const href = anchor.getAttribute?.('href');
+      let target = null;
+      try { target = new URL(href); } catch { /* not an absolute URL */ }
+      if (target?.hostname !== 'www.beatport.com') return null;
+      const url = valid(href);
+      if (!url || !visible(anchor))
+        throw new Error('Selected Beatport link is hidden or noncanonical.');
+      return url;
+    };
+    let focusedUrl = directBeatportUrl(selectedAnchor);
     if (!selected) {
       const focused = document.activeElement;
-      if (focused?.tagName?.toLowerCase() === 'a') {
-        const href = focused.getAttribute?.('href');
-        let target = null;
-        try { target = new URL(href); } catch { /* not an absolute URL */ }
-        if (target?.hostname === 'www.beatport.com') {
-          focusedUrl = valid(href);
-          if (!focusedUrl || !visible(focused))
-            throw new Error('Focused Beatport link is hidden or noncanonical.');
-        }
-      }
+      focusedUrl = directBeatportUrl(anchorFrom(focused));
       if (!focusedUrl) selected = rowFrom(focused);
     }
     const find = (root) => Array.from(
