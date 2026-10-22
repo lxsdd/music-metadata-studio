@@ -657,7 +657,7 @@ for token in (
     "preview_selected_cue_review_postimage(",
     "source.carrier!=state->cue_postimage_snapshot->carrier",
     "cue_postimage_source!=state->selected_track_index",
-    "Cue value (memory only): ",
+    "CUE value (memory only): ",
     "No audio file, CUE, tag or timestamp was changed.",
 ):
     if token not in batch_table_dialog:
