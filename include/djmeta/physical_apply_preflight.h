@@ -63,7 +63,8 @@ inline PhysicalApplyPreflight preflight_exact_physical_batch(
     PhysicalApplyPreflight out;
     out.postimages.reserve(reprobes.size());
     for(std::size_t i=0;i<reprobes.size();++i){
-        const auto& item=frozen.items[i], &live=reprobes[i];
+        const auto& item=frozen.items[i];
+        const auto& live=reprobes[i];
         const auto& decision=old.decisions[i];
         // FileOps, sidecars, external CUE and virtual carriers require their
         // OWN SDK-qualified writers and atomic commit/rollback contract.
