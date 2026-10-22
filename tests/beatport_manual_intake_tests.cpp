@@ -96,7 +96,7 @@ int main() {
     check(!public_jsonld_script_tag(
               R"(<script type='application/ld+json' type='application/ld+json'>)"),
           "duplicate script type must fail closed");
-    const std::string spoofed_jsonld=R"({"@type":"MusicRecording","url":"https://www.beatport.com/track/home/321","name":"Home (Extended Mix)","byArtist":"DJ Example","duration":"PT6M42S"})";
+    const std::string spoofed_jsonld=R"JSON({"@type":"MusicRecording","url":"https://www.beatport.com/track/home/321","name":"Home (Extended Mix)","byArtist":"DJ Example","duration":"PT6M42S"})JSON";
     rejects([&]{
         (void)parse_beatport_public_html(
             "https://www.beatport.com/track/home/321",
