@@ -30,47 +30,9 @@ void must(bool success, const char* detail) {
     if (!success) throw std::runtime_error(detail);
 }
 bool safe_path(std::string_view path) {
-    // Origin, endpoint, query grammar and release identity are all fixed.
-    // No user-controlled host, port, relative path, redirect, HTTP method or
-    // arbitrary query parameters may cross this WinHTTP boundary.
-    if (path.empty() || path.size()>2048) return false;
-    for (unsigned char ch:path)
-        if (ch<0x21 || ch>0x7e || ch=='#' || ch=='\\')
-            return false;
-    // Accept only the exact paths issued by the shared provider builder.
-    constexpr std::string_view search_suffix=
-        djmeta::online::musicbrainz::search_request_suffix;
-    for (const std::string_view prefix : {
-        std::string_view("/ws/2/recording?query="),
-        std::string_view("/ws/2/release?query=")}) {
-        if (!path.starts_with(prefix) || !path.ends_with(search_suffix)) continue;
-        const auto encoded=path.substr(prefix.size(),
-            path.size()-prefix.size()-search_suffix.size());
-        if (encoded.empty()) return false;
-        for (std::size_t i=0;i<encoded.size();++i) {
-            const unsigned char c=encoded[i];
-            if ((c>='A'&&c<='Z') || (c>='a'&&c<='z') ||
-                (c>='0'&&c<='9') || c=='-' || c=='_' ||
-                c=='.' || c=='~') continue;
-            if (c!='%' || i+2>=encoded.size()) return false;
-            const auto hex=[](unsigned char h) {
-                return (h>='0'&&h<='9') ||
-                    (h>='A'&&h<='F') || (h>='a'&&h<='f');
-            };
-            if (!hex(encoded[i+1]) || !hex(encoded[i+2])) return false;
-            i+=2;
-        }
-        return true;
-    }
-    constexpr std::string_view lookup_prefix="/ws/2/release/";
-    constexpr std::string_view lookup_suffix=
-        djmeta::online::musicbrainz::release_lookup_request_suffix;
-    if (path.starts_with(lookup_prefix) && path.ends_with(lookup_suffix)) {
-        const auto id=path.substr(lookup_prefix.size(),
-            path.size()-lookup_prefix.size()-lookup_suffix.size());
-        return djmeta::online::musicbrainz::valid_mbid(id);
-    }
-    return false;
+    // This is the exact shared predicate tested by the core regression suite.
+    // No parallel native URL parser may drift from the provider builder.
+    return djmeta::online::musicbrainz::qualified_musicbrainz_request_path(path);
 }
 void reject_cancelled(std::stop_token cancel) {
     if(cancel.stop_requested())

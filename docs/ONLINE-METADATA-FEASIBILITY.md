@@ -292,3 +292,16 @@ identity check, accepting a wrong mix, or increasing the number of online
 search attempts. Both the native fixed-host allowlist and offline parser use
 a shared bound. Manual release selection and explicit approval rules remain
 unchanged; no metadata, CUE or file writes occur.
+
+## MusicBrainz fixed-host transport: executable shared route gate (22 October 2026)
+
+The official request builders and Windows WinHTTP client now share one pure
+`qualified_musicbrainz_request_path` function rather than separate URL
+validation implementations. Cross-platform core regression tests execute the
+*actual native transport predicate* on generated recording, release, and
+ISRC requests and deny foreign origins, wrong release-label includes,
+malformed/encoded CRLF/control characters, URL fragments, excess parameters,
+and unauthorized result limits. This guards the previous user-visible
+`Load MB release` failure at the functional boundary, not merely by static
+text comparison. The real host, network and Win32/x64 builds still require
+exact-SHA GitHub Actions qualification before final acceptance.

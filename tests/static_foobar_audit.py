@@ -592,12 +592,16 @@ for token in ("release_lookup_request_suffix", "search_request_suffix",
               "max_search_candidates=25", "recordings%2Bartist-credits%2Bisrcs%2Blabels"):
     if token not in mb_provider:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: MusicBrainz shared route contract missing: "+token)
-for token in ("musicbrainz::release_lookup_request_suffix",
-              "musicbrainz::search_request_suffix"):
-    if token not in online_transport:
-        raise SystemExit("STATIC FOOBAR AUDIT FAIL: native MusicBrainz route allowlist drifted: "+token)
-if 'constexpr std::string_view lookup_suffix=\n        "?inc=' in online_transport:
-    raise SystemExit("STATIC FOOBAR AUDIT FAIL: duplicated native MusicBrainz release route suffix")
+# Crucially, native WinHTTP now executes the SAME pure predicate exercised
+# by musicbrainz_provider_tests, not a textually similar but drifting copy.
+if "musicbrainz::qualified_musicbrainz_request_path(path)" not in online_transport:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: native MusicBrainz gate bypasses shared predicate")
+if "inline bool qualified_musicbrainz_request_path(" not in mb_provider or \
+   "qualified_musicbrainz_request_path(" not in (root / "tests" / "musicbrainz_provider_tests.cpp").read_text(encoding="utf-8"):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: MusicBrainz path validator lacks core execution")
+if "constexpr std::string_view lookup_suffix=" in online_transport or \
+   "constexpr std::string_view search_suffix=" in online_transport:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: duplicated native MusicBrainz route suffix")
 
 # Native track tooltip must describe the actual tab/provider-dependent
 # gesture. It must never falsely imply that Review/File tabs trigger search.

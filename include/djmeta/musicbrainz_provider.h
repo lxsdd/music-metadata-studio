@@ -584,6 +584,52 @@ inline std::string make_release_lookup_path(std::string_view mbid) {
         std::string(release_lookup_request_suffix);
 }
 
+// The ONLY path allowlist for the official fixed-host MusicBrainz HTTPS
+// adapter. Both core tests and native WinHTTP execute this same predicate.
+// Search is bounded to the provider's request suffix, release lookup to the
+// exact edition MBID and required official label/recording includes.
+inline bool qualified_musicbrainz_request_path(std::string_view path) {
+    if(path.empty() || path.size()>2048) return false;
+    for(unsigned char c:path)
+        if(c<0x21 || c>0x7e || c=='#' || c=='\\') return false;
+    for(const std::string_view prefix:{
+        std::string_view("/ws/2/recording?query="),
+        std::string_view("/ws/2/release?query=")}) {
+        if(!path.starts_with(prefix) ||
+           !path.ends_with(search_request_suffix)) continue;
+        const auto encoded=path.substr(prefix.size(),
+            path.size()-prefix.size()-search_request_suffix.size());
+        if(encoded.empty()) return false;
+        for(std::size_t i=0;i<encoded.size();++i) {
+            const auto c=static_cast<unsigned char>(encoded[i]);
+            if((c>='A'&&c<='Z')||(c>='a'&&c<='z')||
+               (c>='0'&&c<='9')||c=='-'||c=='_'||
+               c=='.'||c=='~') continue;
+            if(c!='%' || i+2>=encoded.size()) return false;
+            const auto hex=[](unsigned char x)->int {
+                if(x>='0'&&x<='9') return x-'0';
+                if(x>='A'&&x<='F') return x-'A'+10;
+                return -1; // canonical uppercase ASCII URL encoding only
+            };
+            const int hi=hex(static_cast<unsigned char>(encoded[i+1]));
+            const int lo=hex(static_cast<unsigned char>(encoded[i+2]));
+            if(hi<0 || lo<0) return false;
+            const int octet=(hi<<4)|lo;
+            if(octet<0x20 || octet==0x7f) return false; // no encoded controls
+            i+=2;
+        }
+        return true;
+    }
+    constexpr std::string_view prefix="/ws/2/release/";
+    if(path.starts_with(prefix) &&
+       path.ends_with(release_lookup_request_suffix)) {
+        const auto id=path.substr(prefix.size(),
+            path.size()-prefix.size()-release_lookup_request_suffix.size());
+        return valid_mbid(id);
+    }
+    return false;
+}
+
 inline SearchResult parse_search(std::string_view json, SearchKind kind) {
     const auto root=JsonParser(json).parse();
     if (root.type != Json::Type::Object)
