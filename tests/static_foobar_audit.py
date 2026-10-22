@@ -670,9 +670,8 @@ for token in (
 # UX regression: a four-row modal summary hides the rest of a multi-field
 # CUE preview and interrupts normal playlist navigation. Statuses now remain
 # visible in the native detail ListView, including when the provider was sorted.
-if "additional selected fields omitted from message" in batch_table_dialog or (
-    "MessageBoxW(dialog,notice.c_str(),L\\"CUE preview" in batch_table_dialog
-):
+if ("additional selected fields omitted from message" in batch_table_dialog or
+        "MessageBoxW(dialog,notice.c_str()" in batch_table_dialog):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: CUE preview is still a truncated modal popup")
 
 # Rapid manual MusicBrainz retry may happen immediately after a zero-hit
