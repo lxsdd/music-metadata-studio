@@ -25,8 +25,8 @@ def violations(script: str, local: str) -> list[str]:
         "rev-parse 'HEAD:vendor/sdk'",
         "'https://github.com/lxsdd/foobar2000_component_template.git'",
         "throw 'Pinned first-party SDK template commit/tree mismatch.'",
-        "throw 'Unverified or stale SDK already staged",
-        "throw 'Pinned template SDK is missing",
+        'throw "Unverified or stale SDK already staged',
+        'throw "Pinned template SDK is missing',
         "throw 'Pinned SDK redistributable source notice is missing.'",
         "FOOBAR_SDK_GIT_SOURCE_VERIFIED=PASS",
         "FOOBAR_SDK_ORIGINAL_7Z_ARCHIVE_SHA256=NOT_TESTED",
@@ -58,8 +58,8 @@ def main() -> None:
         boot.replace("FOOBAR_SDK_ORIGINAL_7Z_ARCHIVE_SHA256=NOT_TESTED",
                      "FOOBAR_SDK_ORIGINAL_7Z_ARCHIVE_SHA256=PASS", 1),
         boot + "\nInvoke-WebRequest -Uri 'https://www.foobar2000.org/downloads/SDK.7z'\n",
-        boot.replace("throw 'Unverified or stale SDK already staged",
-                     "Write-Host 'stale SDK allowed"),
+        boot.replace('throw "Unverified or stale SDK already staged',
+                     'Write-Host "stale SDK allowed'),
     ):
         assert violations(broken, local), "a synthetic bad SDK bootstrap escaped"
     assert violations(boot, local.replace("Get-Command git.exe", "Get-Command 7z.exe"))
