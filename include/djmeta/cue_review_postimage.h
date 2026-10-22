@@ -65,6 +65,25 @@ inline std::vector<std::size_t> resolve_cue_detail_selection(
     return result;
 }
 
+// Match an in-grid preview marker by immutable evidence, never by sort row.
+inline bool cue_detail_row_in_preview(
+    const CuePostimageReviewSnapshot& capture,
+    const std::vector<std::size_t>& preview_indices,
+    const FieldReviewRow& detail) {
+    if(!capture.eligible || preview_indices.size()>512) return false;
+    std::size_t matches=0;
+    std::set<std::size_t> seen;
+    for(auto index:preview_indices) {
+        if(index>=capture.rows.size() || !seen.insert(index).second)
+            return false;
+        const auto& source=capture.rows[index].reviewed;
+        if(source.candidate==detail.candidate &&
+           source.original_values==detail.original_values &&
+           source.state==detail.state)
+            ++matches;
+    }
+    return matches==1;
+}
 inline bool same_cue_postimage_review(
     const CueCandidateFieldReview& a,const CueCandidateFieldReview& b) {
     return a.evidence_index==b.evidence_index &&

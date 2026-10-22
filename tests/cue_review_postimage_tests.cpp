@@ -68,6 +68,12 @@ int main(){
         snap,display_reversed,{0,1});
     check(sorted_selection==std::vector<std::size_t>({1,0}),
           "sorted multi-select maps to exact provider evidence identities");
+    check(cue_detail_row_in_preview(snap,sorted_selection,display_reversed[0]) &&
+          cue_detail_row_in_preview(snap,sorted_selection,display_reversed[1]) &&
+          !cue_detail_row_in_preview(snap,{1},display_reversed[1]) &&
+          !cue_detail_row_in_preview(snap,{1,1},display_reversed[0]) &&
+          !cue_detail_row_in_preview(snap,{100},display_reversed[0]),
+          "preview markers match immutable rows under sorting, reject forged IDs");
     const auto grouped_preview=preview_selected_cue_review_postimage(
         snap,raw,sorted_selection);
     check(grouped_preview.eligible && grouped_preview.changed &&

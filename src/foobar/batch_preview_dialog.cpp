@@ -177,6 +177,10 @@ struct PreviewState {
     std::optional<djmeta::online::CuePostimageReviewSnapshot> cue_postimage_snapshot;
     std::size_t cue_postimage_source=(std::numeric_limits<std::size_t>::max)();
     bool cue_postimage_discogs=false;
+    // Exact CUE byte postimage and selected row IDs for continuous, modeless
+    // read-only review. Neither value authorizes an SDK or filesystem write.
+    std::optional<djmeta::CueValuePostimage> cue_value_preview;
+    std::vector<std::size_t> cue_value_preview_indices;
     bool musicbrainz_live_view = false; // only set from successful official HTTPS
     bool musicbrainz_release_loaded = false;
     djmeta::online::musicbrainz::SearchKind musicbrainz_kind =
@@ -259,6 +263,8 @@ PreviewState* g_pending_state = nullptr;
 void invalidate_online_request(PreviewState& state) {
     state.online_context_version.invalidate();
     state.cue_postimage_snapshot.reset();
+    state.cue_value_preview.reset();
+    state.cue_value_preview_indices.clear();
     state.cue_postimage_source=(std::numeric_limits<std::size_t>::max)();
     // Any provider/track/query change discards prior edition evidence.
 
@@ -1177,6 +1183,14 @@ void refresh_musicbrainz_detail_rows(PreviewState& state) {
         const auto original=show_field_values(row.original_values);
         const bool local_original=djmeta::online::is_local_physical_original(row);
         const bool local_cue=djmeta::online::is_local_cue_inventory(row);
+        const bool cue_previewed=state.cue_value_preview &&
+            state.cue_value_preview->eligible &&
+            state.cue_postimage_snapshot &&
+            state.cue_postimage_source==state.selected_track_index &&
+            state.cue_postimage_discogs==state.discogs_live_view &&
+            djmeta::online::cue_detail_row_in_preview(
+                *state.cue_postimage_snapshot,
+                state.cue_value_preview_indices,row);
         bool included=false;
         std::wstring selected_target;
         if (qualified_online_field_preview(state)) {
@@ -1206,6 +1220,8 @@ void refresh_musicbrainz_detail_rows(PreviewState& state) {
                 ? L"Suggested identity only" : L"Not safely matched") :
             local_original ? L"Keep original" :
             local_cue ? L"Keep original CUE" :
+            cue_previewed ? (row.state==djmeta::online::FieldReviewState::Unchanged
+                              ? L"Previewed: no-op" : L"Previewed: change") :
             included ? (selected_target.empty()?L"Included (preview)":
                 L"Included -> "+selected_target) :
             qualified_online_field_preview(state) &&
@@ -3684,6 +3700,8 @@ void publish_discogs_release(HWND dialog, PreviewState& state,
             physical_review=djmeta::online::capture_online_field_review(
                 originals,stageable,true,true);
     }
+    state.cue_value_preview.reset();
+    state.cue_value_preview_indices.clear();
     state.cue_postimage_snapshot=std::move(cue_preview);
     state.cue_postimage_source=state.cue_postimage_snapshot
         ? request.source_index:(std::numeric_limits<std::size_t>::max)();
@@ -3974,6 +3992,8 @@ void publish_musicbrainz_release(
     verify_rules_snapshot(state.captured_rules);
     state.candidate_rows=std::move(grouped.summary);
     state.musicbrainz_detail_groups=std::move(grouped.detail);
+    state.cue_value_preview.reset();
+    state.cue_value_preview_indices.clear();
     if(cue_preview.eligible)
         state.cue_postimage_snapshot.emplace(std::move(cue_preview));
     else state.cue_postimage_snapshot.reset();
@@ -5184,39 +5204,25 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 *state->cue_postimage_snapshot,source.raw_text,selected_indices);
             if(!proposal.eligible)
                 throw std::runtime_error("CUE preview refused: "+proposal.rejection);
-            // One atomic preview for all selected CUE values, not one popup
-            // per field. Bounded text only; full source bytes stay in memory.
-            const auto truncate=[](std::wstring text) {
-                if(text.size()>90) text.resize(90),text+=L"...";
-                return text;
-            };
+            // Render all selected CUE fields together in the existing
+            // modeless comparison grid, without a truncated modal popup.
+            state->cue_value_preview=proposal;
+            state->cue_value_preview_indices=selected_indices;
             std::size_t changed=0;
             for(auto idx:selected_indices)
                 if(state->cue_postimage_snapshot->rows[idx].reviewed.state==
                    djmeta::online::FieldReviewState::NeedsReview)
                     ++changed;
-            std::wstring notice=L"CUE value (memory only): "+
+            refresh_musicbrainz_detail_rows(*state);
+            for(const auto row:selected_display_rows)
+                ListView_SetItemState(state->musicbrainz_details,
+                    static_cast<int>(row),LVIS_SELECTED,LVIS_SELECTED);
+            const std::wstring message=L"CUE preview: "+
                 std::to_wstring(selected_indices.size())+L" selected; "+
-                std::to_wstring(changed)+L" proposed value changes.";
-            const auto count=(std::min)(selected_indices.size(),std::size_t{4});
-            for(std::size_t i=0;i<count;++i) {
-                const auto& row=
-                    state->cue_postimage_snapshot->rows[selected_indices[i]].reviewed;
-                const auto before=row.original_values.empty()
-                    ? L"(none)" : truncate(from_utf8(row.original_values.front()));
-                const auto after=row.candidate.values.empty()
-                    ? L"(none)" : truncate(from_utf8(row.candidate.values.front()));
-                notice+=L"\n\n"+from_utf8(row.cue_field)+L": "+before+
-                        L" -> "+after;
-            }
-            if(selected_indices.size()>count)
-                notice+=L"\n\n... additional selected fields omitted from message.";
-            notice+=proposal.changed
-                ? L"\n\nCombined source CUE bytes would change."
-                : L"\n\nNo change (byte-identical).";
-            notice+=L"\nNo audio file, CUE, tag or timestamp was changed.";
-            MessageBoxW(dialog,notice.c_str(),L"CUE preview - read-only",
-                        MB_OK|MB_ICONINFORMATION);
+                std::to_wstring(changed)+L" proposed changes; "+
+                std::to_wstring(selected_indices.size()-changed)+
+                L" no-ops. See every field in the table. Read-only; no writes.";
+            SetDlgItemTextW(dialog,IDC_BATCH_HINT,message.c_str());
             return TRUE;
         }
         const bool consequential = native_command == PreviewCommand::Accept ||
