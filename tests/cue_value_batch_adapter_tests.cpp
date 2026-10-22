@@ -81,7 +81,7 @@ int main(){
           !plan.decisions[1].file_operation_needed,
           "qualified CUE value bridge reaches the actual batch planner");
 
-    const std::vector<FilePlanItem> approved_items{projected.planned};
+    const std::vector<FilePlanItem> approved_items{physical,projected.planned};
     const BatchApproval approval{
         review_batch_plan(approved_items).plan_fingerprint,false,{}};
     const auto frozen=freeze_reviewed_batch_preview(approved_items,approval);
@@ -92,7 +92,8 @@ int main(){
                              bool source_ok=true,bool bytes_ok=true,
                              bool links_ok=true,bool target_ok=true) {
         return preflight_exact_external_cue_values(
-            frozen,approval,live,bytes,provider,chosen,
+            frozen,approval,std::vector<FilePlanItem>{physical,live},1,
+            bytes,provider,chosen,
             source_ok,bytes_ok,links_ok,target_ok);
     };
     const auto ready=preflight(projected.planned,raw,mb,{0,1});
