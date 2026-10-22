@@ -89,6 +89,17 @@ else()
     target_compile_options(djmeta_online_physical_postimage_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+# Fresh OS/foobar source, target and physical tag evidence must reproduce
+# one frozen batch. This produces only detached postimages, NEVER writes.
+add_executable(djmeta_physical_apply_preflight_tests tests/physical_apply_preflight_tests.cpp)
+target_link_libraries(djmeta_physical_apply_preflight_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_physical_apply_preflight_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_physical_apply_preflight_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_physical_apply_preflight_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 add_executable(djmeta_physical_tag_postimage_tests tests/physical_tag_postimage_tests.cpp)
 target_link_libraries(djmeta_physical_tag_postimage_tests PRIVATE djmeta_core)
 target_compile_features(djmeta_physical_tag_postimage_tests PRIVATE cxx_std_20)
@@ -490,6 +501,7 @@ add_test(NAME djmeta_online_release_fuzz_tests COMMAND djmeta_online_release_fuz
 add_test(NAME djmeta_online_match_tests COMMAND djmeta_online_match_tests)
 add_test(NAME djmeta_write_guard_tests COMMAND djmeta_write_guard_tests)
 add_test(NAME djmeta_physical_tag_postimage_tests COMMAND djmeta_physical_tag_postimage_tests)
+add_test(NAME djmeta_physical_apply_preflight_tests COMMAND djmeta_physical_apply_preflight_tests)
 add_test(NAME djmeta_online_physical_postimage_tests COMMAND djmeta_online_physical_postimage_tests)
 add_test(NAME djmeta_physical_selection_tests COMMAND djmeta_physical_selection_tests)
 add_test(NAME djmeta_review_decisions_tests COMMAND djmeta_review_decisions_tests)
