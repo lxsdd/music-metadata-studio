@@ -2,7 +2,7 @@ name: Core CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feature/online-metadata-discovery-foundation-20261009 ]
     paths:
       - 'include/**'
       - 'src/core/**'
@@ -28,6 +28,10 @@ on:
       - 'tests/validate_rules.py'
       - 'tests/static_foobar_audit.py'
       - 'tests/crates_browser_bridge_tests.js'
+      # All tests and safety-audit changes trigger source-only qualification.
+      - 'tests/**'
+      - 'scripts/**'
+      - 'src/foobar/**'
       - 'scripts/beatport-copy-public-jsonld.js'
       - 'scripts/crates-copy-selected-beatport-link.js'
       - 'rules/**'

@@ -2,7 +2,7 @@ name: foobar Preview Component
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feature/online-metadata-discovery-foundation-20261009 ]
     paths:
       - 'include/**'
       - 'src/core/**'
@@ -10,6 +10,8 @@ on:
       - 'rules/**'
       - 'scripts/**'
       - 'tests/static_foobar_audit.py'
+      # Native regression fixtures also trigger exact-source Win32/x64 gate.
+      - 'tests/**'
       - 'foo_music_metadata_studio.vcxproj'
       - 'VERSION'
       - '.github/workflows/foobar.yml'
