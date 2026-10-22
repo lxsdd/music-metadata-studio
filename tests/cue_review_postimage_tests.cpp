@@ -105,5 +105,104 @@ int main(){
         CueCarrierKind::ExternalText,{track});
     check(!bad_source.eligible && reject(bad_source,raw,{0}),
           "invalid source CUE cannot be staged");
+
+    // The release-bound adapter recomputes one-to-one identity from actual
+    // CUE bytes + the exact provider edition, rather than trusting UI booleans.
+    const std::string release_raw=
+        "TITLE \"Local album\"\n"
+        "PERFORMER \"DJ\"\n"
+        "FILE \"set.flac\" WAVE\n"
+        "TRACK 01 AUDIO\n"
+        "TITLE \"Sunrise (Extended Mix)\"\n"
+        "PERFORMER \"DJ\"\n"
+        "ISRC GBABC2600001\n"
+        "INDEX 01 00:00:00\n";
+    ReleaseEdition mb_edition;
+    mb_edition.provider="musicbrainz";
+    mb_edition.edition_id=mb;
+    mb_edition.fields.push_back({"ALBUM",{"Other album"},
+        "musicbrainz",mb,EvidenceScope::Edition});
+    EditionTrack mb_track;
+    mb_track.source_track_id=occurrence;
+    mb_track.recording={"Sunrise (Extended Mix)","DJ","",
+        MixKind::Extended,"GBABC2600001",-1};
+    mb_track.track_number=1;
+    mb_track.disc_number=1;
+    mb_track.fields.push_back({"TITLE",{"Corrected Sunrise (Extended Mix)"},
+        "musicbrainz",occurrence,EvidenceScope::Edition});
+    mb_edition.tracks.push_back(mb_track);
+    const auto qualified=capture_qualified_cue_edition_postimage(
+        release_raw,CueCarrierKind::ExternalText,mb_edition);
+    check(qualified.eligible && qualified.rows.size()==2 &&
+          qualified.rows[0].reviewed.state==FieldReviewState::NeedsReview &&
+          qualified.rows[1].reviewed.state==FieldReviewState::NeedsReview,
+          "exact MB release and verified occurrence expose two review rows");
+    const auto mb_preview=preview_selected_cue_review_postimage(
+        qualified,release_raw,{0,1});
+    const std::string mb_expected=
+        "TITLE \"Other album\"\n"
+        "PERFORMER \"DJ\"\n"
+        "FILE \"set.flac\" WAVE\n"
+        "TRACK 01 AUDIO\n"
+        "TITLE \"Corrected Sunrise (Extended Mix)\"\n"
+        "PERFORMER \"DJ\"\n"
+        "ISRC GBABC2600001\n"
+        "INDEX 01 00:00:00\n";
+    check(mb_preview.eligible && mb_preview.changed &&
+          mb_preview.bytes==mb_expected,
+          "exact release bridge preserves all non-selected bytes");
+    auto mb_bad=mb_edition;
+    mb_bad.tracks[0].source_track_id="unqualified";
+    check(!capture_qualified_cue_edition_postimage(
+        release_raw,CueCarrierKind::ExternalText,mb_bad).eligible,
+        "invalid MusicBrainz occurrence cannot enter selected CUE postimage");
+    mb_bad=mb_edition;
+    mb_bad.tracks[0].fields[0].source_id=mb;
+    check(!capture_qualified_cue_edition_postimage(
+        release_raw,CueCarrierKind::ExternalText,mb_bad).eligible,
+        "album MBID cannot impersonate a release-track occurrence");
+    mb_bad=mb_edition;
+    mb_bad.tracks[0].recording.title="Sunrise (Radio Edit)";
+    const auto wrong_mix=capture_qualified_cue_edition_postimage(
+        release_raw,CueCarrierKind::ExternalText,mb_bad);
+    check(!wrong_mix.eligible || wrong_mix.rows.empty(),
+          "wrong remix cannot produce editable edition track fields");
+    mb_bad=mb_edition;
+    mb_bad.tracks.push_back(mb_track);
+    mb_bad.tracks[1].source_track_id=
+        "00000000-0000-0000-0000-000000000003";
+    mb_bad.tracks[1].fields[0].source_id=
+        mb_bad.tracks[1].source_track_id;
+    const auto partial=capture_qualified_cue_edition_postimage(
+        release_raw,CueCarrierKind::ExternalText,mb_bad);
+    check(!partial.eligible || partial.rows.empty() ||
+          partial.rows[0].input.evidence.field!="ALBUM",
+          "partial edition never exposes changed album-global row");
+    ReleaseEdition discogs_edition=mb_edition;
+    discogs_edition.provider="discogs";
+    discogs_edition.edition_id="123";
+    discogs_edition.fields[0].provider="discogs";
+    discogs_edition.fields[0].source_id="123";
+    discogs_edition.tracks[0].source_track_id="123/track/1";
+    discogs_edition.tracks[0].fields[0].provider="discogs";
+    discogs_edition.tracks[0].fields[0].source_id="123/track/1";
+    const auto discogs_snap=capture_qualified_cue_edition_postimage(
+        release_raw,CueCarrierKind::EmbeddedText,discogs_edition);
+    check(discogs_snap.eligible && discogs_snap.rows.size()==2 &&
+          preview_selected_cue_review_postimage(
+              discogs_snap,release_raw,{0,1}).bytes==mb_expected,
+          "Discogs exact edition uses same byte-exact external/embedded core");
+    discogs_edition.tracks[0].fields[0].source_id="999/track/1";
+    const auto forged=capture_qualified_cue_edition_postimage(
+        release_raw,CueCarrierKind::EmbeddedText,discogs_edition);
+    check(!forged.eligible || forged.rows.empty() ||
+          (forged.rows.size()==1 &&
+           forged.rows[0].input.evidence.field!="TITLE"),
+          "foreign Discogs edition-track field never becomes selectable");
+    discogs_edition.provider="unsupported";
+    check(!capture_qualified_cue_edition_postimage(
+        release_raw,CueCarrierKind::EmbeddedText,discogs_edition).eligible,
+        "unverified provider cannot claim edition qualification");
+
     std::cout<<"PASS: explicit CUE field selection, source recheck, safe byte postimage\n";
 }

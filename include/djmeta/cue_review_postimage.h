@@ -3,6 +3,8 @@
 // NO filesystem, foobar SDK, virtual-track writer or approval side effects.
 #include "djmeta/cue_online_review.h"
 #include "djmeta/cue_value_postimage.h"
+#include "djmeta/cue_release_review.h"
+#include "djmeta/cue_musicbrainz_release_gate.h"
 #include <cstddef>
 #include <optional>
 #include <set>
@@ -111,4 +113,93 @@ inline djmeta::CueValuePostimage preview_selected_cue_review_postimage(
     return djmeta::preview_cue_value_postimage(
         current_source,snapshot.carrier,changes);
 }
+
+ // Source-verified release adapter. A caller cannot supply an arbitrary
+ // "complete_edition_alignment" boolean: this path recomputes exact edition
+ // alignment, track identities and provider-specific provenance from source.
+ // Still ONLY an in-memory preview, never a CUE/audio/foobar writer.
+inline CuePostimageReviewSnapshot capture_qualified_cue_edition_postimage(
+    std::string_view raw,djmeta::CueCarrierKind carrier,
+    const ReleaseEdition& edition) {
+    if(edition.provider!="musicbrainz" && edition.provider!="discogs")
+        return {};
+    const auto cue=djmeta::inspect_cue_metadata(raw,carrier);
+    if(cue.status!=djmeta::CueSyntaxStatus::Parsed)
+        return {};
+    const auto reviewed=review_cue_release_edition(cue,edition);
+    if(!reviewed.eligible ||
+       reviewed.alignment.provider!=edition.provider ||
+       reviewed.alignment.edition_id!=edition.edition_id)
+        return {};
+    const auto& matches=reviewed.alignment.tracks;
+    bool full=matches.size()==cue.tracks.size() &&
+              matches.size()==edition.tracks.size() && !matches.empty();
+    std::set<std::size_t> seen_local,seen_remote;
+    for(const auto& match:matches) {
+        if(match.decision!=MatchDecision::Suggested ||
+           !match.conflicts.empty() ||
+           match.source_index>=cue.tracks.size() ||
+           match.edition_track_index>=edition.tracks.size() ||
+           !seen_local.insert(match.source_index).second ||
+           !seen_remote.insert(match.edition_track_index).second ||
+           !qualified_cue_edition_track_provenance(
+               edition,match.edition_track_index))
+            full=false;
+    }
+    full=full && seen_local.size()==cue.tracks.size() &&
+         seen_remote.size()==edition.tracks.size();
+    if(edition.provider=="musicbrainz")
+        full=full && qualified_musicbrainz_cue_album_alignment(
+            cue,edition,reviewed.alignment);
+    std::vector<CuePostimageEvidence> inputs;
+    std::vector<CueCandidateFieldReview> expected;
+    const auto append=[&](const CueCandidateFieldReview& field,
+                          std::optional<std::size_t> track,bool track_field) {
+        if(field.state!=FieldReviewState::NeedsReview &&
+           field.state!=FieldReviewState::Unchanged)
+            return;
+        if(inputs.size()>=512) return;
+        inputs.push_back({track,field.candidate,track_field,full});
+        expected.push_back(field);
+    };
+    // Album changes require whole-edition identity; equal values may still
+    // be displayed as no-ops, never interpreted as a write permission.
+    for(const auto& field:reviewed.album_fields)
+        if(full || field.state==FieldReviewState::Unchanged)
+            append(field,std::nullopt,false);
+    for(const auto& track:reviewed.tracks) {
+        if(track.decision!=MatchDecision::Suggested ||
+           !track.reasons.empty() ||
+           track.cue_ordinal>=cue.tracks.size() ||
+           track.edition_track_index>=edition.tracks.size())
+            continue;
+        const auto& remote=edition.tracks[track.edition_track_index];
+        if(!qualified_cue_edition_track_provenance(
+                edition,track.edition_track_index))
+            continue;
+        if(edition.provider=="musicbrainz") {
+            if(!musicbrainz::valid_mbid(remote.source_track_id))
+                continue;
+            bool provenance=true;
+            for(const auto& field:remote.fields)
+                if(field.source_id!=remote.source_track_id)
+                    provenance=false;
+            if(!provenance) continue;
+        }
+        for(const auto& field:track.fields)
+            append(field,track.cue_ordinal,true);
+    }
+    if(inputs.size()!=expected.size()) return {};
+    auto snapshot=capture_cue_postimage_review(raw,carrier,inputs);
+    if(!snapshot.eligible || snapshot.rows.size()!=expected.size())
+        return {};
+    for(std::size_t i=0;i<expected.size();++i) {
+        auto original=expected[i];
+        original.evidence_index=0; // single-field immutable captured row
+        if(!same_cue_postimage_review(snapshot.rows[i].reviewed,original))
+            return {}; // includes aliases, conflicting or duplicated fields
+    }
+    return snapshot;
+}
+
 } // namespace djmeta::online
