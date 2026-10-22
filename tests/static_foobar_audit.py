@@ -606,6 +606,20 @@ if "search MusicBrainz from any tab" in batch_table_dialog or \
    "Other tabs: navigate to Find without searching." not in batch_table_dialog:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: misleading track activation tooltip")
 
+# Track-selection prefill is provider-aware: never insert TITLE in a URL
+# control, and never reuse a URL from another track. Provider switch also
+# clears old title evidence before opening Beatport/Crates.
+for token in (
+    "if(state.beatport_offline_selected) {",
+    "state.auto_search_track!=state.selected_track_index",
+    "state.auto_search_track=state.selected_track_index;",
+    "state.auto_search_text.clear();",
+    'L"Exact Beatport URL (or paste from clipboard)"',
+    "return; // no network, no auto-generated or guessed Beatport URL",
+):
+    if token not in batch_table_dialog:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: Beatport source-bound URL prefill missing: "+token)
+
 # Rapid manual MusicBrainz retry may happen immediately after a zero-hit
 # search. It must wait in the worker, rather than reject and require a
 # second manually timed click or sleep on the UI thread.

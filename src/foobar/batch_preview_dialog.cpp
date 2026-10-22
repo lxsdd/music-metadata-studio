@@ -514,6 +514,16 @@ std::string unique_metadata_value(const djmeta::MetadataDocument& doc,
  // Never start a network request during selection, tab switching or refresh.
 void prefill_musicbrainz_query(PreviewState& state, bool force = false) {
     if (!state.dialog || state.selected_track_index >= state.entries.size()) return;
+    if(state.beatport_offline_selected) {
+        // A title is NOT a Beatport URL. A newly selected physical source
+        // must not inherit the previous track's still-valid public URL.
+        // Repaint/selection of the same track preserves a manually typed URL.
+        if(state.auto_search_track!=state.selected_track_index)
+            SetDlgItemTextW(state.dialog,IDC_METADATA_MB_QUERY,L"");
+        state.auto_search_track=state.selected_track_index;
+        state.auto_search_text.clear();
+        return; // no network, no auto-generated or guessed Beatport URL
+    }
     const auto& entry = state.entries[state.selected_track_index];
     std::string title;
     // A CUE needs an explicitly inspected album inventory before online
@@ -2818,7 +2828,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_BATCH_TABS,L"1. Search online and compare. 2. Review local rule-based suggestions. 3. Preview file locations. These previews do not write files."},
         {IDC_BATCH_GUIDE,L"Follow the steps from left to right. A MusicBrainz match is evidence, not an approved tag edit."},
         {IDC_METADATA_TRACK_LIST,L"Find tab: double-click/Enter searches MusicBrainz or Discogs. Other tabs: navigate to Find without searching. Beatport requires Find in Crates or an explicit URL."},
-        {IDC_METADATA_MB_QUERY,L"TITLE, album or official Discogs release/master URL. Master editions: page 1 only. No automatic network calls."},
+        {IDC_METADATA_MB_QUERY,L"MusicBrainz: TITLE/album. Discogs: title or exact release/master URL. Beatport: one canonical public track URL, or leave empty for the clipboard. No automatic requests."},
         {IDC_METADATA_ONLINE_PROVIDER,L"MusicBrainz and Discogs use official APIs. Beatport + Crates supports single public Beatport URLs, lawful clipboard evidence and a hand-off to your existing Crates browser account; no logged-in API impersonation."},
         {IDC_METADATA_DISCOGS_TOKEN_LABEL,L"Discogs token only lives in this password control."},
         {IDC_METADATA_DISCOGS_TOKEN,L"Personal Discogs API token. Not saved, logged, embedded or copied into URLs."},
@@ -4936,8 +4946,16 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 dialog,IDC_METADATA_ONLINE_PROVIDER,CB_GETCURSEL,0,0);
             state->discogs_provider_selected=selected_provider==1;
             state->beatport_offline_selected=selected_provider==2;
-            if(state->beatport_offline_selected)
+            if(state->beatport_offline_selected) {
                 SetDlgItemTextW(dialog,IDC_METADATA_MB_QUERY,L"");
+                state->auto_search_text.clear();
+                state->auto_search_track=state->selected_track_index;
+            }
+            SendDlgItemMessageW(dialog,IDC_METADATA_MB_QUERY,EM_SETCUEBANNER,
+                FALSE,reinterpret_cast<LPARAM>(
+                    state->beatport_offline_selected
+                    ? L"Exact Beatport URL (or paste from clipboard)"
+                    : L"Title or album"));
             if(!state->discogs_provider_selected)
                 SetDlgItemTextW(dialog,IDC_METADATA_DISCOGS_TOKEN,L"");
             state->musicbrainz_live_view=false;

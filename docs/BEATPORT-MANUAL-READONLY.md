@@ -361,3 +361,16 @@ control-bearing headers are refused instead of producing potentially corrupted
 metadata. Native WinHTTP still uses one bounded unauthenticated GET, no
 redirects/retries and no writes. This is an offline source-integrity check,
 not confirmation of the live site's layout or partner API authorization.
+
+
+## Beatport provider input and track-switch clarity (22 October 2026)
+
+The shared search box no longer receives an automatically generated local
+TITLE when `Beatport + Crates` is active: titles are useful for MusicBrainz/
+Discogs discovery but are **not** canonical Beatport track URLs. Entering the
+Beatport mode clears the old query and shows a provider-specific URL hint.
+Switching to another physical track clears any old Beatport URL to prevent
+cross-track reuse. Ordinary repaint of the same track preserves a manually
+entered URL; no automatic fetch or modification is performed. This allows an
+explicitly copied Crates track link to be consumed from the clipboard when
+the query field is empty, as originally intended.
