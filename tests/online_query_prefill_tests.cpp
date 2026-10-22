@@ -31,14 +31,14 @@ int main() {
     using djmeta::provider_query_transition;
     check(provider_query_transition(false,false)==
               ProviderQueryTransition::Preserve,
-          "MusicBrainz/Discogs switch preserves a manually typed query");
+          true, "MusicBrainz/Discogs switch preserves a manually typed query");
     check(provider_query_transition(false,true)==
               ProviderQueryTransition::Clear &&
           provider_query_transition(true,true)==
               ProviderQueryTransition::Clear,
-          "entering Beatport always removes old TITLE/foreign URL");
+          true, "entering Beatport always removes old TITLE/foreign URL");
     check(provider_query_transition(true,false)==
               ProviderQueryTransition::ClearAndSuggest,
-          "leaving Beatport clears old URL then suggests local TITLE");
+          true, "leaving Beatport clears old URL then suggests local TITLE");
     std::cout << "PASS: auto/manual online query selection policy\n";
 }
