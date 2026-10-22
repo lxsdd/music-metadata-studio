@@ -46,15 +46,18 @@
     };
     const rowFrom = (element) => element?.closest?.(
       'tr,li,article,[role="row"],[data-track-id],.track,.track-row');
+    // A DOM Selection can anchor on either a Text node or an Element.
+    // Taking parentElement unconditionally jumps OUT of the intended row
+    // when the endpoint itself is a track-row Element.
+    const endpointElement = (node) =>
+      node?.nodeType === 3 ? node.parentElement : node;
     let selected = null;
     const selection = window.getSelection();
     if (selection && !selection.isCollapsed) {
       // The two ends of a text selection must belong to the SAME row.
       // Otherwise taking only its anchor could silently copy the wrong mix.
-      const start = rowFrom(selection.anchorNode?.parentElement ||
-                            selection.anchorNode);
-      const end = rowFrom(selection.focusNode?.parentElement ||
-                          selection.focusNode);
+      const start = rowFrom(endpointElement(selection.anchorNode));
+      const end = rowFrom(endpointElement(selection.focusNode));
       if (!start || start !== end)
         throw new Error('Select text within one exact track row only.');
       selected = start;

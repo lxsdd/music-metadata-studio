@@ -128,7 +128,7 @@ async function scenario({host='crates.co',port='',all=[],row=null,selection=null
     // Selecting across TWO result rows must not silently pick the anchor's mix.
     const first={items:[anchor(beatport(321))]};
     const second={items:[anchor(beatport(322))]};
-    const nodeFor=(row)=>({parentElement:{closest:()=>row}});
+    const nodeFor=(row)=>({nodeType:3,parentElement:{closest:()=>row}});
     r=await scenario({
         all:[...first.items,...second.items],row:first,
         selection:{isCollapsed:false,anchorNode:nodeFor(first),
@@ -140,6 +140,17 @@ async function scenario({host='crates.co',port='',all=[],row=null,selection=null
         all:[...first.items,...second.items],row:second,
         selection:{isCollapsed:false,anchorNode:nodeFor(second),
                    focusNode:nodeFor(second)}
+    });
+    assert.equal(r.copied,beatport(322));
+    // Element endpoints must resolve from THEIR OWN closest row, not
+    // their parent. Crates DOM selections need not start on Text nodes.
+    r=await scenario({
+        all:[...first.items,...second.items],row:first,
+        selection:{isCollapsed:false,
+            anchorNode:{nodeType:1,closest:()=>second,
+                        parentElement:{closest:()=>first}},
+            focusNode:{nodeType:1,closest:()=>second,
+                       parentElement:{closest:()=>first}}}
     });
     assert.equal(r.copied,beatport(322));
     r=await scenario({
