@@ -833,10 +833,21 @@ if workflow.count(
     "31930d4fca571f449f2c57044bea5ba2e01f0ca7"
 ) != 2:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: mismatched protected/ordinary host pins")
-if workflow.count(
-    "github.event_name == 'push' && github.ref == 'refs/heads/main'"
-) != 2:
-    raise SystemExit("STATIC FOOBAR AUDIT FAIL: manual QA may publish unqualified DLL")
+# Public workflows are source-only. Previously this gate accepted two
+# upload conditions targeting main, but those conditions could still publish
+# unqualified DLLs. Require the stronger merged #55 safety hold instead.
+for guarded in (
+    "      - name: Upload DLL\n"
+    "        if: false # Safety hold: no public DLL artifacts",
+    "  package:\n"
+    "    if: false # Safety hold: do not package public DLLs",
+    "      - name: Upload combined component\n"
+    "        if: false # Safety hold: no public binary packages",
+):
+    if workflow.count(guarded) != 1:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: public binary gate missing: " + guarded)
+if "if: github.event_name == 'push' && github.ref == 'refs/heads/main'" in workflow:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: public DLL distribution re-enabled")
 
 # An external .cue selected as a virtual foobar subsong must still retain
 # a physical *read-only* carrier guard. This is independent of its status
