@@ -197,6 +197,36 @@ jobs:
           authorized-discogs-full-artist-probe: ${{ inputs.discogs_release_id == '37332711' && 'true' || 'false' }}
           discogs-release-id: ${{ inputs.discogs_release_id }}
 
+  # One-shot source-to-component package qualification on disposable CI only.
+  # No binaries are uploaded, retained or exposed as GitHub artifacts.
+  private-package-qualification:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feature/online-metadata-discovery-foundation-20261009' && contains(github.event.head_commit.message, '[qualify-private-package]')
+    needs: [static-audit, windows-build]
+    runs-on: windows-2022
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: microsoft/setup-msbuild@v2
+      - name: Private source-SHA-to-Win32-and-x64-package end-to-end
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sha = '${{ github.sha }}'
+          if ($sha -cnotmatch '^[a-f0-9]{40}$') { throw 'Unpinned source revision' }
+          $target = Join-Path $env:RUNNER_TEMP 'mms-private-qualify'
+          try {
+            & ./scripts/local-acceptance-build.ps1 -SourceSha $sha -OutputDirectory $target
+            if (-not $?) { throw 'Private component acceptance build rejected' }
+            $package = Join-Path (Join-Path $target ('MMS-local-' + $sha)) 'BUILD-MANIFEST.txt'
+            if (-not (Test-Path -LiteralPath $package -PathType Leaf)) { throw 'Private package manifest missing' }
+            $text = Get-Content -LiteralPath $package -Raw
+            if (-not $text.Contains('commit=' + $sha) -or -not $text.Contains('status=PASS')) { throw 'Private exact-source package proof missing' }
+            Write-Host 'PRIVATE_SOURCE_TO_PACKAGE=PASS (Win32+x64, manifest, PE and SHA256 verified; no public artifact)'
+          } finally {
+            Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue
+          }
   # Internal PRs may publish short-lived QA artifacts, never GitHub Releases.
   # Fork PRs remain build-only so untrusted code cannot publish previews.
   package:
