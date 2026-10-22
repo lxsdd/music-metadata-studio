@@ -266,14 +266,22 @@ for path in [
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: source missing from Win32/x64: " + path)
 
 sdk_bootstrap = (root / "scripts" / "bootstrap-sdk.ps1").read_text(encoding="utf-8")
+# SDK provenance is now an exact, independently checked Git commit AND SDK
+# subtree, not a downloaded vendor .7z file. Preserve the historical archive
+# digest as metadata only; do not claim that Git-tree validation verifies .7z.
 for token in (
     "2026-10-01", "793738",
     "d4c55077336fae81bf8df0259b5b2748fa45ea84132c656ead93eb123cbcdc26",
-    "Get-FileHash", "SHA256", "Official SDK 7z integrity check",
-    "sdk-readme.html"
+    "31a35947a7527826c2199491692802e3ce3d8bd7",
+    "2ba8caeb73f72633ad7f60ee5f72ed8074a0eb17",
+    "HEAD:vendor/sdk", "sdk-readme.html",
+    "Pinned first-party SDK template commit/tree mismatch",
+    "FOOBAR_SDK_ORIGINAL_7Z_ARCHIVE_SHA256=NOT_TESTED",
 ):
     if token not in sdk_bootstrap:
-        raise SystemExit("STATIC FOOBAR AUDIT FAIL: verified official SDK pin missing: " + token)
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: immutable SDK source provenance missing: " + token)
+if "Invoke-WebRequest" in sdk_bootstrap or "Start-BitsTransfer" in sdk_bootstrap:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: direct vendor SDK archive network request reintroduced")
 
 rules_runtime = (foobar / "rules_runtime.cpp").read_text(encoding="utf-8")
 if "CreateFileW" not in rules_runtime or "GENERIC_READ" not in rules_runtime:

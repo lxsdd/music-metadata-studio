@@ -2,15 +2,17 @@
 
 **Entwicklungsmodus; keine öffentliche Binär-Freigabe.** Dieses Verfahren liefert ein
 persönlich auf dem eigenen Windows-Rechner kompiliertes foobar2000-Paket für die
-gesonderte Endabnahme, ohne GitHub-Actions-Artefakte, GitHub-Releases oder lokale
-Git-Repositories anzulegen. Eine Rechtefreigabe zur Weitergabe ist damit **nicht**
+gesonderte Endabnahme, ohne GitHub-Actions-Artefakte oder GitHub-Releases anzulegen. Die SDK-Beschaffung
+verwendet ausschließlich einen temporären, geprüften Git-Checkout; er wird beim
+Aufräumen des isolierten Buildordners wieder entfernt. Eine Rechtefreigabe zur Weitergabe ist damit **nicht**
 verbunden.
 
 ## Voraussetzungen
 
 - Windows 10/11; Visual Studio 2022 **C++ Build Tools** mit MSBuild / v143
   (PowerShell aus **Developer PowerShell for VS 2022** starten)
-- 7-Zip (7z.exe) und Netzwerkzugriff auf GitHub sowie foobar2000.org
+- Git (git.exe) und Netzwerkzugriff auf GitHub; **kein** 7-Zip und kein Zugriff
+  auf foobar2000.org für die SDK-Beschaffung erforderlich
 - Genügend freier temporärer Festplattenspeicher für SDK, Win32/x64-Builds
 - Ein vollständig bestimmter **40-stelliger lowercase Commit-SHA**, der explizit
   für den privaten Abnahme-Build ausgewählt wurde
@@ -35,7 +37,8 @@ Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/lxsdd
 
 Der Helper lädt das exakte Commit-Archiv per HTTPS von `codeload.github.com`,
 prüft dessen Commit-Präfix, erstellt Win32-/x64-DLLs mit den unveränderten
-Projekt-Buildskripten und dem im Projekt **SHA-256-pinned SDK 2026-10-01**,
+Projekt-Buildskripten und dem auf **Git-Commit plus Git-Tree fixierten offiziellen
+SDK-Quellstand vom 01.10.2026**,
 nutzt das bestehende Original-Paketierungsskript, verifiziert PE-Maschinenkennung
 und SHA-256 sowie Git-SHA-Eintrag im Build-Manifest und kopiert ausschließlich
 Komponente, Manifest und Prüfsummendatei in:
@@ -49,13 +52,15 @@ es werden keine vorhandenen Daten gelöscht.
 
 **Kein automatisches Installieren, Patchen, Tagging, Datenbank- oder Audiozugriff.**
 Das Paket darf erst nach separater Freigabe und Prüfung im Endgerät installiert
-werden. Die vollständige lokale Download-und-Build-Reihenfolge wurde auf einem
+werden. Eine ältere Bootstrap-Variante der vollständigen lokalen Download-und-Build-Reihenfolge wurde auf einem
 Windows-Runner einschließlich Win32/x64, Paketmanifest und SHA-256 bereits
 nachgewiesen ([Lauf 39435120160](https://github.com/lxsdd/music-metadata-studio/actions/runs/39435120160)).
 Der Standalone-Aufruf aus einem isolierten Windows-Temp-Ordner ohne
 Projektdateien wurde separat erfolgreich geprüft
 ([Lauf 39438568386](https://github.com/lxsdd/music-metadata-studio/actions/runs/39438568386)).
-Beide Läufe veröffentlichten **keine Binär-Artefakte**. Eine Installation
+Beide historischen Läufe veröffentlichten **keine Binär-Artefakte**. Diese Belege
+qualifizieren **nicht** automatisch die jetzt übernommene Git-Tree-basierte SDK-Beschaffung;
+sie benötigt die aktuellen separaten Win32/x64 CI-Prüfungen. Eine Installation
 und die **echte Endgerätabnahme auf deinem Windows-Rechner** bleiben separat
 und sind nicht durch GitHub-CI ersetzbar.
 
