@@ -5217,12 +5217,12 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             for(const auto row:selected_display_rows)
                 ListView_SetItemState(state->musicbrainz_details,
                     static_cast<int>(row),LVIS_SELECTED,LVIS_SELECTED);
-            const std::wstring message=L"CUE preview: "+
+            const std::wstring cue_preview_notice=L"CUE preview: "+
                 std::to_wstring(selected_indices.size())+L" selected; "+
                 std::to_wstring(changed)+L" proposed changes; "+
                 std::to_wstring(selected_indices.size()-changed)+
                 L" no-ops. See every field in the table. Read-only; no writes.";
-            SetDlgItemTextW(dialog,IDC_BATCH_HINT,message.c_str());
+            SetDlgItemTextW(dialog,IDC_BATCH_HINT,cue_preview_notice.c_str());
             return TRUE;
         }
         const bool consequential = native_command == PreviewCommand::Accept ||
