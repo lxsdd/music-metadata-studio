@@ -17,7 +17,7 @@ std::string yesno(bool value) { return value ? "1" : "0"; }
 
 std::string plan_fingerprint(const std::vector<FilePlanItem>& items) {
     MetadataDocument document;
-    document.fields.push_back({"PLAN_CONTRACT", {"djmeta-batch-v2"}});
+    document.fields.push_back({"PLAN_CONTRACT", {"djmeta-batch-v3"}});
     for (const FilePlanItem& item : items) {
         // The existing SHA-256 metadata fingerprint uses explicit lengths for
         // every field/value and includes field ordering. Never concatenate
@@ -39,6 +39,7 @@ std::string plan_fingerprint(const std::vector<FilePlanItem>& items) {
             decimal(static_cast<int>(item.cue_links)),
             item.cue_source_fingerprint, item.cue_postimage_fingerprint,
             yesno(item.cue_references_will_change),
+            yesno(item.cue_values_will_change),
             std::to_string(item.associated_audio_ids.size())
         }});
         for (const auto& id : item.associated_audio_ids)
@@ -136,7 +137,8 @@ bool active_file_action(const FilePlanItem& item) {
 }
 
 bool active_item(const FilePlanItem& item) {
-    return active_file_action(item) || item.cue_references_will_change;
+    return active_file_action(item) ||
+           item.cue_references_will_change || item.cue_values_will_change;
 }
 
 } // namespace
@@ -290,7 +292,8 @@ BatchPlanReview review_batch_plan(
             !item.target_guard.empty())
             block(decision, "TARGET_GUARD_WITHOUT_EXISTING_FILE");
 
-        if (item.cue_references_will_change && item.role != FileRole::ExternalCue)
+        if ((item.cue_references_will_change || item.cue_values_will_change) &&
+            item.role != FileRole::ExternalCue)
             block(decision, "CUE_REWRITE_ON_NON_CUE_ITEM");
         // Enforce uniqueness before the tag-only/no-action early exit.
         if (!item.source_key.empty() && source_key_counts[item.source_key] > 1)
@@ -316,12 +319,12 @@ BatchPlanReview review_batch_plan(
             !item.planned_metadata_fingerprint.empty() &&
             item.metadata_fingerprint != item.planned_metadata_fingerprint;
         decision.cue_bytes_write_needed = item.role == FileRole::ExternalCue &&
-            item.cue_references_will_change &&
+            (item.cue_references_will_change || item.cue_values_will_change) &&
             !item.cue_source_fingerprint.empty() &&
             !item.cue_postimage_fingerprint.empty() &&
             item.cue_source_fingerprint != item.cue_postimage_fingerprint;
         if (item.role == FileRole::ExternalCue &&
-            !item.cue_references_will_change &&
+            !item.cue_references_will_change && !item.cue_values_will_change &&
             !item.cue_source_fingerprint.empty() &&
             !item.cue_postimage_fingerprint.empty() &&
             item.cue_source_fingerprint != item.cue_postimage_fingerprint)
@@ -418,7 +421,8 @@ BatchPlanReview review_batch_plan(
                     // executable while byte-identical plans are true no-ops.
                     decision.file_operation_needed = false;
                     decision.status = decision.reasons.empty()
-                        ? (decision.metadata_write_needed
+                        ? (decision.metadata_write_needed ||
+                           decision.cue_bytes_write_needed
                             ? PlanStatus::Ready : PlanStatus::Unchanged)
                         : PlanStatus::Blocked;
                     if (stale_approval) block(decision, "STALE_BATCH_APPROVAL");

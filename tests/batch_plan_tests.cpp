@@ -1,5 +1,6 @@
 #include "djmeta/batch_plan.h"
 #include "djmeta/cue_association.h"
+#include "djmeta/cue_value_postimage.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -1327,6 +1328,87 @@ void test_absent_target_cannot_retain_existing_guard() {
             "ordinary missing target with no residual guard stays qualified");
 }
 
+void test_existing_cue_metadata_value_change_is_not_fileops() {
+    using namespace djmeta;
+    const std::string raw=
+        "TITLE \"DJ Mix\"\n"
+        "FILE \"mix.flac\" WAVE\n"
+        "TRACK 01 AUDIO\n"
+        "TITLE \"Original Track\"\n"
+        "INDEX 01 00:00:00\n";
+    const auto preview=preview_cue_value_postimage(
+        raw,CueCarrierKind::ExternalText,
+        {{0,"TITLE","Original Track","Renamed Track"}});
+    require(preview.eligible && preview.changed &&
+            preview.bytes.find("Renamed Track")!=std::string::npos &&
+            preview.bytes.find("FILE \"mix.flac\" WAVE")!=std::string::npos,
+            "value-only source CUE editing preserves exact FILE relationship");
+
+    auto physical=audio("CUE-value-audio");
+    physical.action=FileAction::None;
+    physical.target_path.clear();physical.target_key.clear();
+    physical.target_presence=TargetPresence::Unchecked;
+    physical.cue_links=CueLinkState::Verified;
+    physical.planned_metadata_fingerprint=physical.metadata_fingerprint;
+    FilePlanItem cue;
+    cue.physical_id="external-cue:value-only";
+    cue.source_path="Z:/Music/set.cue";
+    cue.source_key="z:/music/set.cue";
+    cue.source_guard="observed-cue-carrier-v1";
+    cue.role=FileRole::ExternalCue;
+    cue.action=FileAction::None;
+    cue.cue_links=CueLinkState::Verified;
+    cue.associated_audio_ids={physical.physical_id};
+    cue.ruleset_revision=physical.ruleset_revision;
+    cue.cue_source_fingerprint=fingerprint({{{"CUE_BYTES",{raw}}}});
+    cue.cue_postimage_fingerprint=fingerprint({{{"CUE_BYTES",{preview.bytes}}}});
+    cue.cue_values_will_change=true;
+    const std::vector<FilePlanItem> items={physical,cue};
+    const auto proposed=review_batch_plan(items);
+    require(proposed.ready_to_apply && proposed.blocked==0 &&
+            proposed.decisions.size()==2 &&
+            proposed.decisions[0].status==PlanStatus::Unchanged &&
+            proposed.decisions[1].status==PlanStatus::Ready &&
+            !proposed.decisions[1].file_operation_needed &&
+            proposed.decisions[1].cue_bytes_write_needed &&
+            !proposed.decisions[1].metadata_write_needed,
+            "selected CUE text value yields byte change without file relocation");
+    const BatchApproval approval{proposed.plan_fingerprint,false,{}};
+    const auto frozen=freeze_reviewed_batch_preview(items,approval);
+    require(frozen.items[1].cue_values_will_change &&
+            frozen.decisions[1].cue_bytes_write_needed,
+            "text-only CUE change survives the frozen explicit review");
+    auto unselected=items;
+    unselected[1].cue_values_will_change=false;
+    const auto forbidden=review_batch_plan(unselected);
+    require(forbidden.blocked==1 &&
+            has_reason(forbidden.decisions[1],"UNDECLARED_CUE_BYTE_CHANGE") &&
+            !forbidden.decisions[1].cue_bytes_write_needed &&
+            forbidden.plan_fingerprint!=proposed.plan_fingerprint,
+            "undeclared CUE value change is never quietly allowed");
+    const auto stale=review_batch_plan(unselected,&approval);
+    require(stale.blocked==2,
+            "old consent invalidated when CUE type and postimage contract change");
+    unselected=items;
+    unselected[1].cue_postimage_fingerprint=unselected[1].cue_source_fingerprint;
+    const auto unchanged=review_batch_plan(unselected);
+    require(unchanged.ready_to_apply &&
+            unchanged.decisions[1].status==PlanStatus::Unchanged &&
+            !unchanged.decisions[1].cue_bytes_write_needed,
+            "identical full CUE bytes remain exact no-op, no timestamps changed");
+    unselected=items;
+    unselected[0].cue_values_will_change=true;
+    const auto virtual_carrier=review_batch_plan(unselected);
+    require(virtual_carrier.blocked>=1 &&
+            has_reason(virtual_carrier.decisions[0],
+                       "CUE_REWRITE_ON_NON_CUE_ITEM"),
+            "CUE value edits never route through physical audio/subsong handle");
+    unselected=items;
+    unselected[1].cue_source_fingerprint.clear();
+    require(review_batch_plan(unselected).blocked>=1,
+            "CUE without original byte fingerprint cannot be approved");
+}
+
 void test_noop_and_missing_ids() {
     auto a = audio("A");
     a.target_key = a.source_key;
@@ -1376,6 +1458,7 @@ int main() {
     test_embedded_nul_in_plan_identity_fails_closed();
     test_frozen_approved_snapshot_is_detached_and_non_executing();
     test_noop_and_missing_ids();
+    test_existing_cue_metadata_value_change_is_not_fileops();
     test_exact_noop_write_intents();
     test_unknown_plan_enum_values_fail_closed();
     test_companion_files_need_explicit_or_qualified_policy();

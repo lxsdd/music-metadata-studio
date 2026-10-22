@@ -62,6 +62,10 @@ struct FilePlanItem {
     std::string cue_source_fingerprint;
     std::string cue_postimage_fingerprint;
     bool cue_references_will_change = false;
+    // Independent in-place metadata token changes (TITLE, PERFORMER, REM,
+    // etc.) must not impersonate FILE reference renames. Existing unique
+    // tokens only: byte-exact CueValuePostimage is qualified separately.
+    bool cue_values_will_change = false;
 };
 
 struct BatchApproval {
