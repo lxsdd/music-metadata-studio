@@ -37,7 +37,9 @@ bool safe_path(std::string_view path) {
     for (unsigned char ch:path)
         if (ch<0x21 || ch>0x7e || ch=='#' || ch=='\\')
             return false;
-    constexpr std::string_view search_suffix="&fmt=json&limit=8";
+    // Accept only the exact paths issued by the shared provider builder.
+    constexpr std::string_view search_suffix=
+        djmeta::online::musicbrainz::search_request_suffix;
     for (const std::string_view prefix : {
         std::string_view("/ws/2/recording?query="),
         std::string_view("/ws/2/release?query=")}) {
@@ -62,7 +64,7 @@ bool safe_path(std::string_view path) {
     }
     constexpr std::string_view lookup_prefix="/ws/2/release/";
     constexpr std::string_view lookup_suffix=
-        "?inc=recordings%2Bartist-credits%2Bisrcs&fmt=json";
+        djmeta::online::musicbrainz::release_lookup_request_suffix;
     if (path.starts_with(lookup_prefix) && path.ends_with(lookup_suffix)) {
         const auto id=path.substr(lookup_prefix.size(),
             path.size()-lookup_prefix.size()-lookup_suffix.size());

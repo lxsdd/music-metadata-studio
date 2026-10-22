@@ -50,7 +50,7 @@ int main() {
     const auto request=make_search_path(SearchKind::Recording,
         "Björk: It's \"Alive\" & 東京", "Artist / Guest");
     check(request.starts_with("/ws/2/recording?query=") &&
-          request.find("fmt=json&limit=8") != std::string::npos &&
+          request.find("fmt=json&limit=25") != std::string::npos &&
           request.find("Björk") == std::string::npos &&
           request.find("%22") != std::string::npos &&
           request.find("%26") != std::string::npos &&
@@ -85,8 +85,10 @@ int main() {
           safe_album_control[0].path==safe_album_long_artist[0].path,
           "ASCII controls in optional CUE artist never become provider query");
     check(make_release_lookup_path(first)==std::string("/ws/2/release/")+first+
-          "?inc=recordings%2Bartist-credits%2Bisrcs%2Blabels&fmt=json",
-          "release lookup only uses MBID to prevent URL injection");
+          std::string(release_lookup_request_suffix) &&
+          release_lookup_request_suffix.find("%2Blabels")!=std::string_view::npos &&
+          search_request_suffix=="&fmt=json&limit=25",
+          "provider release lookup and native allowlist share official label-bearing contract");
     rejects([]{(void)make_release_lookup_path("../ws/2/recording");},
             "invalid MBIDs never become URL paths");
     rejects([]{(void)make_search_path(SearchKind::Release,"Album\nOther","");},
@@ -247,6 +249,34 @@ int main() {
           recording_identity_label("What Time Is Love?","The KLF",
           "What Time Is Love?","The KLF")=="Title+artist",
           "artist/version conflicts cannot be treated as an approved identity");
+    // More than 8 strongly similar DJ versions can rank ahead of the correct
+    // mix. Use the official bounded 25-result search window with no additional
+    // request, preserving API relevance order, every exact MBID, and a hard cap.
+    std::string wider_json="{\"recordings\":[";
+    for(int i=1;i<=30;++i) {
+        if(i>1) wider_json+=",";
+        const auto ordinal=std::to_string(i);
+        const std::string mbid_suffix=
+            std::string(12-ordinal.size(),'0')+ordinal;
+        wider_json+="{\"id\":\"00000000-0000-0000-0000-"+
+            mbid_suffix+"\",\"title\":\"Only You (Mix "+ordinal+
+            ")\",\"artist-credit\":[{\"name\":\"Matt Fax\"}]}";
+    }
+    wider_json+="]}";
+    const auto wider=parse_search(wider_json,SearchKind::Recording);
+    check(max_search_candidates==25 && wider.candidates.size()==25 &&
+          wider.candidates[0].title=="Only You (Mix 1)" &&
+          wider.candidates[8].title=="Only You (Mix 9)" &&
+          wider.candidates[24].title=="Only You (Mix 25)",
+          "bounded 25-result window retains the ninth and later legitimate mixes");
+    const auto wider_release_path=make_search_path(
+        SearchKind::Release,"Known edition","Artist");
+    check(wider_release_path.ends_with(search_request_suffix) &&
+          make_search_path(SearchKind::Recording,"Known track","Artist")
+              .ends_with(search_request_suffix) &&
+          recording_search_plan("Known track","Artist","USRC17607839")
+              .attempts.front().path.ends_with(search_request_suffix),
+          "search, release and ISRC discovery share one HTTP query suffix");
     const std::string recording_json=R"MB({
        "created":"2026-10-09","recording-count":2,
        "recordings":[

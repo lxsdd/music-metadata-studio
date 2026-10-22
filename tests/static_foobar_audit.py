@@ -582,6 +582,23 @@ for token in ("WinHttpOpen(", "WINHTTP_FLAG_SECURE", 'L"musicbrainz.org"',
             raise SystemExit("STATIC FOOBAR AUDIT FAIL: MusicBrainz adapter contains a writer")
     elif token not in online_transport:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: official MusicBrainz network boundary: " + token)
+
+# The MusicBrainz exact-release URL must include official label data, and the
+# native fixed-host transport must allow that SAME builder output. A previous
+# divergence omitted %2Blabels only in the transport allowlist, preventing
+# "Load MB release" and release-row double-click before any HTTPS request.
+mb_provider=(root / "include" / "djmeta" / "musicbrainz_provider.h").read_text(encoding="utf-8")
+for token in ("release_lookup_request_suffix", "search_request_suffix",
+              "max_search_candidates=25", "recordings%2Bartist-credits%2Bisrcs%2Blabels"):
+    if token not in mb_provider:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: MusicBrainz shared route contract missing: "+token)
+for token in ("musicbrainz::release_lookup_request_suffix",
+              "musicbrainz::search_request_suffix"):
+    if token not in online_transport:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: native MusicBrainz route allowlist drifted: "+token)
+if 'constexpr std::string_view lookup_suffix=\n        "?inc=' in online_transport:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: duplicated native MusicBrainz release route suffix")
+
 # Rapid manual MusicBrainz retry may happen immediately after a zero-hit
 # search. It must wait in the worker, rather than reject and require a
 # second manually timed click or sleep on the UI thread.

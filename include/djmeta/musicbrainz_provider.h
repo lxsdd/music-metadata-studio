@@ -21,6 +21,12 @@
 namespace djmeta::online::musicbrainz {
 
 enum class SearchKind { Recording, Release };
+// Keep official search and exact-release HTTP boundaries in one source of
+// truth. The native allowlist must not reject an URL built by this provider.
+inline constexpr std::size_t max_search_candidates=25;
+inline constexpr std::string_view search_request_suffix="&fmt=json&limit=25";
+inline constexpr std::string_view release_lookup_request_suffix=
+    "?inc=recordings%2Bartist-credits%2Bisrcs%2Blabels&fmt=json";
 struct SearchCandidate {
     SearchKind kind = SearchKind::Recording;
     std::string mbid;
@@ -319,7 +325,7 @@ inline std::string make_search_path(SearchKind kind,
         title_query+(artist.empty() ? "" : " AND artist:"+lucene_literal(artist));
     return std::string(kind==SearchKind::Recording
         ? "/ws/2/recording?query=" : "/ws/2/release?query=") +
-        encode_url_query(query)+"&fmt=json&limit=8";
+        encode_url_query(query)+std::string(search_request_suffix);
 }
 
 struct RecordingSearchAttempt {
@@ -473,7 +479,7 @@ inline RecordingSearchPlan recording_search_plan(
         std::string code(isrc);
         for(char& ch:code) if(ch>='a'&&ch<='z') ch=static_cast<char>(ch-32);
         add("Exact ISRC identifier", "/ws/2/recording?query="+
-            encode_url_query("isrc:"+code)+"&fmt=json&limit=8");
+            encode_url_query("isrc:"+code)+std::string(search_request_suffix));
     }
     // The original TITLE may be very long or include malformed/invisible
     // bytes. Never send a lossy substring from an unsafe source. If its
@@ -575,7 +581,7 @@ inline std::string make_release_lookup_path(std::string_view mbid) {
     if (!valid_mbid(mbid))
         throw std::invalid_argument("Invalid MusicBrainz release identity");
     return "/ws/2/release/"+std::string(mbid)+
-        "?inc=recordings%2Bartist-credits%2Bisrcs%2Blabels&fmt=json";
+        std::string(release_lookup_request_suffix);
 }
 
 inline SearchResult parse_search(std::string_view json, SearchKind kind) {
@@ -592,7 +598,7 @@ inline SearchResult parse_search(std::string_view json, SearchKind kind) {
     // Never deduplicate by title/artist: versions and editions may share names.
     std::set<std::string> observed_mbids;
     for (const auto& raw:arr->array) {
-        if (output.candidates.size() == 8) break;
+        if (output.candidates.size() == max_search_candidates) break;
         if (raw.type != Json::Type::Object) continue;
         SearchCandidate row;
         row.kind=kind;

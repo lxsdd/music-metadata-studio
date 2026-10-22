@@ -272,3 +272,23 @@ stay untouched. CUE ordinal is never inferred; this track-specific path
 remains disabled in CUE comparison. Every result is labelled user-supplied
 and **read-only**; there is no automatic write or officially authorized
 Beatport API capability implied by this fallback.
+
+
+## MusicBrainz recording recall and native release-load correction (22 October 2026)
+
+The previously fixed-host native HTTP allowlist omitted the `labels`
+include that the provider always requested for an exact MusicBrainz edition.
+Consequently, `Load MB release` and an equivalent release-row double-click
+could be rejected **locally before the HTTPS request**. The provider builder
+and native allowlist now share the exact same release URL suffix, including
+the official label evidence needed for edition comparison, with static
+regression checks.
+
+Recording and release discovery now request **25 results per explicit query**,
+instead of just eight. MusicBrainz permits 1–100 and uses 25 as its default;
+this improves visibility of later-ranked DJ mixes without another request,
+without changing the provider's relevance order, skipping the strict MBID
+identity check, accepting a wrong mix, or increasing the number of online
+search attempts. Both the native fixed-host allowlist and offline parser use
+a shared bound. Manual release selection and explicit approval rules remain
+unchanged; no metadata, CUE or file writes occur.
