@@ -762,9 +762,12 @@ std::vector<djmeta::online::FieldReviewRow> musicbrainz_cue_release_rows(
         for (const std::string name:{"TITLE","ARTIST"}) {
             const auto& value=name=="TITLE"
                 ? remote.recording.title : remote.recording.primary_artist;
+            // This is the exact release's track occurrence, NOT a recording
+            // MBID. Never impersonate a missing occurrence ID by substituting
+            // the enclosing release MBID or recording-level provenance.
             FieldEvidence field{name,{value},"musicbrainz",
-                remote.source_track_id.empty()?edition.edition_id:remote.source_track_id,
-                EvidenceScope::Recording,DateMeaning::NotDate};
+                remote.source_track_id,
+                EvidenceScope::Edition,DateMeaning::NotDate};
             FieldReviewRow row;
             row.field="Disc "+std::to_string(remote.disc_number)+
                 " / Track "+std::to_string(remote.track_number)+
@@ -772,7 +775,7 @@ std::vector<djmeta::online::FieldReviewRow> musicbrainz_cue_release_rows(
             row.candidate=field;
             if (local_ordinal) {
                 const auto review=review_cue_candidate_fields(
-                    cue,*local_ordinal,{field});
+                    cue,*local_ordinal,{field},true);
                 row.original_values=review.front().original_values;
                 row.state=review.front().state;
                 row.reason="musicbrainz_live_release_track_match_review_"+

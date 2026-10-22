@@ -144,3 +144,15 @@ This is **not** a writer, nor does it authorize a host write, rename, CUE
 insertion/deletion, non-UTF-8 transcoding, virtual subsong operation or
 FLAC Type-5 edit. Future C4/C5 commit/rollback and user acceptance remain
 separately gated; Precision CUE PR #52 is untouched.
+
+## MusicBrainz release-track provenance vs recording provenance (22 October 2026)
+
+The native read-only existing-CUE MusicBrainz release detail now uses the
+**actual exact-edition track occurrence MBID** as Edition-scoped evidence.
+Previously the same release-track MBID was incorrectly labeled as a
+Recording-scoped identifier; the whole-release MBID could even be substituted
+for a missing track MBID. The corrected track mapper accepts the source only
+as an explicitly qualified *edition track* and maps TITLE/ARTIST to the
+matching CUE ordinal, never a physical full-file recording tag. Unmatched or
+missing release-track identities remain blocked and visible; no write path
+becomes enabled. Pure positive/negative C++ cases exercise this boundary.

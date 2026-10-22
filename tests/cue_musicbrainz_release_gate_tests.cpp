@@ -1,4 +1,5 @@
 #include "djmeta/cue_musicbrainz_release_gate.h"
+#include "djmeta/cue_online_review.h"
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -33,6 +34,25 @@ int main(){
           "known named mix and ISRC are independently suggested");
     check(qualified_musicbrainz_cue_album_alignment(cue,edition,alignment),
           "complete exact edition qualifies source-only album comparison");
+    // An MB release-track occurrence ID belongs to EDITION evidence.
+    // Its TITLE/ARTIST compare against that exact local CUE track through
+    // the dedicated edition-track mapper, never the physical recording tag.
+    FieldEvidence occurrence{"TITLE",{"Sunrise (Extended Mix)"},
+        "musicbrainz",track_id,EvidenceScope::Edition};
+    const auto local_fields=review_cue_candidate_fields(
+        cue,0,{occurrence},true);
+    check(local_fields.size()==1 &&
+          local_fields[0].target==CueReviewTarget::TrackLocal &&
+          local_fields[0].state==FieldReviewState::Unchanged &&
+          local_fields[0].cue_field=="TITLE" &&
+          local_fields[0].track_ordinal==0,
+          "verified release-track occurrence maps only to CUE track-local TITLE");
+    occurrence.values={"Sunrise (Radio Edit)"};
+    const auto changed_fields=review_cue_candidate_fields(
+        cue,0,{occurrence},true);
+    check(changed_fields[0].state==FieldReviewState::NeedsReview &&
+          changed_fields[0].target==CueReviewTarget::TrackLocal,
+          "a changed exact edition-track value remains review-only and scoped");
     auto missing=edition;
     missing.tracks[0].source_track_id.clear();
     check(!qualified_musicbrainz_cue_album_alignment(

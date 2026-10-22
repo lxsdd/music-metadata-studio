@@ -640,8 +640,10 @@ for token in (
 for token in (
     "qualified_musicbrainz_cue_album_alignment(cue,edition,alignment)",
     "musicbrainz_cue_edition_full_alignment_required_",
+    "cue,*local_ordinal,{field},true",
     "link.decision==MatchDecision::Suggested",
     "musicbrainz::valid_mbid(remote.source_track_id)",
+    "EvidenceScope::Edition,DateMeaning::NotDate};",
 ):
     if token not in batch_table_dialog:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: MB/CUE release full alignment gate missing: "+token)
