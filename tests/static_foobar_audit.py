@@ -985,3 +985,10 @@ for marker in (
 for marker in ("crates.co/api", "Crates token=", "beatport_password", "crates_session"):
     if marker in batch_rules_guard:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: Crates credentials/undocumented API leaked into native host")
+
+# A new Crates browser hand-off must discard the previous direct Beatport
+# URL before the user can paste or explicitly load a newly discovered track.
+# Otherwise the next button press could fetch an old, valid unrelated ID.
+crates_handoff=batch_rules_guard.split("void open_crates_for_selected_physical_track(",1)[1].split("\\n// A Beatport public URL",1)[0]
+if 'SetDlgItemTextW(dialog,IDC_METADATA_MB_QUERY,L"");' not in crates_handoff:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: Crates hand-off may reuse a stale Beatport URL")

@@ -280,3 +280,14 @@ The browser script never reads cookies, local storage, OAuth tokens, or
 Crates' internal API responses. The site URL must be the official Crates
 HTTPS origin on its standard port, and a single visible matching track URL
 remains mandatory. Offline Node DOM safety tests cover the rejection cases.
+
+## Prevent old-URL reuse after a Crates search
+
+When the user explicitly opens Crates from Music Metadata Studio, the Studio
+now clears any previously entered Beatport track URL **after** successfully
+opening the browser. The Crates search phrase stays in the clipboard. When the
+user copies the chosen result's exact Beatport URL in Crates, **Load Beatport
+URL** can safely consume that URL on its next explicit click. This prevents an
+old-but-valid candidate URL from silently superseding the newly chosen track.
+Clearing the query also invalidates obsolete provider context, without writing
+music files or reading Crates login state. Existing saved metadata is untouched.

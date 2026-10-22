@@ -2998,6 +2998,11 @@ void open_crates_for_selected_physical_track(
     if(reinterpret_cast<INT_PTR>(launched)<=32)
         throw std::runtime_error(
             "Default browser could not open Crates. The safe search query is still in clipboard.");
+    // A new deliberate Crates search must not leave an OLD, still-valid
+    // Beatport URL in the native query box. Otherwise the next Load click
+    // would silently load the previous track instead of the newly copied
+    // Crates result, even though the clipboard contains the fresh URL.
+    SetDlgItemTextW(dialog,IDC_METADATA_MB_QUERY,L"");
     SetDlgItemTextW(dialog,IDC_BATCH_HINT,
         L"Crates opened in the default browser. Paste the copied full "
         L"ARTIST + TITLE into Crates Search (Ctrl+V). Your Beatport login "
