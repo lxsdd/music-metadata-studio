@@ -13,15 +13,17 @@ const good=()=>({
 });
 async function scenario({recordings=[good()],types=['application/ld+json'],
                          host='www.beatport.com',port='',protocol='https:',
-                         pathname='/track/home/321'}={}) {
+                         pathname='/track/home/321',username='',password='',
+                         search='',hash='',origin=null}={}) {
     const alerts=[],writes=[];
     const scripts=recordings.map((record,i)=>({
         textContent:JSON.stringify(record),
         getAttribute:key=>key==='type'?(types[i]||types[0]):null,
     }));
     const ctx={
-        location:{hostname:host,port,protocol,pathname,
-                  origin:protocol+'//'+host+(port?':'+port:'')},
+        location:{hostname:host,port,protocol,pathname,username,password,
+                  search,hash,
+                  origin:origin ?? protocol+'//'+host+(port?':'+port:'')},
         document:{
             querySelectorAll:query=>{
                 assert.equal(query,'script[type]');
@@ -66,6 +68,19 @@ async function scenario({recordings=[good()],types=['application/ld+json'],
     r=await scenario({recordings:[good()],port:'8443'});
     assert.equal(r.writes.length,0);
     r=await scenario({recordings:[good()],protocol:'http:'});
+    assert.equal(r.writes.length,0);
+    // Browser provenance must not silently remove URL parameters,
+    // fragments, or credentials when constructing the clipboard locator.
+    for (const unsafe of [
+        {search:'?ref=other'}, {hash:'#alternate'},
+        {username:'visitor'}, {password:'example'},
+        {origin:'https://unrelated.example'},
+    ]) {
+        r=await scenario({recordings:[good()],...unsafe});
+        assert.equal(r.writes.length,0);
+        assert.match(r.alerts[0],/canonical Beatport track page/);
+    }
+    r=await scenario({recordings:[good()],pathname:'/track/home/321/'});
     assert.equal(r.writes.length,0);
     assert.doesNotMatch(script,/\bfetch\s*\(/);
     assert.doesNotMatch(script,/document\.cookie\s*[;=\[]/);

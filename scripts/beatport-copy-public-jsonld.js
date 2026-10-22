@@ -9,7 +9,12 @@
         const url = location.origin + path;
         if (location.protocol !== 'https:' ||
             location.hostname !== 'www.beatport.com' ||
+            location.origin !== 'https://www.beatport.com' ||
             (location.port && location.port !== '443') ||
+            // The visited URL must be canonical before it can be
+            // represented as exact public-page provenance.
+            location.username || location.password ||
+            location.search || location.hash ||
             !/^\/track\/[a-z0-9-]{1,125}\/[1-9][0-9]{0,11}$/.test(path))
             fail('Open a public canonical Beatport track page first.');
         const found = [];
