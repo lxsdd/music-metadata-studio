@@ -213,6 +213,10 @@ struct PreviewState {
     std::optional<djmeta::online::ReleaseEdition> online_physical_edition;
     std::optional<djmeta::online::OnlineFieldReviewSnapshot> online_field_snapshot;
     std::optional<djmeta::online::OnlineFieldStagedPreview> online_field_preview;
+    // Host Title-Formatting evaluated twice against detached original and
+    // selected online tags. Advisory raw paths only, never FileOps authority.
+    bool online_raw_route_valid=false;
+    std::string online_raw_route_before, online_raw_route_after;
     std::vector<std::size_t> online_included_fields;
     std::map<std::size_t,std::string> online_date_targets;
     std::size_t online_edition_source=(std::numeric_limits<std::size_t>::max)();
@@ -265,6 +269,9 @@ void invalidate_online_request(PreviewState& state) {
     state.cue_postimage_snapshot.reset();
     state.cue_value_preview.reset();
     state.cue_value_preview_indices.clear();
+    state.online_raw_route_valid=false;
+    state.online_raw_route_before.clear();
+    state.online_raw_route_after.clear();
     state.cue_postimage_source=(std::numeric_limits<std::size_t>::max)();
     // Any provider/track/query change discards prior edition evidence.
 
@@ -1247,6 +1254,22 @@ void refresh_musicbrainz_detail_rows(PreviewState& state) {
               L"Additional fields not displayed",count,L"",
               L"Limit reached; no writes"))
             throw std::runtime_error("Native detail overflow warning could not be displayed.");
+    }
+    // The online selection changes the actual foobar raw naming expression
+    // in memory. Show that delta alongside field proposals, not in a popup
+    // and never as an already validated filesystem destination.
+    if(qualified_online_field_preview(state) &&
+       state.online_field_preview && state.online_raw_route_valid) {
+        const int row=static_cast<int>(
+            (std::min)(detail.size(),max_detail_rows))+
+            (detail.size()>max_detail_rows ? 1 : 0);
+        if(!insert_native_preview_detail_row(state.musicbrainz_details,
+             row,L"Raw filename (what-if)",
+             from_utf8(state.online_raw_route_before),
+             from_utf8(state.online_raw_route_after),
+             state.online_raw_route_before==state.online_raw_route_after
+                ? L"No naming delta" : L"Raw delta; not FileOps"))
+            throw std::runtime_error("Online naming comparison could not be shown.");
     }
 }
 
@@ -3713,6 +3736,9 @@ void publish_discogs_release(HWND dialog, PreviewState& state,
     state.online_included_fields.clear();
     state.online_date_targets.clear();
     state.online_field_preview.reset();
+    state.online_raw_route_valid=false;
+    state.online_raw_route_before.clear();
+    state.online_raw_route_after.clear();
     state.online_edition_source=state.online_physical_edition
         ? request.source_index:(std::numeric_limits<std::size_t>::max)();
     state.candidate_rows=std::move(grouped.summary);
@@ -4176,6 +4202,36 @@ void change_online_field_preview(PreviewState& state,int action) {
     if(!qualified.eligible)
         throw std::invalid_argument(
             "Online physical tag postimage refused: "+qualified.rejection);
+    // Both values come from foobar's own Title Formatting runtime,
+    // evaluated against the identical physical file_info. No file move,
+    // target overwrite or tag write can occur via this preview.
+    std::string raw_before,raw_after;
+    bool raw_route_valid=false;
+    try {
+        const auto typed_route=read_choice(state.dialog);
+        if(typed_route.display_name==state.current_choice.display_name &&
+           typed_route.destination_root==state.current_choice.destination_root &&
+           typed_route.titleformat_expression==state.current_choice.titleformat_expression &&
+           djmeta::raw_destination_root_lexically_safe(
+                typed_route.destination_root)) {
+            raw_before=evaluate_titleformat_against_canonical(
+                entry.handle->get_location(),info->info(),current,
+                typed_route.titleformat_expression);
+            raw_after=evaluate_titleformat_against_canonical(
+                entry.handle->get_location(),info->info(),projected.planned,
+                typed_route.titleformat_expression);
+            raw_route_valid=raw_before.size()<=2048 && raw_after.size()<=2048 &&
+                djmeta::raw_relative_path_lexically_safe(raw_before) &&
+                djmeta::raw_relative_path_lexically_safe(raw_after);
+        }
+    } catch(const std::exception&) {
+        // Unqualified expressions do not invalidate approved provider
+        // evidence; they only suppress the optional naming what-if.
+        raw_route_valid=false;
+    }
+    state.online_raw_route_valid=raw_route_valid;
+    state.online_raw_route_before=raw_route_valid?std::move(raw_before):std::string{};
+    state.online_raw_route_after=raw_route_valid?std::move(raw_after):std::string{};
     state.online_included_fields=proposed;
     state.online_date_targets=std::move(date_targets);
     state.online_field_preview=std::move(projected);
@@ -4185,7 +4241,12 @@ void change_online_field_preview(PreviewState& state,int action) {
         std::to_wstring(state.online_included_fields.size())+
         L" selected, "+std::to_wstring(result.explicitly_changed)+
         L" proposed changes, "+std::to_wstring(result.exact_noops)+
-        L" no-ops (memory only). File Locations unchanged; no writes.";
+        L" no-ops (memory only). No writes."+
+        (state.online_raw_route_valid
+            ? (state.online_raw_route_before==state.online_raw_route_after
+                ? std::wstring(L" Raw filename unchanged.")
+                : std::wstring(L" Raw filename delta shown in comparison table."))
+            : std::wstring(L" Naming what-if needs a qualified route."));
     SetDlgItemTextW(state.dialog,IDC_BATCH_HINT,notice.c_str());
 }
 

@@ -677,6 +677,20 @@ if ("additional selected fields omitted from message" in batch_table_dialog or
         "MessageBoxW(dialog,notice.c_str()" in batch_table_dialog):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: CUE preview is still a truncated modal popup")
 
+# Selected, source-verified online tag postimages must also recalculate
+# a read-only raw filename using foobar's OWN Title Formatting runtime.
+# Do not treat that result as a filesystem collision/overwrite verdict.
+for token in (
+    "online_raw_route_valid",
+    "evaluate_titleformat_against_canonical(",
+    "raw_relative_path_lexically_safe(raw_before)",
+    "raw_relative_path_lexically_safe(raw_after)",
+    "Raw filename (what-if)",
+    "Raw delta; not FileOps",
+):
+    if token not in batch_table_dialog:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: online selected-tag naming what-if missing: " + token)
+
 # Rapid manual MusicBrainz retry may happen immediately after a zero-hit
 # search. It must wait in the worker, rather than reject and require a
 # second manually timed click or sleep on the UI thread.
