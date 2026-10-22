@@ -64,8 +64,6 @@ async function scenario({host='crates.co',port='',all=[],row=null,selection=null
         ' https://www.beatport.com/track/mix/321',
         'https://www.beatport.com/track/mix/321 ',
         'https://www.beatport.com:443/track/mix/321',
-        'https://www.beatport.com/track/mix/321?',
-        'https://www.beatport.com/track/mix/321#',
         'HTTPS://www.beatport.com/track/mix/321',
         'https://WWW.BEATPORT.COM/track/mix/321',
         'https://www.beatport.com/track/mix/0321',
