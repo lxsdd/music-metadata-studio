@@ -112,20 +112,23 @@ for token in [
     if token not in preview:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: stale-input preview guard missing " + token)
 
-# A failed official transport may use only the immutable, owner-controlled
-# SDK template tree. Never fall back on an official archive hash mismatch.
+# The shared source-pinned SDK tree replaces the old SDK archive download.
+# Preserve source commit/tree identity and reject stale, unsupported caches.
 bootstrap = (root / "scripts" / "bootstrap-sdk.ps1").read_text(encoding="utf-8")
 for token in (
     "31a35947a7527826c2199491692802e3ce3d8bd7",
     "2ba8caeb73f72633ad7f60ee5f72ed8074a0eb17",
-    "if ($downloaded) {",
-    "SDK archive integrity failed:",
-    "Pinned SDK template tree hash does not match.",
+    "rev-parse 'HEAD:vendor/sdk'",
+    "Pinned first-party SDK template commit/tree mismatch.",
     "SDK-PIN.json",
-    ".sdk-template-tree.sha1",
+    ".owner-sdk-pin.txt",
+    "Unverified or stale SDK already staged",
+    "FOOBAR_SDK_ORIGINAL_7Z_ARCHIVE_SHA256=NOT_TESTED",
 ):
     if token not in bootstrap:
-        raise SystemExit("STATIC FOOBAR AUDIT FAIL: unsafe/unpinned SDK transport fallback: " + token)
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: source-pinned SDK guard missing: " + token)
+if "Invoke-WebRequest" in bootstrap or "7z.exe" in bootstrap:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: legacy manufacturer SDK transport restored")
 
 host_probe = (foobar / "host_file_probe.cpp").read_text(encoding="utf-8")
 for token in (
@@ -750,8 +753,8 @@ sdk_bootstrap = (root / "scripts" / "bootstrap-sdk.ps1").read_text(encoding="utf
 for token in (
     "2026-10-01", "793738",
     "d4c55077336fae81bf8df0259b5b2748fa45ea84132c656ead93eb123cbcdc26",
-    "Get-FileHash", "SHA256", "Official SDK 7z integrity check",
-    "sdk-readme.html"
+    "sdk-readme.html", "sdk-license.txt",
+    "Get-Command 'git.exe'", "FOOBAR_SDK_GIT_SOURCE_VERIFIED=PASS"
 ):
     if token not in sdk_bootstrap:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: verified official SDK pin missing: " + token)

@@ -8,13 +8,9 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if ($env:OS -ne 'Windows_NT') { throw 'Windows 10/11 required.' }
 $msbuild = Get-Command msbuild.exe -ErrorAction SilentlyContinue
-$sevenZip = Get-Command 7z.exe -ErrorAction SilentlyContinue
-if (-not $sevenZip) {
-    $p7z = Join-Path $env:ProgramFiles '7-Zip\7z.exe'
-    if (Test-Path -LiteralPath $p7z -PathType Leaf) { $sevenZip = Get-Item $p7z }
-}
-if (-not $msbuild -or -not $sevenZip) {
-    throw 'Preflight: VS2022 Developer PowerShell with MSBuild and 7-Zip required. No installation attempted.'
+$git = Get-Command git.exe -ErrorAction SilentlyContinue
+if (-not $msbuild -or -not $git) {
+    throw 'Preflight: VS2022 C++ MSBuild and Git are required (pinned SDK comes from GitHub). 7-Zip and manufacturer downloads are not required. No installation attempted.'
 }
 # Runs standalone from any directory, including a single downloaded script
 # under $env:TEMP. Source project files are checked after exact-SHA download.

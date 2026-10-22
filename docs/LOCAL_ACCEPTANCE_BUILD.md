@@ -2,15 +2,16 @@
 
 **Entwicklungsmodus; keine öffentliche Binär-Freigabe.** Dieses Verfahren liefert ein
 persönlich auf dem eigenen Windows-Rechner kompiliertes foobar2000-Paket für die
-gesonderte Endabnahme, ohne GitHub-Actions-Artefakte, GitHub-Releases oder lokale
-Git-Repositories anzulegen. Eine Rechtefreigabe zur Weitergabe ist damit **nicht**
+gesonderte Endabnahme, ohne GitHub-Actions-Artefakte, GitHub-Releases oder dauerhaft
+lokale Repositories anzulegen. Der SDK-Git-Checkout liegt nur im temporären Buildordner. Eine Rechtefreigabe zur Weitergabe ist damit **nicht**
 verbunden.
 
 ## Voraussetzungen
 
 - Windows 10/11; Visual Studio 2022 **C++ Build Tools** mit MSBuild / v143
   (PowerShell aus **Developer PowerShell for VS 2022** starten)
-- 7-Zip (7z.exe) und Netzwerkzugriff auf GitHub sowie foobar2000.org
+- Git (git.exe) und Netzwerkzugriff auf GitHub; **kein** 7-Zip und
+  **kein** Zugriff auf foobar2000.org für das SDK erforderlich
 - Genügend freier temporärer Festplattenspeicher für SDK, Win32/x64-Builds
 - Ein vollständig bestimmter **40-stelliger lowercase Commit-SHA**, der explizit
   für den privaten Abnahme-Build ausgewählt wurde
@@ -35,7 +36,7 @@ Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/lxsdd
 
 Der Helper lädt das exakte Commit-Archiv per HTTPS von `codeload.github.com`,
 prüft dessen Commit-Präfix, erstellt Win32-/x64-DLLs mit den unveränderten
-Projekt-Buildskripten und dem im Projekt **SHA-256-pinned SDK 2026-10-01**,
+Projekt-Buildskripten und dem **auf Git-Commit und Git-Tree gepinnten SDK-Quellstand 2026-10-01** (Originalarchiv-Hash wird nicht als selbst geprüft ausgegeben),
 nutzt das bestehende Original-Paketierungsskript, verifiziert PE-Maschinenkennung
 und SHA-256 sowie Git-SHA-Eintrag im Build-Manifest und kopiert ausschließlich
 Komponente, Manifest und Prüfsummendatei in:

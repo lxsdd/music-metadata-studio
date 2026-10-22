@@ -50,6 +50,8 @@ jobs:
       - uses: actions/checkout@v7
       - name: Verify analysis-only foobar boundary
         run: python tests/static_foobar_audit.py
+      - name: Verify immutable shared foobar SDK Git-tree source and cache safety
+        run: python3 tests/sdk_source_pin_contract.py
       - name: Enforce repository-wide public artifact hold
         run: python3 scripts/verify-public-artifact-hold.py
 
