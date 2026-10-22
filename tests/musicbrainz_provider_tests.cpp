@@ -572,5 +572,19 @@ int main() {
           !musicbrainz_search_edition_date("","2026-10-21"),
           "only bounded, explicitly sourced MusicBrainz edition dates appear as evidence");
 
+    // Malformed calendar facts are not evidence, even when the remote
+    // search response otherwise carries a well-formed edition MBID.
+    for(const char* invalid : {
+        "0000", "2026-00", "2026-13", "2026-00-01",
+        "2026-02-29", "2024-02-30", "2026-04-31",
+        "1900-02-29", "2026-01-00", "2026-12-32"})
+        check(!musicbrainz_search_edition_date(first,invalid),
+              "invalid partial/full calendar dates cannot become MB edition evidence");
+    for(const char* valid : {
+        "0001", "2026", "2026-02", "2026-04-30",
+        "2024-02-29", "2000-02-29", "1900-02-28"})
+        check(musicbrainz_search_edition_date(first,valid).has_value(),
+              "valid partial dates and Gregorian leap days remain available");
+
     std::cout << "PASS: official MusicBrainz query encoding, bounded JSON, artist roles and release alignment\n";
 }
