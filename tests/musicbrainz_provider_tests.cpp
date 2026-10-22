@@ -69,7 +69,7 @@ int main() {
                   .attempts.front().path),
           "official release/recording/ISRC producer paths pass native allowlist");
     const std::string official_release=make_release_lookup_path(first);
-    for(const std::string malicious:{
+    for(const std::string& malicious:{
         std::string{}, std::string("https://musicbrainz.org")+official_release,
         std::string("//musicbrainz.org")+official_release,
         std::string("/ws/2/release/")+first+
