@@ -66,7 +66,13 @@ int main(){
     check(!verify_online_physical_tag_postimage(virtual_source,original,
           "physical:one","guard:v1",projected).eligible,
           "virtual subsongs cannot qualify physical tag postimage");
-    check(!stage_selected_online_fields(captured,original,{4}).planned.fields.empty(),
-          "core guarded candidate retains original data on blocked fields");
+    bool cuesheet_blocked=false;
+    try {
+        (void)stage_selected_online_fields(captured,original,{4});
+    } catch(const std::invalid_argument&) {
+        cuesheet_blocked=true;
+    }
+    check(cuesheet_blocked,
+          "protected CUESHEET cannot pass the selected online field gate");
     std::cout<<"PASS: UI-selected online tag preview cross-check and source safety\n";
 }
