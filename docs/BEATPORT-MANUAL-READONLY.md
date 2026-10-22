@@ -350,3 +350,14 @@ before claiming that its clipboard text is import-ready.
 This safety improvement is limited to read-only public-page evidence.
 It does not grant Beatport API authorization, modify original multivalue
 tags, or permit writes to audio/CUE/media files.
+
+## Public Beatport HTTP content-type qualification (22 October 2026)
+
+A user-requested single Beatport public-page HTTPS response must now declare
+an exact `text/html` media type, optionally with `charset=UTF-8`.
+Case-insensitive MIME and quoted UTF-8 forms remain accepted; `text/htmlx`,
+duplicate charset attributes, unsupported legacy encodings, malformed and
+control-bearing headers are refused instead of producing potentially corrupted
+metadata. Native WinHTTP still uses one bounded unauthenticated GET, no
+redirects/retries and no writes. This is an offline source-integrity check,
+not confirmation of the live site's layout or partner API authorization.

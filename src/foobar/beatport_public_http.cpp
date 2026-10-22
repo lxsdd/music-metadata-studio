@@ -109,9 +109,17 @@ std::string fetch_beatport_public_html_readonly(
             WINHTTP_HEADER_NAME_BY_INDEX,type,&type_bytes,
             WINHTTP_NO_HEADER_INDEX)!=FALSE,
             "Beatport page did not declare an HTML content type.");
-    const std::wstring_view mime(type);
-    if(!mime.starts_with(L"text/html"))
-        throw std::runtime_error("Public Beatport response was not HTML.");
+    // Source facts are UTF-8. Do not treat text/htmlx or a legacy charset
+    // as compatible evidence just because its MIME prefix looks similar.
+    std::string mime;
+    for(const wchar_t c:std::wstring_view(type)) {
+        if(c>127)
+            throw std::runtime_error("Unsupported Beatport HTML content type.");
+        mime.push_back(static_cast<char>(c));
+    }
+    if(!djmeta::online::qualified_public_html_content_type(mime))
+        throw std::runtime_error(
+            "Public Beatport response must be HTML with UTF-8 metadata.");
     std::string response;
     constexpr std::size_t maximum=2u*1024u*1024u;
     for(;;) {

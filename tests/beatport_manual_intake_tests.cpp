@@ -134,6 +134,30 @@ int main() {
     rejects([&]{(void)parse_beatport_public_jsonld_clipboard(
                 with_public_credits(too_many));},
             "public artist array cannot silently truncate at 32 credits");
+    // No silent content-type prefix match or legacy-charset misdecoding.
+    for(const char* valid:{
+        "text/html", "TEXT/HTML", " text/html \t",
+        "text/html; charset=utf-8",
+        "text/html; charset=\"UTF-8\"",
+        "Text/Html ; Charset = UTF-8 ; profile=public",
+        "text/html; profile=public",
+    }) {
+        check(qualified_public_html_content_type(valid),
+              "proper HTML/UTF-8 Content-Type accepted");
+    }
+    for(const char* invalid:{
+        "", "text/htmlx", "text/html-malformed", "text/plain",
+        "application/xhtml+xml", "text/html; charset=iso-8859-1",
+        "text/html; charset=windows-1252",
+        "text/html; charset=utf-8; charset=utf-8",
+        "text/html; charset=", "text/html; charset=\"",
+        "text/html;", "text/html; charset=utf-8;",
+        "text/html; bad", "text/html\r\nX: injected",
+        "text/html; charset=\"utf-8\";charset=latin1",
+    }) {
+        check(!qualified_public_html_content_type(invalid),
+              "unqualified HTML MIME rejected before public page import");
+    }
     const std::string long_slug(125,'a');
     const std::string long_url=
         "https://www.beatport.com/track/"+long_slug+"/123456";

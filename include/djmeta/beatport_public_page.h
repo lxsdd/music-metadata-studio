@@ -16,6 +16,59 @@
 
 namespace djmeta::online {
 
+// Require real HTML with a compatible encoding before parsing public music
+// facts. HTTP media types are case-insensitive, but text/htmlx is NOT HTML.
+inline bool qualified_public_html_content_type(std::string_view raw) noexcept {
+    if(raw.empty() || raw.size()>127) return false;
+    for(unsigned char c:raw)
+        if((c<0x20 && c!='\t') || c>=0x7f) return false;
+    const auto trim=[](std::string_view s) {
+        while(!s.empty() && (s.front()==' ' || s.front()=='\t'))
+            s.remove_prefix(1);
+        while(!s.empty() && (s.back()==' ' || s.back()=='\t'))
+            s.remove_suffix(1);
+        return s;
+    };
+    const auto matches=[](std::string_view a,std::string_view b) {
+        if(a.size()!=b.size()) return false;
+        for(std::size_t i=0;i<a.size();++i) {
+            const char c=a[i]>='A' && a[i]<='Z'
+                ? static_cast<char>(a[i]-'A'+'a') : a[i];
+            if(c!=b[i]) return false;
+        }
+        return true;
+    };
+    const auto semi=raw.find(';');
+    if(!matches(trim(raw.substr(0,semi)),"text/html")) return false;
+    if(semi==std::string_view::npos) return true;
+    raw.remove_prefix(semi+1);
+    bool seen_charset=false;
+    while(true) {
+        const auto end=raw.find(';');
+        const auto param=trim(raw.substr(0,end));
+        const auto equals=param.find('=');
+        if(equals==std::string_view::npos) return false;
+        const auto key=trim(param.substr(0,equals));
+        auto value=trim(param.substr(equals+1));
+        if(key.empty() || value.empty()) return false;
+        for(unsigned char c:key)
+            if(!((c>='A' && c<='Z') || (c>='a' && c<='z') ||
+                 (c>='0' && c<='9') || c=='-' || c=='_'))
+                return false;
+        if(value.size()>=2 && value.front()=='"' && value.back()=='"') {
+            value.remove_prefix(1);
+            value.remove_suffix(1);
+        } else if(value.find('"')!=std::string_view::npos) return false;
+        if(value.empty()) return false;
+        if(matches(key,"charset")) {
+            if(seen_charset || !matches(value,"utf-8")) return false;
+            seen_charset=true;
+        }
+        if(end==std::string_view::npos) return true;
+        raw.remove_prefix(end+1);
+    }
+}
+
 // Native query controls must accept the longest canonical Beatport path.
 inline constexpr std::size_t maximum_public_beatport_url_length=220;
 
