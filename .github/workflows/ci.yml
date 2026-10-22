@@ -71,7 +71,7 @@ jobs:
         run: ctest --test-dir build -C Release --output-on-failure
 
       - name: Stage Windows integration artifact
-        if: runner.os == 'Windows' && github.event_name != 'pull_request'
+        if: false # Safety hold: do not even stage a DLL on public CI
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
