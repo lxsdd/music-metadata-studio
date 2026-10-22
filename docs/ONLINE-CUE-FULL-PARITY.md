@@ -128,3 +128,19 @@ Studio owns **comparison of existing CUE metadata and user review**;
 Precision CUE owns **new continuous-mix timing and generation**. Common
 source and writer safety will converge through an explicit, qualified
 integration, not through parallel CUE writers.
+
+## Read-only exact-span existing CUE metadata postimage (22 October 2026)
+
+The new `preview_cue_value_postimage` calculates an in-memory postimage
+for qualified original UTF-8 external **or embedded textual** CUEs. Only
+explicitly selected single-occurrence album or track fields with an exact
+expected old value qualify. The algorithm replaces value byte spans in
+reverse offset order, re-parses the entire resulting CUE, and rejects any
+change to file references, track declarations, other metadata or syntax.
+BOM, line endings, FILE/INDEX, original unknown REM and unaffected values
+remain byte-identical; a no-op produces the unchanged original image.
+
+This is **not** a writer, nor does it authorize a host write, rename, CUE
+insertion/deletion, non-UTF-8 transcoding, virtual subsong operation or
+FLAC Type-5 edit. Future C4/C5 commit/rollback and user acceptance remain
+separately gated; Precision CUE PR #52 is untouched.

@@ -299,6 +299,16 @@ else()
     target_compile_options(djmeta_cue_metadata_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+# Pure CUE metadata postimage; NO writer, filesystem, host or side effects.
+add_executable(djmeta_cue_value_postimage_tests tests/cue_value_postimage_tests.cpp)
+target_link_libraries(djmeta_cue_value_postimage_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_cue_value_postimage_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_cue_value_postimage_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_cue_value_postimage_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 # External/embedded CUE track snapshots feed the source-independent release matcher.
 add_executable(djmeta_cue_online_bridge_tests tests/cue_online_bridge_tests.cpp)
 target_link_libraries(djmeta_cue_online_bridge_tests PRIVATE djmeta_core)
@@ -425,6 +435,7 @@ add_test(NAME djmeta_host_file_probe_identity_tests COMMAND djmeta_host_file_pro
 add_test(NAME djmeta_cue_online_review_tests COMMAND djmeta_cue_online_review_tests)
 add_test(NAME djmeta_cue_online_bridge_tests COMMAND djmeta_cue_online_bridge_tests)
 add_test(NAME djmeta_cue_metadata_tests COMMAND djmeta_cue_metadata_tests)
+add_test(NAME djmeta_cue_value_postimage_tests COMMAND djmeta_cue_value_postimage_tests)
 add_test(NAME djmeta_online_intake_tests COMMAND djmeta_online_intake_tests)
 add_test(NAME djmeta_online_query_prefill_tests COMMAND djmeta_online_query_prefill_tests)
 add_test(NAME djmeta_online_fields_tests COMMAND djmeta_online_fields_tests)
