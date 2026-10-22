@@ -85,6 +85,9 @@ jobs:
           path: external/sdk-template
           persist-credentials: false
       - uses: microsoft/setup-msbuild@v2
+      - name: Preflight private Studio local acceptance helper (no download)
+        shell: pwsh
+        run: ./scripts/local-acceptance-build.ps1 -PreflightOnly
       - name: Build foobar preview component
         shell: pwsh
         run: ./scripts/build-foobar.ps1 -Platform '${{ matrix.platform }}' -Configuration Release -PlatformToolset v143
