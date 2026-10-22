@@ -347,6 +347,14 @@ int main() {
           native_order(0,false)==std::vector<std::size_t>({1,2,0}) &&
           native_order(0,true)==std::vector<std::size_t>({0,2,1}),
           "official API relevance order preserved until explicit column sort");
+    check(djmeta_foobar::native_track_activation_starts_online_search(0,false) &&
+          !djmeta_foobar::native_track_activation_starts_online_search(1,false) &&
+          !djmeta_foobar::native_track_activation_starts_online_search(2,false) &&
+          !djmeta_foobar::native_track_activation_starts_online_search(-1,false) &&
+          !djmeta_foobar::native_track_activation_starts_online_search(0,true) &&
+          !djmeta_foobar::native_track_activation_starts_online_search(1,true),
+          "only Find-tab track activation authorizes an online search, never "
+          "cross-tab navigation or offline Beatport browser handoff");
     const std::vector<std::string> exact_ids{
         "release:38012673", "release:37332711"};
     check(djmeta_foobar::native_release_loadable(
