@@ -176,3 +176,23 @@ CUE-container writer or change-commit path. Real provider authentication,
 UI activation, source revalidation on disk, rollback and C4/C5 installed-host
 integrity approval remain separate mandatory gates. This does not change
 Precision CUE PR #52.
+
+
+## Native foobar: selected exact-edition CUE value preview (22 October 2026)
+
+After the user explicitly loads an exact MusicBrainz or Discogs release for a
+qualified external/embedded textual CUE, the lower field-detail list provides
+**Preview selected CUE value (read-only)** via its context menu. The action
+requires exactly one selected field and the original corresponding provider
+edition, complete source-backed CUE snapshot and selected source index. Before
+presenting one short Before/After field comparison it rechecks the foobar
+selection/rules, rereads the physical CUE carrier, confirms its encoding type
+and original bytes, and runs the pure explicitly selected CUE value postimage
+gate. Ambiguous rows, unqualified edition tracks, inherited/absent fields,
+multivalues and stale carrier content are denied. No CUE bytes are exported,
+saved or placed on the clipboard. A successful message is expressly marked
+**memory-only, no write**, and this is not a user authorisation to save.
+
+The integration does not open a file for writing, mutate an audio/CUE/tag
+carrier, enable FLAC Type-5 output, or change the protected Precision CUE
+project. Exact-SHA native CI and installed-host visual acceptance are distinct.

@@ -32,6 +32,7 @@
 #include "djmeta/discogs_provider.h"
 #include "djmeta/cue_release_review.h"
 #include "djmeta/cue_musicbrainz_release_gate.h"
+#include "djmeta/cue_review_postimage.h"
 #include "djmeta/cue_original_inventory.h"
 #include "djmeta/beatport_manual_intake.h"
 #include "djmeta/beatport_public_page.h"
@@ -170,6 +171,11 @@ struct PreviewState {
     bool show_candidate = false; // third tab, never a write path
     bool cue_inspection_mode = false; // exact CUE source view, no online proposal
     bool cue_candidate_comparison_mode = false; // evidence-only CUE field diff
+    // Qualified exact-edition CUE fields can be previewed ONLY in memory
+    // from a selected detail row; never physical, never a writer.
+    std::optional<djmeta::online::CuePostimageReviewSnapshot> cue_postimage_snapshot;
+    std::size_t cue_postimage_source=(std::numeric_limits<std::size_t>::max)();
+    bool cue_postimage_discogs=false;
     bool musicbrainz_live_view = false; // only set from successful official HTTPS
     bool musicbrainz_release_loaded = false;
     djmeta::online::musicbrainz::SearchKind musicbrainz_kind =
@@ -251,6 +257,10 @@ PreviewState* g_pending_state = nullptr;
 // Edited search context cancels pending results without ever joining on UI.
 void invalidate_online_request(PreviewState& state) {
     state.online_context_version.invalidate();
+    state.cue_postimage_snapshot.reset();
+    state.cue_postimage_source=(std::numeric_limits<std::size_t>::max)();
+    // Any provider/track/query change discards prior edition evidence.
+
     if(state.discogs_request)
         request_readonly_network_stop(*state.discogs_request);
     if(state.musicbrainz_request)
@@ -3646,6 +3656,18 @@ void publish_discogs_release(HWND dialog, PreviewState& state,
     auto flat=cue?discogs_cue_release_rows(*cue,edition):
         djmeta::online::review_discogs_physical_edition(
             originals,edition,physical_duration_ms);
+    // The exact official edition and original physical CUE text have both
+    // passed the source recheck; create a detached in-memory field preview.
+    std::optional<djmeta::online::CuePostimageReviewSnapshot> cue_preview;
+    if(cue) {
+        const auto source=read_cue_raw_on_demand(
+            entry.handle,entry.input.source_path);
+        if(source.raw_text!=request.cue_before)
+            throw std::runtime_error("CUE changed before edition preview.");
+        auto candidate=djmeta::online::capture_qualified_cue_edition_postimage(
+            source.raw_text,source.carrier,edition);
+        if(candidate.eligible) cue_preview.emplace(std::move(candidate));
+    }
     auto grouped=group_musicbrainz_release_rows(flat);
     verify_online_source_snapshot(state, entry);
     verify_rules_snapshot(state.captured_rules);
@@ -3661,6 +3683,10 @@ void publish_discogs_release(HWND dialog, PreviewState& state,
             physical_review=djmeta::online::capture_online_field_review(
                 originals,stageable,true,true);
     }
+    state.cue_postimage_snapshot=std::move(cue_preview);
+    state.cue_postimage_source=state.cue_postimage_snapshot
+        ? request.source_index:(std::numeric_limits<std::size_t>::max)();
+    state.cue_postimage_discogs=static_cast<bool>(state.cue_postimage_snapshot);
     state.online_physical_edition=physical_review
         ? std::optional<djmeta::online::ReleaseEdition>{edition}
         : std::nullopt;
@@ -3941,10 +3967,18 @@ void publish_musicbrainz_release(
         reply,request.release_mbid);
     auto grouped=group_musicbrainz_release_rows(
         musicbrainz_cue_release_rows(cue,release));
+    auto cue_preview=djmeta::online::capture_qualified_cue_edition_postimage(
+        raw.raw_text,raw.carrier,release);
     verify_online_source_snapshot(state, entry);
     verify_rules_snapshot(state.captured_rules);
     state.candidate_rows=std::move(grouped.summary);
     state.musicbrainz_detail_groups=std::move(grouped.detail);
+    if(cue_preview.eligible)
+        state.cue_postimage_snapshot.emplace(std::move(cue_preview));
+    else state.cue_postimage_snapshot.reset();
+    state.cue_postimage_source=state.cue_postimage_snapshot
+        ? request.source_index:(std::numeric_limits<std::size_t>::max)();
+    state.cue_postimage_discogs=false;
     state.musicbrainz_release_loaded=true;
     ListView_SetItemState(state.metadata_list,-1,0,LVIS_SELECTED);
     update_metadata_table(state);
@@ -4852,6 +4886,40 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 SendMessageW(dialog, WM_COMMAND, MAKEWPARAM(inspectCommand, 0), 0);
             return TRUE;
         }
+        if (requested == state->musicbrainz_details) {
+            // Contextual single-field read-only action. Disabled for search
+            // snippets, unverified clipboard, physical tags and stale CUEs.
+            constexpr UINT cuePreviewCommand=41410u;
+            const bool possible=state->show_candidate &&
+                state->musicbrainz_release_loaded &&
+                state->cue_postimage_snapshot.has_value() &&
+                state->cue_postimage_source==state->selected_track_index &&
+                state->candidate_source_index==state->selected_track_index &&
+                state->cue_postimage_discogs==state->discogs_live_view &&
+                !state->stale &&
+                ListView_GetSelectedCount(state->musicbrainz_details)==1;
+            const HMENU menu=CreatePopupMenu();
+            if(!menu) return TRUE;
+            AppendMenuW(menu,MF_STRING | (possible?MF_ENABLED:MF_GRAYED),
+                        cuePreviewCommand,
+                        L"Preview selected CUE value (read-only)");
+            POINT point{};
+            if(lp==static_cast<LPARAM>(-1)) {
+                RECT rect{};
+                GetWindowRect(state->musicbrainz_details,&rect);
+                point.x=rect.left+16;point.y=rect.top+16;
+            } else {
+                point.x=static_cast<short>(LOWORD(lp));
+                point.y=static_cast<short>(HIWORD(lp));
+            }
+            const UINT selected=TrackPopupMenu(
+                menu,TPM_RETURNCMD|TPM_RIGHTBUTTON,
+                point.x,point.y,0,dialog,nullptr);
+            DestroyMenu(menu);
+            if(selected==cuePreviewCommand)
+                SendMessageW(dialog,WM_COMMAND,MAKEWPARAM(cuePreviewCommand,0),0);
+            return TRUE;
+        }
         if (requested == ListView_GetHeader(state->list)) {
             show_column_menu(dialog, *state, lp);
             return TRUE;
@@ -5046,6 +5114,81 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         if ((id==IDC_ONLINE_INCLUDE_FIELDS || id==IDC_ONLINE_IGNORE_FIELDS ||
              id==IDC_ONLINE_RESET_FIELDS) && HIWORD(wp)==BN_CLICKED) {
             change_online_field_preview(*state,id);
+            return TRUE;
+        }
+        if(id==41410u) {
+            // Explicitly selected, immutable provider edition evidence only.
+            // This command shows a pre/post value in memory; no Save/Apply.
+            if(!state->show_candidate || !state->musicbrainz_release_loaded ||
+               !state->cue_postimage_snapshot ||
+               state->cue_postimage_source!=state->selected_track_index ||
+               state->candidate_source_index!=state->selected_track_index ||
+               state->cue_postimage_discogs!=state->discogs_live_view ||
+               state->selected_track_index>=state->entries.size() ||
+               state->discogs_request || state->musicbrainz_request ||
+               state->beatport_public_request || state->stale)
+                throw std::invalid_argument(
+                    "No verified current CUE edition is available for a value preview.");
+            if(ListView_GetSelectedCount(state->musicbrainz_details)!=1)
+                throw std::invalid_argument("Select exactly one CUE field detail.");
+            const int active=ListView_GetNextItem(
+                state->metadata_list,-1,LVNI_SELECTED);
+            const int chosen=ListView_GetNextItem(
+                state->musicbrainz_details,-1,LVNI_SELECTED);
+            if(active<0 || chosen<0 ||
+               static_cast<std::size_t>(active)>=state->candidate_view_order.size())
+                throw std::invalid_argument("CUE detail group selection expired.");
+            const auto group=state->candidate_view_order[
+                static_cast<std::size_t>(active)];
+            if(group>=state->musicbrainz_detail_groups.size() ||
+               static_cast<std::size_t>(chosen)>=
+                  state->musicbrainz_detail_groups[group].size())
+                throw std::invalid_argument("CUE detail field selection expired.");
+            const auto& field=state->musicbrainz_detail_groups[group][
+                static_cast<std::size_t>(chosen)];
+            std::optional<std::size_t> index;
+            for(std::size_t i=0;i<state->cue_postimage_snapshot->rows.size();++i) {
+                const auto& stored=state->cue_postimage_snapshot->rows[i].reviewed;
+                if(stored.candidate==field.candidate &&
+                   stored.original_values==field.original_values &&
+                   stored.state==field.state) {
+                    if(index) throw std::invalid_argument(
+                        "Ambiguous CUE field selection; no preview is possible.");
+                    index=i;
+                }
+            }
+            if(!index)
+                throw std::invalid_argument(
+                    "This displayed field has no qualified CUE value postimage.");
+            const auto& entry=state->entries[state->selected_track_index];
+            verify_snapshot(entry);
+            verify_rules_snapshot(state->captured_rules);
+            const auto source=read_cue_raw_on_demand(
+                entry.handle,entry.input.source_path);
+            if(source.carrier!=state->cue_postimage_snapshot->carrier)
+                throw std::runtime_error("CUE carrier changed; refresh release.");
+            const auto proposal=djmeta::online::preview_selected_cue_review_postimage(
+                *state->cue_postimage_snapshot,source.raw_text,{*index});
+            if(!proposal.eligible)
+                throw std::runtime_error("CUE preview refused: "+proposal.rejection);
+            // Never place entire CUE bytes in a Windows popup or clipboard.
+            const auto& selected=state->cue_postimage_snapshot->rows[*index].reviewed;
+            const auto truncate=[](std::wstring text) {
+                if(text.size()>160) text.resize(160),text+=L"...";
+                return text;
+            };
+            const std::wstring before=selected.original_values.empty()
+                ? L"(none)" : truncate(from_utf8(selected.original_values.front()));
+            const std::wstring after=selected.candidate.values.empty()
+                ? L"(none)" : truncate(from_utf8(selected.candidate.values.front()));
+            const std::wstring notice=L"CUE value (memory only): "+
+                from_utf8(selected.cue_field)+L"\n\nBefore: "+before+
+                L"\nAfter: "+after+
+                (proposal.changed?L"\n\nOne value would change.":
+                                  L"\n\nNo change (byte-identical).")+
+                L"\nNo audio file, CUE, tag or timestamp was changed.";
+            MessageBoxW(dialog,notice.c_str(),L"CUE preview - read-only",
+                        MB_OK|MB_ICONINFORMATION);
             return TRUE;
         }
         const bool consequential = native_command == PreviewCommand::Accept ||

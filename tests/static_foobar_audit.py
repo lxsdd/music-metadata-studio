@@ -648,6 +648,21 @@ for token in (
     if token not in batch_table_dialog:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: MB/CUE release full alignment gate missing: "+token)
 
+# Read-only selected CUE detail action is only available from verified
+# release snapshots. The original CUE must be freshly inspected, identical,
+# and sent solely to the pure postimage function (no SDK metadata writer).
+for token in (
+    '"djmeta/cue_review_postimage.h"',
+    "capture_qualified_cue_edition_postimage(",
+    "preview_selected_cue_review_postimage(",
+    "source.carrier!=state->cue_postimage_snapshot->carrier",
+    "cue_postimage_source!=state->selected_track_index",
+    "Cue value (memory only): ",
+    "No audio file, CUE, tag or timestamp was changed.",
+):
+    if token not in batch_table_dialog:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: selected CUE postimage UI source gate missing: "+token)
+
 # Rapid manual MusicBrainz retry may happen immediately after a zero-hit
 # search. It must wait in the worker, rather than reject and require a
 # second manually timed click or sleep on the UI thread.
