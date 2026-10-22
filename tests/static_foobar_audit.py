@@ -841,21 +841,33 @@ if workflow.count(
 # An external .cue selected as a virtual foobar subsong must still retain
 # a physical *read-only* carrier guard. This is independent of its status
 # as an ineligible physical audio/tag/CUE write target.
-# An explicit double-click/Return on a master track must actually search
-# MusicBrainz even when originating from Review/File locations, and must use
-# the same one-shot guarded handler as the visible Search button.
+# A double-click/Return on Find & compare may start the guarded online
+# search exactly once. From Review/File locations, the gesture is navigation
+# only: no provider request, and no overwrite of manually edited search text.
 track_activation = batch_rules_guard.split(
     "if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&\n"
     "            (header->code == NM_DBLCLK || header->code == LVN_KEYDOWN)) {", 1)[1].split(
     "if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&\n"
     "            header->code == LVN_GETDISPINFOW)", 1)[0]
 if (
-    "prefill_musicbrainz_query(*state,true);" not in track_activation
+    "const int originating_tab=TabCtrl_GetCurSel(state->tabs);" not in track_activation
+    or "if(originating_tab != 0)" not in track_activation
+    or "SetFocus(GetDlgItem(dialog,IDC_METADATA_MB_QUERY))" not in track_activation
+    or "prefill_musicbrainz_query(*state,true);" not in track_activation
+    or "native_track_activation_starts_online_search(" not in track_activation
     or track_activation.count("MAKEWPARAM(IDC_METADATA_MB_SEARCH,BN_CLICKED)") != 1
     or "already_searching" in track_activation
     or "header->code == LVN_ITEMACTIVATE" in track_activation
 ):
-    raise SystemExit("STATIC FOOBAR AUDIT FAIL: track activation must search exactly once from every tab")
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: track activation must navigate"
+                     " without network from Review/File tabs and search"
+                     " exactly once only from Find")
+if "native_track_activation_starts_online_search(0,false)" not in gui_test or (
+    "native_track_activation_starts_online_search(1,false)" not in gui_test or
+    "native_track_activation_starts_online_search(0,true)" not in gui_test
+):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing native tab-scoped"
+                     " activation regression tests")
 
 # Track navigation and an explicit track activation must have different
 # search-prefill semantics. A mere selection NEVER resets manual edits or
