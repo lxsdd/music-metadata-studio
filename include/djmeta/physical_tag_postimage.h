@@ -75,8 +75,13 @@ inline PhysicalTagPostimage preview_explicit_physical_tag_values(
         if(item.field_name.empty() || item.field_name.size()>128 ||
            !valid_utf8_metadata_text(item.field_name))
             return refuse("PHYSICAL_FIELD_NAME_UNQUALIFIED");
+        // Standard foobar keys include ALBUM ARTIST and user-defined fields
+        // with interior spaces. Reject only controls and edge whitespace,
+        // not valid single spaces inside the name.
+        if(item.field_name.front()==' ' || item.field_name.back()==' ')
+            return refuse("PHYSICAL_FIELD_NAME_UNQUALIFIED");
         for(unsigned char c:item.field_name)
-            if(c<0x21 || c==0x7f)
+            if(c<0x20 || c==0x7f)
                 return refuse("PHYSICAL_FIELD_NAME_UNQUALIFIED");
         if(physical_tag_immutable(item.field_name))
             return refuse("PHYSICAL_PROTECTED_FIELD_REQUIRES_SEPARATE_WRITER");

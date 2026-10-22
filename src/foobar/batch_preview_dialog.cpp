@@ -28,6 +28,7 @@
 #include "djmeta/musicbrainz_provider.h"
 #include "djmeta/musicbrainz_search_review.h"
 #include "djmeta/online_field_staging.h"
+#include "djmeta/online_physical_postimage.h"
 #include "djmeta/online_field_ui_selection.h"
 #include "djmeta/discogs_provider.h"
 #include "djmeta/cue_release_review.h"
@@ -4135,6 +4136,25 @@ void change_online_field_preview(PreviewState& state,int action) {
     // previous selections and the original untouched.
     auto projected=djmeta::online::stage_selected_online_fields(
         *state.online_field_snapshot,current,proposed,date_targets);
+    // Independent postimage safety boundary: preserve ALL original custom,
+    // multi-value and embedded-CUE metadata. Changes must be exactly the
+    // user-selected provider fields, and tied to host-observed physical ID.
+    const auto latest=probe_host_file_readonly(entry.input.source_path);
+    if(latest.state!=HostFileState::ExistingFile ||
+       latest.host_physical_key!=entry.observed_physical_key ||
+       latest.source_guard!=entry.observed_source_guard)
+        throw std::runtime_error(
+            "Physical audio changed during online tag postimage preview.");
+    const djmeta::PhysicalTagSourceSnapshot physical{
+        entry.input.physical_source_qualified,
+        entry.handle->get_subsong_index()!=0,
+        entry.observed_physical_key,entry.observed_source_guard,current
+    };
+    const auto qualified=djmeta::online::verify_online_physical_tag_postimage(
+        physical,current,latest.host_physical_key,latest.source_guard,projected);
+    if(!qualified.eligible)
+        throw std::invalid_argument(
+            "Online physical tag postimage refused: "+qualified.rejection);
     state.online_included_fields=proposed;
     state.online_date_targets=std::move(date_targets);
     state.online_field_preview=std::move(projected);

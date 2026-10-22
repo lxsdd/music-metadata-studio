@@ -79,6 +79,16 @@ else()
 endif()
 
 # Only an in-memory verified physical tag postimage, no SDK or writer.
+# Selected online physical tags pass an independent exact postimage guard.
+add_executable(djmeta_online_physical_postimage_tests tests/online_physical_postimage_tests.cpp)
+target_link_libraries(djmeta_online_physical_postimage_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_online_physical_postimage_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_online_physical_postimage_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_online_physical_postimage_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 add_executable(djmeta_physical_tag_postimage_tests tests/physical_tag_postimage_tests.cpp)
 target_link_libraries(djmeta_physical_tag_postimage_tests PRIVATE djmeta_core)
 target_compile_features(djmeta_physical_tag_postimage_tests PRIVATE cxx_std_20)
@@ -480,6 +490,7 @@ add_test(NAME djmeta_online_release_fuzz_tests COMMAND djmeta_online_release_fuz
 add_test(NAME djmeta_online_match_tests COMMAND djmeta_online_match_tests)
 add_test(NAME djmeta_write_guard_tests COMMAND djmeta_write_guard_tests)
 add_test(NAME djmeta_physical_tag_postimage_tests COMMAND djmeta_physical_tag_postimage_tests)
+add_test(NAME djmeta_online_physical_postimage_tests COMMAND djmeta_online_physical_postimage_tests)
 add_test(NAME djmeta_physical_selection_tests COMMAND djmeta_physical_selection_tests)
 add_test(NAME djmeta_review_decisions_tests COMMAND djmeta_review_decisions_tests)
 if(WIN32)
