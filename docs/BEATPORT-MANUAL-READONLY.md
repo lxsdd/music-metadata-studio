@@ -269,3 +269,14 @@ feature (shortcut S) and manual lookup of the visible Beatport link.
 
 Never request the user's Beatport password, session cookie, Crates
 OAuth token or authentication code in chat, CI or a public issue.
+
+## Browser hand-off credential and visibility hardening (2026-10-22)
+
+The Crates.co optional browser helper now rejects Beatport links carrying
+URL-embedded username/password, nonstandard ports, query parameters,
+fragments, and DOM elements concealed with CSS visibility, display, or zero
+opacity. This avoids copying hidden/unintended links or accidental credentials.
+The browser script never reads cookies, local storage, OAuth tokens, or
+Crates' internal API responses. The site URL must be the official Crates
+HTTPS origin on its standard port, and a single visible matching track URL
+remains mandatory. Offline Node DOM safety tests cover the rejection cases.

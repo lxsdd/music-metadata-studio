@@ -6,20 +6,36 @@
   const say = (msg) => alert('Crates → Beatport (read-only): ' + msg);
   try {
     if (location.protocol !== 'https:' ||
-        !['crates.co', 'www.crates.co'].includes(location.hostname))
+        !['crates.co', 'www.crates.co'].includes(location.hostname) ||
+        (location.port && location.port !== '443'))
       throw new Error('Open Crates.co in your normal browser first.');
     const valid = (href) => {
       try {
         const link = new URL(href, location.href);
         if (link.protocol !== 'https:' ||
             link.hostname !== 'www.beatport.com' ||
+            link.username || link.password || link.port ||
             link.search || link.hash ||
             !/^\/track\/[a-z0-9-]{1,125}\/[1-9][0-9]{0,11}$/.test(
               link.pathname)) return null;
         return link.href;
       } catch { return null; }
     };
-    const visible = (anchor) => !!anchor.getClientRects().length;
+    const visible = (anchor) => {
+      if (!anchor.getClientRects().length) return false;
+      // A layout rectangle is not enough: visibility:hidden and opacity:0
+      // are still present in the DOM and must not become track evidence.
+      let current = anchor;
+      for (let depth = 0; current && depth < 12; ++depth) {
+        const style = window.getComputedStyle?.(current);
+        if (style && (style.display === 'none' ||
+                      style.visibility === 'hidden' ||
+                      style.visibility === 'collapse' ||
+                      style.opacity === '0')) return false;
+        current = current.parentElement;
+      }
+      return true;
+    };
     const rowFrom = (element) => element?.closest?.(
       'tr,li,article,[role="row"],[data-track-id],.track,.track-row');
     let selected = null;

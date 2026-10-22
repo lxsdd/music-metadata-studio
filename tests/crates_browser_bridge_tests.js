@@ -9,13 +9,15 @@ const js=fs.readFileSync(
     'utf8');
 
 const beatport=(id)=>'https://www.beatport.com/track/extended-mix/'+id;
-function anchor(href,visible=true) {
+function anchor(href,visible=true,style={}) {
     return {
         getAttribute:(key)=>key==='href'?href:null,
-        getClientRects:()=>visible?[{}]:[]
+        getClientRects:()=>visible?[{}]:[],
+        computedStyle:style,
+        parentElement:null
     };
 }
-async function scenario({host='crates.co',all=[],row=null}={}) {
+async function scenario({host='crates.co',port='',all=[],row=null}={}) {
     let copied='',message='';
     const dom={
         querySelectorAll:(s)=>{
@@ -26,9 +28,12 @@ async function scenario({host='crates.co',all=[],row=null}={}) {
     };
     if(row) row.querySelectorAll=(s)=>{assert.equal(s,'a[href]');return row.items};
     const context={
-        location:{hostname:host,protocol:'https:',href:'https://crates.co/'},
+        location:{hostname:host,port,protocol:'https:',href:'https://crates.co/'},
         URL,document:dom,
-        window:{getSelection:()=>({isCollapsed:true})},
+        window:{
+            getSelection:()=>({isCollapsed:true}),
+            getComputedStyle:(element)=>element.computedStyle || {},
+        },
         navigator:{clipboard:{writeText:async value=>{copied=value;}}},
         alert:msg=>{message=msg;},
     };
@@ -50,6 +55,18 @@ async function scenario({host='crates.co',all=[],row=null}={}) {
     r=await scenario({all:[anchor('https://evil.org/track/x/321')]});
     assert.equal(r.copied,'');
     r=await scenario({all:[anchor('https://www.beatport.com/track/mix/321?session=abc')]});
+    assert.equal(r.copied,'');
+    r=await scenario({all:[anchor('https://user:password@www.beatport.com/track/mix/321')]});
+    assert.equal(r.copied,'');
+    r=await scenario({all:[anchor('https://www.beatport.com:8443/track/mix/321')]});
+    assert.equal(r.copied,'');
+    r=await scenario({port:'8443',all:[anchor(beatport(321))]});
+    assert.equal(r.copied,'');
+    r=await scenario({all:[anchor(beatport(321),true,{visibility:'hidden'})]});
+    assert.equal(r.copied,'');
+    r=await scenario({all:[anchor(beatport(321),true,{opacity:'0'})]});
+    assert.equal(r.copied,'');
+    r=await scenario({all:[anchor(beatport(321),true,{display:'none'})]});
     assert.equal(r.copied,'');
     r=await scenario({
         all:[anchor(beatport(321)),anchor(beatport(322))],
