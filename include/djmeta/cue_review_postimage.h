@@ -189,7 +189,9 @@ inline CuePostimageReviewSnapshot capture_qualified_cue_edition_postimage(
         for(const auto& field:track.fields)
             append(field,track.cue_ordinal,true);
     }
-    if(inputs.size()!=expected.size()) return {};
+    // A release with no independently verified reviewable rows cannot
+    // yield an eligible edition snapshot.
+    if(inputs.empty() || inputs.size()!=expected.size()) return {};
     auto snapshot=capture_cue_postimage_review(raw,carrier,inputs);
     if(!snapshot.eligible || snapshot.rows.size()!=expected.size())
         return {};
