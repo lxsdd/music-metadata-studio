@@ -212,6 +212,34 @@ async function scenario({host='crates.co',port='',all=[],row=null,selection=null
     });
     assert.equal(r.copied,'');
     assert.match(r.message,/hidden or noncanonical/);
+    // One canonical URL plus a different noncanonical Beatport track in
+    // the same row is NOT a unique recording. This applies without a row
+    // selection too; an explicit focused exact anchor remains authoritative.
+    const unsafeNeighbor=anchor(beatport(322)+'?session=untrusted');
+    const ambiguousRow={items:[anchor(beatport(321)),unsafeNeighbor]};
+    for(const rowScope of [true,false]) {
+        r=await scenario({
+            all:ambiguousRow.items,
+            row:rowScope?ambiguousRow:null,
+        });
+        assert.equal(r.copied,'','unsafe neighboring mix cannot be ignored');
+        assert.match(r.message,/noncanonical track URL/);
+    }
+    r=await scenario({
+        all:[anchor(beatport(321)),anchor(beatport(322)+'?q=bad',false)]
+    });
+    assert.equal(r.copied,beatport(321),
+        'hidden unsafe track is not visible source evidence');
+    r=await scenario({
+        all:[anchor(beatport(321)),anchor('https://www.beatport.com/artist/dj/42')]
+    });
+    assert.equal(r.copied,beatport(321),
+        'unrelated Beatport artist navigation does not block a unique track');
+    r=await scenario({
+        all:ambiguousRow.items,focus:ambiguousRow.items[0],
+    });
+    assert.equal(r.copied,beatport(321),
+        'explicit exact anchor wins over unrelated unsafe neighboring mix');
     // An unsafe/hidden focused Beatport anchor must not silently fall back
     // to a different visible track in the same row or document.
     for (const bad of [

@@ -90,9 +90,29 @@
       focusedUrl = directBeatportUrl(anchorFrom(focused));
       if (!focusedUrl) selected = rowFrom(focused);
     }
-    const find = (root) => Array.from(
-      root.querySelectorAll('a[href]')).filter(visible)
-      .map(a => valid(a.getAttribute('href'))).filter(Boolean);
+    // A result row can contain one canonical track plus another mix with
+    // a noncanonical Beatport track link. Filtering out the unsafe link
+    // would make the first recording look uniquely selected. Ignore hidden
+    // links and unrelated Beatport artist/label pages, not unsafe tracks.
+    const find = (root) => {
+      const hits = [];
+      let unsafeTrack = false;
+      for (const anchor of root.querySelectorAll('a[href]')) {
+        if (!visible(anchor)) continue;
+        const href = anchor.getAttribute('href');
+        const qualified = valid(href);
+        if (qualified) { hits.push(qualified); continue; }
+        try {
+          const target = new URL(href);
+          if (target.hostname === 'www.beatport.com' &&
+              target.pathname.startsWith('/track/')) unsafeTrack = true;
+        } catch { /* unrelated or relative link */ }
+      }
+      if (hits.length && unsafeTrack)
+        throw new Error('Visible Beatport links include a noncanonical ' +
+          'track URL. Select one exact link or open Beatport manually.');
+      return hits;
+    };
     // Refuse ambiguity, rather than taking the first search result.
     const hits = focusedUrl ? [focusedUrl] :
       Array.from(new Set(find(selected || document)));
