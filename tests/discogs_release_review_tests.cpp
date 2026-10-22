@@ -224,7 +224,8 @@ int main() {
                 FieldReviewState::Blocked &&
             field(barcode_rows,"Release Track 1 / MATCH")->reason==
                 "discogs_live_match_edition_identifier_conflict" &&
-            field(barcode_rows,"Physical / BARCODE")->original_values==
+            field(barcode_rows,"Album / BARCODE") &&
+            field(barcode_rows,"Album / BARCODE")->original_values==
                 std::vector<std::string>{"0000123456791"} &&
             physical_discogs_stageable_evidence(
                 identified,wrong_barcode,242000,barcode_rows).empty(),
