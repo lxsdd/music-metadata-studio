@@ -4923,7 +4923,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             if(!menu) return TRUE;
             AppendMenuW(menu,MF_STRING | (possible?MF_ENABLED:MF_GRAYED),
                         cuePreviewCommand,
-                        L"Preview selected CUE value (read-only)");
+                        L"Preview selected CUE values (read-only)");
             POINT point{};
             if(lp==static_cast<LPARAM>(-1)) {
                 RECT rect{};
@@ -5150,37 +5150,29 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                state->beatport_public_request || state->stale)
                 throw std::invalid_argument(
                     "No verified current CUE edition is available for a value preview.");
-            if(ListView_GetSelectedCount(state->musicbrainz_details)!=1)
-                throw std::invalid_argument("Select exactly one CUE field detail.");
+            const int selected_count=ListView_GetSelectedCount(
+                state->musicbrainz_details);
+            if(selected_count<=0 || selected_count>512)
+                throw std::invalid_argument(
+                    "Select up to 512 CUE fields in the lower detail pane.");
             const int active=ListView_GetNextItem(
                 state->metadata_list,-1,LVNI_SELECTED);
-            const int chosen=ListView_GetNextItem(
-                state->musicbrainz_details,-1,LVNI_SELECTED);
-            if(active<0 || chosen<0 ||
+            if(active<0 ||
                static_cast<std::size_t>(active)>=state->candidate_view_order.size())
                 throw std::invalid_argument("CUE detail group selection expired.");
             const auto group=state->candidate_view_order[
                 static_cast<std::size_t>(active)];
-            if(group>=state->musicbrainz_detail_groups.size() ||
-               static_cast<std::size_t>(chosen)>=
-                  state->musicbrainz_detail_groups[group].size())
-                throw std::invalid_argument("CUE detail field selection expired.");
-            const auto& field=state->musicbrainz_detail_groups[group][
-                static_cast<std::size_t>(chosen)];
-            std::optional<std::size_t> index;
-            for(std::size_t i=0;i<state->cue_postimage_snapshot->rows.size();++i) {
-                const auto& stored=state->cue_postimage_snapshot->rows[i].reviewed;
-                if(stored.candidate==field.candidate &&
-                   stored.original_values==field.original_values &&
-                   stored.state==field.state) {
-                    if(index) throw std::invalid_argument(
-                        "Ambiguous CUE field selection; no preview is possible.");
-                    index=i;
-                }
-            }
-            if(!index)
-                throw std::invalid_argument(
-                    "This displayed field has no qualified CUE value postimage.");
+            if(group>=state->musicbrainz_detail_groups.size())
+                throw std::invalid_argument("CUE detail group selection expired.");
+            const auto& displayed=state->musicbrainz_detail_groups[group];
+            std::vector<std::size_t> selected_display_rows;
+            int chosen=-1;
+            while((chosen=ListView_GetNextItem(
+                state->musicbrainz_details,chosen,LVNI_SELECTED))>=0)
+                selected_display_rows.push_back(static_cast<std::size_t>(chosen));
+            const auto selected_indices=
+                djmeta::online::resolve_cue_detail_selection(
+                    *state->cue_postimage_snapshot,displayed,selected_display_rows);
             const auto& entry=state->entries[state->selected_track_index];
             verify_snapshot(entry);
             verify_rules_snapshot(state->captured_rules);
@@ -5189,25 +5181,40 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             if(source.carrier!=state->cue_postimage_snapshot->carrier)
                 throw std::runtime_error("CUE carrier changed; refresh release.");
             const auto proposal=djmeta::online::preview_selected_cue_review_postimage(
-                *state->cue_postimage_snapshot,source.raw_text,{*index});
+                *state->cue_postimage_snapshot,source.raw_text,selected_indices);
             if(!proposal.eligible)
                 throw std::runtime_error("CUE preview refused: "+proposal.rejection);
-            // Never place entire CUE bytes in a Windows popup or clipboard.
-            const auto& selected=state->cue_postimage_snapshot->rows[*index].reviewed;
+            // One atomic preview for all selected CUE values, not one popup
+            // per field. Bounded text only; full source bytes stay in memory.
             const auto truncate=[](std::wstring text) {
-                if(text.size()>160) text.resize(160),text+=L"...";
+                if(text.size()>90) text.resize(90),text+=L"...";
                 return text;
             };
-            const std::wstring before=selected.original_values.empty()
-                ? L"(none)" : truncate(from_utf8(selected.original_values.front()));
-            const std::wstring after=selected.candidate.values.empty()
-                ? L"(none)" : truncate(from_utf8(selected.candidate.values.front()));
-            const std::wstring notice=L"CUE value (memory only): "+
-                from_utf8(selected.cue_field)+L"\n\nBefore: "+before+
-                L"\nAfter: "+after+
-                (proposal.changed?L"\n\nOne value would change.":
-                                  L"\n\nNo change (byte-identical).")+
-                L"\nNo audio file, CUE, tag or timestamp was changed.";
+            std::size_t changed=0;
+            for(auto idx:selected_indices)
+                if(state->cue_postimage_snapshot->rows[idx].reviewed.state==
+                   djmeta::online::FieldReviewState::NeedsReview)
+                    ++changed;
+            std::wstring notice=L"CUE value (memory only): "+
+                std::to_wstring(selected_indices.size())+L" selected; "+
+                std::to_wstring(changed)+L" proposed value changes.";
+            const auto count=(std::min)(selected_indices.size(),std::size_t{4});
+            for(std::size_t i=0;i<count;++i) {
+                const auto& row=
+                    state->cue_postimage_snapshot->rows[selected_indices[i]].reviewed;
+                const auto before=row.original_values.empty()
+                    ? L"(none)" : truncate(from_utf8(row.original_values.front()));
+                const auto after=row.candidate.values.empty()
+                    ? L"(none)" : truncate(from_utf8(row.candidate.values.front()));
+                notice+=L"\n\n"+from_utf8(row.cue_field)+L": "+before+
+                        L" -> "+after;
+            }
+            if(selected_indices.size()>count)
+                notice+=L"\n\n... additional selected fields omitted from message.";
+            notice+=proposal.changed
+                ? L"\n\nCombined source CUE bytes would change."
+                : L"\n\nNo change (byte-identical).";
+            notice+=L"\nNo audio file, CUE, tag or timestamp was changed.";
             MessageBoxW(dialog,notice.c_str(),L"CUE preview - read-only",
                         MB_OK|MB_ICONINFORMATION);
             return TRUE;

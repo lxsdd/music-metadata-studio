@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <optional>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -28,6 +29,42 @@ struct CuePostimageReviewSnapshot {
     std::string original_bytes;
     std::vector<CuePostimageCapturedRow> rows;
 };
+// Map selected HWND detail row indices to immutable CUE evidence rows.
+// Never use the sorted view-row index as a CUE track/edition identity.
+// A multi-select is atomic: one ambiguous/missing/duplicate row rejects all.
+inline std::vector<std::size_t> resolve_cue_detail_selection(
+    const CuePostimageReviewSnapshot& capture,
+    const std::vector<FieldReviewRow>& displayed,
+    const std::vector<std::size_t>& selected_detail_indices) {
+    if(!capture.eligible || selected_detail_indices.empty() ||
+       selected_detail_indices.size()>512 ||
+       selected_detail_indices.size()>displayed.size())
+        throw std::invalid_argument("CUE_DETAIL_SELECTION_SHAPE_INVALID");
+    std::set<std::size_t> selected_rows,selected_evidence;
+    std::vector<std::size_t> result;
+    for(const auto view_index:selected_detail_indices) {
+        if(view_index>=displayed.size() ||
+           !selected_rows.insert(view_index).second)
+            throw std::invalid_argument("CUE_DETAIL_SELECTION_DUPLICATE_OR_UNKNOWN");
+        const auto& detail=displayed[view_index];
+        std::optional<std::size_t> resolved;
+        for(std::size_t j=0;j<capture.rows.size();++j) {
+            const auto& source=capture.rows[j].reviewed;
+            if(source.candidate==detail.candidate &&
+               source.original_values==detail.original_values &&
+               source.state==detail.state) {
+                if(resolved)
+                    throw std::invalid_argument("CUE_DETAIL_SOURCE_AMBIGUOUS");
+                resolved=j;
+            }
+        }
+        if(!resolved || !selected_evidence.insert(*resolved).second)
+            throw std::invalid_argument("CUE_DETAIL_SELECTION_UNQUALIFIED");
+        result.push_back(*resolved);
+    }
+    return result;
+}
+
 inline bool same_cue_postimage_review(
     const CueCandidateFieldReview& a,const CueCandidateFieldReview& b) {
     return a.evidence_index==b.evidence_index &&

@@ -52,6 +52,45 @@ int main(){
           track_only.bytes.find("TITLE \"Original Album\"")!=std::string::npos &&
           track_only.bytes.find("TITLE \"Revised Track\"")!=std::string::npos,
           "selection never implies other rows");
+    // Detail table may be sorted independently of the immutable CUE rows;
+    // multiple highlighted fields must still stage exactly their own evidence.
+    auto display=[](const CueCandidateFieldReview& row) {
+        FieldReviewRow out;
+        out.field=row.cue_field;
+        out.original_values=row.original_values;
+        out.candidate=row.candidate;
+        out.state=row.state;
+        return out;
+    };
+    std::vector<FieldReviewRow> display_reversed{
+        display(snap.rows[1].reviewed),display(snap.rows[0].reviewed)};
+    const auto sorted_selection=resolve_cue_detail_selection(
+        snap,display_reversed,{0,1});
+    check(sorted_selection==std::vector<std::size_t>({1,0}),
+          "sorted multi-select maps to exact provider evidence identities");
+    const auto grouped_preview=preview_selected_cue_review_postimage(
+        snap,raw,sorted_selection);
+    check(grouped_preview.eligible && grouped_preview.changed &&
+          grouped_preview.bytes==expected,
+          "multi-selected CUE detail values are previewed in one atomic byte postimage");
+    const auto invalid_detail=[&](const auto& displayed,
+                                  const std::vector<std::size_t>& selection) {
+        try {(void)resolve_cue_detail_selection(snap,displayed,selection);}
+        catch(const std::invalid_argument&) {return true;}
+        return false;
+    };
+    check(invalid_detail(display_reversed,{}) &&
+          invalid_detail(display_reversed,{0,0}) &&
+          invalid_detail(display_reversed,{999}),
+          "empty, duplicate and stale selected UI rows reject the whole preview");
+    auto forged_display=display_reversed;
+    forged_display[0].candidate.values={"forged different provider value"};
+    check(invalid_detail(forged_display,{0,1}),
+          "one changed provider field prevents every multi-selection write plan");
+    forged_display=display_reversed;
+    forged_display.push_back(forged_display[0]);
+    check(invalid_detail(forged_display,{0,2}),
+          "two visible rows cannot independently claim the same immutable CUE proposal");
     const auto reject=[&](const CuePostimageReviewSnapshot& s,
                           const std::string& data,
                           std::vector<std::size_t> indices){
