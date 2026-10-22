@@ -58,6 +58,38 @@ int main() {
           public_iso_duration_ms("PT1H3M2S")==3782000 &&
           !public_iso_duration_ms("PT25H"),
           "bounded user-selected public page identity and ISO duration");
+    // Schema.org's ISO 8601 seconds can contain fractional milliseconds.
+    // Preserve exact physical-host duration instead of converting it to
+    // a false zero-result/mismatch. Non-representable or ambiguous units
+    // must remain blocked, not silently rounded.
+    check(public_iso_duration_ms("PT6M42.5S")==402500 &&
+          public_iso_duration_ms("PT6M42.50S")==402500 &&
+          public_iso_duration_ms("PT6M42.125S")==402125 &&
+          public_iso_duration_ms("PT1H3M2.007S")==3782007 &&
+          public_iso_duration_ms("PT1.001S")==1001 &&
+          public_iso_duration_ms("PT6H")==21600000,
+          "public ISO duration preserves exact 1/10/1000-second precision");
+    for(const char* rejected:{
+        "PT0.999S", "PT0S", "PT6H0.001S", "PT1.2345S",
+        "PT1.S", "PT1.2M", "PT1.25H", "PT1,5S",
+        "PT1.2S2S", "PT1.2Sfoo", "PT1S2M", "PT-1S",
+        "PT1.2.3S", "PT1.2", "PT1M2.0000S"}) {
+        check(!public_iso_duration_ms(rejected),
+              "unsupported ISO seconds must refuse rather than round/guess");
+    }
+    std::string fractional_jsonld=public_jsonld;
+    const std::string duration_before="\"duration\":\"PT6M42S\"";
+    const auto duration_position=fractional_jsonld.find(duration_before);
+    check(duration_position!=std::string::npos,
+          "fractional JSON-LD fixture has a duration field");
+    fractional_jsonld.replace(duration_position,duration_before.size(),
+                              "\"duration\":\"PT6M42.500S\"");
+    const auto fractional_track=
+        parse_beatport_public_jsonld_clipboard(fractional_jsonld);
+    check(fractional_track.duration_ms==402500 &&
+          fractional_track.id==321 &&
+          fractional_track.mix_name=="Extended Mix",
+          "real JSON-LD import preserves fractional recording duration");
     const auto public_track=parse_beatport_public_jsonld_clipboard(public_jsonld);
     check(public_track.id==321 && public_track.title=="Home" &&
           public_track.mix_name=="Extended Mix" &&
