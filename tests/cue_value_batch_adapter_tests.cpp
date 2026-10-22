@@ -1,4 +1,5 @@
 #include "djmeta/cue_value_batch_adapter.h"
+#include "djmeta/cue_apply_preflight.h"
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -80,6 +81,54 @@ int main(){
           !plan.decisions[1].file_operation_needed,
           "qualified CUE value bridge reaches the actual batch planner");
 
+    const std::vector<FilePlanItem> approved_items{projected.planned};
+    const BatchApproval approval{
+        review_batch_plan(approved_items).plan_fingerprint,false,{}};
+    const auto frozen=freeze_reviewed_batch_preview(approved_items,approval);
+    const auto preflight=[&](const FilePlanItem& live,
+                             const std::string& bytes,
+                             const ReleaseEdition& provider,
+                             const std::vector<std::size_t>& chosen,
+                             bool source_ok=true,bool bytes_ok=true,
+                             bool links_ok=true,bool target_ok=true) {
+        return preflight_exact_external_cue_values(
+            frozen,approval,live,bytes,provider,chosen,
+            source_ok,bytes_ok,links_ok,target_ok);
+    };
+    const auto ready=preflight(projected.planned,raw,mb,{0,1});
+    check(ready.readiness==CueApplyReadiness::DetachedCandidate &&
+          ready.postimage.bytes==projected.cue.bytes,
+          "fresh external CUE byte identity and selection qualify detached preview");
+    check(preflight(projected.planned,raw+" ",mb,{0,1}).readiness==
+              CueApplyReadiness::Blocked,
+          "changed CUE byte stream invalidates consent");
+    check(preflight(projected.planned,raw,mb,{1}).readiness==
+              CueApplyReadiness::Blocked,
+          "different selected fields cannot reuse prior postimage fingerprint");
+    auto altered_edition=mb;
+    altered_edition.tracks[0].fields[0].values={"Forged edit"};
+    check(preflight(projected.planned,raw,altered_edition,{0,1}).readiness==
+              CueApplyReadiness::Blocked,
+          "provider mutation invalidates previously reviewed CUE values");
+    check(preflight(projected.planned,raw,mb,{0,1},false).readiness==
+              CueApplyReadiness::Blocked &&
+          preflight(projected.planned,raw,mb,{0,1},true,false).readiness==
+              CueApplyReadiness::Blocked &&
+          preflight(projected.planned,raw,mb,{0,1},true,true,false).readiness==
+              CueApplyReadiness::Blocked &&
+          preflight(projected.planned,raw,mb,{0,1},true,true,true,false).readiness==
+              CueApplyReadiness::Blocked,
+          "all four host reprobing prerequisites are mandatory");
+    auto replaced_carrier=projected.planned;
+    replaced_carrier.source_guard="replaced";
+    check(preflight(replaced_carrier,raw,mb,{0,1}).readiness==
+              CueApplyReadiness::Blocked,
+          "host identity swap invalidates entire exact CUE plan");
+    replaced_carrier=projected.planned;
+    replaced_carrier.cue_references_will_change=true;
+    check(preflight(replaced_carrier,raw,mb,{0,1}).readiness==
+              CueApplyReadiness::Blocked,
+          "FILE reference changes cannot use value-only preflight");
     const auto empty=stage_exact_external_cue_values_for_batch(base,raw,mb,{});
     check(empty.eligible && !empty.cue.changed &&
           !empty.planned.cue_values_will_change &&
