@@ -657,11 +657,23 @@ for token in (
     "preview_selected_cue_review_postimage(",
     "source.carrier!=state->cue_postimage_snapshot->carrier",
     "cue_postimage_source!=state->selected_track_index",
-    "CUE value (memory only): ",
-    "No audio file, CUE, tag or timestamp was changed.",
+    "state->cue_value_preview=proposal;",
+    "state->cue_value_preview_indices=selected_indices;",
+    "refresh_musicbrainz_detail_rows(*state);",
+    "cue_detail_row_in_preview(",
+    "CUE preview: ",
+    "Read-only; no writes.",
 ):
     if token not in batch_table_dialog:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: selected CUE postimage UI source gate missing: "+token)
+
+# UX regression: a four-row modal summary hides the rest of a multi-field
+# CUE preview and interrupts normal playlist navigation. Statuses now remain
+# visible in the native detail ListView, including when the provider was sorted.
+if "additional selected fields omitted from message" in batch_table_dialog or (
+    "MessageBoxW(dialog,notice.c_str(),L\\"CUE preview" in batch_table_dialog
+):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: CUE preview is still a truncated modal popup")
 
 # Rapid manual MusicBrainz retry may happen immediately after a zero-hit
 # search. It must wait in the worker, rather than reject and require a
