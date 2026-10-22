@@ -28,10 +28,13 @@
       let current = anchor;
       for (let depth = 0; current && depth < 12; ++depth) {
         const style = window.getComputedStyle?.(current);
-        if (style && (style.display === 'none' ||
-                      style.visibility === 'hidden' ||
-                      style.visibility === 'collapse' ||
-                      style.opacity === '0')) return false;
+        if (current.hidden || current.inert ||
+            current.getAttribute?.('aria-hidden') === 'true' ||
+            (style && (style.display === 'none' ||
+                       style.visibility === 'hidden' ||
+                       style.visibility === 'collapse' ||
+                       (style.opacity !== '' && style.opacity != null &&
+                        Number(style.opacity) === 0)))) return false;
         current = current.parentElement;
       }
       return true;
@@ -40,9 +43,17 @@
       'tr,li,article,[role="row"],[data-track-id],.track,.track-row');
     let selected = null;
     const selection = window.getSelection();
-    if (selection && !selection.isCollapsed)
-      selected = rowFrom(selection.anchorNode?.parentElement ||
-                         selection.anchorNode);
+    if (selection && !selection.isCollapsed) {
+      // The two ends of a text selection must belong to the SAME row.
+      // Otherwise taking only its anchor could silently copy the wrong mix.
+      const start = rowFrom(selection.anchorNode?.parentElement ||
+                            selection.anchorNode);
+      const end = rowFrom(selection.focusNode?.parentElement ||
+                          selection.focusNode);
+      if (!start || start !== end)
+        throw new Error('Select text within one exact track row only.');
+      selected = start;
+    }
     if (!selected) selected = rowFrom(document.activeElement);
     const find = (root) => Array.from(
       root.querySelectorAll('a[href]')).filter(visible)
