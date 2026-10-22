@@ -11,6 +11,7 @@ const js=fs.readFileSync(
 const beatport=(id)=>'https://www.beatport.com/track/extended-mix/'+id;
 function anchor(href,visible=true,style={}) {
     return {
+        tagName:'A',
         getAttribute:(key)=>key==='href'?href:
             key==='aria-hidden'?(style.ariaHidden || null):null,
         getClientRects:()=>visible?[{}]:[],
@@ -20,14 +21,14 @@ function anchor(href,visible=true,style={}) {
         parentElement:null
     };
 }
-async function scenario({host='crates.co',port='',all=[],row=null,selection=null}={}) {
+async function scenario({host='crates.co',port='',all=[],row=null,selection=null,focus=null}={}) {
     let copied='',message='';
     const dom={
         querySelectorAll:(s)=>{
             assert.equal(s,'a[href]');
             return all;
         },
-        activeElement:{closest:()=>row},
+        activeElement:focus || {closest:()=>row},
     };
     if(row) row.querySelectorAll=(s)=>{assert.equal(s,'a[href]');return row.items};
     const context={
@@ -159,6 +160,46 @@ async function scenario({host='crates.co',port='',all=[],row=null,selection=null
                    focusNode:nodeFor(null)}
     });
     assert.equal(r.copied,'');
+    // A focused public Beatport anchor is a deliberate exact selection,
+    // even when its row or the overall Crates results have several mixes.
+    const focused=anchor(beatport(322));
+    r=await scenario({
+        all:[anchor(beatport(321)),focused],focus:focused,
+        row:{items:[anchor(beatport(321)),focused]},
+    });
+    assert.equal(r.copied,beatport(322));
+    // An unsafe/hidden focused Beatport anchor must not silently fall back
+    // to a different visible track in the same row or document.
+    for (const bad of [
+        anchor(beatport(322),false),
+        anchor(beatport(322)+'?session=abc'),
+        anchor('https://user:password@www.beatport.com/track/mix/322'),
+        anchor('http://www.beatport.com/track/mix/322'),
+        anchor('https://www.beatport.com:8443/track/mix/322'),
+    ]) {
+        r=await scenario({
+            all:[anchor(beatport(321)),bad],focus:bad,
+            row:{items:[anchor(beatport(321)),bad]},
+        });
+        assert.equal(r.copied,'', 'unsafe focused anchor must fail closed');
+        assert.match(r.message,/hidden or noncanonical/);
+    }
+    // Focusing an unrelated Crates navigation link is not evidence;
+    // the existing unique visible Beatport result remains usable.
+    r=await scenario({
+        all:[anchor(beatport(321))],
+        focus:anchor('https://crates.co/artists'),
+    });
+    assert.equal(r.copied,beatport(321));
+    // A cross-row text selection takes precedence over keyboard focus;
+    // it cannot be rescued by a separately focused valid Beatport anchor.
+    r=await scenario({
+        all:[...first.items,...second.items],focus:focused,
+        selection:{isCollapsed:false,anchorNode:nodeFor(first),
+                   focusNode:nodeFor(second)}
+    });
+    assert.equal(r.copied,'');
+    assert.match(r.message,/one exact track row/);
     assert.doesNotMatch(js,/\bfetch\s*\(/);
     assert.doesNotMatch(js,/document\.cookie\s*[;=\[]/);
     console.log('PASS: Crates visible single-link browser helper identity/safety');

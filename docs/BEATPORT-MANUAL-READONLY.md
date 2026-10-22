@@ -301,3 +301,15 @@ It fails closed on excessively deep markup instead of assuming an anchor is
 visible after only 12 parent levels. Offline fixtures cover hidden ancestors
 at depth 14, a genuinely visible depth-60 anchor and a rejected depth-65
 anchor. This does not grant API access or authenticate copied links.
+
+## Focused Crates result link (2026-10-22)
+
+The optional Crates browser helper also accepts an **explicitly keyboard-focused
+public Beatport track anchor**. This resolves an otherwise ambiguous Crates
+results page or row containing multiple mixes without guessing the first hit.
+A noncollapsed text selection in one exact row still takes precedence. If the
+focused Beatport anchor is hidden or noncanonical (including credentials,
+parameters or an alternate port), the helper refuses instead of silently
+copying a different visible mix. No Crates login/session/API is accessed.
+Offline negative fixtures cover hidden, credential-bearing and malformed
+focused links, mixed rows, and cross-row selection precedence.

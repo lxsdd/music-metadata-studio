@@ -62,12 +62,31 @@
         throw new Error('Select text within one exact track row only.');
       selected = start;
     }
-    if (!selected) selected = rowFrom(document.activeElement);
+    // Keyboard focus on an actual Beatport anchor is a more precise user
+    // choice than its containing row, which may expose multiple mixes.
+    // Never fall back to a neighboring mix if the focused Beatport link
+    // is malformed, hidden, credential-bearing or otherwise unsafe.
+    let focusedUrl = null;
+    if (!selected) {
+      const focused = document.activeElement;
+      if (focused?.tagName?.toLowerCase() === 'a') {
+        const href = focused.getAttribute?.('href');
+        let target = null;
+        try { target = new URL(href); } catch { /* not an absolute URL */ }
+        if (target?.hostname === 'www.beatport.com') {
+          focusedUrl = valid(href);
+          if (!focusedUrl || !visible(focused))
+            throw new Error('Focused Beatport link is hidden or noncanonical.');
+        }
+      }
+      if (!focusedUrl) selected = rowFrom(focused);
+    }
     const find = (root) => Array.from(
       root.querySelectorAll('a[href]')).filter(visible)
       .map(a => valid(a.getAttribute('href'))).filter(Boolean);
     // Refuse ambiguity, rather than taking the first search result.
-    const hits = Array.from(new Set(find(selected || document)));
+    const hits = focusedUrl ? [focusedUrl] :
+      Array.from(new Set(find(selected || document)));
     if (hits.length !== 1)
       throw new Error(hits.length ? 'More than one Beatport track link found. ' +
         'Select text in just the desired track row and try again.' :
