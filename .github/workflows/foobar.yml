@@ -65,6 +65,9 @@ jobs:
       - name: Validate authenticated Discogs discovery contract offline
         shell: pwsh
         run: ./tests/discogs_discovery_contract_tests.ps1
+      - name: Verify Studio package format on synthetic PE only
+        shell: pwsh
+        run: ./tests/package_foobar_noop_tests.ps1
 
   windows-build:
     needs: static-audit
