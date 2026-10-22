@@ -634,6 +634,18 @@ for token in (
     if token not in batch_table_dialog:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: provider switch query reset/prefill missing: "+token)
 
+# MB exact release/CUE album comparisons must use the same qualified
+# all-track gate as the compiled core tests; partial/unverified tracks are
+# explicitly BLOCKED in the real foobar native presentation.
+for token in (
+    "qualified_musicbrainz_cue_album_alignment(cue,edition,alignment)",
+    "musicbrainz_cue_edition_full_alignment_required_",
+    "link.decision==MatchDecision::Suggested",
+    "musicbrainz::valid_mbid(remote.source_track_id)",
+):
+    if token not in batch_table_dialog:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: MB/CUE release full alignment gate missing: "+token)
+
 # Rapid manual MusicBrainz retry may happen immediately after a zero-hit
 # search. It must wait in the worker, rather than reject and require a
 # second manually timed click or sleep on the UI thread.

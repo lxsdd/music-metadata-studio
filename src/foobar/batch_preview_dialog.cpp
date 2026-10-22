@@ -31,6 +31,7 @@
 #include "djmeta/online_field_ui_selection.h"
 #include "djmeta/discogs_provider.h"
 #include "djmeta/cue_release_review.h"
+#include "djmeta/cue_musicbrainz_release_gate.h"
 #include "djmeta/cue_original_inventory.h"
 #include "djmeta/beatport_manual_intake.h"
 #include "djmeta/beatport_public_page.h"
@@ -733,6 +734,15 @@ std::vector<djmeta::online::FieldReviewRow> musicbrainz_cue_release_rows(
     ReleaseAlignment alignment;
     if (local.eligible)
         alignment=align_release(local.tracks,edition);
+    const bool whole_edition_qualified=
+        qualified_musicbrainz_cue_album_alignment(cue,edition,alignment);
+    if(!whole_edition_qualified)
+        for(auto& row:output)
+            if(row.state==FieldReviewState::NeedsReview){
+                row.state=FieldReviewState::Blocked;
+                row.reason="musicbrainz_cue_edition_full_alignment_required_"+
+                           row.reason;
+            }
     // Each remote track is displayed even if local identity is missing:
     // never invent a position-to-CUE assignment from the tracklist alone.
     for (std::size_t i=0;i<edition.tracks.size();++i) {
@@ -742,7 +752,9 @@ std::vector<djmeta::online::FieldReviewRow> musicbrainz_cue_release_rows(
         std::optional<std::size_t> local_ordinal;
         for (const auto& link:alignment.tracks) {
             if (link.edition_track_index==i &&
-                link.decision!=MatchDecision::Rejected) {
+                link.decision==MatchDecision::Suggested &&
+                link.conflicts.empty() &&
+                musicbrainz::valid_mbid(remote.source_track_id)) {
                 local_ordinal=link.source_index;
                 break;
             }

@@ -350,6 +350,19 @@ else()
     target_compile_options(djmeta_preview_window_geometry_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+# MusicBrainz CUE global-diff qualification uses the actual complete edition
+# identity and one-to-one track alignment, without trusting partial matches.
+add_executable(djmeta_cue_musicbrainz_release_gate_tests
+    tests/cue_musicbrainz_release_gate_tests.cpp)
+target_link_libraries(djmeta_cue_musicbrainz_release_gate_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_cue_musicbrainz_release_gate_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_cue_musicbrainz_release_gate_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_cue_musicbrainz_release_gate_tests PRIVATE
+        -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 # Native-free CUE clipboard presentation parity, no writer or HTTP dependencies.
 add_executable(djmeta_cue_manual_preview_tests tests/cue_manual_preview_tests.cpp)
 target_link_libraries(djmeta_cue_manual_preview_tests PRIVATE djmeta_core)
@@ -435,6 +448,7 @@ add_test(NAME djmeta_host_file_probe_identity_tests COMMAND djmeta_host_file_pro
 add_test(NAME djmeta_cue_online_review_tests COMMAND djmeta_cue_online_review_tests)
 add_test(NAME djmeta_cue_online_bridge_tests COMMAND djmeta_cue_online_bridge_tests)
 add_test(NAME djmeta_cue_metadata_tests COMMAND djmeta_cue_metadata_tests)
+add_test(NAME djmeta_cue_musicbrainz_release_gate_tests COMMAND djmeta_cue_musicbrainz_release_gate_tests)
 add_test(NAME djmeta_cue_value_postimage_tests COMMAND djmeta_cue_value_postimage_tests)
 add_test(NAME djmeta_online_intake_tests COMMAND djmeta_online_intake_tests)
 add_test(NAME djmeta_online_query_prefill_tests COMMAND djmeta_online_query_prefill_tests)
