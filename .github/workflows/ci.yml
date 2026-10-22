@@ -66,6 +66,7 @@ jobs:
         run: |
           node --check scripts/beatport-copy-public-jsonld.js
           node --check scripts/crates-copy-selected-beatport-link.js
+          node tests/beatport_public_browser_helper_tests.js
           node tests/crates_browser_bridge_tests.js
 
       - name: Configure
