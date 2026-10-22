@@ -4404,11 +4404,25 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             }
             if (row<0 || static_cast<std::size_t>(row)>=state->track_view_order.size())
                 return TRUE;
+            // The original tab is the user's gesture context. Capture it
+            // before switching the visible page to Find & compare.
+            const int originating_tab=TabCtrl_GetCurSel(state->tabs);
             invalidate_online_request(*state);
             state->selected_track_index =
                 state->track_view_order[static_cast<std::size_t>(row)];
             TabCtrl_SetCurSel(state->tabs,0);
             show_preview_page(dialog,*state,true,true);
+            if(originating_tab != 0) {
+                // A review/file-planning gesture navigates, but NEVER
+                // authorizes an implicit provider call or overwrites manual
+                // search text. A later explicit Search click is required.
+                SetFocus(GetDlgItem(dialog,IDC_METADATA_MB_QUERY));
+                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                    L"Selected track opened in Find & compare. Review the "
+                    L"search text and click Search or Load Beatport URL "
+                    L"explicitly; no network request was made.");
+                return TRUE;
+            }
             prefill_musicbrainz_query(*state,true);
             if(state->beatport_offline_selected) {
                 // This mode intentionally has NO unauthorized API transport.
@@ -4421,13 +4435,14 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                     L"and click Import Beatport. No HTTP request was sent.");
                 return TRUE;
             }
-            // Double-click/Return on a track is an explicit request to
-            // search, regardless of the tab where the gesture occurred.
-            // Reuse the native button's complete validation/rate-limit path
-            // exactly once; ordinary selection never starts network I/O.
-            SendMessageW(dialog,WM_COMMAND,
-                MAKEWPARAM(IDC_METADATA_MB_SEARCH,BN_CLICKED),
-                reinterpret_cast<LPARAM>(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH)));
+            // Only a Find-tab track gesture may authorize a single provider
+            // request. The shared policy is also exercised by native HWND tests.
+            if(native_track_activation_starts_online_search(
+                    originating_tab,state->beatport_offline_selected)) {
+                SendMessageW(dialog,WM_COMMAND,
+                    MAKEWPARAM(IDC_METADATA_MB_SEARCH,BN_CLICKED),
+                    reinterpret_cast<LPARAM>(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH)));
+            }
             return TRUE;
         }
         if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&
