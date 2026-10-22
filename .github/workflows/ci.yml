@@ -69,6 +69,10 @@ jobs:
           node tests/beatport_public_browser_helper_tests.js
           node tests/crates_browser_bridge_tests.js
 
+      - name: Enforce repository-wide public artifact hold
+        shell: bash
+        run: python scripts/verify-public-artifact-hold.py
+
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
@@ -79,7 +83,7 @@ jobs:
         run: ctest --test-dir build -C Release --output-on-failure
 
       - name: Stage Windows integration artifact
-        if: runner.os == 'Windows' && github.event_name != 'pull_request'
+        if: false # Safety hold: no public native DLL staging
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -93,7 +97,7 @@ jobs:
           ) | Set-Content -Encoding UTF8 integration-artifact/MANIFEST.txt
 
       - name: Upload Windows integration artifact
-        if: runner.os == 'Windows' && github.event_name != 'pull_request'
+        if: false # Safety hold: no public native DLL upload
         uses: actions/upload-artifact@v7
         with:
           name: djmeta-native-${{ github.sha }}
