@@ -6,6 +6,7 @@
 #include "djmeta/beatport_manual_intake.h"
 
 #include <charconv>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
@@ -15,6 +16,9 @@
 
 namespace djmeta::online {
 
+// Native query controls must accept the longest canonical Beatport path.
+inline constexpr std::size_t maximum_public_beatport_url_length=220;
+
 struct BeatportPublicTrackUrl {
     std::uint64_t id;
     std::string canonical_url;
@@ -22,7 +26,8 @@ struct BeatportPublicTrackUrl {
 inline BeatportPublicTrackUrl qualify_beatport_public_track_url(
     std::string_view url) {
     constexpr std::string_view prefix="https://www.beatport.com/track/";
-    if(!url.starts_with(prefix) || url.size()>220)
+    if(!url.starts_with(prefix) ||
+       url.size()>maximum_public_beatport_url_length)
         throw std::invalid_argument("Only a public canonical Beatport HTTPS track URL is accepted");
     auto rest=url.substr(prefix.size());
     const auto separator=rest.find('/');

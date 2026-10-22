@@ -1004,3 +1004,9 @@ for marker in ("crates.co/api", "Crates token=", "beatport_password", "crates_se
 crates_handoff=batch_rules_guard.split("void open_crates_for_selected_physical_track(",1)[1].split("\\n// A Beatport public URL",1)[0]
 if 'SetDlgItemTextW(dialog,IDC_METADATA_MB_QUERY,L"");' not in crates_handoff:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: Crates hand-off may reuse a stale Beatport URL")
+
+# A canonical Beatport URL may exceed the old 150-character MusicBrainz
+# input cap. The native edit limit must match the strict URL validator.
+if 'maximum_public_beatport_url_length, 0);' not in batch_rules_guard or \
+   'EM_LIMITTEXT, 150, 0' in batch_rules_guard:
+    raise SystemExit('STATIC FOOBAR AUDIT FAIL: Beatport URL query may truncate')

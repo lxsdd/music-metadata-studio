@@ -98,6 +98,13 @@ int main() {
           public_track.release_title.empty() &&
           public_track.publish_date.empty(),
           "JSON-LD readable facts retain mix; unsupported album/date provenance is not invented");
+    const std::string long_slug(125,'a');
+    const std::string long_url=
+        "https://www.beatport.com/track/"+long_slug+"/123456";
+    check(long_url.size()>150 &&
+          long_url.size()<=maximum_public_beatport_url_length &&
+          qualify_beatport_public_track_url(long_url).id==123456,
+          "a valid long Crates/Beatport link must fit the native query control");
     for(const char* url:{
         "http://www.beatport.com/track/home/321",
         "https://beatport.com/track/home/321",
