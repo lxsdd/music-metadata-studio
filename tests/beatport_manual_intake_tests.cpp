@@ -84,6 +84,29 @@ int main() {
         forged.replace(key,55,"\"url\":\"https://www.beatport.com/track/other/322\"");
         (void)parse_beatport_public_jsonld_clipboard(forged);
     }, "public page URL mismatch fails closed");
+    // A clipboard locator is not independent recording identity evidence.
+    const std::string embedded_url=
+        "\"url\":\"https://www.beatport.com/track/home/321\",";
+    const auto identity_pos=public_jsonld.find(embedded_url);
+    check(identity_pos!=std::string::npos,"embedded URL test fixture exists");
+    std::string id_only=public_jsonld;
+    id_only.replace(identity_pos,embedded_url.size(),
+        "\"@id\":\"https://www.beatport.com/track/home/321\",");
+    check(parse_beatport_public_jsonld_clipboard(id_only).id==321,
+          "matching independent JSON-LD @id is accepted");
+    rejects([&]{
+        std::string no_identity=public_jsonld;
+        no_identity.erase(identity_pos,embedded_url.size());
+        (void)parse_beatport_public_jsonld_clipboard(no_identity);
+    }, "clipboard locator without embedded recording identity is refused");
+    rejects([&]{
+        std::string wrong_id=id_only;
+        const auto pos=wrong_id.find("track/home/321",
+                                    wrong_id.find("\"@id\""));
+        check(pos!=std::string::npos,"embedded @id fixture exists");
+        wrong_id.replace(pos,14,"track/other/322");
+        (void)parse_beatport_public_jsonld_clipboard(wrong_id);
+    }, "foreign embedded @id is refused despite matching clipboard locator");
     check(public_jsonld_script_tag(
               R"(<script data-provenance='visible' TYPE="application/ld+json">)"),
           "real quoted JSON-LD type attribute is recognized");

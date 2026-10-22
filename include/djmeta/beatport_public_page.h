@@ -99,9 +99,10 @@ inline bool public_music_recording_type(const beatport::Json& obj) {
     return false;
 }
 
-// A direct browser clipboard can supply an explicit selected URL. For a
-// native HTML GET, however, embedded JSON-LD itself MUST affirm that URL.
-// No unrelated recording from @graph or a recommendation list may be used.
+// Browser clipboard and native HTML both require the JSON-LD recording
+// to independently attest the exact canonical track URL. The clipboard
+// @url locator alone cannot establish source identity. No unrelated
+// recording from @graph or a recommendation list may be used.
 inline beatport::TrackEvidence parse_beatport_public_jsonld_object(
     const beatport::Json& obj,const BeatportPublicTrackUrl& target,
     bool require_embedded_identity=false) {
@@ -162,7 +163,7 @@ inline beatport::TrackEvidence parse_beatport_public_jsonld_clipboard(
     if(url.ends_with("\r")) url.remove_suffix(1);
     const auto target=qualify_beatport_public_track_url(url);
     const auto obj=musicbrainz::JsonParser(raw.substr(second+1)).parse();
-    return parse_beatport_public_jsonld_object(obj,target);
+    return parse_beatport_public_jsonld_object(obj,target,true);
 }
 
 } // namespace djmeta::online
