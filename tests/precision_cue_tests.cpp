@@ -311,6 +311,117 @@ void test_boundary_audit_multidisc_synthetic() {
 }
 
 
+void test_read_only_edition_scoped_cue_diff() {
+    using namespace djmeta;
+    // Entirely synthetic 2-disc continuous mix: no private CUE or audio.
+    PrecisionCueRelease deezer, apple;
+    deezer.provider = "deezer";
+    deezer.provider_release_id = "synthetic-reference";
+    deezer.album_title = "Synthetic Continuous Mix (Mixed)";
+    deezer.album_performer = "Synthetic Ensemble";
+    apple = deezer;
+    apple.provider = "apple";
+    apple.provider_release_id = "synthetic-high-resolution";
+    for (unsigned disc = 1; disc <= 2; ++disc) {
+        for (unsigned track = 1; track <= (disc == 1 ? 16u : 14u); ++track) {
+            const auto title = "Synthetic Track " + std::to_string(track) + " (Mixed)";
+            deezer.tracks.push_back({disc, track, title, "Synthetic Performer", 180000});
+            apple.tracks.push_back({disc, track, title, "Synthetic Performer", 180000});
+        }
+    }
+    assert(match_precision_cue_releases(deezer, {apple}).state ==
+           PrecisionCueMatchState::Selected);
+    for (unsigned disc = 1; disc <= 2; ++disc) {
+        PrecisionCueDisc source;
+        source.album_title = apple.album_title;
+        source.album_performer = apple.album_performer;
+        source.audio_file_basename = "Synthetic Disc " + std::to_string(disc) + ".mp3";
+        source.disc_number = disc;
+        source.total_discs = 2;
+        for (const auto& track : apple.tracks) {
+            if (track.disc_number == disc)
+                source.tracks.push_back({track.title, track.performer, track.duration_ms});
+        }
+        const auto plan = make_precision_cue(source);
+        std::vector<PrecisionCueReferenceBoundary> markers;
+        for (const auto& boundary : plan.boundaries)
+            markers.push_back({boundary.track_number, boundary.cue_frame});
+        const auto exact = review_precision_cue_edition_boundaries(
+            deezer, {apple}, 0, disc, plan, markers);
+        assert(exact.state == PrecisionCueEditionDiffState::ExactFramePreviewOnly);
+        assert(exact.boundaries.exact_count == source.tracks.size());
+        assert(exact.boundaries.review_count == 0);
+
+        // Opposite one-frame reference offsets must be visible, not "exact".
+        if (disc == 1) ++markers[4].cue_frame;
+        else --markers[4].cue_frame;
+        const auto one_frame = review_precision_cue_edition_boundaries(
+            deezer, {apple}, 0, disc, plan, markers);
+        assert(one_frame.state == PrecisionCueEditionDiffState::FrameReviewRequired);
+        assert(one_frame.boundaries.within_one_frame_count == 1);
+        assert(one_frame.boundaries.differences[4].signed_delta_frames ==
+               (disc == 1 ? -1 : 1));
+
+        auto forged = plan;
+        forged.boundaries[1].elapsed_ms += 1; // same 75fps frame, wrong edition ms
+        assert(review_precision_cue_edition_boundaries(
+            deezer, {apple}, 0, disc, forged, markers).state ==
+            PrecisionCueEditionDiffState::Rejected);
+        forged = plan;
+        ++forged.total_duration_ms;
+        assert(review_precision_cue_edition_boundaries(
+            deezer, {apple}, 0, disc, forged, markers).state ==
+            PrecisionCueEditionDiffState::Rejected);
+
+        auto wrong_mix = apple;
+        wrong_mix.tracks[4].title = "Synthetic Track 5 (Original)";
+        assert(review_precision_cue_edition_boundaries(
+            deezer, {wrong_mix}, 0, disc, plan, markers).state ==
+            PrecisionCueEditionDiffState::EditionReviewRequired);
+        auto alternate = apple;
+        alternate.provider_release_id = "different-synthetic-edition";
+        assert(review_precision_cue_edition_boundaries(
+            deezer, {apple, alternate}, 0, disc, plan, markers).state ==
+            PrecisionCueEditionDiffState::EditionReviewRequired);
+        assert(review_precision_cue_edition_boundaries(
+            deezer, {apple}, 1, disc, plan, markers).state ==
+            PrecisionCueEditionDiffState::Rejected);
+        assert(review_precision_cue_edition_boundaries(
+            deezer, {apple}, 0, 3, plan, markers).state ==
+            PrecisionCueEditionDiffState::Rejected);
+    }
+}
+
+void test_cue_diff_rejects_incoherent_generated_plan() {
+    using namespace djmeta;
+    auto plan = make_precision_cue(synthetic_disc());
+    std::vector<PrecisionCueReferenceBoundary> markers;
+    for (const auto& b : plan.boundaries)
+        markers.push_back({b.track_number, b.cue_frame});
+    const auto reject = [&](const PrecisionCuePlan& input) {
+        const auto audit = audit_precision_cue_boundaries(input, markers);
+        assert(audit.state == PrecisionCueAuditState::Rejected);
+        assert(audit.differences.empty()); // fail closed, never partial evidence
+    };
+    auto invalid = plan;
+    invalid.boundaries[1].elapsed_ms = 20; // 20 ms is frame 2, not frame 1
+    reject(invalid);
+    invalid = plan;
+    invalid.boundaries[1].elapsed_ms = -1;
+    reject(invalid);
+    invalid = plan;
+    invalid.boundaries[2].elapsed_ms = plan.total_duration_ms;
+    reject(invalid);
+    invalid = plan;
+    invalid.boundaries[2].elapsed_ms = invalid.boundaries[1].elapsed_ms;
+    reject(invalid);
+    invalid = plan;
+    invalid.boundaries[2].cue_frame =
+        milliseconds_to_cue_frame(plan.total_duration_ms);
+    reject(invalid);
+}
+
+
 void test_physical_cue_index_bounds_and_create_gate() {
     using State = djmeta::PrecisionCuePhysicalBoundsState;
     auto disc = synthetic_disc();
@@ -392,6 +503,14 @@ void test_foobar_physical_mp3_path_admission() {
         "file-relative://Music/Synthetic.mp3"));
     assert(!precision_cue_foobar_local_windows_mp3_path(
         "file-relative://../Music/Synthetic.mp3"));
+    // A virtual embedded-CUE subsong must never impersonate its physical MP3.
+    // These are negative identity fixtures only; no actual files are opened.
+    for (const auto* virtual_path : {
+        "unpack://cue|D:/Music/Synthetic.mp3|2",
+        "cue://D:/Music/Synthetic.mp3#track=2",
+        "https://example.invalid/Synthetic.mp3",
+        "file-relative://D:/Music/Synthetic.mp3"
+    }) assert(!precision_cue_foobar_local_windows_mp3_path(virtual_path));
     assert(precision_cue_foobar_path_form("FILE://D:/Music/Synthetic.mp3") ==
            "file-uri");
     assert(precision_cue_foobar_safe_scheme_token("foobar+file://private/path")==
@@ -517,6 +636,8 @@ int main() {
     test_frame_classification();
     test_quantization_audit_exact_integer_offsets();
     test_boundary_audit_multidisc_synthetic();
+    test_read_only_edition_scoped_cue_diff();
+    test_cue_diff_rejects_incoherent_generated_plan();
     test_invalid_input_fail_closed();
     test_generated_utf8_validation();
     test_unicode_control_and_bidi_safety();
