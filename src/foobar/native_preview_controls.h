@@ -38,6 +38,15 @@ std::vector<std::size_t> native_candidate_view_order(
     return order;
 }
 
+// A track activation only dispatches an online request from Find & compare.
+// Review/File locations use the same gesture as navigation to Find, not as
+// implicit network consent. Beatport + Crates has no licensed catalog-search
+// transport, so a track gesture never fetches a public URL from clipboard.
+inline bool native_track_activation_starts_online_search(
+    int source_tab_index, bool beatport_browser_mode) noexcept {
+    return source_tab_index == 0 && !beatport_browser_mode;
+}
+
 // A master ID, unverified candidate, stale context or pending request
 // can never enable release-track inspection.
 inline bool native_release_loadable(
