@@ -25,8 +25,11 @@
       if (!anchor.getClientRects().length) return false;
       // A layout rectangle is not enough: visibility:hidden and opacity:0
       // are still present in the DOM and must not become track evidence.
+      // A hidden ancestor can be much farther away than a track row.
+      // Traverse the bounded ancestor chain; fail closed if it is deeper.
       let current = anchor;
-      for (let depth = 0; current && depth < 12; ++depth) {
+      let depth = 0;
+      while (current && depth++ < 64) {
         const style = window.getComputedStyle?.(current);
         if (current.hidden || current.inert ||
             current.getAttribute?.('aria-hidden') === 'true' ||
@@ -37,7 +40,7 @@
                         Number(style.opacity) === 0)))) return false;
         current = current.parentElement;
       }
-      return true;
+      return !current;
     };
     const rowFrom = (element) => element?.closest?.(
       'tr,li,article,[role="row"],[data-track-id],.track,.track-row');

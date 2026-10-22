@@ -291,3 +291,13 @@ URL** can safely consume that URL on its next explicit click. This prevents an
 old-but-valid candidate URL from silently superseding the newly chosen track.
 Clearing the query also invalidates obsolete provider context, without writing
 music files or reading Crates login state. Existing saved metadata is untouched.
+
+## Deep DOM visibility safety (22 October 2026)
+
+The optional Crates browser link helper now checks the entire bounded ancestor
+chain (up to 64 elements) for CSS-hidden/zero-opacity/inert/aria-hidden
+containers before treating a visible Beatport anchor as user-selected evidence.
+It fails closed on excessively deep markup instead of assuming an anchor is
+visible after only 12 parent levels. Offline fixtures cover hidden ancestors
+at depth 14, a genuinely visible depth-60 anchor and a rejected depth-65
+anchor. This does not grant API access or authenticate copied links.

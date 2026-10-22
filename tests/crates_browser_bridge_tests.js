@@ -79,6 +79,31 @@ async function scenario({host='crates.co',port='',all=[],row=null,selection=null
     assert.equal(r.copied,'');
     r=await scenario({all:[anchor(beatport(321),true,{hidden:true})]});
     assert.equal(r.copied,'');
+    // Deeply nested Crates DOM must not expose links inside a hidden
+    // ancestor: the old 12-level walk missed this and copied false evidence.
+    const nested=(count,ancestorStyle={})=>{
+        const leaf=anchor(beatport(321));
+        let node=leaf;
+        for(let i=0;i<count;i++){
+            node.parentElement={
+                parentElement:null,computedStyle:{},
+                getAttribute:()=>null,hidden:false,inert:false
+            };
+            node=node.parentElement;
+        }
+        node.computedStyle=ancestorStyle;
+        return leaf;
+    };
+    r=await scenario({all:[nested(14,{visibility:'hidden'})]});
+    assert.equal(r.copied,'');
+    r=await scenario({all:[nested(14,{opacity:'0'})]});
+    assert.equal(r.copied,'');
+    // A deep but entirely visible link is allowed; excessive depth is
+    // conservatively refused rather than treated as visibility proof.
+    r=await scenario({all:[nested(60)]});
+    assert.equal(r.copied,beatport(321));
+    r=await scenario({all:[nested(65)]});
+    assert.equal(r.copied,'');
     r=await scenario({
         all:[anchor(beatport(321)),anchor(beatport(322))],
         row:{items:[anchor(beatport(322))]},
