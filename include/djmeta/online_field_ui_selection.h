@@ -87,7 +87,8 @@ inline bool verified_physical_discogs_track_field(
 inline std::optional<std::size_t> independently_verified_discogs_track(
     const MetadataDocument& original, const ReleaseEdition& edition,
     std::int64_t duration_ms) {
-    if(duration_ms<=0 || duration_ms>36000000 || edition.provider!="discogs")
+    if(duration_ms<=0 || duration_ms>36000000 || edition.provider!="discogs" ||
+       discogs_edition_identifier_conflict(original,edition))
         return std::nullopt;
     const auto local=discogs_physical_identity(original,duration_ms);
     if(!local) return std::nullopt;

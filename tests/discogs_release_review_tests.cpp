@@ -190,6 +190,71 @@ int main() {
     // the other release track must NEVER be admitted by index or title.
     const auto permitted=physical_discogs_stageable_evidence(
         exact,physical,242000,verified);
+    // Negative edition-identity gate: a strong title/artist/mix/duration
+    // match cannot override a contradictory local barcode or catalogue.
+    // Leading zeros, punctuation, multiple provider barcodes and original
+    // custom values must survive comparison without mutation.
+    auto identified=exact;
+    identified.fields.push_back({"BARCODE",
+        {"0000123456789","0000123456790"},"discogs",exact.edition_id,
+        EvidenceScope::Edition,DateMeaning::NotDate});
+    identified.fields.push_back({"CATALOGNUMBER",
+        {"CAT-001"},"discogs",exact.edition_id,
+        EvidenceScope::Edition,DateMeaning::NotDate});
+    auto local_identified=physical;
+    local_identified.fields.push_back({"BARCODE",{"0000123456790"}});
+    local_identified.fields.push_back({"CATALOGNUMBER",{"CAT-001"}});
+    require(!discogs_edition_identifier_conflict(local_identified,identified) &&
+            independently_verified_discogs_track(
+                local_identified,identified,242000).has_value(),
+            "matching exact edition identifiers preserve unique recording association");
+    const auto identifier_rows=review_discogs_physical_edition(
+        local_identified,identified,242000);
+    require(field(identifier_rows,"Album / ALBUM")->state==
+                FieldReviewState::NeedsReview &&
+            !physical_discogs_stageable_evidence(
+                identified,local_identified,242000,identifier_rows).empty(),
+            "verified edition identifiers retain explicit read-only review");
+    auto wrong_barcode=local_identified;
+    wrong_barcode.fields[5].values={"0000123456791"};
+    const auto barcode_rows=review_discogs_physical_edition(
+        wrong_barcode,identified,242000);
+    require(discogs_edition_identifier_conflict(wrong_barcode,identified) &&
+            field(barcode_rows,"Album / ALBUM")->state==
+                FieldReviewState::Blocked &&
+            field(barcode_rows,"Release Track 1 / MATCH")->reason==
+                "discogs_live_match_edition_identifier_conflict" &&
+            field(barcode_rows,"Physical / BARCODE")->original_values==
+                std::vector<std::string>{"0000123456791"} &&
+            physical_discogs_stageable_evidence(
+                identified,wrong_barcode,242000,barcode_rows).empty(),
+            "conflicting barcode blocks edition and track staging, keeps originals");
+    auto wrong_catalog=local_identified;
+    wrong_catalog.fields[6].values={"CAT-002"};
+    const auto catalog_rows=review_discogs_physical_edition(
+        wrong_catalog,identified,242000);
+    require(discogs_edition_identifier_conflict(wrong_catalog,identified) &&
+            field(catalog_rows,"Release Track 1 / REMIXER")->state==
+                FieldReviewState::Blocked &&
+            physical_discogs_stageable_evidence(
+                identified,wrong_catalog,242000,identifier_rows).empty(),
+            "conflicting catalog number blocks even previously rendered staging");
+    auto duplicate_identifier=local_identified;
+    duplicate_identifier.fields.push_back({"barcode",{"0000123456790"}});
+    require(discogs_edition_identifier_conflict(
+                duplicate_identifier,identified) &&
+            !independently_verified_discogs_track(
+                duplicate_identifier,identified,242000),
+            "duplicate physical barcode fields cannot silently choose a source");
+    auto unprovided_identifier=local_identified;
+    require(!discogs_edition_identifier_conflict(
+                unprovided_identifier,exact) &&
+            independently_verified_discogs_track(
+                unprovided_identifier,exact,242000).has_value(),
+            "provider omission is unknown, not a fabricated barcode mismatch");
+    require(local_identified.fields[3]==physical.fields[3] &&
+            local_identified.fields[4]==physical.fields[4],
+            "identifier comparison never modifies ReplayGain or custom multivalues");
     const auto no_duration=physical_discogs_stageable_evidence(
         exact,physical,-1,verified);
     require(no_duration.empty() &&

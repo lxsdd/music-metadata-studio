@@ -71,6 +71,45 @@ inline std::optional<LocalReleaseTrack> discogs_physical_identity(
     return local;
 }
 
+// A matching recording is not a matching *edition* when the physical source
+// explicitly identifies a different barcode or catalogue number. Compare
+// textual values byte-for-byte (leading zeros and punctuation matter).
+// Missing identifiers on either side remain unknown, not invented conflicts.
+// This is only a negative identity gate: a matching identifier does not by
+// itself establish a track association or grant write authority.
+inline bool discogs_edition_identifier_conflict(
+    const MetadataDocument& originals, const ReleaseEdition& edition) {
+    for (const char* name : {"BARCODE", "CATALOGNUMBER"}) {
+        std::vector<std::string> provider_values;
+        for (const auto& evidence : edition.fields) {
+            if (ascii_upper_field(evidence.field) != name) continue;
+            if (evidence.provider != "discogs" ||
+                evidence.source_id != edition.edition_id ||
+                evidence.scope != EvidenceScope::Edition)
+                return true;
+            provider_values.insert(provider_values.end(),
+                evidence.values.begin(), evidence.values.end());
+        }
+        if (provider_values.empty()) continue;
+        bool seen_original = false;
+        for (const auto& original : originals.fields) {
+            if (ascii_upper_field(original.name) != name) continue;
+            // Duplicate physical field names and empty values are not a
+            // qualified unique source identity; preserve them, but abstain.
+            if (seen_original || original.values.empty()) return true;
+            seen_original = true;
+            for (const auto& value : original.values) {
+                if (!discogs::catalog_label(value,
+                        std::string_view(name) == "BARCODE" ? 128 : 512) ||
+                    std::find(provider_values.begin(), provider_values.end(),
+                              value) == provider_values.end())
+                    return true;
+            }
+        }
+    }
+    return false;
+}
+
 // Track-field provenance is part of release identity, not merely a detail
 // rendering condition. An otherwise matching physical recording cannot
 // promote edition-wide album/date/genre proposals through a tainted track.
@@ -124,6 +163,8 @@ inline std::vector<FieldReviewRow> review_discogs_physical_edition(
     }
     // Only a unique Suggested association with no conflicts may expose
     // track-specific fields for comparison. This is NEVER write approval.
+    const bool identifier_conflict =
+        discogs_edition_identifier_conflict(originals, edition);
     std::size_t verified_track=no_release_track;
     const auto local=discogs_physical_identity(
         originals,physical_duration_ms);
@@ -133,7 +174,8 @@ inline std::vector<FieldReviewRow> review_discogs_physical_edition(
         if(alignment.tracks.size()==1) {
             const auto& link=alignment.tracks.front();
             chosen_association=link;
-            if(link.decision==MatchDecision::Suggested &&
+            if(!identifier_conflict &&
+               link.decision==MatchDecision::Suggested &&
                link.conflicts.empty() &&
                discogs_edition_track_provenance_trusted(
                    edition, link.edition_track_index))
@@ -168,6 +210,10 @@ inline std::vector<FieldReviewRow> review_discogs_physical_edition(
         if(!trusted) {
             diagnosis.reason="discogs_live_match_track_provenance_unqualified";
             diagnosis.candidate.values={"Incomplete or inconsistent track provenance"};
+        } else if(identifier_conflict) {
+            diagnosis.reason="discogs_live_match_edition_identifier_conflict";
+            diagnosis.candidate.values={
+                "Local barcode/catalog number contradicts this exact edition"};
         } else if(!local) {
             diagnosis.reason="discogs_live_match_local_identity_ambiguous";
             diagnosis.candidate.values={"Unique physical TITLE and ARTIST are required"};
