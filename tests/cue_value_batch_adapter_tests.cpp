@@ -86,10 +86,17 @@ int main(){
           empty.planned.cue_source_fingerprint==
              empty.planned.cue_postimage_fingerprint,
           "no chosen edition fields implies byte-identical no-op");
-    auto locked=projected.planned;
-    locked.cue_values_will_change=false;
-    check(stage_exact_external_cue_values_for_batch(locked,raw,mb,{0,1}).eligible==false,
+    check(!stage_exact_external_cue_values_for_batch(
+          projected.planned,raw,mb,{0,1}).eligible,
           "already selected staged carrier cannot be silently re-used");
+    auto explicitly_reset=projected.planned;
+    explicitly_reset.cue_values_will_change=false;
+    const auto reproduced=stage_exact_external_cue_values_for_batch(
+        explicitly_reset,raw,mb,{0,1});
+    check(reproduced.eligible &&
+          reproduced.planned.cue_postimage_fingerprint==
+              projected.planned.cue_postimage_fingerprint,
+          "explicit review reset can reproduce only the same qualified byte postimage");
     auto stale=base;
     stale.cue_source_fingerprint="stale data";
     check(!stage_exact_external_cue_values_for_batch(stale,raw,mb,{0,1}).eligible,
