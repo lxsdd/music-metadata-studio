@@ -11,13 +11,16 @@ const js=fs.readFileSync(
 const beatport=(id)=>'https://www.beatport.com/track/extended-mix/'+id;
 function anchor(href,visible=true,style={}) {
     return {
-        getAttribute:(key)=>key==='href'?href:null,
+        getAttribute:(key)=>key==='href'?href:
+            key==='aria-hidden'?(style.ariaHidden || null):null,
         getClientRects:()=>visible?[{}]:[],
         computedStyle:style,
+        hidden:style.hidden || false,
+        inert:style.inert || false,
         parentElement:null
     };
 }
-async function scenario({host='crates.co',port='',all=[],row=null}={}) {
+async function scenario({host='crates.co',port='',all=[],row=null,selection=null}={}) {
     let copied='',message='';
     const dom={
         querySelectorAll:(s)=>{
@@ -31,7 +34,7 @@ async function scenario({host='crates.co',port='',all=[],row=null}={}) {
         location:{hostname:host,port,protocol:'https:',href:'https://crates.co/'},
         URL,document:dom,
         window:{
-            getSelection:()=>({isCollapsed:true}),
+            getSelection:()=>selection || {isCollapsed:true},
             getComputedStyle:(element)=>element.computedStyle || {},
         },
         navigator:{clipboard:{writeText:async value=>{copied=value;}}},
@@ -68,11 +71,42 @@ async function scenario({host='crates.co',port='',all=[],row=null}={}) {
     assert.equal(r.copied,'');
     r=await scenario({all:[anchor(beatport(321),true,{display:'none'})]});
     assert.equal(r.copied,'');
+    r=await scenario({all:[anchor(beatport(321),true,{opacity:'0.0'})]});
+    assert.equal(r.copied,'');
+    r=await scenario({all:[anchor(beatport(321),true,{ariaHidden:'true'})]});
+    assert.equal(r.copied,'');
+    r=await scenario({all:[anchor(beatport(321),true,{inert:true})]});
+    assert.equal(r.copied,'');
+    r=await scenario({all:[anchor(beatport(321),true,{hidden:true})]});
+    assert.equal(r.copied,'');
     r=await scenario({
         all:[anchor(beatport(321)),anchor(beatport(322))],
         row:{items:[anchor(beatport(322))]},
     });
     assert.equal(r.copied,beatport(322));
+    // Selecting across TWO result rows must not silently pick the anchor's mix.
+    const first={items:[anchor(beatport(321))]};
+    const second={items:[anchor(beatport(322))]};
+    const nodeFor=(row)=>({parentElement:{closest:()=>row}});
+    r=await scenario({
+        all:[...first.items,...second.items],row:first,
+        selection:{isCollapsed:false,anchorNode:nodeFor(first),
+                   focusNode:nodeFor(second)}
+    });
+    assert.equal(r.copied,'');
+    assert.match(r.message,/one exact track row/);
+    r=await scenario({
+        all:[...first.items,...second.items],row:second,
+        selection:{isCollapsed:false,anchorNode:nodeFor(second),
+                   focusNode:nodeFor(second)}
+    });
+    assert.equal(r.copied,beatport(322));
+    r=await scenario({
+        all:[...first.items,...second.items],row:first,
+        selection:{isCollapsed:false,anchorNode:nodeFor(first),
+                   focusNode:nodeFor(null)}
+    });
+    assert.equal(r.copied,'');
     assert.doesNotMatch(js,/\bfetch\s*\(/);
     assert.doesNotMatch(js,/document\.cookie\s*[;=\[]/);
     console.log('PASS: Crates visible single-link browser helper identity/safety');
