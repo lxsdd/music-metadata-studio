@@ -18,6 +18,44 @@
             !/^\/track\/[a-z0-9-]{1,125}\/[1-9][0-9]{0,11}$/.test(path))
             fail('Open a public canonical Beatport track page first.');
         const found = [];
+
+        // Bound UTF-8 source bytes, not just JavaScript UTF-16 characters.
+        const encoder = new TextEncoder();
+        const bytes = value => encoder.encode(value).length;
+        const validText = (value, limit) => {
+            if (typeof value !== 'string' || !value ||
+                value.length > limit || bytes(value) > limit ||
+                /[\u0000-\u001f\u007f]/.test(value)) return false;
+            for (let i = 0; i < value.length; ++i) {
+                const code = value.charCodeAt(i);
+                if (code >= 0xD800 && code <= 0xDBFF) {
+                    const next = value.charCodeAt(++i);
+                    if (!(next >= 0xDC00 && next <= 0xDFFF)) return false;
+                } else if (code >= 0xDC00 && code <= 0xDFFF) return false;
+            }
+            return true;
+        };
+        const validDuration = value => {
+            if (typeof value !== 'string' || value.length < 4 ||
+                value.length > 24) return false;
+            // Same units, millisecond precision and 1s..6h bounds as C++.
+            const match = /^PT(?:(\d{1,4})H)?(?:(\d{1,4})M)?(?:(\d{1,4})(?:\.(\d{1,3}))?S)?$/.exec(value);
+            if (!match || (!match[1] && !match[2] && !match[3]))
+                return false;
+            const fraction = match[4] ?
+                Number(match[4]) * 10 ** (3 - match[4].length) : 0;
+            const ms = Number(match[1] || 0) * 3600000 +
+                       Number(match[2] || 0) * 60000 +
+                       Number(match[3] || 0) * 1000 + fraction;
+            return ms >= 1000 && ms <= 21600000;
+        };
+        const validArtists = value => {
+            const name = item => typeof item === 'string' ? item :
+                item && !Array.isArray(item) && typeof item === 'object' ?
+                item.name : null;
+            return (Array.isArray(value) ? value : [value])
+                .some(item => validText(name(item), 1024));
+        };
         const scan = (item, depth = 0) => {
             if (depth > 4 || found.length > 1) return;
             if (Array.isArray(item)) {
@@ -32,23 +70,24 @@
             const matches = value => value === 'MusicRecording' ||
                 value === 'https://schema.org/MusicRecording';
             if (matches(type) ||
-                (Array.isArray(type) && type.some(matches))) {
+                (Array.isArray(type) && type.length <= 8 && type.some(matches))) {
                 // JSON-LD must independently attest the CURRENT page identity.
                 // Without url/@id this might be an unrelated recommendation.
                 const identities = [item.url, item['@id']].filter(
                     value => value !== undefined && value !== null);
                 if (!identities.length ||
                     identities.some(value => value !== url)) return;
-                if (typeof item.name !== 'string' ||
-                    typeof item.duration !== 'string' ||
-                    !item.byArtist) return;
+                if (!validText(item.name, 2048) ||
+                    !validDuration(item.duration) ||
+                    !validArtists(item.byArtist)) return;
                 found.push(item);
             }
         };
         for (const node of document.querySelectorAll('script[type]')) {
             if (node.getAttribute('type')?.trim().toLowerCase() !==
                 'application/ld+json') continue;
-            if (node.textContent.length > 65536) continue;
+            if (node.textContent.length > 65536 ||
+                bytes(node.textContent) > 65536) continue;
             try { scan(JSON.parse(node.textContent)); }
             catch (e) { /* unrelated site markup is not useful */ }
         }
@@ -63,7 +102,7 @@
         candidate.url = url;
         const payload = '@beatport-public-jsonld\n@url=' + url +
                         '\n' + JSON.stringify(candidate);
-        if (payload.length > 65536)
+        if (payload.length > 65536 || bytes(payload) > 65536)
             fail('Source metadata is too large for bounded foobar import.');
         try {
             await navigator.clipboard.writeText(payload);

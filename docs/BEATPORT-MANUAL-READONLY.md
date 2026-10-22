@@ -313,3 +313,15 @@ parameters or an alternate port), the helper refuses instead of silently
 copying a different visible mix. No Crates login/session/API is accessed.
 Offline negative fixtures cover hidden, credential-bearing and malformed
 focused links, mixed rows, and cross-row selection precedence.
+
+## Browser-to-native Beatport clipboard qualification (22 October 2026)
+
+The user-triggered public-page helper now checks the recording before claiming
+a successful clipboard copy. Qualified title and artist text, ISO-8601
+recording durations within the native 1-second to 6-hour range, and bounded
+structured-data types are required. Source JSON-LD and clipboard output are
+capped by **UTF-8 bytes**, rather than JavaScript UTF-16 character count.
+Malformed surrogates, controls, sub-second durations and oversized Unicode
+payloads fail closed. This prevents misleading success messages followed by
+native import rejection; it does not verify live Beatport markup, obtain Crates
+permissions or authorize any provider API, login capture or metadata writes.

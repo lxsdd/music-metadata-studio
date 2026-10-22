@@ -4,6 +4,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 const path=require('node:path');
+const {TextEncoder}=require('node:util');
 const script=fs.readFileSync(
     path.join(__dirname,'../scripts/beatport-copy-public-jsonld.js'),'utf8');
 const url='https://www.beatport.com/track/home/321';
@@ -33,6 +34,7 @@ async function scenario({recordings=[good()],types=['application/ld+json'],
         },
         navigator:{clipboard:{writeText:async text=>writes.push(text)}},
         alert:msg=>alerts.push(msg),
+        TextEncoder,
     };
     await vm.runInNewContext(script,ctx,{timeout:1500});
     return {writes,alerts};
@@ -82,6 +84,34 @@ async function scenario({recordings=[good()],types=['application/ld+json'],
     }
     r=await scenario({recordings:[good()],pathname:'/track/home/321/'});
     assert.equal(r.writes.length,0);
+
+    // Do not say "copied" for JSON-LD that foobar would reject.
+    for(const duration of ['PT0.999S','PT7H','PT1.1234S',
+                           'P1D','PT','PT1M2M','PT0S']) {
+        r=await scenario({recordings:[{...good(),duration}]});
+        assert.equal(r.writes.length,0,'bad ISO duration: '+duration);
+    }
+    for(const byArtist of [null,[],{name:''},[{name:''}],{name:'\u0001'}]) {
+        r=await scenario({recordings:[{...good(),byArtist}]});
+        assert.equal(r.writes.length,0,'bad artist identity');
+    }
+    r=await scenario({recordings:[{...good(),duration:'PT6M42.125S',
+        byArtist:[{name:'DJ Example'},{name:'Partner'}]}]});
+    assert.equal(r.writes.length,1,'qualified fractional duration and credits');
+    for (const name of ['A'.repeat(2049),'Broken\uD800','Track\nInjected']) {
+        r=await scenario({recordings:[{...good(),name}]});
+        assert.equal(r.writes.length,0,'invalid UTF-8/title input');
+    }
+    r=await scenario({recordings:[{...good(),
+        '@type':['MusicRecording',...Array(8).fill('Other')]}]});
+    assert.equal(r.writes.length,0,'unbounded type array');
+    r=await scenario({recordings:[{...good(),name:'Hören'}]});
+    assert.equal(r.writes.length,1,'valid Unicode title');
+    // JS .length undercounts UTF-8 bytes, especially for non-ASCII data.
+    r=await scenario({recordings:[{...good(),notes:'漢'.repeat(23000)}]});
+    assert.equal(r.writes.length,0,'oversized UTF-8 page cannot be imported');
+    assert.match(r.alerts[0],/No unique MusicRecording/);
+
     assert.doesNotMatch(script,/\bfetch\s*\(/);
     assert.doesNotMatch(script,/document\.cookie\s*[;=\[]/);
     assert.doesNotMatch(script,/localStorage|sessionStorage/);
