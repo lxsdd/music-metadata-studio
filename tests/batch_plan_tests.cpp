@@ -1,6 +1,7 @@
 #include "djmeta/batch_plan.h"
 #include "djmeta/cue_association.h"
 #include "djmeta/cue_value_postimage.h"
+#include "djmeta/normalizer.h"
 
 #include <cstdlib>
 #include <iostream>
