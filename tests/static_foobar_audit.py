@@ -599,6 +599,13 @@ for token in ("musicbrainz::release_lookup_request_suffix",
 if 'constexpr std::string_view lookup_suffix=\n        "?inc=' in online_transport:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: duplicated native MusicBrainz release route suffix")
 
+# Native track tooltip must describe the actual tab/provider-dependent
+# gesture. It must never falsely imply that Review/File tabs trigger search.
+if "search MusicBrainz from any tab" in batch_table_dialog or \
+   "Find tab: double-click/Enter searches MusicBrainz or Discogs." not in batch_table_dialog or \
+   "Other tabs: navigate to Find without searching." not in batch_table_dialog:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: misleading track activation tooltip")
+
 # Rapid manual MusicBrainz retry may happen immediately after a zero-hit
 # search. It must wait in the worker, rather than reject and require a
 # second manually timed click or sleep on the UI thread.
