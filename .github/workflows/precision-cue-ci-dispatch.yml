@@ -1,0 +1,105 @@
+name: Precision CUE - Dispatch CI
+
+# Runs only on trusted default branch. Reads PR metadata but never checks out
+# unreviewed PR code. Can only dispatch two existing GitHub workflows.
+on:
+  # One-shot production smoke for changes to this dispatcher itself.
+  # Ordinary product commits never match this very narrow path filter.
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/precision-cue-ci-dispatch.yml'
+  schedule:
+    - cron: '07,27,47 * * * *'
+  # Event-driven complement to best-effort cron. Uses only the trusted
+  # default-branch dispatcher; never checks out or executes PR code.
+  workflow_run:
+    workflows: ['Core CI', 'foobar Preview Component']
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: write
+
+concurrency:
+  group: precision-cue-ci-dispatch
+  cancel-in-progress: false
+
+jobs:
+  dispatch-missing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Start missing exact-HEAD CI once
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+
+          repo = os.environ['REPO']
+          token = os.environ['GH_TOKEN']
+          branch = 'feature/precision-cue-generator-20261017'
+          pr_number = 52
+          workflows = (
+              ('Core CI', 'ci.yml'),
+              ('foobar Preview Component', 'foobar.yml'),
+          )
+          base = f'https://api.github.com/repos/{repo}'
+          headers = {
+              'Authorization': f'Bearer {token}',
+              'Accept': 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+              'User-Agent': 'precision-cue-ci-dispatch',
+          }
+
+          def github(method, path, data=None):
+              payload = None if data is None else json.dumps(data).encode('utf-8')
+              request = urllib.request.Request(
+                  base + '/' + path, data=payload, headers=headers, method=method)
+              if payload is not None:
+                  request.add_header('Content-Type', 'application/json')
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  body = response.read()
+              return json.loads(body) if body else None
+
+          pr = github('GET', f'pulls/{pr_number}')
+          head = pr.get('head') or {}
+          origin = head.get('repo') or {}
+          if not (pr.get('state') == 'open' and pr.get('draft') is True and
+                  (pr.get('base') or {}).get('ref') == 'main' and
+                  head.get('ref') == branch and origin.get('full_name') == repo):
+              print('SKIP: PR #52 is not an open Draft on the designated branch.')
+              raise SystemExit(0)
+          sha = head.get('sha', '')
+          if len(sha) != 40 or any(c not in '0123456789abcdef' for c in sha):
+              raise RuntimeError('Invalid PR #52 HEAD; no workflow dispatched')
+
+          # Detect a concurrent branch update; the next scheduled run will
+          # qualify the newest SHA rather than racing a stale commit.
+          encoded = urllib.parse.quote(branch, safe='')
+          current = github('GET', 'branches/' + encoded)
+          if (current.get('commit') or {}).get('sha') != sha:
+              print('SKIP: PR branch changed during check; retry next schedule.')
+              raise SystemExit(0)
+
+          existing = github('GET', 'actions/runs?' + urllib.parse.urlencode({
+              'head_sha': sha, 'per_page': 100}))
+          if existing.get('total_count', 0) > 100:
+              raise RuntimeError('Run count bound exceeded; refuse duplicate dispatch')
+          known = {run.get('name') for run in existing.get('workflow_runs', [])}
+          for name, filename in workflows:
+              if name in known:
+                  print(f'SKIP: {name} already has a run for {sha[:12]}.')
+                  continue
+              print(f'DISPATCH: {name} for PR #52 at {sha[:12]}.')
+              github('POST', 'actions/workflows/' + filename + '/dispatches',
+                     {'ref': branch})
+          PY

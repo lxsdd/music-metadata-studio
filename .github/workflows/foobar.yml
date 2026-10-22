@@ -93,6 +93,146 @@ jobs:
       - name: Preflight private Studio local acceptance helper (no download)
         shell: pwsh
         run: ./scripts/local-acceptance-build.ps1 -PreflightOnly
+      - name: Verify standalone Studio helper from isolated Windows Temp
+        if: matrix.platform == 'x64' && github.event_name == 'push'
+        shell: pwsh
+        env:
+          EXACT_SHA: ${{ github.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:EXACT_SHA -cnotmatch '^[a-f0-9]{40}
+      - name: HARD GATE - foobar2000 ${{ matrix.platform }} component host load
+        uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@31930d4fca571f449f2c57044bea5ba2e01f0ca7
+        with:
+          architecture: ${{ matrix.platform }}
+          component-dll: out/foobar/${{ matrix.platform }}/Release/foo_music_metadata_studio.dll
+          context-command: 'Music Metadata Studio/Prepare Tracks (Preview)...'
+          expected-window-title: 'Music Metadata Studio - Prepare Tracks (Read-only)'
+          required-control-ids: '270,273,271,291,292,293,294,299,303,304,305'
+          offline-clipboard-test: |
+            @provider=discogs
+            @id=release:123456
+            @scope=edition
+            TITLE=Runner Synthetic Recording
+            GENRE=Progressive Trance
+            DATE_RAW@edition=2026-10-20
+          clipboard-button-id: '289'
+          clipboard-list-id: '271'
+          beatport-edition-host-probe: 'true'
+          external-cue-host-probe: 'true'
+          embedded-cue-host-probe: 'true'
+          multi-file-cue-host-probe: 'true'
+          raw-target-host-probe: 'true'
+          stale-physical-host-probe: 'true'
+      - name: Upload DLL
+        if: false # Safety hold: no public DLL artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: foo-music-metadata-studio-${{ matrix.platform }}
+          path: out/foobar/${{ matrix.platform }}/Release/foo_music_metadata_studio.dll
+          if-no-files-found: error
+          retention-days: 7
+
+  # Privileged third-party API QA has an isolated, manually approved
+  # GitHub environment. Ordinary PR workflows receive NO Discogs token.
+  # This job neither uploads nor packages the DLL and NEVER runs for forks.
+  discogs-authorized-native:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.discogs_live == true &&
+      github.ref == 'refs/heads/feature/online-metadata-discovery-foundation-20261009'
+    needs: static-audit
+    environment: discogs-qa
+    runs-on: windows-2022
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [Win32, x64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: lxsdd/foobar2000_component_template
+          ref: 31a35947a7527826c2199491692802e3ce3d8bd7
+          path: external/sdk-template
+          persist-credentials: false
+      - uses: microsoft/setup-msbuild@v2
+      - name: Build the exact checked-out foobar component for Discogs QA
+        shell: pwsh
+        run: ./scripts/build-foobar.ps1 -Platform '${{ matrix.platform }}' -Configuration Release -PlatformToolset v143
+      - name: Authorized official Discogs staged search and exact-edition QA
+        if: matrix.platform == 'Win32'
+        shell: pwsh
+        env:
+          MMS_DISCOGS_QA_TOKEN: ${{ secrets.MMS_DISCOGS_QA_TOKEN }}
+        run: ./scripts/qa-discogs-discovery.ps1 -Mode Live -ReleaseId '${{ inputs.discogs_release_id }}'
+      - name: Authorized official Discogs native exact-edition gate
+        uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@31930d4fca571f449f2c57044bea5ba2e01f0ca7
+        env:
+          FB2K_DISCOGS_QA_TOKEN: ${{ secrets.MMS_DISCOGS_QA_TOKEN }}
+        with:
+          architecture: ${{ matrix.platform }}
+          component-dll: out/foobar/${{ matrix.platform }}/Release/foo_music_metadata_studio.dll
+          context-command: 'Music Metadata Studio/Prepare Tracks (Preview)...'
+          expected-window-title: 'Music Metadata Studio - Prepare Tracks (Read-only)'
+          required-control-ids: '270,273,271,291,292,293,294,299,301,303,304,305'
+          authorized-discogs-probe: 'true'
+          authorized-discogs-full-artist-probe: ${{ inputs.discogs_release_id == '37332711' && 'true' || 'false' }}
+          discogs-release-id: ${{ inputs.discogs_release_id }}
+
+  # Internal PRs may publish short-lived QA artifacts, never GitHub Releases.
+  # Fork PRs remain build-only so untrusted code cannot publish previews.
+  package:
+    if: false # Safety hold: do not package public DLLs
+    needs: [static-audit, host-gate-script, windows-build]
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: foo-music-metadata-studio-Win32
+          path: candidate-input/Win32
+      - uses: actions/download-artifact@v8
+        with:
+          name: foo-music-metadata-studio-x64
+          path: candidate-input/x64
+      - name: Package verified combined component
+        shell: pwsh
+        run: |
+          $version = (Get-Content -Raw -LiteralPath VERSION).Trim()
+          ./scripts/package-foobar.ps1 `
+            -Win32Dll 'candidate-input/Win32/foo_music_metadata_studio.dll' `
+            -X64Dll 'candidate-input/x64/foo_music_metadata_studio.dll' `
+            -OutputDirectory 'candidate-output' `
+            -Version $version `
+            -Commit '${{ github.event.pull_request.head.sha || github.sha }}'
+      - name: Upload combined component
+        if: false # Safety hold: no public binary packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: foo-music-metadata-studio-component
+          path: |
+            candidate-output/*.fb2k-component
+            candidate-output/BUILD-MANIFEST.txt
+            candidate-output/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+) { throw 'Exact SHA missing' }
+          $helper = Join-Path $env:RUNNER_TEMP 'studio-standalone.ps1'
+          $url = 'https://raw.githubusercontent.com/lxsdd/music-metadata-studio/' + $env:EXACT_SHA + '/scripts/local-acceptance-build.ps1'
+          Invoke-WebRequest -UseBasicParsing -MaximumRedirection 5 -Uri $url -OutFile $helper
+          Push-Location $env:RUNNER_TEMP
+          try {
+            & $helper -PreflightOnly
+            if (-not $?) { throw 'Standalone SHA-pinned helper preflight failed' }
+          } finally {
+            Pop-Location
+            Remove-Item -LiteralPath $helper -Force -ErrorAction SilentlyContinue
+          }
       - name: Build foobar preview component
         shell: pwsh
         run: ./scripts/build-foobar.ps1 -Platform '${{ matrix.platform }}' -Configuration Release -PlatformToolset v143
