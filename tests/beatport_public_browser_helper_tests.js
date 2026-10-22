@@ -95,6 +95,20 @@ async function scenario({recordings=[good()],types=['application/ld+json'],
         r=await scenario({recordings:[{...good(),byArtist}]});
         assert.equal(r.writes.length,0,'bad artist identity');
     }
+    // One valid artist cannot hide malformed or excess collaborator data.
+    for(const byArtist of [
+        [{name:'DJ Example'},{name:''}],
+        [{name:'DJ Example'},{name:'Second\nArtist'}],
+        [{name:'DJ Example'},{}],
+        [{name:'DJ Example'},null],
+        Array(33).fill({name:'Artist'}),
+    ]) {
+        r=await scenario({recordings:[{...good(),byArtist}]});
+        assert.equal(r.writes.length,0,'all collaboration credits must qualify');
+    }
+    r=await scenario({recordings:[{...good(),byArtist:[
+        {name:'DJ Example'},{name:'DJ Example'}]}]});
+    assert.equal(r.writes.length,1,'duplicate source credits remain visible');
     r=await scenario({recordings:[{...good(),duration:'PT6M42.125S',
         byArtist:[{name:'DJ Example'},{name:'Partner'}]}]});
     assert.equal(r.writes.length,1,'qualified fractional duration and credits');

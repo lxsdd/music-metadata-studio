@@ -53,8 +53,9 @@
             const name = item => typeof item === 'string' ? item :
                 item && !Array.isArray(item) && typeof item === 'object' ?
                 item.name : null;
-            return (Array.isArray(value) ? value : [value])
-                .some(item => validText(name(item), 1024));
+            const credits = Array.isArray(value) ? value : [value];
+            return credits.length > 0 && credits.length <= 32 &&
+                credits.every(item => validText(name(item), 1024));
         };
         const scan = (item, depth = 0) => {
             if (depth > 4 || found.length > 1) return;

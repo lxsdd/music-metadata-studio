@@ -336,3 +336,17 @@ ambiguous; hidden, credential-bearing or noncanonical Beatport links fail
 closed instead of falling back to a different mix. This is browser-only and
 read-only, with no Crates API calls or account/session access. Live Crates
 page markup remains an independent acceptance requirement.
+
+## Lossless artist-credit qualification for public Beatport facts (22 October 2026)
+
+Native public-page HTML and user-initiated JSON-LD clipboard import require
+**every** named artist in a `byArtist` array to qualify. A good primary
+artist must not hide missing, invalid or empty collaborators. More than
+32 artist entries are rejected rather than silently truncated; repeated
+valid source credits remain in their original order instead of being
+deduplicated. The browser helper enforces the same all-or-nothing check
+before claiming that its clipboard text is import-ready.
+
+This safety improvement is limited to read-only public-page evidence.
+It does not grant Beatport API authorization, modify original multivalue
+tags, or permit writes to audio/CUE/media files.

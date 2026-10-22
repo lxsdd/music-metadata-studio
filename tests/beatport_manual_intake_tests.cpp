@@ -98,6 +98,42 @@ int main() {
           public_track.release_title.empty() &&
           public_track.publish_date.empty(),
           "JSON-LD readable facts retain mix; unsupported album/date provenance is not invented");
+    // Public JSON-LD byArtist is all-or-nothing, including collaborator lists.
+    const auto with_public_credits=[&](const std::string& replacement) {
+        std::string text=public_jsonld;
+        const std::string token="\"byArtist\":{\"name\":\"DJ Example\"}";
+        const auto at=text.find(token);
+        check(at!=std::string::npos,"Public artist replacement source exists");
+        text.replace(at,token.size(),"\"byArtist\":"+replacement);
+        return text;
+    };
+    const auto credits=parse_beatport_public_jsonld_clipboard(
+        with_public_credits(R"([{"name":"DJ Example"},"Partner"])"));
+    check(credits.artists==std::vector<std::string>{"DJ Example","Partner"},
+          "public Beatport import retains both collaborator credits");
+    const auto repeated=parse_beatport_public_jsonld_clipboard(
+        with_public_credits(R"(["DJ Example","DJ Example"])"));
+    check(repeated.artists==std::vector<std::string>{"DJ Example","DJ Example"},
+          "public Beatport evidence does not deduplicate source credits");
+    for(const auto& malformed:{
+        std::string(R"([{"name":"DJ Example"},{}])"),
+        std::string(R"([{"name":"DJ Example"},null])"),
+        std::string(R"([{"name":"DJ Example"},{"name":""}])"),
+        std::string("[]"),
+    }) {
+        rejects([&]{(void)parse_beatport_public_jsonld_clipboard(
+                    with_public_credits(malformed));},
+                "missing or invalid co-artist blocks entire public record");
+    }
+    std::string too_many="[";
+    for(int i=0;i<33;++i) {
+        if(i) too_many+=",";
+        too_many+=R"({"name":"DJ Example"})";
+    }
+    too_many+="]";
+    rejects([&]{(void)parse_beatport_public_jsonld_clipboard(
+                with_public_credits(too_many));},
+            "public artist array cannot silently truncate at 32 credits");
     const std::string long_slug(125,'a');
     const std::string long_url=
         "https://www.beatport.com/track/"+long_slug+"/123456";

@@ -129,6 +129,29 @@ inline bool public_music_recording_type(const beatport::Json& obj) {
     return false;
 }
 
+// Preserve every artist credit from the public MusicRecording.
+inline std::vector<std::string> public_beatport_recording_artists(
+    const beatport::Json* source) {
+    if(!source) throw std::invalid_argument("Public recording lacks byArtist");
+    const auto single=[](const beatport::Json& item) {
+        const auto value=beatport::object_name(item);
+        if(value.empty())
+            throw std::invalid_argument(
+                "Public recording has an invalid artist credit");
+        return value;
+    };
+    if(source->type!=beatport::Json::Type::Array)
+        return {single(*source)};
+    if(source->array.empty() || source->array.size()>32)
+        throw std::invalid_argument(
+            "Public recording artist credits are empty or exceed 32");
+    std::vector<std::string> names;
+    names.reserve(source->array.size());
+    for(const auto& credit:source->array)
+        names.push_back(single(credit)); // never skip, truncate or dedupe
+    return names;
+}
+
 // Browser clipboard and native HTML both require the JSON-LD recording
 // to independently attest the exact canonical track URL. The clipboard
 // @url locator alone cannot establish source identity. No unrelated
@@ -159,14 +182,7 @@ inline beatport::TrackEvidence parse_beatport_public_jsonld_object(
     const auto annotated=split_title_mix(title);
     track.title=annotated.version.empty()?title:annotated.base;
     track.mix_name=annotated.version;
-    if(const auto* artist=obj.get("byArtist")) {
-        if(artist->type==beatport::Json::Type::Array)
-            track.artists=beatport::names(artist);
-        else {
-            const auto name=beatport::object_name(*artist);
-            if(!name.empty()) track.artists={name};
-        }
-    }
+    track.artists=public_beatport_recording_artists(obj.get("byArtist"));
     const auto duration=public_iso_duration_ms(musicbrainz::str(obj,"duration"));
     if(!duration || track.artists.empty())
         throw std::invalid_argument(
