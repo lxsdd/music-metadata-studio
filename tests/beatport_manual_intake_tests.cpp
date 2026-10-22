@@ -126,6 +126,27 @@ int main() {
             std::string(R"(<script data-hint="type='application/ld+json'">)")+
             spoofed_jsonld+"</script>");
     }, "non-JSON-LD script cannot supply Beatport page identity");
+    // HTML comments are not live structured data, even if they contain
+    // a perfectly formed matching MusicRecording script.
+    rejects([&]{(void)parse_beatport_public_html(
+        "https://www.beatport.com/track/home/321",
+        "<!-- <script type='application/ld+json'>" +
+        spoofed_jsonld + "</script> -->");},
+        "commented-out JSON-LD cannot impersonate a live public recording");
+    const auto quoted_tag=parse_beatport_public_html(
+        "https://www.beatport.com/track/home/321",
+        "<script data-note='a > b' type='application/ld+json'>" +
+        spoofed_jsonld + "</script>");
+    check(quoted_tag.id==321 && quoted_tag.title=="Home" &&
+          quoted_tag.duration_ms==402000,
+          "quoted > in a script attribute must not truncate JSON-LD type");
+    check(parse_beatport_public_html(
+        "https://www.beatport.com/track/home/321",
+        "<!-- <script type='application/ld+json'>" +
+        spoofed_jsonld + "</script> -->" +
+        "<script type='application/ld+json'>" +
+        spoofed_jsonld + "</script>").id==321,
+        "commented-out candidate does not make a live candidate ambiguous");
     const std::string public_html=
         "<!doctype html><html><head><script data-provenance='visible' "
         "TYPE='application/ld+json'>"

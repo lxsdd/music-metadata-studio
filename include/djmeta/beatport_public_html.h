@@ -99,6 +99,17 @@ inline beatport::TrackEvidence parse_beatport_public_html(
     std::size_t examined=0;
     while(true) {
         const auto at=lower.find("<script",cursor);
+        // An HTML comment may contain script-looking example text. It is
+        // not a live JSON-LD element and must never become provider evidence.
+        const auto comment=lower.find("<!--",cursor);
+        if(comment!=std::string::npos &&
+           (at==std::string::npos || comment<at)) {
+            const auto end_comment=lower.find("-->",comment+4);
+            if(end_comment==std::string::npos)
+                throw std::invalid_argument("Unclosed public HTML comment");
+            cursor=end_comment+3;
+            continue;
+        }
         if(at==std::string::npos) break;
         if(++examined>128)
             throw std::invalid_argument("Unbounded public page script count");
@@ -107,8 +118,21 @@ inline beatport::TrackEvidence parse_beatport_public_html(
            lower[next]!='\r' && lower[next]!='\n' && lower[next]!='>') {
             cursor=next; continue;
         }
-        const auto end=lower.find('>',next);
-        if(end==std::string::npos || end-next>2048)
+        // '>' inside a quoted attribute is not the end of the start tag.
+        // Never truncate the type attribute at a quoted display hint.
+        std::size_t end=next;
+        char quote=0;
+        for(;end<lower.size() && end-next<=2048;++end) {
+            const char c=lower[end];
+            if(quote) {
+                if(c==quote) quote=0;
+            } else if(c=='"' || c=='\'') {
+                quote=c;
+            } else if(c=='>') {
+                break;
+            }
+        }
+        if(end==lower.size() || end-next>2048)
             throw std::invalid_argument("Invalid public script tag");
         const auto close=lower.find("</script",end+1);
         if(close==std::string::npos)
