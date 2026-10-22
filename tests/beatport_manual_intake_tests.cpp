@@ -84,6 +84,25 @@ int main() {
         forged.replace(key,55,"\"url\":\"https://www.beatport.com/track/other/322\"");
         (void)parse_beatport_public_jsonld_clipboard(forged);
     }, "public page URL mismatch fails closed");
+    check(public_jsonld_script_tag(
+              R"(<script data-provenance='visible' TYPE="application/ld+json">)"),
+          "real quoted JSON-LD type attribute is recognized");
+    check(!public_jsonld_script_tag(
+              R"(<script data-hint="type='application/ld+json'">)"),
+          "quoted attribute CONTENT cannot spoof a script type");
+    check(!public_jsonld_script_tag(
+              R"(<script data-hint="type='application/ld+json'" type='text/javascript'>)"),
+          "non-JSON-LD type overrides nothing inside another attribute value");
+    check(!public_jsonld_script_tag(
+              R"(<script type='application/ld+json' type='application/ld+json'>)"),
+          "duplicate script type must fail closed");
+    const std::string spoofed_jsonld=R"({"@type":"MusicRecording","url":"https://www.beatport.com/track/home/321","name":"Home (Extended Mix)","byArtist":"DJ Example","duration":"PT6M42S"})";
+    rejects([&]{
+        (void)parse_beatport_public_html(
+            "https://www.beatport.com/track/home/321",
+            std::string(R"(<script data-hint="type='application/ld+json'">)")+
+            spoofed_jsonld+"</script>");
+    }, "non-JSON-LD script cannot supply Beatport page identity");
     const std::string public_html=
         "<!doctype html><html><head><script data-provenance='visible' "
         "TYPE='application/ld+json'>"
