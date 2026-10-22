@@ -85,7 +85,7 @@ inline djmeta::CueValuePostimage preview_selected_cue_review_postimage(
         const auto& saved=snapshot.rows[index];
         const auto now=review_cue_candidate_fields(cue,saved.input.track,
             {saved.input.evidence},saved.input.edition_track);
-        if(now.size()!=1 || !same_cue_postimage_review(saved.review,now[0]))
+        if(now.size()!=1 || !same_cue_postimage_review(saved.reviewed,now[0]))
             return refuse("CUE_REVIEW_MUTATED_EVIDENCE");
         const auto& row=now.front();
         if(row.state==FieldReviewState::Unchanged) continue; // exact no-op

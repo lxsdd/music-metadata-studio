@@ -30,8 +30,8 @@ int main(){
     const auto snap=capture_cue_postimage_review(raw,CueCarrierKind::ExternalText,
                                                   {global,track});
     check(snap.eligible && snap.rows.size()==2 &&
-          snap.rows[0].review.state==FieldReviewState::NeedsReview &&
-          snap.rows[1].review.state==FieldReviewState::NeedsReview,
+          snap.rows[0].reviewed.state==FieldReviewState::NeedsReview &&
+          snap.rows[1].reviewed.state==FieldReviewState::NeedsReview,
           "two independent qualified comparison rows");
     const auto selected=preview_selected_cue_review_postimage(snap,raw,{1,0});
     const std::string expected=std::string("\xef\xbb\xbf")+
@@ -63,10 +63,10 @@ int main(){
     check(reject(snap,raw,{0,0}),"duplicate selection rejected");
     check(reject(snap,raw,{2}),"invalid selection rejected");
     auto tampered=snap;
-    tampered.rows[1].review.original_values={"forged"};
+    tampered.rows[1].reviewed.original_values={"forged"};
     check(reject(tampered,raw,{1}),"mutated review summary rejected");
     tampered=snap;
-    tampered.rows[0].review.state=FieldReviewState::Unchanged;
+    tampered.rows[0].reviewed.state=FieldReviewState::Unchanged;
     check(reject(tampered,raw,{0}),"forged no-op cannot hide changed evidence");
     const auto no_alignment=capture_cue_postimage_review(raw,
         CueCarrierKind::ExternalText,{{std::nullopt,global.evidence,false,false}});
@@ -76,7 +76,7 @@ int main(){
         true,false};
     const auto inherit=capture_cue_postimage_review(raw,
         CueCarrierKind::EmbeddedText,{inherited});
-    check(inherit.eligible && inherit.rows[0].review.original_inherited &&
+    check(inherit.eligible && inherit.rows[0].reviewed.original_inherited &&
           reject(inherit,raw,{0}),"inherited track value needs insertion, blocked");
     const CuePostimageEvidence absent{0,
         {"SONGWRITER",{"Someone"},"musicbrainz",occurrence,EvidenceScope::Edition},
