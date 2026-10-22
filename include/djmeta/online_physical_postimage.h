@@ -5,6 +5,7 @@
 #include "djmeta/physical_tag_postimage.h"
 #include <map>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <vector>
 namespace djmeta::online {
@@ -13,12 +14,29 @@ inline djmeta::PhysicalTagPostimage verify_online_physical_tag_postimage(
     const djmeta::MetadataDocument& current_tags,
     const std::string& current_physical_key,
     const std::string& current_source_guard,
+    const OnlineFieldReviewSnapshot& captured,
+    const std::vector<std::size_t>& selected_indices,
+    const std::map<std::size_t,std::string>& explicit_date_targets,
     const OnlineFieldStagedPreview& selected) {
     const auto refuse=[](const char* message){
         djmeta::PhysicalTagPostimage p;p.rejection=message;return p;
     };
     if(selected.planned.fields.size()>10000)
         return refuse("ONLINE_POSTIMAGE_SIZE_LIMIT");
+    // The number of changed fields cannot authenticate the user's
+    // choice. Independently re-stage original provider evidence using
+    // exactly the selected rows and explicit DATE target decisions.
+    OnlineFieldStagedPreview verified;
+    try {
+        verified=stage_selected_online_fields(
+            captured,current_tags,selected_indices,explicit_date_targets);
+    } catch(const std::invalid_argument&) {
+        return refuse("ONLINE_SELECTION_EVIDENCE_STALE_OR_INVALID");
+    }
+    if(verified.planned!=selected.planned ||
+       verified.explicitly_changed!=selected.explicitly_changed ||
+       verified.exact_noops!=selected.exact_noops)
+        return refuse("ONLINE_SELECTION_POSTIMAGE_MISMATCH");
     std::map<std::string,std::vector<std::string>> originals, planned;
     for(const auto& field:current_tags.fields) {
         const auto key=djmeta::physical_fold_name(field.name);

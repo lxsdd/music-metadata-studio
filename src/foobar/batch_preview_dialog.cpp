@@ -4151,7 +4151,8 @@ void change_online_field_preview(PreviewState& state,int action) {
         entry.observed_physical_key,entry.observed_source_guard,current
     };
     const auto qualified=djmeta::online::verify_online_physical_tag_postimage(
-        physical,current,latest.host_physical_key,latest.source_guard,projected);
+        physical,current,latest.host_physical_key,latest.source_guard,
+        *state.online_field_snapshot,proposed,date_targets,projected);
     if(!qualified.eligible)
         throw std::invalid_argument(
             "Online physical tag postimage refused: "+qualified.rejection);

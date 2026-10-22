@@ -24,7 +24,7 @@ int main(){
     const auto captured=capture_online_field_review(original,evidence,true,true);
     const auto projected=stage_selected_online_fields(captured,original,{0,1,2,3});
     const auto valid=verify_online_physical_tag_postimage(
-        source,original,"physical:one","guard:v1",projected);
+        source,original,"physical:one","guard:v1",captured,{0,1,2,3},{},projected);
     check(valid.eligible && valid.changed && valid.explicitly_changed==4 &&
           valid.planned.fields.size()==6,"four explicit changes retain unselected source fields");
     check(valid.planned.fields[1].values==std::vector<std::string>{"New Artist"} &&
@@ -34,14 +34,14 @@ int main(){
           "ALBUM ARTIST, exact ordered genre values, custom tag and CUE are preserved");
     const auto empty=stage_selected_online_fields(captured,original,{});
     const auto no_op=verify_online_physical_tag_postimage(
-        source,original,"physical:one","guard:v1",empty);
+        source,original,"physical:one","guard:v1",captured,{},{},empty);
     check(no_op.eligible && !no_op.changed && no_op.planned==original,
           "empty user selection is exact no-op");
     const auto malformed=[&](const OnlineFieldStagedPreview& candidate,
                               std::string identity="physical:one",
                               std::string guard="guard:v1"){
         const auto output=verify_online_physical_tag_postimage(
-            source,original,identity,guard,candidate);
+            source,original,identity,guard,captured,{0,1,2,3},{},candidate);
         return !output.eligible && !output.changed && !output.rejection.empty();
     };
     check(malformed(projected,"physical:replaced"),"other physical identity rejected");
@@ -61,10 +61,41 @@ int main(){
     forged=projected;
     forged.planned.fields[3].values={"mutated without approval"};
     check(malformed(forged),"unselected custom mutation cannot sneak past staged field count");
+    // An attacker can preserve the four-difference count by replacing
+    // an approved TITLE edit with an unselected CUSTOM field edit.
+    forged=projected;
+    forged.planned.fields[0].values={"Old"};
+    forged.planned.fields[3].values={"Forged custom data"};
+    check(malformed(forged),
+          "same changed-count cannot substitute an unselected custom field");
+    forged=projected;
+    forged.planned.fields[2].values={"House","Forged provider value"};
+    check(malformed(forged),
+          "selected field value must match authoritative provider evidence");
+    check(!verify_online_physical_tag_postimage(
+          source,original,"physical:one","guard:v1",
+          captured,{0,1,3},{},projected).eligible,
+          "postimage cannot be reused after selecting different provider rows");
+    check(!verify_online_physical_tag_postimage(
+          source,original,"physical:one","guard:v1",
+          captured,{0,1,1,3},{},projected).eligible,
+          "duplicate selected evidence IDs fail closed");
+    auto tampered_capture=captured;
+    tampered_capture.evidence[0].values={"Unverified"};
+    check(!verify_online_physical_tag_postimage(
+          source,original,"physical:one","guard:v1",
+          tampered_capture,{0,1,2,3},{},projected).eligible,
+          "changed provider evidence invalidates a previously accepted postimage");
+    auto forged_noop=empty;
+    forged_noop.exact_noops=1;
+    check(!verify_online_physical_tag_postimage(
+          source,original,"physical:one","guard:v1",
+          captured,{},{},forged_noop).eligible,
+          "fabricated no-op count does not authenticate selections");
     auto virtual_source=source;
     virtual_source.virtual_subsong=true;
     check(!verify_online_physical_tag_postimage(virtual_source,original,
-          "physical:one","guard:v1",projected).eligible,
+          "physical:one","guard:v1",captured,{0,1,2,3},{},projected).eligible,
           "virtual subsongs cannot qualify physical tag postimage");
     bool cuesheet_blocked=false;
     try {
