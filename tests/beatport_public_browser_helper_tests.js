@@ -126,6 +126,32 @@ async function scenario({recordings=[good()],types=['application/ld+json'],
     assert.equal(r.writes.length,0,'oversized UTF-8 page cannot be imported');
     assert.match(r.alerts[0],/No unique MusicRecording/);
 
+    // Only qualified recording fields cross the clipboard boundary.
+    r=await scenario({recordings:[{
+        ...good(),extraUnverified:'DO_NOT_COPY',
+        datePublished:'2026-10-16',
+        inAlbum:{name:'Unverified album'},
+        byArtist:[{name:'DJ Example',extraUnverified:'DO_NOT_COPY'},
+                  {name:'Partner',extraUnverified:'DO_NOT_COPY'}],
+        genre:{name:'Progressive House',extraUnverified:'DO_NOT_COPY'},
+        isrcCode:'GBXYZ2601234',
+    }]});
+    assert.equal(r.writes.length,1);
+    const minimal=JSON.parse(r.writes[0].split('\n').slice(2).join('\n'));
+    assert.deepEqual(Object.keys(minimal).sort(),
+        ['@type','url','name','byArtist','duration','isrcCode','genre'].sort());
+    assert.deepEqual(minimal.byArtist,['DJ Example','Partner']);
+    assert.equal(minimal.genre,'Progressive House');
+    assert.equal(minimal.isrcCode,'GBXYZ2601234');
+    assert.doesNotMatch(r.writes[0],/DO_NOT_COPY|datePublished|inAlbum/);
+    r=await scenario({recordings:[{
+        ...good(),isrcCode:'INVALID',genre:{name:'Progressive House'}
+    }]});
+    assert.equal(r.writes.length,1);
+    const noIsrc=JSON.parse(r.writes[0].split('\n').slice(2).join('\n'));
+    assert.equal(Object.hasOwn(noIsrc,'isrcCode'),false);
+    assert.equal(noIsrc.genre,'Progressive House');
+
     assert.doesNotMatch(script,/\bfetch\s*\(/);
     assert.doesNotMatch(script,/document\.cookie\s*[;=\[]/);
     assert.doesNotMatch(script,/localStorage|sessionStorage/);

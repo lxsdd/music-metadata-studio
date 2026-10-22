@@ -95,7 +95,22 @@
         if (found.length !== 1)
             fail('No unique MusicRecording JSON-LD found on this page. ' +
                  'The current site layout may not expose it; nothing was copied.');
-        const candidate = { ...found[0], '@type': 'MusicRecording' };
+        // Only pass qualified recording fields to the native importer.
+        const source = found[0];
+        const artistName = item => typeof item === 'string' ? item : item.name;
+        const candidate = {
+            '@type': 'MusicRecording', url, name: source.name,
+            byArtist: Array.isArray(source.byArtist) ?
+                source.byArtist.map(artistName) : artistName(source.byArtist),
+            duration: source.duration,
+        };
+        if (typeof source.isrcCode === 'string' &&
+            /^[A-Za-z]{2}[A-Za-z0-9]{3}[0-9]{7}$/.test(source.isrcCode))
+            candidate.isrcCode = source.isrcCode;
+        const genre = typeof source.genre === 'string' ? source.genre :
+            source.genre && !Array.isArray(source.genre) &&
+            typeof source.genre === 'object' ? source.genre.name : null;
+        if (validText(genre, 1024)) candidate.genre = genre;
         // The recording already attested this exact canonical page URL.
         // Never replace a conflicting embedded identity.
         if (candidate.url && candidate.url !== url)
