@@ -620,6 +620,16 @@ for token in (
     if token not in batch_table_dialog:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: Beatport source-bound URL prefill missing: "+token)
 
+# One query box serves TITLE discovery and Beatport URL. Switching back
+# to MB/Discogs must not try to search the old Beatport URL as a title.
+for token in (
+    "provider_query_transition(",
+    "ProviderQueryTransition::ClearAndSuggest",
+    "prefill_musicbrainz_query(*state); // no network until explicit Search",
+):
+    if token not in batch_table_dialog:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: provider switch query reset/prefill missing: "+token)
+
 # Rapid manual MusicBrainz retry may happen immediately after a zero-hit
 # search. It must wait in the worker, rather than reject and require a
 # second manually timed click or sleep on the UI thread.

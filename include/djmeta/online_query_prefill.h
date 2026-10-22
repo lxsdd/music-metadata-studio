@@ -16,4 +16,16 @@ inline bool should_replace_auto_online_query(
         current.empty() || current == previous_automatic;
 }
 
+
+// One shared edit box serves title discovery and canonical Beatport URLs.
+// Never carry the previous provider's query into a different transport.
+// A title suggestion is read-only; it never authorizes an online request.
+enum class ProviderQueryTransition { Preserve, Clear, ClearAndSuggest };
+inline constexpr ProviderQueryTransition provider_query_transition(
+    bool was_beatport, bool now_beatport) noexcept {
+    if(now_beatport) return ProviderQueryTransition::Clear;
+    return was_beatport ? ProviderQueryTransition::ClearAndSuggest
+                        : ProviderQueryTransition::Preserve;
+}
+
 } // namespace djmeta

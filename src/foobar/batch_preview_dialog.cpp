@@ -4944,9 +4944,14 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             invalidate_online_request(*state);
             const auto selected_provider=SendDlgItemMessageW(
                 dialog,IDC_METADATA_ONLINE_PROVIDER,CB_GETCURSEL,0,0);
+            const bool was_beatport=state->beatport_offline_selected;
             state->discogs_provider_selected=selected_provider==1;
             state->beatport_offline_selected=selected_provider==2;
-            if(state->beatport_offline_selected) {
+            const auto query_transition=djmeta::provider_query_transition(
+                was_beatport,state->beatport_offline_selected);
+            if(query_transition!=djmeta::ProviderQueryTransition::Preserve) {
+                // Beatport URL may be valid but belongs to another provider.
+                // Clear it before suggesting local TITLE/ALBUM on return.
                 SetDlgItemTextW(dialog,IDC_METADATA_MB_QUERY,L"");
                 state->auto_search_text.clear();
                 state->auto_search_track=state->selected_track_index;
@@ -4979,6 +4984,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             state->search_attempt_notice.clear();
             update_live_provider_controls(*state);
             update_metadata_table(*state);
+            if(query_transition==djmeta::ProviderQueryTransition::ClearAndSuggest)
+                prefill_musicbrainz_query(*state); // no network until explicit Search
             if(state->beatport_offline_selected)
                 SetDlgItemTextW(dialog,IDC_BATCH_HINT,
                     L"Beatport offline: copy a public page's JSON-LD, "
