@@ -352,6 +352,17 @@ endif()
 
 # Pure and fail-closed per-field online review -> CUE byte postimage.
 # No SDK, filesystem write or automatic approval.
+# Reconstruct exact CUE source-byte postimages from verified official edition
+# before binding them into a write-disabled batch plan. No SDK or disk I/O.
+add_executable(djmeta_cue_value_batch_adapter_tests tests/cue_value_batch_adapter_tests.cpp)
+target_link_libraries(djmeta_cue_value_batch_adapter_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_cue_value_batch_adapter_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_cue_value_batch_adapter_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_cue_value_batch_adapter_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 add_executable(djmeta_cue_review_postimage_tests tests/cue_review_postimage_tests.cpp)
 target_link_libraries(djmeta_cue_review_postimage_tests PRIVATE djmeta_core)
 target_compile_features(djmeta_cue_review_postimage_tests PRIVATE cxx_std_20)
@@ -493,6 +504,7 @@ add_test(NAME djmeta_cue_metadata_tests COMMAND djmeta_cue_metadata_tests)
 add_test(NAME djmeta_cue_musicbrainz_release_gate_tests COMMAND djmeta_cue_musicbrainz_release_gate_tests)
 add_test(NAME djmeta_cue_value_postimage_tests COMMAND djmeta_cue_value_postimage_tests)
 add_test(NAME djmeta_cue_review_postimage_tests COMMAND djmeta_cue_review_postimage_tests)
+add_test(NAME djmeta_cue_value_batch_adapter_tests COMMAND djmeta_cue_value_batch_adapter_tests)
 add_test(NAME djmeta_online_intake_tests COMMAND djmeta_online_intake_tests)
 add_test(NAME djmeta_online_query_prefill_tests COMMAND djmeta_online_query_prefill_tests)
 add_test(NAME djmeta_online_fields_tests COMMAND djmeta_online_fields_tests)
