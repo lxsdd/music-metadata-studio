@@ -11,6 +11,11 @@ on:
       - '.github/workflows/precision-cue-ci-dispatch.yml'
   schedule:
     - cron: '07,27,47 * * * *'
+  # Event-driven complement to best-effort cron. Uses only the trusted
+  # default-branch dispatcher; never checks out or executes PR code.
+  workflow_run:
+    workflows: ['Core CI', 'foobar Preview Component']
+    types: [completed]
   workflow_dispatch:
 
 permissions:
