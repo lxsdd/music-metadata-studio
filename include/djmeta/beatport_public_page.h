@@ -52,31 +52,56 @@ inline bool is_beatport_public_page_clipboard(std::string_view raw) {
 
 inline std::optional<std::int64_t> public_iso_duration_ms(
     std::string_view duration) {
-    if(duration.size()<4 || duration.size()>16 || !duration.starts_with("PT"))
+    // MusicRecording JSON-LD uses ISO 8601 durations. A fraction on
+    // SECONDS is valid (e.g. PT6M42.125S), not a malformed track duration.
+    // Convert with exact integer arithmetic: never lose milliseconds through
+    // floating-point rounding or interpret a missing unit heuristically.
+    if(duration.size()<4 || duration.size()>24 || !duration.starts_with("PT"))
         return std::nullopt;
     duration.remove_prefix(2);
-    std::int64_t seconds=0;
+    std::int64_t milliseconds=0;
     unsigned previous=0;
     while(!duration.empty()) {
         const auto count=duration.find_first_not_of("0123456789");
-        if(count==0 || count==std::string_view::npos || count>4 ||
-           count+1>duration.size()) return std::nullopt;
-        unsigned number=0;
-        auto [end,error]=std::from_chars(
-            duration.data(),duration.data()+count,number);
-        if(error!=std::errc{} ||
-           end!=duration.data()+count || count+1>duration.size())
+        if(count==0 || count==std::string_view::npos || count>4)
             return std::nullopt;
-        const char unit=duration[count];
+        unsigned number=0;
+        const auto [end,error]=std::from_chars(
+            duration.data(),duration.data()+count,number);
+        if(error!=std::errc{} || end!=duration.data()+count)
+            return std::nullopt;
+        char unit=duration[count];
+        std::size_t consumed=count+1;
+        unsigned fraction_ms=0;
+        if(unit=='.') {
+            // Only fractional seconds are supported; precision beyond
+            // 1 ms would require lossy rounding, so it remains blocked.
+            const auto suffix=duration.substr(count+1);
+            const auto digits=suffix.find_first_not_of("0123456789");
+            if(digits==0 || digits==std::string_view::npos ||
+               digits>3 || suffix[digits]!='S')
+                return std::nullopt;
+            unsigned value=0;
+            const auto [fraction_end,fraction_error]=std::from_chars(
+                suffix.data(),suffix.data()+digits,value);
+            if(fraction_error!=std::errc{} ||
+               fraction_end!=suffix.data()+digits)
+                return std::nullopt;
+            fraction_ms=value*(digits==1?100u:digits==2?10u:1u);
+            unit='S';
+            consumed+=digits+1;
+        }
         const unsigned order=unit=='H'?1:unit=='M'?2:unit=='S'?3:0;
         if(!order || order<=previous) return std::nullopt;
         previous=order;
-        seconds+=static_cast<std::int64_t>(number)*
-            (unit=='H'?3600:unit=='M'?60:1);
-        duration.remove_prefix(count+1);
+        milliseconds+=static_cast<std::int64_t>(number)*
+            (unit=='H'?3600000:unit=='M'?60000:1000);
+        milliseconds+=fraction_ms;
+        duration.remove_prefix(consumed);
     }
-    if(seconds<1 || seconds>21600) return std::nullopt;
-    return seconds*1000;
+    if(milliseconds<1000 || milliseconds>21600000)
+        return std::nullopt;
+    return milliseconds;
 }
 
 inline bool public_music_recording_type(const beatport::Json& obj) {
