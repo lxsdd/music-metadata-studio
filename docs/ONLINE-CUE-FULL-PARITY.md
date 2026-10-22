@@ -156,3 +156,23 @@ as an explicitly qualified *edition track* and maps TITLE/ARTIST to the
 matching CUE ordinal, never a physical full-file recording tag. Unmatched or
 missing release-track identities remain blocked and visible; no write path
 becomes enabled. Pure positive/negative C++ cases exercise this boundary.
+
+## Selected CUE online review -> exact read-only postimage (22 October 2026)
+
+`capture_cue_postimage_review` snapshots the exact external or embedded
+textual CUE bytes plus separately attributed provider field comparisons.
+`preview_selected_cue_review_postimage` accepts **only explicit indices**,
+requires identical current source bytes, reparses and regenerates each
+chosen comparison, refuses mutated review rows, unsafe scopes, duplicate
+selections, ambiguous/absent or inherited fields and multivalue collapse,
+and delegates uniquely qualified existing-token value changes to the
+already tested exact-byte-span CUE planner. Album-global changes additionally
+require the caller's explicit whole-edition alignment qualification; that
+flag is an *advisory input*, never permission to write or substitute for
+provider/host proof. Unchanged fields and an empty selection are pure no-ops.
+
+Both stages are **read-only core primitives** with no filesystem, foobar SDK,
+CUE-container writer or change-commit path. Real provider authentication,
+UI activation, source revalidation on disk, rollback and C4/C5 installed-host
+integrity approval remain separate mandatory gates. This does not change
+Precision CUE PR #52.
