@@ -16,6 +16,6 @@ permissions:
 jobs:
   upstream-discogs-oauth:
     name: Central protected Discogs API QA evidence, not native GUI acceptance
-    uses: lxsdd/dev-infrastructure-public/.github/workflows/discogs-oauth-evidence.yml@1c029b78a25950085528f7119462bddfcfda971e
+    uses: lxsdd/dev-infrastructure-public/.github/workflows/discogs-oauth-evidence.yml@53e26f6943dc2ae4552e5e57433ae24a6818b876
     permissions:
       contents: read
