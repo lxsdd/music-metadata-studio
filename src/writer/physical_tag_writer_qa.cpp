@@ -14,6 +14,31 @@
 #if defined(MMS_ENABLE_PHYSICAL_WRITES)
 namespace djmeta_foobar {
 namespace {
+// Bounded QA-only diagnostics in the runner's disposable directory.
+void trace_writer_qa(const char* value) {
+    if(!value || std::strlen(value)>120) return;
+    char ci[16]{},root[4096]{},path[4096]{};
+    if(GetEnvironmentVariableA("GITHUB_ACTIONS",ci,sizeof(ci))!=4 ||
+       std::strcmp(ci,"true")!=0 ||
+       GetEnvironmentVariableA("RUNNER_TEMP",root,sizeof(root))==0 ||
+       GetEnvironmentVariableA("MMS_QA_REPORT_PATH",path,sizeof(path))==0)
+        return;
+    const std::string dir=root,output=path;
+    if(output.size()<dir.size()+24 ||
+       _strnicmp(output.c_str(),dir.c_str(),dir.size())!=0 ||
+       (output[dir.size()]!='\\\\' && output[dir.size()]!='/') ||
+       output.find("..")!=std::string::npos ||
+       output.substr(output.size()-21)!="mms-writer-report.txt")
+        return;
+    const HANDLE file=CreateFileA(path,FILE_APPEND_DATA,FILE_SHARE_READ |
+        FILE_SHARE_WRITE,nullptr,OPEN_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
+    if(file==INVALID_HANDLE_VALUE)return;
+    std::string message(value);
+    message+='\n';
+    DWORD count=0;
+    WriteFile(file,message.data(),static_cast<DWORD>(message.size()),&count,nullptr);
+    CloseHandle(file);
+}
 bool qa_source_qualified(metadb_handle_ptr handle) {
     if(!handle.is_valid() || handle->get_subsong_index()!=0 ||
        !handle->get_path())return false;
@@ -69,15 +94,24 @@ public:
     }
     bool context_get_display(unsigned i,metadb_handle_list_cref data,
         pfc::string_base& out,unsigned& flags,const GUID& caller) override {
-        if(i!=0 || data.get_count()!=1 ||
-           !qa_source_qualified(data[0]))return false;
+        if(i!=0 || data.get_count()!=1)return false;
+        trace_writer_qa("QA_MENU_VISITED");
+        if(!qa_source_qualified(data[0])) {
+            trace_writer_qa("QA_MENU_SOURCE_REJECTED");
+            return false;
+        }
+        trace_writer_qa("QA_MENU_SOURCE_ACCEPTED");
         return contextmenu_item_simple::context_get_display(
             i,data,out,flags,caller);
     }
     void context_command(unsigned i,metadb_handle_list_cref data,
                          const GUID&) override {
-        if(i!=0 || data.get_count()!=1 || !qa_source_qualified(data[0]))
+        trace_writer_qa("QA_ACTION_ENTERED");
+        if(i!=0 || data.get_count()!=1 || !qa_source_qualified(data[0])) {
+            trace_writer_qa("QA_ACTION_SOURCE_REJECTED");
             return;
+        }
+        trace_writer_qa("QA_ACTION_SOURCE_ACCEPTED");
         const auto handle=data[0];
         const auto observed=probe_host_file_readonly(handle->get_path());
         const auto current=metadata_from_file_info(handle->get_info_ref()->info());
@@ -95,9 +129,11 @@ public:
             handle->get_path(),captured,review,projected,{0},{}};
         const auto start=submit_frozen_physical_tag_write(
             handle,frozen,[](PhysicalWriteReport result) {
+                trace_writer_qa(("QA_CALLBACK_"+result.diagnostic).c_str());
                 console::print(("MMS_SYNTHETIC_QA_CALLBACK="+
                     result.diagnostic).c_str());
             });
+        trace_writer_qa(("QA_DISPATCH_"+start.diagnostic).c_str());
         console::print(("MMS_SYNTHETIC_QA_DISPATCH="+start.diagnostic).c_str());
     }
 };

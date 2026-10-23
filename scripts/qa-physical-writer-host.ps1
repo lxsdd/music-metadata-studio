@@ -51,6 +51,7 @@ try {
  New-Item -ItemType File -Path (Join-Path $hostDir 'portable_mode_enabled') | Out-Null
  # The QA component will refuse any source other than this exact path.
  $env:MMS_QA_WRITE_SOURCE=$source
+ $env:MMS_QA_REPORT_PATH=Join-Path $work 'mms-writer-report.txt'
  $proc=Start-Process -FilePath $exe -WorkingDirectory $hostDir -PassThru
  Start-Sleep -Seconds 4
  if($proc.HasExited) {throw 'Portable foobar exited before isolated SDK QA'}
@@ -60,6 +61,22 @@ try {
  $command='/context_command:"Music Metadata Studio/QA write synthetic tags" "'+$source+'"'
  $forward=Start-Process -FilePath $exe -WorkingDirectory $hostDir -ArgumentList $command -Wait -PassThru
  if($forward.ExitCode -ne 0) {throw 'Physical writer context command failed'}
+ # foobar's /context_command permits the leaf name on some host versions.
+ # Verify the component was entered before waiting for an SDK mutation.
+ for($i=0;$i -lt 20 -and -not (Test-Path $env:MMS_QA_REPORT_PATH);$i++) {
+    Start-Sleep -Milliseconds 200
+ }
+ if(-not (Test-Path $env:MMS_QA_REPORT_PATH)) {
+    $leaf='/context_command:"QA write synthetic tags" "'+$source+'"'
+    $retry=Start-Process -FilePath $exe -WorkingDirectory $hostDir -ArgumentList $leaf -Wait -PassThru
+    if($retry.ExitCode -ne 0) {throw 'QA leaf context dispatch rejected'}
+    for($i=0;$i -lt 20 -and -not (Test-Path $env:MMS_QA_REPORT_PATH);$i++) {
+       Start-Sleep -Milliseconds 200
+    }
+ }
+ if(-not (Test-Path $env:MMS_QA_REPORT_PATH)) {
+    throw 'QA_NATIVE_CONTEXT_NOT_ENTERED (neither full path nor leaf command)'
+ }
  $changed=$false
  for($i=0;$i -lt 75;$i++) {
     if($proc.HasExited) {throw 'foobar exited during SDK write'}
@@ -71,7 +88,11 @@ try {
     }
     Start-Sleep -Milliseconds 400
  }
- if(-not $changed) {throw 'SDK failed to mutate the disposable FLAC'}
+ if(-not $changed) {
+    # The QA component emits ONLY bounded static result codes here.
+    $diagnostic=(Get-Content -LiteralPath $env:MMS_QA_REPORT_PATH -Raw -ErrorAction SilentlyContinue)
+    throw "SDK_DISPOSABLE_WRITE_NO_CHANGE; component evidence: $diagnostic"
+ }
  & python (Join-Path $PSScriptRoot 'assert-physical-writer-qa.py') $original $source 'written'
  if($LASTEXITCODE -ne 0) {throw 'SDK postwrite readback rejected'}
  Copy-Item -LiteralPath $source -Destination $after -ErrorAction Stop
@@ -87,6 +108,7 @@ try {
  Write-Host "MMS_NATIVE_PHYSICAL_WRITER_QA_$Architecture=PASS"
 } finally {
  Remove-Item Env:MMS_QA_WRITE_SOURCE -ErrorAction SilentlyContinue
+ Remove-Item Env:MMS_QA_REPORT_PATH -ErrorAction SilentlyContinue
  if($proc) {
    try {if(-not $proc.HasExited){Stop-Process -Id $proc.Id -Force -ErrorAction Stop}}
    catch { Write-Warning 'Could not stop isolated foobar QA process' }
