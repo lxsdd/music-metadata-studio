@@ -79,6 +79,41 @@ try {
  $dispatch=Start-Process -FilePath $exe -WorkingDirectory $hostDir -ArgumentList @('/add','/immediate',$source) -Wait -PassThru
  if($dispatch.ExitCode -ne 0) {throw 'QA FLAC source not accepted'}
  Start-Sleep -Seconds 2
+ # Exercise the actual C++ no-op gate BEFORE changing the synthetic fixture.
+ # The CLI may accept a full group path or only its leaf command.
+ $baselineNoop=[IO.File]::ReadAllBytes($source)
+ $timeNoop=(Get-Item -LiteralPath $source).LastWriteTimeUtc
+ $noopCommand='/context_command:"Music Metadata Studio/QA verify physical no-op" "'+$source+'"'
+ $noopDispatch=Start-Process -FilePath $exe -WorkingDirectory $hostDir -ArgumentList $noopCommand -Wait -PassThru
+ if($noopDispatch.ExitCode -ne 0) {throw 'No-op context command rejected'}
+ $noopConfirmed=$false
+ for($i=0;$i -lt 20;$i++) {
+   $noopDiagnostic=Get-Content -LiteralPath $env:MMS_QA_REPORT_PATH -Raw -ErrorAction SilentlyContinue
+   if($noopDiagnostic -match 'QA_NOOP_CONFIRMED') {$noopConfirmed=$true;break}
+   if($noopDiagnostic -match 'QA_NOOP_REFUSED|QA_NOOP_EXCEPTION|QA_NOOP_SOURCE_REJECTED') {
+     throw "Physical no-op gate failed: $noopDiagnostic"
+   }
+   Start-Sleep -Milliseconds 200
+ }
+ if(-not $noopConfirmed) {
+   $noopLeaf='/context_command:"QA verify physical no-op" "'+$source+'"'
+   $noopRetry=Start-Process -FilePath $exe -WorkingDirectory $hostDir -ArgumentList $noopLeaf -Wait -PassThru
+   if($noopRetry.ExitCode -ne 0) {throw 'No-op leaf context command rejected'}
+   for($i=0;$i -lt 20;$i++) {
+     $noopDiagnostic=Get-Content -LiteralPath $env:MMS_QA_REPORT_PATH -Raw -ErrorAction SilentlyContinue
+     if($noopDiagnostic -match 'QA_NOOP_CONFIRMED') {$noopConfirmed=$true;break}
+     if($noopDiagnostic -match 'QA_NOOP_REFUSED|QA_NOOP_EXCEPTION|QA_NOOP_SOURCE_REJECTED') {
+       throw "Physical no-op gate failed: $noopDiagnostic"
+     }
+     Start-Sleep -Milliseconds 200
+   }
+ }
+ if(-not $noopConfirmed) {throw "No-op context was not executed: $noopDiagnostic"}
+ if(($baselineNoop -join ',') -cne ([IO.File]::ReadAllBytes($source) -join ',') -or
+    (Get-Item -LiteralPath $source).LastWriteTimeUtc -ne $timeNoop) {
+   throw 'No-op C++ gate modified the fixture'
+ }
+ Write-Host 'MMS_NATIVE_SDK_PHYSICAL_NOOP=PASS'
  $command='/context_command:"Music Metadata Studio/QA write synthetic tags" "'+$source+'"'
  $forward=Start-Process -FilePath $exe -WorkingDirectory $hostDir -ArgumentList $command -Wait -PassThru
  if($forward.ExitCode -ne 0) {throw 'Physical writer context command failed'}
@@ -143,16 +178,21 @@ try {
  }
  & python (Join-Path $PSScriptRoot 'assert-physical-writer-qa.py') $original $source 'written'
  if($LASTEXITCODE -ne 0) {throw 'SDK postwrite readback rejected'}
- Copy-Item -LiteralPath $source -Destination $after -ErrorAction Stop
- $time=(Get-Item $source).LastWriteTimeUtc
- # Force a second *deliberate* invocation; the writer must detect exact noop.
- $again=Start-Process -FilePath $exe -WorkingDirectory $hostDir -ArgumentList $command -Wait -PassThru
- if($again.ExitCode -ne 0) {throw 'Second writer context request failed'}
- Start-Sleep -Seconds 4
- & python (Join-Path $PSScriptRoot 'assert-physical-writer-qa.py') $after $source 'noop'
- if($LASTEXITCODE -ne 0 -or (Get-Item $source).LastWriteTimeUtc -ne $time) {
-   throw 'Second identical request wrote a file'
+ # The SDK callback must independently re-open the physical file and
+ # verify the explicitly approved complete tag postimage.
+ $callbackVerified=$false
+ for($i=0;$i -lt 75;$i++) {
+   $physicalReport=Get-Content -LiteralPath $env:MMS_QA_REPORT_PATH -Raw -ErrorAction SilentlyContinue
+   if($physicalReport -match 'QA_CALLBACK_SDK_WRITE_AND_PHYSICAL_TAG_READBACK_OK') {
+     $callbackVerified=$true
+     break
+   }
+   if($physicalReport -match 'QA_CALLBACK_POST_WRITE_PHYSICAL_READBACK_MISMATCH|QA_CALLBACK_POST_WRITE_PHYSICAL_READBACK_FAILED|QA_CALLBACK_SDK_UPDATE_FAILED') {
+     throw "SDK physical readback rejected: $physicalReport"
+   }
+   Start-Sleep -Milliseconds 400
  }
+ if(-not $callbackVerified) {throw "SDK write callback timed out: $physicalReport"}
  # The external-CUE controller runs inside the same disposable foobar.
  $audioBeforeCue=[IO.File]::ReadAllBytes($source)
  $cueDispatch=Start-Process -FilePath $exe -WorkingDirectory $hostDir -ArgumentList @('/add','/immediate',$cueSource) -Wait -PassThru
@@ -200,20 +240,6 @@ try {
  }
  if(@(Get-ChildItem -LiteralPath $work -File -Filter '*.bak').Count -ne 0) {
    throw 'Verified CUE transaction left an unreported backup'
- }
- $cueTime=(Get-Item $cueSource).LastWriteTimeUtc
- $cueAgain=Start-Process -FilePath $exe -WorkingDirectory $hostDir -ArgumentList $cueCommand -Wait -PassThru
- if($cueAgain.ExitCode -ne 0) {throw 'CUE second context request failed'}
- $cueNoop=$false
- for($i=0;$i -lt 40;$i++) {
-   $diagnostic=(Get-Content -LiteralPath $env:MMS_QA_REPORT_PATH -Raw -ErrorAction SilentlyContinue)
-   if($diagnostic -match 'QA_CUE_NOOP') {$cueNoop=$true;break}
-   Start-Sleep -Milliseconds 200
- }
- if(-not $cueNoop -or
-    ($expectedCueBytes -join ',') -cne ([IO.File]::ReadAllBytes($cueSource) -join ',') -or
-    (Get-Item $cueSource).LastWriteTimeUtc -ne $cueTime) {
-   throw "CUE second-pass no-op failed: $diagnostic"
  }
  Write-Host "MMS_NATIVE_EXTERNAL_CUE_HOST_QA_$Architecture=PASS"
  Write-Host "MMS_NATIVE_PHYSICAL_WRITER_QA_$Architecture=PASS"

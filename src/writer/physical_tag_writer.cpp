@@ -115,24 +115,31 @@ PhysicalWriteReport submit_frozen_physical_tag_write(
                 // Never use a virtual playlist handle or cached tag container
                 // as evidence of a completed physical disk mutation.
                 try {
+                    // A conforming SDK tag update may atomically REPLACE
+                    // the physical inode. Its post-write file ID and guard
+                    // are therefore allowed to differ from the frozen
+                    // PRE-write identity. Require a stable fresh physical
+                    // source around independent decoder readback instead.
+                    const auto before_readback=
+                        probe_host_file_readonly(frozen.source_path);
                     input_info_reader::ptr input;
                     input_entry::g_open_for_info_read(
                         input,nullptr,frozen.source_path.c_str(),fb2k::noAbort);
                     file_info_impl readback;
                     input->get_info(0,readback,fb2k::noAbort);
-                    const auto reference=fresh_gate(
-                        frozen,*static_cast<const file_info*>(&readback));
-                    // The readback is compared against the *frozen* planned
-                    // postimage, not re-approved as a new source snapshot.
+                    const auto after_readback=
+                        probe_host_file_readonly(frozen.source_path);
+                    // Compare against the FROZEN, explicitly selected
+                    // complete metadata postimage; never treat reloaded
+                    // provider evidence as a second permission grant.
                     const auto expected=verify_frozen_physical_write(
                         frozen,frozen.physical.original,frozen.source_path,
                         frozen.physical.host_physical_key,
                         frozen.physical.source_guard);
-                    const auto now=probe_host_file_readonly(frozen.source_path);
-                    if(reference.state!=PhysicalWriteGateState::Blocked ||
-                       expected.state!=PhysicalWriteGateState::Changed ||
-                       now.state!=HostFileState::ExistingFile ||
-                       now.host_physical_key!=frozen.physical.host_physical_key ||
+                    if(expected.state!=PhysicalWriteGateState::Changed ||
+                       !stable_raw_target_observation(
+                           before_readback,after_readback) ||
+                       before_readback.state!=HostFileState::ExistingFile ||
                        compare_physical_text_tags(
                            metadata_from_file_info(readback),
                            expected.postimage.planned)!=TagWriteDecision::Unchanged)

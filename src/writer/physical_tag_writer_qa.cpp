@@ -172,29 +172,33 @@ const GUID qa_guid={
 const GUID qa_cue_guid={
     0x7c1c4ab8,0x864e,0x431e,{0x9a,0x83,0x8a,0xc4,0xd2,0x2e,0x9b,0x15}
 };
+const GUID qa_noop_guid={
+    0xe19a7862,0x1462,0x4edf,{0xbb,0x04,0x38,0xb7,0x50,0x6e,0xda,0x2f}
+};
 class isolated_writer_qa_menu : public contextmenu_item_simple {
 public:
     GUID get_parent() override{return guids::context_group;}
-    unsigned get_num_items() override{return 2;}
+    unsigned get_num_items() override{return 3;}
     t_enabled_state get_enabled_state(unsigned) override{
         return contextmenu_item::DEFAULT_ON;
     }
     void get_item_name(unsigned i,pfc::string_base& out) override {
         if(i==0)out="QA write synthetic tags";
         if(i==1)out="QA write synthetic CUE";
+        if(i==2)out="QA verify physical no-op";
     }
     GUID get_item_guid(unsigned i) override {
-        return i==0?qa_guid:(i==1?qa_cue_guid:pfc::guid_null);
+        return i==0?qa_guid:(i==1?qa_cue_guid:(i==2?qa_noop_guid:pfc::guid_null));
     }
     bool get_item_description(unsigned i,pfc::string_base& out) override {
-        if(i>1)return false;
-        out=i==0?"Private disposable FLAC only. Never user music.":
-                 "Private disposable external CUE only. Never user music.";
+        if(i>2)return false;
+        out=i==1?"Private disposable external CUE only. Never user music.":
+                 "Private disposable FLAC only. Never user music.";
         return true;
     }
     bool context_get_display(unsigned i,metadb_handle_list_cref data,
         pfc::string_base& out,unsigned& flags,const GUID& caller) override {
-        if(i>1 || data.get_count()!=1)return false;
+        if(i>2 || data.get_count()!=1)return false;
         if(i==1)
             return qa_cue_source_qualified(data[0]) &&
                 contextmenu_item_simple::context_get_display(
@@ -212,6 +216,40 @@ public:
                          const GUID&) override {
         if(i==1) {
             if(data.get_count()==1)run_cue_writer_qa(data[0]);
+            return;
+        }
+        if(i==2) {
+            trace_writer_qa("QA_NOOP_ACTION_ENTERED");
+            if(data.get_count()!=1 || !qa_source_qualified(data[0])) {
+                trace_writer_qa("QA_NOOP_SOURCE_REJECTED");
+                return;
+            }
+            try {
+                const auto handle=data[0];
+                const auto observed=probe_host_file_readonly(handle->get_path());
+                const auto current=metadata_from_file_info(handle->get_info_ref()->info());
+                djmeta::PhysicalTagSourceSnapshot captured{
+                    true,false,observed.host_physical_key,
+                    observed.source_guard,current};
+                const djmeta::online::FieldEvidence equal_title{
+                    "TITLE",{"1000 Years"},"discogs",
+                    "qa-synthetic-noop",djmeta::online::EvidenceScope::Edition};
+                const auto review=djmeta::online::capture_online_field_review(
+                    current,{equal_title},true,true);
+                const auto projected=djmeta::online::stage_selected_online_fields(
+                    review,current,{0});
+                const djmeta::online::FrozenPhysicalTagWrite frozen{
+                    handle->get_path(),captured,review,projected,{0},{}};
+                const auto result=submit_frozen_physical_tag_write(
+                    handle,frozen,{});
+                if(result.outcome==PhysicalWriteOutcome::Noop)
+                    trace_writer_qa("QA_NOOP_CONFIRMED");
+                else
+                    trace_writer_qa("QA_NOOP_REFUSED");
+            } catch(const std::exception& error) {
+                trace_writer_qa("QA_NOOP_EXCEPTION");
+                console::print((std::string("MMS_QA_NOOP_EXCEPTION=")+error.what()).c_str());
+            }
             return;
         }
         trace_writer_qa("QA_ACTION_ENTERED");
