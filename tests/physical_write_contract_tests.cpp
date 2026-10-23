@@ -49,5 +49,33 @@ int main(){
     frozen.source_path.clear();
     check(validate(original)==PhysicalWriteGateState::Blocked,
           "missing source path denied");
+    // A second explicit request after foobar has refreshed its physical tags
+    // must be recognized as an EXACT NO-OP, not write the file again.
+    auto already_applied=original;
+    already_applied.fields[0].values={"New"};
+    const auto new_source=djmeta::PhysicalTagSourceSnapshot{
+        true,false,"id:1","stamp:2",already_applied};
+    const auto same_review=capture_online_field_review(
+        already_applied,{edit},true,true);
+    const auto same_staging=stage_selected_online_fields(
+        same_review,already_applied,{0});
+    const FrozenPhysicalTagWrite refreshed{
+        "file:///C:/qa/source.mp3",new_source,same_review,same_staging,{0},{}};
+    check(verify_frozen_physical_write(
+              refreshed,already_applied,refreshed.source_path,
+              "id:1","stamp:2").state==PhysicalWriteGateState::Noop,
+          "equal provider field is a true SDK-free second-pass no-op");
+    check(verify_frozen_physical_write(
+              frozen,already_applied,"file:///C:/qa/source.mp3",
+              "id:1","stamp:1").state==PhysicalWriteGateState::Blocked,
+          "old approval cannot be reused after a different physical postimage");
+    auto changed_cue=original;
+    changed_cue.fields[3].values={"different CUE bytes"};
+    const FrozenPhysicalTagWrite source_old{
+        "file:///C:/qa/source.mp3",physical,evidence,proposed,{0},{}};
+    check(verify_frozen_physical_write(
+              source_old,changed_cue,source_old.source_path,
+              "id:1","stamp:1").state==PhysicalWriteGateState::Blocked,
+          "protected embedded CUE drift blocks even TITLE-only write");
     std::cout<<"PASS: frozen native write contract rejects stale/provider/virtual inputs\n";
 }

@@ -37,6 +37,29 @@ found = [token for token in forbidden if token in sources]
 if found:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: write-capable token(s): " + ", ".join(found))
 
+# The new SDK tag-writer has a distinct audited source boundary. Its
+# source may contain update APIs, while the default foobar preview sources
+# above MUST remain read-only. No generic FileOps or direct Win32 mutations.
+writer = (root / "src" / "writer" / "physical_tag_writer.cpp").read_text(
+    encoding="utf-8")
+qa = (root / "src" / "writer" / "physical_tag_writer_qa.cpp").read_text(
+    encoding="utf-8")
+for token in ("file_info_filter::create(", "update_info_async(",
+              "physical_identity_unchanged(", "return false;",
+              "input_entry::g_open_for_info_read(",
+              "verify_frozen_physical_write("):
+    if token not in writer:
+        raise SystemExit("STATIC SDK WRITE GATE FAIL: " + token)
+for token in ("WriteFile(", "DeleteFile(", "MoveFile(", "ReplaceFile(",
+              "GENERIC_WRITE", "filesystem::g_open_write"):
+    if token in writer:
+        raise SystemExit("STATIC SDK WRITE GATE FAIL: bypass " + token)
+for token in ("#if defined(MMS_ENABLE_PHYSICAL_WRITES)",
+              "MMS_QA_WRITE_SOURCE", "GITHUB_ACTIONS",
+              "mms-writer-qa.flac"):
+    if token not in qa:
+        raise SystemExit("STATIC SDK QA ISOLATION FAIL: " + token)
+
 project = (root / "foo_music_metadata_studio.vcxproj").read_text(encoding="utf-8")
 for token in [
     "FOOBAR2000_TARGET_VERSION=81",
@@ -46,6 +69,16 @@ for token in [
 ]:
     if token not in project:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: project contract missing " + token)
+
+for token in ("src\\writer\\physical_tag_writer.cpp",
+              "src\\writer\\physical_tag_writer_qa.cpp",
+              "EnablePhysicalWrites", "MMS_ENABLE_PHYSICAL_WRITES"):
+    if token not in project:
+        raise SystemExit("STATIC SDK WRITER BUILD GATE FAIL: " + token)
+if "MMS_ENABLE_PHYSICAL_WRITES" not in (
+        root / "src" / "foobar" / "batch_preview_dialog.cpp"
+).read_text(encoding="utf-8"):
+    raise SystemExit("STATIC SDK WRITER GATE FAIL: no opt-in UI boundary")
 
 # A single captured shared rules snapshot must be checked at each
 # transactional UI edit and during initial loading, in addition to
