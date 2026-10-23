@@ -81,7 +81,10 @@ for token in ("MMS_ENABLE_PHYSICAL_WRITES",
               "format_physical_write_confirmation(",
               "physical_write_pending->exchange(true)",
               "state->online_context_version.current()!=confirmation_version",
-              "GetWindowLongPtrW(dialog,GWLP_USERDATA)"):
+              "GetWindowLongPtrW(dialog,GWLP_USERDATA)",
+              "g_workspace_generation!=confirmation_workspace",
+              "g_workspace_generation!=generation",
+              "waiting for SDK verification"):
     if token not in batch_writer_ui:
         raise SystemExit("STATIC SDK WRITER UI GATE FAIL: " + token)
 

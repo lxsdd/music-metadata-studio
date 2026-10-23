@@ -148,6 +148,7 @@ struct PreviewState {
     std::wstring search_attempt_notice;
     std::size_t auto_search_track = (std::numeric_limits<std::size_t>::max)();
     bool modeless_registered = false;
+    std::uint64_t workspace_generation = 0;
     bool stale = false;
 #if defined(MMS_ENABLE_PHYSICAL_WRITES)
     // Shared with the SDK completion; survives modeless window destruction.
@@ -273,6 +274,7 @@ struct PreviewState {
 // Owned only by foobar's main UI thread. g_pending_state protects the rare
 // CreateDialogParamW failure before WM_INITDIALOG takes ownership.
 HWND g_workspace = nullptr;
+std::uint64_t g_workspace_generation = 0;
 PreviewState* g_pending_state = nullptr;
 
 // Edited search context cancels pending results without ever joining on UI.
@@ -4307,6 +4309,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         auto* state = reinterpret_cast<PreviewState*>(lp);
         g_pending_state=nullptr; // WM_NCDESTROY now owns and frees this state.
         g_workspace=dialog;
+        state->workspace_generation=++g_workspace_generation;
         state->dialog=dialog;
         SetWindowLongPtrW(dialog, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(state));
         try {
@@ -5902,6 +5905,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 throw std::runtime_error(
                     "Final physical field diff disagrees with frozen approval.");
             const auto confirmation_version=state->online_context_version.current();
+            const auto confirmation_workspace=state->workspace_generation;
             const auto confirmation_track=state->selected_track_index;
             // Refuse rather than truncate a large multivalue confirmation.
             // Every old/new value is visible before the one-file YES action.
@@ -5915,6 +5919,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             // The modal message pump can process a pending network/UI event.
             // Revalidate the precise reviewed evidence after the human YES.
             if(!IsWindow(dialog) || g_workspace!=dialog ||
+               g_workspace_generation!=confirmation_workspace ||
                GetWindowLongPtrW(dialog,GWLP_USERDATA)!=
                    reinterpret_cast<LONG_PTR>(state))
                 return TRUE;
@@ -5932,33 +5937,58 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                     "Reviewed selection changed during confirmation. Refresh.");
             verify_snapshot(entry);
             verify_rules_snapshot(state->captured_rules);
+            const auto source_name=from_utf8(
+                readable_track_name(frozen.source_path));
             if(state->physical_write_pending->exchange(true))
                 throw std::runtime_error("A physical write is already pending.");
             // Callback owns no PreviewState; its result can outlive the HWND.
             // Prevent duplicate submissions and refresh during asynchronous IO.
             const auto pending=state->physical_write_pending;
+            const auto generation=state->workspace_generation;
             state->stale=true;
             update_live_provider_controls(*state);
+            SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                L"Submitting one physical tag write; waiting for SDK verification...");
             try {
                 const auto result=submit_frozen_physical_tag_write(
                     entry.handle,frozen,
-                    [dialog,pending](PhysicalWriteReport report){
+                    [dialog,pending,generation,source_name](PhysicalWriteReport report){
                         pending->store(false);
-                        if(!IsWindow(dialog) || g_workspace!=dialog)return;
-                        const auto label=from_utf8(report.diagnostic);
+                        // HWND values can be reused by a later workspace.
+                        // Never deliver an old operation result to a new one.
+                        if(!IsWindow(dialog) || g_workspace!=dialog ||
+                           g_workspace_generation!=generation)return;
+                        std::wstring status;
+                        switch(report.outcome) {
+                        case PhysicalWriteOutcome::Completed:
+                            status=L"Physical tags saved and verified: ";break;
+                        case PhysicalWriteOutcome::Noop:
+                            status=L"Exactly unchanged; no file write: ";break;
+                        case PhysicalWriteOutcome::Cancelled:
+                            status=L"SDK cancelled; verify file before retry: ";break;
+                        case PhysicalWriteOutcome::ReadbackMismatch:
+                            status=L"Write outcome uncertain; inspect file: ";break;
+                        default:
+                            status=L"Physical tag write refused or failed: ";break;
+                        }
+                        const auto label=status+source_name;
                         SetDlgItemTextW(dialog,IDC_BATCH_HINT,label.c_str());
                         if(report.outcome!=PhysicalWriteOutcome::Completed &&
-                           report.outcome!=PhysicalWriteOutcome::Noop)
-                            MessageBoxW(dialog,label.c_str(),L"Physical tag result",
-                                        MB_OK|MB_ICONWARNING);
+                           report.outcome!=PhysicalWriteOutcome::Noop) {
+                            const auto detail=label+L"\n\n"+
+                                from_utf8(report.diagnostic);
+                            MessageBoxW(dialog,detail.c_str(),
+                                L"Physical tag result",MB_OK|MB_ICONWARNING);
+                        }
                     });
                 if(result.outcome==PhysicalWriteOutcome::Noop)
                     pending->store(false);
                 if(result.outcome!=PhysicalWriteOutcome::Submitted &&
                    result.outcome!=PhysicalWriteOutcome::Noop)
                     throw std::runtime_error(result.diagnostic);
-                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
-                                from_utf8(result.diagnostic).c_str());
+                if(result.outcome==PhysicalWriteOutcome::Noop)
+                    SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                        L"Exactly unchanged; no physical file write was needed.");
             } catch(...) {
                 pending->store(false);
                 throw;
