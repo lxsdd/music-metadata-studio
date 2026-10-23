@@ -26,7 +26,8 @@ inline bool read_bytes(const std::filesystem::path& file,
     if(!f) return false;
     content.assign(std::istreambuf_iterator<char>(f),
                    std::istreambuf_iterator<char>());
-    return f.eof() && !f.bad();
+    // istreambuf_iterator reaches EOF without necessarily setting eofbit.
+    return !f.bad();
 }
 // Never accept arbitrary target paths: caller must own an isolated empty test
 // sandbox. This is deliberately separate from production host code.
