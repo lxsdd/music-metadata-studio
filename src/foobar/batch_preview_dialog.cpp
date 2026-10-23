@@ -34,6 +34,7 @@
 #include "djmeta/cue_release_review.h"
 #include "djmeta/cue_musicbrainz_release_gate.h"
 #include "djmeta/cue_review_postimage.h"
+#include "djmeta/embedded_cue_sdk_postimage.h"
 #include "djmeta/cue_original_inventory.h"
 #include "djmeta/beatport_manual_intake.h"
 #include "djmeta/beatport_public_page.h"
@@ -5285,6 +5286,41 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 *state->cue_postimage_snapshot,source.raw_text,selected_indices);
             if(!proposal.eligible)
                 throw std::runtime_error("CUE preview refused: "+proposal.rejection);
+            // Only a qualified physical subsong-0 source may construct a
+            // detached SDK CUESHEET postimage. Virtual tracks still receive
+            // read-only comparison; they NEVER become physical writers.
+            if(source.carrier==djmeta::CueCarrierKind::EmbeddedText &&
+               entry.input.physical_source_qualified &&
+               entry.handle->get_subsong_index()==0) {
+                const auto observed=probe_host_file_readonly(entry.input.source_path);
+                if(observed.state!=HostFileState::ExistingFile ||
+                   observed.host_physical_key!=entry.observed_physical_key ||
+                   observed.source_guard!=entry.observed_source_guard)
+                    throw std::runtime_error(
+                        "Embedded CUE physical source changed during SDK review.");
+                const auto tag_info=entry.handle->get_info_ref();
+                const auto tags=metadata_from_file_info(tag_info->info());
+                const djmeta::PhysicalTagSourceSnapshot physical{
+                    true,false,observed.host_physical_key,
+                    observed.source_guard,tags};
+                file_info_impl detached;
+                const auto sdk=djmeta::online::project_embedded_cue_into_physical_sdk(
+                    tag_info->info(),detached,physical,
+                    observed.host_physical_key,observed.source_guard,
+                    *state->cue_postimage_snapshot,selected_indices,proposal,
+                    [](const file_info& value) {
+                        return metadata_from_file_info(value);
+                    });
+                if(sdk.status==djmeta::online::EmbeddedCueSdkStatus::Blocked ||
+                   (sdk.status==djmeta::online::EmbeddedCueSdkStatus::Detached)!=
+                      proposal.changed)
+                    throw std::runtime_error(
+                        "Embedded CUE SDK postimage refused: "+sdk.rejection);
+                if(proposal.changed && !file_info::g_is_info_equal(
+                        tag_info->info(),detached))
+                    throw std::runtime_error(
+                        "Embedded CUE SDK postimage altered technical metadata.");
+            }
             // Render all selected CUE fields together in the existing
             // modeless comparison grid, without a truncated modal popup.
             state->cue_value_preview=proposal;
