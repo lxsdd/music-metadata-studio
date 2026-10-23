@@ -137,6 +137,12 @@ public:
         console::print(("MMS_SYNTHETIC_QA_DISPATCH="+start.diagnostic).c_str());
     }
 };
+// Probe only the disposable QA build at foobar's normal component init.
+class isolated_qa_init : public initquit {
+public:
+    void on_init() override { trace_writer_qa("QA_COMPONENT_INITIALIZED"); }
+};
+initquit_factory_t<isolated_qa_init> g_isolated_qa_init;
 contextmenu_item_factory_t<isolated_writer_qa_menu> g_isolated_writer_qa;
 }
 }

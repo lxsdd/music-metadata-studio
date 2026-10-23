@@ -55,6 +55,13 @@ try {
  $proc=Start-Process -FilePath $exe -WorkingDirectory $hostDir -PassThru
  Start-Sleep -Seconds 4
  if($proc.HasExited) {throw 'Portable foobar exited before isolated SDK QA'}
+ $loaded=@((Get-Process -Id $proc.Id -ErrorAction Stop).Modules |
+   Where-Object { $_.ModuleName -ieq 'foo_music_metadata_studio.dll' }).Count -eq 1
+ if(-not $loaded) { throw 'QA DLL was not loaded into the disposable foobar process' }
+ if(-not (Test-Path $env:MMS_QA_REPORT_PATH)) {
+   throw 'QA DLL loaded but its init callback did not create runner diagnostics'
+ }
+ Write-Host 'MMS_QA_COMPONENT_LOAD=PASS (isolated disposable foobar)'
  $dispatch=Start-Process -FilePath $exe -WorkingDirectory $hostDir -ArgumentList @('/add','/immediate',$source) -Wait -PassThru
  if($dispatch.ExitCode -ne 0) {throw 'QA FLAC source not accepted'}
  Start-Sleep -Seconds 2
@@ -74,8 +81,9 @@ try {
        Start-Sleep -Milliseconds 200
     }
  }
- if(-not (Test-Path $env:MMS_QA_REPORT_PATH)) {
-    throw 'QA_NATIVE_CONTEXT_NOT_ENTERED (neither full path nor leaf command)'
+ $diagnostic=(Get-Content -LiteralPath $env:MMS_QA_REPORT_PATH -Raw -ErrorAction SilentlyContinue)
+ if($diagnostic -notmatch 'QA_ACTION_ENTERED') {
+    throw "QA_NATIVE_CONTEXT_NOT_ENTERED (full/leaf); diagnostics: $diagnostic"
  }
  $changed=$false
  for($i=0;$i -lt 75;$i++) {
