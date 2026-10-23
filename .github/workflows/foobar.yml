@@ -166,6 +166,55 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # Real SDK metadata mutation, but ONLY on one generated FLAC inside
+  # RUNNER_TEMP. This custom QA-DLL is NEVER packaged, uploaded or installed
+  # in a user profile. Both first write and exact no-op are mandatory gates.
+  physical-sdk-runtime-qa:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feature/online-metadata-discovery-foundation-20261009'
+    needs: static-audit
+    runs-on: windows-2022
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [Win32, x64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: lxsdd/foobar2000_component_template
+          ref: 31a35947a7527826c2199491692802e3ce3d8bd7
+          path: external/sdk-template
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: lxsdd/dev-infrastructure-public
+          ref: 31930d4fca571f449f2c57044bea5ba2e01f0ca7
+          path: external/shared-foobar
+          persist-credentials: false
+      - uses: microsoft/setup-msbuild@v2
+      - name: Build QA-only guarded physical SDK component
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $arch = '${{ matrix.platform }}'
+          & ./scripts/build-foobar.ps1 -Platform $arch -Configuration Release -PlatformToolset v143
+          if ($LASTEXITCODE -ne 0) { throw 'Standard SDK bootstrap failed' }
+          & msbuild.exe .\foo_music_metadata_studio.vcxproj /m /restore "/p:Configuration=Release" "/p:Platform=$arch" "/p:PlatformToolset=v143" "/p:EnablePhysicalWrites=true"
+          if ($LASTEXITCODE -ne 0) { throw 'Guarded QA component compile failed' }
+      - name: Execute real foobar SDK write and second-pass no-op on disposable FLAC
+        shell: pwsh
+        run: |
+          $arch = '${{ matrix.platform }}'
+          & ./scripts/qa-physical-writer-host.ps1 -Architecture $arch -ComponentDll "out/physical-write-qa/$arch/Release/foo_music_metadata_studio.dll" -SharedActionRoot "external/shared-foobar/.github/actions/foobar-host-smoke"
+          if (-not $?) { throw 'SDK physical writer runtime QA failed' }
+      - name: Cleanup QA-only local binaries
+        if: always()
+        shell: pwsh
+        run: Remove-Item -LiteralPath 'out/physical-write-qa','build/physical-write-qa' -Force -Recurse -ErrorAction SilentlyContinue
+
   # Privileged third-party API QA has an isolated, manually approved
   # GitHub environment. Ordinary PR workflows receive NO Discogs token.
   # This job neither uploads nor packages the DLL and NEVER runs for forks.
