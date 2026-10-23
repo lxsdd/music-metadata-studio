@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "physical_tag_writer.h"
+#include "physical_write_filter_once.h"
 #include "host_file_probe.h"
 #include "metadata_adapter.h"
 #include "djmeta/physical_sdk_postimage.h"
@@ -64,7 +65,7 @@ PhysicalWriteReport submit_frozen_physical_tag_write(
         return {PhysicalWriteOutcome::Refused,"SDK_TAG_ROUNDTRIP_REFUSED"};
     // This shared outcome and all frozen provider evidence are captured by
     // value, safely surviving modeless UI close and SDK worker lifetime.
-    auto filter_result=std::make_shared<std::atomic<int>>(0);
+    auto filter_result=std::make_shared<FilterOnce>();
     auto filter=file_info_filter::create(
         [frozen,filter_result](trackRef handle,t_filestats,
                               file_info& on_disk)->bool {
@@ -73,11 +74,13 @@ PhysicalWriteReport submit_frozen_physical_tag_write(
                frozen.source_path!=handle->get_path() ||
                !physical_identity_unchanged(frozen))
                 throw std::runtime_error("SDK_LOCKED_SOURCE_CHANGED");
+            if(!filter_result->enter())
+                throw std::runtime_error("SDK_FILTER_DUPLICATE_INVOCATION");
             const auto approved=fresh_gate(frozen,on_disk);
             if(approved.state==PhysicalWriteGateState::Blocked)
                 throw std::runtime_error("SDK_RELOADED_TAGS_STALE");
             if(approved.state==PhysicalWriteGateState::Noop) {
-                filter_result->store(2);
+                filter_result->noop();
                 return false;
             }
             const auto actual=metadata_from_file_info(on_disk);
@@ -93,7 +96,7 @@ PhysicalWriteReport submit_frozen_physical_tag_write(
                !file_info::g_is_info_equal(on_disk,proposed))
                 throw std::runtime_error("SDK_LOCKED_POSTIMAGE_MISMATCH");
             on_disk.copy(proposed);
-            filter_result->store(1);
+            filter_result->wrote();
             return true;
         });
     auto notify=fb2k::makeCompletionNotify(
@@ -103,9 +106,9 @@ PhysicalWriteReport submit_frozen_physical_tag_write(
                 outcome={PhysicalWriteOutcome::Cancelled,"SDK_UPDATE_CANCELLED"};
             else if(code!=metadb_io::update_info_success)
                 outcome={PhysicalWriteOutcome::Failed,"SDK_UPDATE_FAILED"};
-            else if(filter_result->load()==2)
+            else if(filter_result->result()==FilterResult::Noop)
                 outcome={PhysicalWriteOutcome::Noop,"SDK_NO_CHANGED_TAGS"};
-            else if(filter_result->load()!=1)
+            else if(filter_result->result()!=FilterResult::Wrote)
                 outcome={PhysicalWriteOutcome::ReadbackMismatch,
                          "SDK_FILTER_DID_NOT_CONFIRM_WRITE"};
             else {
