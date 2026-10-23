@@ -2,7 +2,8 @@
 param(
     [string]$SourceSha = '',
     [string]$OutputDirectory = '',
-    [switch]$PreflightOnly
+    [switch]$PreflightOnly,
+    [switch]$EnablePhysicalWrites
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -20,7 +21,9 @@ if ($PreflightOnly) {
 }
 if ($SourceSha -cnotmatch '^[a-f0-9]{40}$') { throw 'Pass exact lowercase 40-digit Git SHA.' }
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) { throw 'Explicit -OutputDirectory required.' }
-$destination = Join-Path ([IO.Path]::GetFullPath($OutputDirectory)) ("MMS-local-" + $SourceSha)
+$mode = if ($EnablePhysicalWrites) { 'physical-tags' } else { 'readonly' }
+$suffix = if ($EnablePhysicalWrites) { '-physical-tags' } else { '' }
+$destination = Join-Path ([IO.Path]::GetFullPath($OutputDirectory)) ("MMS-local-" + $SourceSha + $suffix)
 if (Test-Path -LiteralPath $destination) { throw 'Output already exists: refuse overwrite.' }
 $temp = Join-Path ([IO.Path]::GetTempPath()) ('m-' + [guid]::NewGuid().ToString('N').Substring(0,8))
 New-Item -ItemType Directory -Path $temp | Out-Null
@@ -50,12 +53,13 @@ try {
     # Keep the exact-SHA source build non-public and use only pinned SDK
     # acquisition rules within this repository's own bootstrap script.
     $build = Join-Path $root 'scripts\build-foobar.ps1'
-    & $build -Platform Win32 -Configuration Release -PlatformToolset v143
+    & $build -Platform Win32 -Configuration Release -PlatformToolset v143 -EnablePhysicalWrites:$EnablePhysicalWrites
     if ($LASTEXITCODE -ne 0) { throw 'Win32 build failed.' }
-    & $build -Platform x64 -Configuration Release -PlatformToolset v143
+    & $build -Platform x64 -Configuration Release -PlatformToolset v143 -EnablePhysicalWrites:$EnablePhysicalWrites
     if ($LASTEXITCODE -ne 0) { throw 'x64 build failed.' }
-    $dll32 = Join-Path $root 'out\foobar\Win32\Release\foo_music_metadata_studio.dll'
-    $dll64 = Join-Path $root 'out\foobar\x64\Release\foo_music_metadata_studio.dll'
+    $binaryRoot = if ($EnablePhysicalWrites) { 'out\physical-write-qa' } else { 'out\foobar' }
+    $dll32 = Join-Path $root ($binaryRoot + '\Win32\Release\foo_music_metadata_studio.dll')
+    $dll64 = Join-Path $root ($binaryRoot + '\x64\Release\foo_music_metadata_studio.dll')
     foreach ($p in @($dll32,$dll64)) {
         if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { throw "Missing compiled DLL $p" }
     }
@@ -64,7 +68,7 @@ try {
         throw 'Unexpected version string.'
     }
     $stage = Join-Path $temp 'package'
-    & (Join-Path $root 'scripts\package-foobar.ps1') -Win32Dll $dll32 -X64Dll $dll64 -OutputDirectory $stage -Version $version -Commit $SourceSha
+    & (Join-Path $root 'scripts\package-foobar.ps1') -Win32Dll $dll32 -X64Dll $dll64 -OutputDirectory $stage -Version $version -Commit $SourceSha -WriteMode $mode
     $file = Join-Path $stage ("foo_music_metadata_studio-" + $version + ".fb2k-component")
     $manifest = Join-Path $stage 'BUILD-MANIFEST.txt'
     $sums = Join-Path $stage 'SHA256SUMS.txt'
@@ -72,8 +76,15 @@ try {
         if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { throw 'Incomplete package.' }
     }
     $proof = Get-Content -LiteralPath $manifest -Raw
+    $analysisOnly = if ($EnablePhysicalWrites) { 'false' } else { 'true' }
+    $physicalWriteEnabled = if ($EnablePhysicalWrites) { 'true' } else { 'false' }
     foreach ($value in @("commit=$SourceSha",'root_dll_machine=0x014C',
-                         'x64_dll_machine=0x8664','status=PASS')) {
+                         'x64_dll_machine=0x8664',"write_mode=$mode",
+                         "analysis_only=$analysisOnly",
+                         "physical_tags_write_enabled=$physicalWriteEnabled",
+                         'external_cue_write_enabled=false',
+                         'embedded_cue_write_enabled=false',
+                         'file_operations_write_enabled=false','status=PASS')) {
         if (-not $proof.Contains($value)) { throw "Missing manifest proof: $value" }
     }
     $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -85,8 +96,11 @@ try {
     Copy-Item -LiteralPath $file,$manifest,$sums -Destination $destination
     $copiedHash = (Get-FileHash -LiteralPath (Join-Path $destination (Split-Path -Leaf $file)) -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($copiedHash -ne $hash) { throw 'Local copy checksum mismatch.' }
-    Write-Host "LOCAL_ACCEPTANCE_BUILD=PASS PATH=$destination SOURCE_SHA=$SourceSha SHA256=$hash"
+    Write-Host "LOCAL_ACCEPTANCE_BUILD=PASS PATH=$destination SOURCE_SHA=$SourceSha SHA256=$hash WRITE_MODE=$mode"
     Write-Host 'No installation, tag/database/music writes or public GitHub binary artifacts.'
+    if ($EnablePhysicalWrites) {
+        Write-Warning 'Private opt-in physical tag writer: use only after review and on backed-up files. CUE and FileOps writing remain disabled.'
+    }
 } finally {
     if (Test-Path -LiteralPath $temp) {
         Remove-Item -LiteralPath $temp -Force -Recurse -ErrorAction SilentlyContinue

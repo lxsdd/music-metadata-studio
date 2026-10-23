@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory = $true)][string]$X64Dll,
     [Parameter(Mandatory = $true)][string]$OutputDirectory,
     [Parameter(Mandatory = $true)][string]$Version,
-    [Parameter(Mandatory = $true)][string]$Commit
+    [Parameter(Mandatory = $true)][string]$Commit,
+    [ValidateSet('readonly','physical-tags')][string]$WriteMode = 'readonly'
 )
 $ErrorActionPreference = 'Stop'
 function Get-PeMachine([string]$Path) {
@@ -35,6 +36,8 @@ Move-Item -LiteralPath $zip -Destination $component
 $win32Hash = (Get-FileHash -LiteralPath (Join-Path $stage 'foo_music_metadata_studio.dll') -Algorithm SHA256).Hash.ToLowerInvariant()
 $x64Hash = (Get-FileHash -LiteralPath (Join-Path $stage 'x64\foo_music_metadata_studio.dll') -Algorithm SHA256).Hash.ToLowerInvariant()
 $componentHash = (Get-FileHash -LiteralPath $component -Algorithm SHA256).Hash.ToLowerInvariant()
+$analysisOnly = if ($WriteMode -eq 'readonly') { 'true' } else { 'false' }
+$physicalTagsEnabled = if ($WriteMode -eq 'physical-tags') { 'true' } else { 'false' }
 @(
     "version=$Version",
     "commit=$Commit",
@@ -44,7 +47,12 @@ $componentHash = (Get-FileHash -LiteralPath $component -Algorithm SHA256).Hash.T
     "x64_dll_sha256=$x64Hash",
     "component_sha256=$componentHash",
     "layout=root:foo_music_metadata_studio.dll;x64:x64/foo_music_metadata_studio.dll",
-    "analysis_only=true",
+    "analysis_only=$analysisOnly",
+    "write_mode=$WriteMode",
+    "physical_tags_write_enabled=$physicalTagsEnabled",
+    "external_cue_write_enabled=false",
+    "embedded_cue_write_enabled=false",
+    "file_operations_write_enabled=false",
     "status=PASS"
 ) | Set-Content -LiteralPath (Join-Path $OutputDirectory 'BUILD-MANIFEST.txt') -Encoding UTF8
 ("$componentHash  " + (Split-Path -Leaf $component)) | Set-Content -LiteralPath (Join-Path $OutputDirectory 'SHA256SUMS.txt') -Encoding ASCII

@@ -33,7 +33,12 @@ try {
         }
     }
     $proof = Get-Content -LiteralPath $manifest -Raw
-    foreach ($expected in @("commit=$sha",'root_dll_machine=0x014C','x64_dll_machine=0x8664','analysis_only=true','status=PASS')) {
+    foreach ($expected in @("commit=$sha",'root_dll_machine=0x014C','x64_dll_machine=0x8664',
+                              'analysis_only=true','write_mode=readonly',
+                              'physical_tags_write_enabled=false',
+                              'external_cue_write_enabled=false',
+                              'embedded_cue_write_enabled=false',
+                              'file_operations_write_enabled=false','status=PASS')) {
         if (-not $proof.Contains($expected)) { throw "Manifest missing $expected" }
     }
     $hash = (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -52,6 +57,25 @@ try {
     if ((Get-FileHash -LiteralPath $win32 -Algorithm SHA256).Hash -cne $source32 -or
         (Get-FileHash -LiteralPath $x64 -Algorithm SHA256).Hash -cne $source64) {
         throw 'Synthetic source DLL mutated during packaging'
+    }
+    # The opt-in private variant must advertise its real write boundary.
+    $writeOut = Join-Path $root 'physical-tags-output'
+    & $packageScript -Win32Dll $win32 -X64Dll $x64 -OutputDirectory $writeOut -Version $version -Commit $sha -WriteMode 'physical-tags'
+    $writeManifest = Get-Content -LiteralPath (Join-Path $writeOut 'BUILD-MANIFEST.txt') -Raw
+    foreach ($expected in @('analysis_only=false','write_mode=physical-tags',
+                              'physical_tags_write_enabled=true',
+                              'external_cue_write_enabled=false',
+                              'embedded_cue_write_enabled=false',
+                              'file_operations_write_enabled=false','status=PASS')) {
+        if (-not $writeManifest.Contains($expected)) { throw "Write-mode manifest missing $expected" }
+    }
+    foreach ($script in @('build-foobar.ps1','local-acceptance-build.ps1','package-foobar.ps1')) {
+        $scriptPath = Join-Path $PSScriptRoot ("..\\scripts\\" + $script)
+        $tokens = $null
+        $parseErrors = $null
+        [void][System.Management.Automation.Language.Parser]::ParseFile(
+            $scriptPath,[ref]$tokens,[ref]$parseErrors)
+        if ($parseErrors.Count -ne 0) { throw "PowerShell syntax invalid: $script" }
     }
     $wrongRejected = $false
     try {
