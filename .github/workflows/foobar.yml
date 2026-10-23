@@ -138,6 +138,25 @@ jobs:
           multi-file-cue-host-probe: 'true'
           raw-target-host-probe: 'true'
           stale-physical-host-probe: 'true'
+      # Compile BOTH sides of the feature gate. The normal host-loaded binary
+      # above contains no callable write UI. The QA-only DLL is never run
+      # against user files, installed, uploaded or packaged.
+      - name: Compile gated physical tag writer action (QA-only, no execution)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $arch = '${{ matrix.platform }}'
+          try {
+            & msbuild.exe .\foo_music_metadata_studio.vcxproj /m /restore "/p:Configuration=Release" "/p:Platform=$arch" "/p:PlatformToolset=v143" "/p:EnablePhysicalWrites=true"
+            if ($LASTEXITCODE -ne 0) { throw 'Isolated QA write-action compile failed' }
+            $dll = Join-Path "out/physical-write-qa/$arch/Release" 'foo_music_metadata_studio.dll'
+            if (-not (Test-Path -LiteralPath $dll -PathType Leaf)) {
+              throw 'QA-only component DLL not generated'
+            }
+            Write-Host "MMS_GATED_WRITE_UI_COMPILE_$arch=PASS; no writer invoked"
+          } finally {
+            Remove-Item -LiteralPath 'out/physical-write-qa','build/physical-write-qa' -Force -Recurse -ErrorAction SilentlyContinue
+          }
       - name: Upload DLL
         if: false # Safety hold: no public DLL artifacts
         uses: actions/upload-artifact@v7
