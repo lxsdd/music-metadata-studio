@@ -88,6 +88,7 @@
     <ClCompile Include="src\foobar\prepare_dialog.cpp" />
     <ClCompile Include="src\foobar\batch_preview_dialog.cpp" />
     <ClCompile Include="src\writer\physical_tag_writer.cpp" />
+    <ClCompile Include="src\writer\physical_tag_writer_qa.cpp" />
     <ClCompile Include="src\foobar\batch_table_settings.cpp" />
     <ClCompile Include="src\foobar\menu_settings.cpp" />
     <ClCompile Include="src\foobar\menu_preferences.cpp" />
