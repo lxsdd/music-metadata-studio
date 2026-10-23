@@ -48,6 +48,9 @@
 #include "djmeta/cue_reference_locator.h"
 #include "djmeta/physical_selection.h"
 #include "djmeta/physical_sdk_postimage.h"
+#if defined(MMS_ENABLE_PHYSICAL_WRITES)
+#include "../writer/physical_tag_writer.h"
+#endif
 #include "djmeta/review_decisions.h"
 #include "djmeta/review_display.h"
 #include "djmeta/track_review.h"
@@ -1166,6 +1169,20 @@ void update_online_field_preview_controls(PreviewState& state) {
         ShowWindow(GetDlgItem(state.dialog,id),ready?SW_SHOW:SW_HIDE);
         EnableWindow(GetDlgItem(state.dialog,id),ready?TRUE:FALSE);
     }
+    // Only the isolated acceptance variant contains a real SDK write action.
+    // Shipping preview builds keep the same control completely invisible.
+#if defined(MMS_ENABLE_PHYSICAL_WRITES)
+    const bool writer_ready=ready && state.online_field_preview &&
+        state.online_field_preview->explicitly_changed>0 &&
+        !state.online_included_fields.empty();
+    ShowWindow(GetDlgItem(state.dialog,IDC_ONLINE_WRITE_SELECTED),
+               writer_ready?SW_SHOW:SW_HIDE);
+    EnableWindow(GetDlgItem(state.dialog,IDC_ONLINE_WRITE_SELECTED),
+                 writer_ready?TRUE:FALSE);
+#else
+    ShowWindow(GetDlgItem(state.dialog,IDC_ONLINE_WRITE_SELECTED),SW_HIDE);
+    EnableWindow(GetDlgItem(state.dialog,IDC_ONLINE_WRITE_SELECTED),FALSE);
+#endif
     // Inspect release and the dedicated field-preview reset share a physical
     // row only when the latter is NOT active; never overlap visible actions.
     ShowWindow(GetDlgItem(state.dialog,IDC_METADATA_MB_LOAD_RELEASE),
@@ -5833,6 +5850,73 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             load_profile(dialog, static_cast<int>(sel));
             return TRUE;
         }
+#if defined(MMS_ENABLE_PHYSICAL_WRITES)
+        if(id==IDC_ONLINE_WRITE_SELECTED && HIWORD(wp)==BN_CLICKED) {
+            // No automatic commit when loading/searching/selecting a provider.
+            // One explicit user click, one physical source, one final YES.
+            if(!qualified_online_field_preview(*state) ||
+               !state->online_field_preview ||
+               state->online_field_preview->explicitly_changed==0 ||
+               state->online_included_fields.empty())
+                throw std::invalid_argument("No reviewed physical tag changes to write.");
+            const auto& entry=state->entries[state->selected_track_index];
+            verify_snapshot(entry);
+            verify_rules_snapshot(state->captured_rules);
+            const auto observation=probe_host_file_readonly(entry.input.source_path);
+            if(observation.state!=HostFileState::ExistingFile ||
+               observation.host_physical_key!=entry.observed_physical_key ||
+               observation.source_guard!=entry.observed_source_guard)
+                throw std::runtime_error("Physical source changed before final consent.");
+            const auto latest=entry.handle->get_info_ref();
+            const auto tags=metadata_from_file_info(latest->info());
+            const djmeta::PhysicalTagSourceSnapshot source{
+                true,false,observation.host_physical_key,
+                observation.source_guard,state->online_field_snapshot->physical_before};
+            const djmeta::online::FrozenPhysicalTagWrite frozen{
+                entry.input.source_path,source,*state->online_field_snapshot,
+                *state->online_field_preview,state->online_included_fields,
+                state->online_date_targets};
+            const auto verified=djmeta::online::verify_frozen_physical_write(
+                frozen,tags,entry.input.source_path,observation.host_physical_key,
+                observation.source_guard);
+            if(verified.state!=djmeta::online::PhysicalWriteGateState::Changed)
+                throw std::invalid_argument(
+                    "Changes are stale, unqualified or already applied. Refresh.");
+            const std::wstring warning=
+                L"Write "+std::to_wstring(
+                    state->online_field_preview->explicitly_changed)+
+                L" explicitly reviewed physical metadata field(s) to ONE file?\n\n"+
+                from_utf8(entry.input.source_path)+
+                L"\n\nNo file move or CUE edit will be performed. "+
+                L"foobar will reread the file before editing. "+
+                L"Back up your test file before approving.";
+            if(MessageBoxW(dialog,warning.c_str(),
+                           L"Confirm physical tag change",
+                           MB_YESNO|MB_ICONWARNING|MB_DEFBUTTON2)!=IDYES)
+                return TRUE;
+            // Callback owns no PreviewState; its result can outlive the HWND.
+            const auto result=submit_frozen_physical_tag_write(
+                entry.handle,frozen,[dialog](PhysicalWriteReport report){
+                    if(!IsWindow(dialog) || g_workspace!=dialog)return;
+                    const auto label=from_utf8(report.diagnostic);
+                    SetDlgItemTextW(dialog,IDC_BATCH_HINT,label.c_str());
+                    if(report.outcome!=PhysicalWriteOutcome::Completed &&
+                       report.outcome!=PhysicalWriteOutcome::Noop)
+                        MessageBoxW(dialog,label.c_str(),L"Physical tag result",
+                                    MB_OK|MB_ICONWARNING);
+                });
+            if(result.outcome!=PhysicalWriteOutcome::Submitted &&
+               result.outcome!=PhysicalWriteOutcome::Noop)
+                throw std::runtime_error(result.diagnostic);
+            SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                            from_utf8(result.diagnostic).c_str());
+            // The old preview is never reused for a second write; the user
+            // must refresh and explicitly re-review the source afterwards.
+            state->stale=true;
+            update_live_provider_controls(*state);
+            return TRUE;
+        }
+#endif
         if (id == IDC_BATCH_APPLY_SELECTED && HIWORD(wp) == BN_CLICKED) {
             apply_to_rows(dialog, *state, false);
             return TRUE;
