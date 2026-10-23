@@ -928,10 +928,17 @@ for function in (
 # receive the Discogs QA secret; PR, fork, push, and regular workflow runs
 # must remain credential-free. No manual run may publish a draft artifact.
 workflow = (root / ".github" / "workflows" / "foobar.yml").read_text(encoding="utf-8")
-if workflow.count("repository: lxsdd/foobar2000_component_template") != 2 or (
-    workflow.count("ref: 31a35947a7527826c2199491692802e3ce3d8bd7") != 2
-) or workflow.count("persist-credentials: false") < 2:
-    raise SystemExit("STATIC FOOBAR AUDIT FAIL: SDK fallback checkout is not pinned on both Windows jobs")
+# The third pinned SDK checkout is exclusively for isolated synthetic
+# write QA; all three Windows jobs must use the same immutable SDK commit.
+if workflow.count("repository: lxsdd/foobar2000_component_template") != 3 or (
+    workflow.count("ref: 31a35947a7527826c2199491692802e3ce3d8bd7") != 3
+) or workflow.count("persist-credentials: false") < 4:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: SDK checkout pins missing on one of three Windows jobs")
+if (workflow.count("repository: lxsdd/dev-infrastructure-public") != 1 or
+    workflow.count("ref: 31930d4fca571f449f2c57044bea5ba2e01f0ca7") != 1 or
+    "  physical-sdk-runtime-qa:\n    if: github.event_name == 'push' && github.ref == 'refs/heads/feature/online-metadata-discovery-foundation-20261009'" not in workflow or
+    "MMS_NATIVE_PHYSICAL_WRITER_QA" not in (root / "scripts" / "qa-physical-writer-host.ps1").read_text(encoding="utf-8")):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: synthetic SDK writer QA not isolated and pinned")
 # Exactly two *step-scoped* references are now allowed: one for the
 # authenticated staged-search probe and one for the actual native host gate.
 # Both belong exclusively to the same manually approved discogs-qa job.
