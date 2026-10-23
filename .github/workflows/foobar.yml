@@ -206,7 +206,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Standard SDK bootstrap failed' }
           & msbuild.exe .\foo_music_metadata_studio.vcxproj /m /restore "/p:Configuration=Release" "/p:Platform=$arch" "/p:PlatformToolset=v143" "/p:EnablePhysicalWrites=true"
           if ($LASTEXITCODE -ne 0) { throw 'Guarded QA component compile failed' }
-      - name: Execute real foobar SDK write and second-pass no-op on disposable FLAC
+      - name: Exercise real foobar physical no-op/write and external CUE transaction
         shell: pwsh
         run: |
           $arch = '${{ matrix.platform }}'

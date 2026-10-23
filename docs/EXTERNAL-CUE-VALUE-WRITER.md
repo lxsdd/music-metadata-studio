@@ -45,10 +45,21 @@ success. The UI disables re-use of the consent and requires reinspection.
 
 The portable exact-edition batch adapter and preflight have deterministic
 regression tests. The native sink has isolated Windows filesystem transaction
-tests. The connected foobar component is compiled in Win32 and x64 CI using
-the shared SDK. These automated checks do **not** replace one real,
-non-destructive foobar UI acceptance of selection, confirmation, save,
-readback, and window behavior on the user's machine.
+tests. In [host qualification run 39962237786](https://github.com/lxsdd/music-metadata-studio/actions/runs/39962237786),
+the private QA component was compiled and loaded into separate **real foobar2000
+2.26.1 Win32 and x64 hosts**. Each host performed a disposable two-field
+external CUE value transaction through the production controller and native
+sink, then proved the exact UTF-8 postimage and unchanged referenced FLAC
+bytes. The same run also proved an actual physical SDK tag no-op without a
+timestamp change and an explicitly selected physical tag write with decoder
+readback. Both architectures passed.
+
+The synthetic host context commands are QA-only, source-path-locked to the
+disposable GitHub runner, and absent from the normal component. This is
+backend evidence, **not** an automated proof that a human can correctly
+select, confirm, save and see readback through every UI state. One private
+installed-foobar UI acceptance on disposable files remains mandatory before
+general write enablement.
 
 The opt-in local acceptance helper is `scripts/local-acceptance-build.ps1
 -EnablePhysicalWrites`; its manifest must declare both

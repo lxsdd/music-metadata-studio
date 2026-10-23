@@ -34,8 +34,34 @@ The initial development phase implements only analysis/preview behavior. Real ta
 - `docs/` – architecture and integration contracts.
 - `.github/workflows/` – reproducible CI.
 
-## Current phase
+## Current qualification (23 October 2026)
 
-Phase 0/1: architecture contract + deterministic preview core. No audio-file or tag writes.
+Development continues in Draft PR #45; this is not a merged or released component.
 
-Modeless foobar workspace and its mandatory installed-host gate: [read-only acceptance checklist](docs/MODELESS-WORKSPACE-ACCEPTANCE.md).
+- The foobar2000 workspace is modeless and single-instance; the standard
+  component build is **read-only**. Source identity, stale snapshots,
+  explicit decisions and no-background-request behavior remain mandatory.
+- Deterministic online candidate/release review, metadata normalization,
+  external/embedded CUE inspection and destination previews share the
+  versioned core. Provider results never authorize an automatic write.
+- The private, **opt-in** `-EnablePhysicalWrites` local acceptance build adds
+  exact selected physical tag-value writes via the foobar SDK and value-only
+  external CUE writes. Both require preview, final human confirmation,
+  independent source revalidation and exact post-write readback. Embedded
+  CUE writes, FILE-reference edits and file moves are not enabled by this
+  gate.
+- GitHub Actions [foobar host qualification](https://github.com/lxsdd/music-metadata-studio/actions/runs/39962237786)
+  passed on Win32 and x64 at commit `a066166e77f767563f434e941913d3b71274b3e2`.
+  Disposable official foobar instances exercised true physical tag no-op,
+  selected tag writes and an external CUE transaction while confirming
+  unchanged audio bytes. [Core CI](https://github.com/lxsdd/music-metadata-studio/actions/runs/39962237899)
+  passed on Ubuntu and Windows.
+- These host tests validate the writer backends, not human-visible
+  placement, accessibility, provider account interaction or the final UI
+  confirmation workflow. A private installed-foobar UI acceptance on
+  disposable files is still the next release gate; no public binaries,
+  merge or release are authorized.
+
+See [private acceptance build](docs/LOCAL_ACCEPTANCE_BUILD.md),
+[modeless workspace gate](docs/MODELESS-WORKSPACE-ACCEPTANCE.md), and
+[external CUE value writer](docs/EXTERNAL-CUE-VALUE-WRITER.md).

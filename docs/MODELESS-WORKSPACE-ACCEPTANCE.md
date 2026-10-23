@@ -1,6 +1,6 @@
 # Music Metadata Studio — modeless workspace host gate
 
-**Status:** source candidate on PR #45, issue #47. Not a completed installed-foobar acceptance. This page records the conditions for the first necessary Windows test. The component is read-only; no tag, audio, CUE or filesystem write is authorized.
+**Status:** source candidate on Draft PR #45, issue #47. Not a completed private installed-foobar UI acceptance. The normal component is read-only. A separate opt-in private qualification build can perform explicitly confirmed, exact physical tag-value and external CUE value writes on disposable files; it does not authorize production-library changes, file moves, merge or release. The read-only workspace checks below remain independent of the writer backend host QA.
 
 ## Contract under test
 
@@ -248,3 +248,14 @@ cases the native status explicitly says final foobar File Operations
 destinations and CUE dependencies remain unverified. These controls
 and file identity observations are checked with no mutation of the WAV,
 not inferred from a pure-core fixture alone.
+
+## Private writer backend host qualification (23 October 2026)
+
+At exact commit `a066166e77f767563f434e941913d3b71274b3e2`,
+[Win32/x64 host run 39962237786](https://github.com/lxsdd/music-metadata-studio/actions/runs/39962237786)
+passed genuine disposable foobar SDK physical tag no-op, selected tag write,
+independent physical decoder readback and a two-field exact external CUE
+transaction. Referenced audio bytes stayed unchanged. This is **not** a
+full automated window/UI acceptance; final visual alignment, selections,
+confirmation dialog and actual user interaction still require the separate
+private foobar acceptance on disposable copies.
