@@ -91,15 +91,36 @@ try {
    throw "QA_NATIVE_CONTEXT_NOT_ENTERED (full/leaf); diagnostics: $diagnostic"
  }
  $changed=$false
+ $baseline=[IO.File]::ReadAllBytes($original)
  for($i=0;$i -lt 75;$i++) {
-    if($proc.HasExited) {throw 'foobar exited during SDK write'}
-    if((Test-Path $source) -and
-       ([IO.File]::ReadAllBytes($source) -join ',') -ne
-       ([IO.File]::ReadAllBytes($original) -join ',')) {
-       $changed=$true
+   if($proc.HasExited) {throw 'foobar exited during SDK write'}
+   # Foobar's native writer may temporarily hold the file exclusively.
+   # Temporary IOException is expected; boundedly wait for a stable read.
+   if(Test-Path -LiteralPath $source) {
+     try {
+       $now=[IO.File]::ReadAllBytes($source)
+       if(($now -join ',') -ne ($baseline -join ',')) {
+         $changed=$true
+         break
+       }
+     } catch [System.IO.IOException] {
+       # Exclusive SDK writer lock; retry, never mark as a changed file.
+     }
+   }
+   Start-Sleep -Milliseconds 400
+ }
+ if($changed) {
+   $readable=$false
+   for($i=0;$i -lt 30;$i++) {
+     try {
+       $probe=[IO.File]::Open($source,[IO.FileMode]::Open,
+                             [IO.FileAccess]::Read,[IO.FileShare]::Read)
+       $probe.Dispose()
+       $readable=$true
        break
-    }
-    Start-Sleep -Milliseconds 400
+     } catch [System.IO.IOException] { Start-Sleep -Milliseconds 300 }
+   }
+   if(-not $readable) {throw 'Native SDK file lock did not release'}
  }
  if(-not $changed) {
     # The QA component emits ONLY bounded static result codes here.
