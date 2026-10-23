@@ -26,7 +26,7 @@ void trace_writer_qa(const char* value) {
     const std::string dir=root,output=path;
     if(output.size()<dir.size()+24 ||
        _strnicmp(output.c_str(),dir.c_str(),dir.size())!=0 ||
-       (output[dir.size()]!='\\\\' && output[dir.size()]!='/') ||
+       (output[dir.size()]!='\\' && output[dir.size()]!='/') ||
        output.find("..")!=std::string::npos ||
        output.substr(output.size()-21)!="mms-writer-report.txt")
         return;
