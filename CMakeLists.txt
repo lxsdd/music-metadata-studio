@@ -488,6 +488,22 @@ else()
     target_compile_options(djmeta_discogs_provider_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+# Native Windows external-CUE transaction is tested against an isolated
+# synthetic temp directory; it is not compiled into the foobar component.
+if(WIN32)
+    add_executable(djmeta_external_cue_transaction_win_tests
+        tests/external_cue_transaction_win_tests.cpp
+        src/writer/external_cue_transaction_win.cpp)
+    target_link_libraries(djmeta_external_cue_transaction_win_tests PRIVATE djmeta_core)
+    target_include_directories(djmeta_external_cue_transaction_win_tests PRIVATE src/writer include)
+    target_compile_features(djmeta_external_cue_transaction_win_tests PRIVATE cxx_std_20)
+    if(MSVC)
+        target_compile_options(djmeta_external_cue_transaction_win_tests PRIVATE /W4 /WX /permissive-)
+    else()
+        target_compile_options(djmeta_external_cue_transaction_win_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+endif()
+
 # Fixture filesystem write tests only: never linked to native foobar component.
 add_executable(djmeta_cue_fixture_writer_tests tests/cue_fixture_writer_tests.cpp)
 target_link_libraries(djmeta_cue_fixture_writer_tests PRIVATE djmeta_core)
@@ -574,6 +590,8 @@ add_test(NAME djmeta_review_decisions_tests COMMAND djmeta_review_decisions_test
 if(WIN32)
     add_test(NAME djmeta_native_preview_controls_tests
              COMMAND djmeta_native_preview_controls_tests)
+    add_test(NAME djmeta_external_cue_transaction_win_tests
+             COMMAND djmeta_external_cue_transaction_win_tests)
 endif()
 add_test(NAME djmeta_track_review_tests COMMAND djmeta_track_review_tests)
 add_test(NAME djmeta_metadata_diff_tests COMMAND djmeta_metadata_diff_tests)
