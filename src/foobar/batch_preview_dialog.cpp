@@ -46,6 +46,7 @@
 #include "djmeta/cue_online_bridge.h"
 #include "djmeta/cue_reference_locator.h"
 #include "djmeta/physical_selection.h"
+#include "djmeta/physical_sdk_postimage.h"
 #include "djmeta/review_decisions.h"
 #include "djmeta/review_display.h"
 #include "djmeta/track_review.h"
@@ -4202,6 +4203,25 @@ void change_online_field_preview(PreviewState& state,int action) {
     if(!qualified.eligible)
         throw std::invalid_argument(
             "Online physical tag postimage refused: "+qualified.rejection);
+    // Construct the actual detached foobar SDK file_info postimage using ONLY
+    // verified edits. This is a copy/roundtrip integrity gate; no metadb_io,
+    // input writer, filesystem or playlist metadata mutation is invoked.
+    const auto approved_sdk_fields=djmeta::physical_sdk_changed_field_approvals(
+        current,qualified.planned);
+    file_info_impl sdk_postimage;
+    const auto sdk_projection=djmeta::project_explicit_physical_sdk_postimage(
+        info->info(),sdk_postimage,physical,latest.host_physical_key,
+        latest.source_guard,approved_sdk_fields,qualified,
+        [](const file_info& source) { return metadata_from_file_info(source); });
+    if(sdk_projection.status==djmeta::PhysicalSdkPostimageStatus::Blocked ||
+       (sdk_projection.status==djmeta::PhysicalSdkPostimageStatus::Detached)!=
+           qualified.changed)
+        throw std::runtime_error(
+            "Native physical SDK postimage refused: "+sdk_projection.rejection);
+    if(qualified.changed && !file_info::g_is_info_equal(
+            info->info(),sdk_postimage))
+        throw std::runtime_error(
+            "SDK projection unexpectedly altered technical file information.");
     // Both values come from foobar's own Title Formatting runtime,
     // evaluated against the identical physical file_info. No file move,
     // target overwrite or tag write can occur via this preview.
