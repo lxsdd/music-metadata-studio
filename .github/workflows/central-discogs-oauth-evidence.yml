@@ -1,0 +1,24 @@
+name: Central Discogs OAuth API evidence (no secrets)
+
+# This consumer never receives Discogs credentials. A reviewed central
+# workflow on protected main performs live API calls; this job only verifies
+# fresh public run+step evidence. Native GUI, cue and tag writes are separate.
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '13 5 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  central-discogs-oauth-evidence:
+    name: Verify protected central OAuth1 live API health
+    uses: lxsdd/dev-infrastructure-public/.github/workflows/discogs-oauth-evidence.yml@6017534185f89ddf3c74e3b4b9649c97937733b0
+    with:
+      max-age-hours: 72
+    permissions:
+      contents: read
+    # DO NOT pass secrets or 'secrets: inherit'.
