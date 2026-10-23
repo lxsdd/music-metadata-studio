@@ -1,0 +1,21 @@
+name: Discogs OAuth central API health evidence (no secrets)
+
+# This tests the *central* API/OAuth service, not local GUI, cache or tags.
+# Zero Discogs credentials are passed to or stored in this repository.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '41 8 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  upstream-discogs-oauth:
+    name: Central protected Discogs API QA evidence, not native GUI acceptance
+    uses: lxsdd/dev-infrastructure-public/.github/workflows/discogs-oauth-evidence.yml@1c029b78a25950085528f7119462bddfcfda971e
+    permissions:
+      contents: read
