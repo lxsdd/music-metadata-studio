@@ -65,8 +65,10 @@ int main(){
               refreshed,already_applied,refreshed.source_path,
               "id:1","stamp:2").state==PhysicalWriteGateState::Noop,
           "equal provider field is a true SDK-free second-pass no-op");
+    auto earlier_approval=frozen;
+    earlier_approval.source_path="file:///C:/qa/source.mp3";
     check(verify_frozen_physical_write(
-              frozen,already_applied,"file:///C:/qa/source.mp3",
+              earlier_approval,already_applied,earlier_approval.source_path,
               "id:1","stamp:1").state==PhysicalWriteGateState::Blocked,
           "old approval cannot be reused after a different physical postimage");
     auto changed_cue=original;
