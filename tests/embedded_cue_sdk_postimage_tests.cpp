@@ -21,9 +21,15 @@ struct FakeSdk {
  }
 };
 int main(){
- const std::string original="TITLE \"Old Album\"\r\n"
-   "FILE \"x.flac\" WAVE\r\nTRACK 01 AUDIO\r\n"
-   "TITLE \"Original Track\"\r\nINDEX 01 00:00:00\r\n";
+ const std::string original=
+   "TITLE \"Local album\"\n"
+   "PERFORMER \"DJ\"\n"
+   "FILE \"set.flac\" WAVE\n"
+   "TRACK 01 AUDIO\n"
+   "TITLE \"Sunrise (Extended Mix)\"\n"
+   "PERFORMER \"DJ\"\n"
+   "ISRC GBABC2600001\n"
+   "INDEX 01 00:00:00\n";
  FakeSdk sdk;
  sdk.tags={{{"TITLE",{"Physical Title"}},{"CUESHEET",{original}},
             {"GENRE",{"House","Trance"}},{"MY CUSTOM",{"keep"}},
@@ -34,12 +40,25 @@ int main(){
  physical.host_physical_key="os:physical";
  physical.source_guard="stat:v1";
  physical.original=sdk.tags;
- const CuePostimageEvidence selected{std::nullopt,
-   {"ALBUM",{"New Album"},"musicbrainz",
-     "00000000-0000-0000-0000-000000000001",EvidenceScope::Edition},
-     false,true};
- const auto snapshot=capture_cue_postimage_review(
-     original,CueCarrierKind::EmbeddedText,{selected});
+ ReleaseEdition mb;
+ mb.provider="musicbrainz";
+ mb.edition_id="00000000-0000-0000-0000-000000000001";
+ mb.fields.push_back({"ALBUM",{"New Album"},"musicbrainz",
+                      mb.edition_id,EvidenceScope::Edition});
+ EditionTrack remote;
+ remote.source_track_id="00000000-0000-0000-0000-000000000002";
+ remote.recording={"Sunrise (Extended Mix)","DJ","",
+                   MixKind::Extended,"GBABC2600001",-1};
+ remote.track_number=1;remote.disc_number=1;
+ remote.fields.push_back({"TITLE",{"Updated Sunrise (Extended Mix)"},
+                          "musicbrainz",remote.source_track_id,
+                          EvidenceScope::Edition});
+ mb.tracks.push_back(remote);
+ const auto snapshot=capture_qualified_cue_edition_postimage(
+     original,CueCarrierKind::EmbeddedText,mb);
+ check(snapshot.eligible && snapshot.verified_edition &&
+       snapshot.rows.size()==2,
+       "exact release and matched CUE recording required");
  const auto post=preview_selected_cue_review_postimage(
      snapshot,original,{0});
  check(post.eligible && post.changed,"qualified embedded CUE edit");
@@ -77,6 +96,18 @@ int main(){
        sdk,untouched,virtual_snapshot,physical.host_physical_key,
        physical.source_guard,snapshot,{0},post,read).status==
        EmbeddedCueSdkStatus::Blocked,"virtual subsong cannot authorize physical SDK projection");
+ auto manual=capture_cue_postimage_review(original,
+     CueCarrierKind::EmbeddedText,
+     {{std::nullopt,mb.fields.front(),false,true}});
+ check(manual.eligible && !manual.verified_edition &&
+       stage(sdk,manual,post,std::vector<std::size_t>{0},untouched).status==
+         EmbeddedCueSdkStatus::Blocked,
+       "manual complete-alignment flags cannot authorize an SDK postimage");
+ auto poisoned=snapshot;
+ poisoned.verified_edition->tracks[0].recording.title="Sunrise (Radio Edit)";
+ check(stage(sdk,poisoned,post,std::vector<std::size_t>{0},untouched).status==
+       EmbeddedCueSdkStatus::Blocked,
+       "changed official recording/mix provenance is independently rejected");
  auto forged=post;forged.bytes+=" ";
  check(stage(sdk,snapshot,forged,std::vector<std::size_t>{0},untouched).status==
        EmbeddedCueSdkStatus::Blocked,

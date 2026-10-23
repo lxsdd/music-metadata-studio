@@ -5290,6 +5290,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             // detached SDK CUESHEET postimage. Virtual tracks still receive
             // read-only comparison; they NEVER become physical writers.
             if(source.carrier==djmeta::CueCarrierKind::EmbeddedText &&
+               state->cue_postimage_snapshot->verified_edition &&
                entry.input.physical_source_qualified &&
                entry.handle->get_subsong_index()==0) {
                 const auto observed=probe_host_file_readonly(entry.input.source_path);

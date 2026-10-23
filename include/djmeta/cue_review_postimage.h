@@ -28,6 +28,9 @@ struct CuePostimageReviewSnapshot {
     djmeta::CueCarrierKind carrier=djmeta::CueCarrierKind::ExternalText;
     std::string original_bytes;
     std::vector<CuePostimageCapturedRow> rows;
+    // Only independently revalidated official edition capture populates this.
+    // Manually built comparison rows remain read-only even with full=true.
+    std::optional<ReleaseEdition> verified_edition;
 };
 // Map selected HWND detail row indices to immutable CUE evidence rows.
 // Never use the sorted view-row index as a CUE track/edition identity.
@@ -257,6 +260,7 @@ inline CuePostimageReviewSnapshot capture_qualified_cue_edition_postimage(
         if(!same_cue_postimage_review(snapshot.rows[i].reviewed,original))
             return {}; // includes aliases, conflicting or duplicated fields
     }
+    snapshot.verified_edition=edition;
     return snapshot;
 }
 

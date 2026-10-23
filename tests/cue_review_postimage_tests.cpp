@@ -29,7 +29,8 @@ int main(){
         true,false};
     const auto snap=capture_cue_postimage_review(raw,CueCarrierKind::ExternalText,
                                                   {global,track});
-    check(snap.eligible && snap.rows.size()==2 &&
+    check(snap.eligible && !snap.verified_edition &&
+          snap.rows.size()==2 &&
           snap.rows[0].reviewed.state==FieldReviewState::NeedsReview &&
           snap.rows[1].reviewed.state==FieldReviewState::NeedsReview,
           "two independent qualified comparison rows");
@@ -178,7 +179,8 @@ int main(){
     mb_edition.tracks.push_back(mb_track);
     const auto qualified=capture_qualified_cue_edition_postimage(
         release_raw,CueCarrierKind::ExternalText,mb_edition);
-    check(qualified.eligible && qualified.rows.size()==2 &&
+    check(qualified.eligible && qualified.verified_edition &&
+          qualified.rows.size()==2 &&
           qualified.rows[0].reviewed.state==FieldReviewState::NeedsReview &&
           qualified.rows[1].reviewed.state==FieldReviewState::NeedsReview,
           "exact MB release and verified occurrence expose two review rows");

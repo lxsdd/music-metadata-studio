@@ -31,7 +31,7 @@ EmbeddedCueSdkResult project_embedded_cue_into_physical_sdk(
        physical.host_physical_key!=live_physical_key ||
        physical.source_guard!=live_source_guard)
         return fail("EMBEDDED_CUE_PHYSICAL_SOURCE_UNQUALIFIED");
-    if(!snapshot.eligible ||
+    if(!snapshot.eligible || !snapshot.verified_edition ||
        snapshot.carrier!=djmeta::CueCarrierKind::EmbeddedText ||
        !approved.eligible)
         return fail("EMBEDDED_CUE_SNAPSHOT_UNQUALIFIED");
@@ -55,8 +55,25 @@ EmbeddedCueSdkResult project_embedded_cue_into_physical_sdk(
        carrier->values.front().empty() ||
        carrier->values.front().size()>8u*1024u*1024u)
         return fail("EMBEDDED_CUE_SOURCE_BYTES_CHANGED");
+    // An advisory complete-alignment flag is not write authority. Rebuild
+    // all track/edition evidence from the official release and exact bytes.
+    const auto independent=capture_qualified_cue_edition_postimage(
+        carrier->values.front(),djmeta::CueCarrierKind::EmbeddedText,
+        *snapshot.verified_edition);
+    if(!independent.eligible || independent.rows.size()!=snapshot.rows.size())
+        return fail("EMBEDDED_CUE_EDITION_PROVENANCE_CHANGED");
+    for(std::size_t i=0;i<snapshot.rows.size();++i) {
+        const auto& a=snapshot.rows[i];
+        const auto& b=independent.rows[i];
+        if(a.input.track!=b.input.track ||
+           a.input.evidence!=b.input.evidence ||
+           a.input.edition_track!=b.input.edition_track ||
+           a.input.complete_edition_alignment!=b.input.complete_edition_alignment ||
+           !same_cue_postimage_review(a.reviewed,b.reviewed))
+            return fail("EMBEDDED_CUE_EDITION_REVIEW_CHANGED");
+    }
     const auto verified=preview_selected_cue_review_postimage(
-        snapshot,carrier->values.front(),selected_indices);
+        independent,carrier->values.front(),selected_indices);
     if(!verified.eligible || verified.changed!=approved.changed ||
        verified.bytes!=approved.bytes)
         return fail("EMBEDDED_CUE_SELECTED_PROPOSAL_CHANGED");
