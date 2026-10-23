@@ -68,22 +68,27 @@ try {
  $command='/context_command:"Music Metadata Studio/QA write synthetic tags" "'+$source+'"'
  $forward=Start-Process -FilePath $exe -WorkingDirectory $hostDir -ArgumentList $command -Wait -PassThru
  if($forward.ExitCode -ne 0) {throw 'Physical writer context command failed'}
- # foobar's /context_command permits the leaf name on some host versions.
- # Verify the component was entered before waiting for an SDK mutation.
- for($i=0;$i -lt 20 -and -not (Test-Path $env:MMS_QA_REPORT_PATH);$i++) {
-    Start-Sleep -Milliseconds 200
+ # CLI menu names may be resolved as qualified group paths or leaf names.
+ # The on_init trace exists before dispatch, so presence of the report file
+ # CANNOT be used as evidence that a context command entered the QA callback.
+ $entered=$false
+ for($i=0;$i -lt 20;$i++) {
+   $diagnostic=(Get-Content -LiteralPath $env:MMS_QA_REPORT_PATH -Raw -ErrorAction SilentlyContinue)
+   if($diagnostic -match 'QA_ACTION_ENTERED') {$entered=$true;break}
+   Start-Sleep -Milliseconds 200
  }
- if(-not (Test-Path $env:MMS_QA_REPORT_PATH)) {
-    $leaf='/context_command:"QA write synthetic tags" "'+$source+'"'
-    $retry=Start-Process -FilePath $exe -WorkingDirectory $hostDir -ArgumentList $leaf -Wait -PassThru
-    if($retry.ExitCode -ne 0) {throw 'QA leaf context dispatch rejected'}
-    for($i=0;$i -lt 20 -and -not (Test-Path $env:MMS_QA_REPORT_PATH);$i++) {
-       Start-Sleep -Milliseconds 200
-    }
+ if(-not $entered) {
+   $leaf='/context_command:"QA write synthetic tags" "'+$source+'"'
+   $retry=Start-Process -FilePath $exe -WorkingDirectory $hostDir -ArgumentList $leaf -Wait -PassThru
+   if($retry.ExitCode -ne 0) {throw 'QA leaf context dispatch rejected'}
+   for($i=0;$i -lt 20;$i++) {
+     $diagnostic=(Get-Content -LiteralPath $env:MMS_QA_REPORT_PATH -Raw -ErrorAction SilentlyContinue)
+     if($diagnostic -match 'QA_ACTION_ENTERED') {$entered=$true;break}
+     Start-Sleep -Milliseconds 200
+   }
  }
- $diagnostic=(Get-Content -LiteralPath $env:MMS_QA_REPORT_PATH -Raw -ErrorAction SilentlyContinue)
- if($diagnostic -notmatch 'QA_ACTION_ENTERED') {
-    throw "QA_NATIVE_CONTEXT_NOT_ENTERED (full/leaf); diagnostics: $diagnostic"
+ if(-not $entered) {
+   throw "QA_NATIVE_CONTEXT_NOT_ENTERED (full/leaf); diagnostics: $diagnostic"
  }
  $changed=$false
  for($i=0;$i -lt 75;$i++) {
