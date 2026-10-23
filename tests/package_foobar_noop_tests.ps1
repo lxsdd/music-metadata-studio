@@ -37,6 +37,7 @@ try {
                               'analysis_only=true','write_mode=readonly',
                               'physical_tags_write_enabled=false',
                               'external_cue_write_enabled=false',
+                              'external_cue_write_scope=none',
                               'embedded_cue_write_enabled=false',
                               'file_operations_write_enabled=false','status=PASS')) {
         if (-not $proof.Contains($expected)) { throw "Manifest missing $expected" }
@@ -64,7 +65,8 @@ try {
     $writeManifest = Get-Content -LiteralPath (Join-Path $writeOut 'BUILD-MANIFEST.txt') -Raw
     foreach ($expected in @('analysis_only=false','write_mode=physical-tags',
                               'physical_tags_write_enabled=true',
-                              'external_cue_write_enabled=false',
+                              'external_cue_write_enabled=true',
+                              'external_cue_write_scope=value-only-exact-edition',
                               'embedded_cue_write_enabled=false',
                               'file_operations_write_enabled=false','status=PASS')) {
         if (-not $writeManifest.Contains($expected)) { throw "Write-mode manifest missing $expected" }

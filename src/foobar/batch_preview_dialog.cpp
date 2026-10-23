@@ -1152,7 +1152,7 @@ void layout_musicbrainz_detail_pane(PreviewState& state) {
     if (!state.online_detail_columns_applied && !state.online_detail_has_saved) {
         // Auto-size once for a new profile, not on each selection/resize.
         const int widths[]={28,23,32,17};
-        const int available=(std::max)(160,regions.details.right-regions.details.left-8);
+        const int available=(std::max)(160,static_cast<int>(regions.details.right-regions.details.left)-8);
         for (int i=0;i<4;++i)
             ListView_SetColumnWidth(state.musicbrainz_details,i,
                 (std::max)(48,available*widths[i]/100));

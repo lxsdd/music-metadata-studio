@@ -30,6 +30,7 @@ if([IO.Path]::GetFileName($component) -cne 'foo_music_metadata_studio.dll') {
 $work=Join-Path $env:RUNNER_TEMP ('mms-qa-write-'+[guid]::NewGuid().ToString('N'))
 $hostDir=Join-Path $work 'host'
 $source=Join-Path $work 'mms-writer-qa.flac'
+$cueSource=Join-Path $work 'mms-writer-qa.cue'
 $original=Join-Path $work 'original.flac'
 $after=Join-Path $work 'after-first.flac'
 $exe=Join-Path $hostDir 'foobar2000.exe'
@@ -40,6 +41,19 @@ try {
  & python $test $source
  if($LASTEXITCODE -ne 0) {throw 'Cannot create isolated QA FLAC'}
  Copy-Item -LiteralPath $source -Destination $original -ErrorAction Stop
+ $cueText=[string]::Join([Environment]::NewLine,@(
+   'TITLE "Local album"'
+   'PERFORMER "DJ"'
+   'FILE "mms-writer-qa.flac" WAVE'
+   'TRACK 01 AUDIO'
+   'TITLE "Sunrise (Extended Mix)"'
+   'PERFORMER "DJ"'
+   'ISRC GBABC2600001'
+   'INDEX 01 00:00:00'
+ )) + [Environment]::NewLine
+ [IO.File]::WriteAllText($cueSource,$cueText,[Text.UTF8Encoding]::new($false))
+ $env:MMS_QA_CUE_SOURCE=$cueSource
+
  $installer=Get-FoobarPinnedInstaller -Architecture $Architecture -Version '2.26.1' -Url $upstream -Sha256 $sha -CacheRoot $env:RUNNER_TEMP -MirrorUrl $mirror
  $p=Start-Process -FilePath $installer -ArgumentList @('/S',"/D=$hostDir") -Wait -PassThru
  if($p.ExitCode -ne 0 -or -not (Test-Path $exe)) {
@@ -139,9 +153,73 @@ try {
  if($LASTEXITCODE -ne 0 -or (Get-Item $source).LastWriteTimeUtc -ne $time) {
    throw 'Second identical request wrote a file'
  }
+ # The external-CUE controller runs inside the same disposable foobar.
+ $audioBeforeCue=[IO.File]::ReadAllBytes($source)
+ $cueDispatch=Start-Process -FilePath $exe -WorkingDirectory $hostDir -ArgumentList @('/add','/immediate',$cueSource) -Wait -PassThru
+ if($cueDispatch.ExitCode -ne 0) {throw 'Synthetic CUE source not accepted'}
+ Start-Sleep -Seconds 2
+ $cueCommand='/context_command:"Music Metadata Studio/QA write synthetic CUE" "'+$cueSource+'"'
+ $cueAction=Start-Process -FilePath $exe -WorkingDirectory $hostDir -ArgumentList $cueCommand -Wait -PassThru
+ if($cueAction.ExitCode -ne 0) {throw 'Synthetic CUE context command failed'}
+ $cueEntered=$false
+ for($i=0;$i -lt 25;$i++) {
+   $diagnostic=(Get-Content -LiteralPath $env:MMS_QA_REPORT_PATH -Raw -ErrorAction SilentlyContinue)
+   if($diagnostic -match 'QA_CUE_ACTION_ENTERED') {$cueEntered=$true;break}
+   Start-Sleep -Milliseconds 200
+ }
+ if(-not $cueEntered) {
+   $cueLeaf='/context_command:"QA write synthetic CUE" "'+$cueSource+'"'
+   $retry=Start-Process -FilePath $exe -WorkingDirectory $hostDir -ArgumentList $cueLeaf -Wait -PassThru
+   if($retry.ExitCode -ne 0) {throw 'Synthetic CUE leaf command failed'}
+   for($i=0;$i -lt 25;$i++) {
+     $diagnostic=(Get-Content -LiteralPath $env:MMS_QA_REPORT_PATH -Raw -ErrorAction SilentlyContinue)
+     if($diagnostic -match 'QA_CUE_ACTION_ENTERED') {$cueEntered=$true;break}
+     Start-Sleep -Milliseconds 200
+   }
+ }
+ if(-not $cueEntered) {throw "CUE_NATIVE_CONTEXT_NOT_ENTERED: $diagnostic"}
+ $cueCommitted=$false
+ for($i=0;$i -lt 40;$i++) {
+   $diagnostic=(Get-Content -LiteralPath $env:MMS_QA_REPORT_PATH -Raw -ErrorAction SilentlyContinue)
+   if($diagnostic -match 'QA_CUE_COMMITTED') {$cueCommitted=$true;break}
+   if($diagnostic -match 'QA_CUE_EXCEPTION|QA_CUE_COMMIT_REFUSED|QA_CUE_SOURCE_REJECTED') {
+     throw "CUE_NATIVE_HOST_TRANSACTION_REFUSED: $diagnostic"
+   }
+   Start-Sleep -Milliseconds 200
+ }
+ if(-not $cueCommitted) {throw "CUE_NATIVE_HOST_NO_COMMIT: $diagnostic"}
+ $expectedCue=$cueText.Replace('TITLE "Local album"','TITLE "Other album"').Replace(
+   'TITLE "Sunrise (Extended Mix)"','TITLE "Corrected Sunrise (Extended Mix)"')
+ $expectedCueBytes=[Text.UTF8Encoding]::new($false).GetBytes($expectedCue)
+ $actualCueBytes=[IO.File]::ReadAllBytes($cueSource)
+ if(($expectedCueBytes -join ',') -cne ($actualCueBytes -join ',')) {
+   throw 'Native CUE postimage differs from exact two-value projection'
+ }
+ if(($audioBeforeCue -join ',') -cne ([IO.File]::ReadAllBytes($source) -join ',')) {
+   throw 'CUE-only write unexpectedly modified audio bytes'
+ }
+ if(@(Get-ChildItem -LiteralPath $work -File -Filter '*.bak').Count -ne 0) {
+   throw 'Verified CUE transaction left an unreported backup'
+ }
+ $cueTime=(Get-Item $cueSource).LastWriteTimeUtc
+ $cueAgain=Start-Process -FilePath $exe -WorkingDirectory $hostDir -ArgumentList $cueCommand -Wait -PassThru
+ if($cueAgain.ExitCode -ne 0) {throw 'CUE second context request failed'}
+ $cueNoop=$false
+ for($i=0;$i -lt 40;$i++) {
+   $diagnostic=(Get-Content -LiteralPath $env:MMS_QA_REPORT_PATH -Raw -ErrorAction SilentlyContinue)
+   if($diagnostic -match 'QA_CUE_NOOP') {$cueNoop=$true;break}
+   Start-Sleep -Milliseconds 200
+ }
+ if(-not $cueNoop -or
+    ($expectedCueBytes -join ',') -cne ([IO.File]::ReadAllBytes($cueSource) -join ',') -or
+    (Get-Item $cueSource).LastWriteTimeUtc -ne $cueTime) {
+   throw "CUE second-pass no-op failed: $diagnostic"
+ }
+ Write-Host "MMS_NATIVE_EXTERNAL_CUE_HOST_QA_$Architecture=PASS"
  Write-Host "MMS_NATIVE_PHYSICAL_WRITER_QA_$Architecture=PASS"
 } finally {
  Remove-Item Env:MMS_QA_WRITE_SOURCE -ErrorAction SilentlyContinue
+ Remove-Item Env:MMS_QA_CUE_SOURCE -ErrorAction SilentlyContinue
  Remove-Item Env:MMS_QA_REPORT_PATH -ErrorAction SilentlyContinue
  if($proc) {
    try {if(-not $proc.HasExited){Stop-Process -Id $proc.Id -Force -ErrorAction Stop}}
