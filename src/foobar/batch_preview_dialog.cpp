@@ -50,6 +50,7 @@
 #include "djmeta/physical_sdk_postimage.h"
 #if defined(MMS_ENABLE_PHYSICAL_WRITES)
 #include "../writer/physical_tag_writer.h"
+#include "external_cue_write_controller.h"
 #include "djmeta/physical_write_confirmation.h"
 #endif
 #include "djmeta/review_decisions.h"
@@ -1169,6 +1170,93 @@ bool qualified_online_field_preview(const PreviewState& state) {
            !state.online_physical_edition->edition_id.empty();
 }
 
+#if defined(MMS_ENABLE_PHYSICAL_WRITES)
+// A CUE write is a separate external-file transaction, never an SDK tag
+// write. It is exposed only after explicit in-grid selected-byte review.
+bool qualified_cue_write_preview(const PreviewState& state) {
+    if (!state.dialog || !state.show_candidate ||
+        !state.musicbrainz_release_loaded || state.stale || state.refreshing ||
+        state.discogs_request || state.musicbrainz_request ||
+        state.beatport_public_request || state.physical_write_pending->load() ||
+        state.selected_track_index != state.candidate_source_index ||
+        state.selected_track_index != state.cue_postimage_source ||
+        state.selected_track_index >= state.entries.size() ||
+        state.cue_postimage_discogs != state.discogs_live_view ||
+        !state.cue_postimage_snapshot ||
+        !state.cue_postimage_snapshot->eligible ||
+        !state.cue_postimage_snapshot->verified_edition ||
+        state.cue_postimage_snapshot->carrier != djmeta::CueCarrierKind::ExternalText ||
+        !state.cue_value_preview || !state.cue_value_preview->eligible ||
+        !state.cue_value_preview->changed ||
+        state.cue_value_preview_indices.empty())
+        return false;
+    return is_external_cue_locator(
+        state.entries[state.selected_track_index].input.source_path);
+}
+
+std::wstring printable_cue_consent_value(const std::string& raw) {
+    const auto wide = from_utf8(raw);
+    std::wstring out;
+    for (const auto c : wide) {
+        if (c == L'\r') out += L"\\r";
+        else if (c == L'\n') out += L"\\n";
+        else if (c == L'\t') out += L"\\t";
+        else if (c < 32 || c == 127)
+            throw std::invalid_argument(
+                "CUE confirmation contains undisplayable control characters.");
+        else out += c;
+        if (out.size() > 6000)
+            throw std::invalid_argument(
+                "CUE confirmation is too long. Select fewer fields.");
+    }
+    return out;
+}
+
+std::wstring exact_cue_write_confirmation(
+    const djmeta::online::CuePostimageReviewSnapshot& source,
+    const ExternalCueHostReview& review) {
+    std::wstring out =
+        L"Write ONLY the selected external CUE metadata values?\n\nFile: " +
+        printable_cue_consent_value(review.source_path) +
+        L"\n\nThe original CUE is atomically replaced only after fresh "
+        L"source, FILE-reference and edition checks. No audio tags or "
+        L"FILE paths are changed.\n";
+    std::size_t changes = 0;
+    for (const auto index : review.selected_indices) {
+        if (index >= source.rows.size())
+            throw std::invalid_argument("CUE selection expired.");
+        const auto& row = source.rows[index].reviewed;
+        if (row.state == djmeta::online::FieldReviewState::Unchanged)
+            continue;
+        if (row.state != djmeta::online::FieldReviewState::NeedsReview ||
+            row.original_values.size() != 1 ||
+            row.candidate.values.size() != 1)
+            throw std::invalid_argument("CUE change is not exactly reviewable.");
+        out += L"\n";
+        if (row.target == djmeta::online::CueReviewTarget::TrackLocal)
+            out += L"Track " + std::to_wstring(row.track_ordinal + 1) + L" / ";
+        else
+            out += L"Album / ";
+        out += printable_cue_consent_value(row.cue_field) + L":\n  OLD: " +
+            printable_cue_consent_value(row.original_values.front()) +
+            L"\n  NEW: " +
+            printable_cue_consent_value(row.candidate.values.front()) + L"\n";
+        ++changes;
+        if (out.size() > 6000)
+            throw std::invalid_argument(
+                "Exact CUE confirmation exceeds display limit. Select fewer fields.");
+    }
+    if (changes == 0 || !review.postimage.changed)
+        throw std::invalid_argument("No changed CUE values require writing.");
+    out += L"\nChanges: " + std::to_wstring(changes) +
+        L". Unchanged fields cause NO write.\n\nProceed?";
+    if (out.size() > 6000)
+        throw std::invalid_argument(
+            "Exact CUE confirmation exceeds display limit. Select fewer fields.");
+    return out;
+}
+#endif
+
 void update_online_field_preview_controls(PreviewState& state) {
     if(!state.dialog) return;
     const bool ready=qualified_online_field_preview(state);
@@ -1181,10 +1269,14 @@ void update_online_field_preview_controls(PreviewState& state) {
     // Only the isolated acceptance variant contains a real SDK write action.
     // Shipping preview builds keep the same control completely invisible.
 #if defined(MMS_ENABLE_PHYSICAL_WRITES)
-    const bool writer_ready=ready && state.online_field_preview &&
+    const bool physical_writer_ready=ready && state.online_field_preview &&
         state.online_field_preview->explicitly_changed>0 &&
         !state.online_included_fields.empty() &&
         !state.physical_write_pending->load();
+    const bool cue_writer_ready=qualified_cue_write_preview(state);
+    const bool writer_ready=physical_writer_ready || cue_writer_ready;
+    SetDlgItemTextW(state.dialog,IDC_ONLINE_WRITE_SELECTED,
+        cue_writer_ready?L"Write CUE":L"Write tags");
     ShowWindow(GetDlgItem(state.dialog,IDC_ONLINE_WRITE_SELECTED),
                writer_ready?SW_SHOW:SW_HIDE);
     EnableWindow(GetDlgItem(state.dialog,IDC_ONLINE_WRITE_SELECTED),
@@ -5360,6 +5452,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             // modeless comparison grid, without a truncated modal popup.
             state->cue_value_preview=proposal;
             state->cue_value_preview_indices=selected_indices;
+            update_online_field_preview_controls(*state);
             std::size_t changed=0;
             for(auto idx:selected_indices)
                 if(state->cue_postimage_snapshot->rows[idx].reviewed.state==
@@ -5868,6 +5961,88 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             return TRUE;
         }
 #if defined(MMS_ENABLE_PHYSICAL_WRITES)
+        if(id==IDC_ONLINE_WRITE_SELECTED && HIWORD(wp)==BN_CLICKED &&
+           qualified_cue_write_preview(*state)) {
+            // A separate external CUE byte transaction. Never route this
+            // through the SDK physical tag writer or any virtual subsong.
+            const auto& entry=state->entries[state->selected_track_index];
+            verify_snapshot(entry);
+            verify_rules_snapshot(state->captured_rules);
+            const auto edition=*state->cue_postimage_snapshot->verified_edition;
+            const auto selected=state->cue_value_preview_indices;
+            const auto reviewed=prepare_external_cue_host_review(
+                entry.handle,entry.input.source_path,edition,selected,
+                *state->cue_value_preview);
+            const auto confirmation=exact_cue_write_confirmation(
+                *state->cue_postimage_snapshot,reviewed);
+            const auto confirmation_version=state->online_context_version.current();
+            const auto confirmation_workspace=state->workspace_generation;
+            const auto confirmation_track=state->selected_track_index;
+            const auto handle=entry.handle;
+            if(MessageBoxW(dialog,confirmation.c_str(),
+                           L"Confirm exact external CUE changes",
+                           MB_YESNO|MB_ICONWARNING|MB_DEFBUTTON2)!=IDYES)
+                return TRUE;
+            // The confirmation dialog pumps messages; its approval cannot
+            // survive a changed workspace, source, edition or field selection.
+            if(!IsWindow(dialog) || g_workspace!=dialog ||
+               g_workspace_generation!=confirmation_workspace ||
+               GetWindowLongPtrW(dialog,GWLP_USERDATA)!=
+                   reinterpret_cast<LONG_PTR>(state))
+                return TRUE;
+            if(state->stale ||
+               state->selected_track_index!=confirmation_track ||
+               state->online_context_version.current()!=confirmation_version ||
+               !qualified_cue_write_preview(*state) ||
+               state->cue_value_preview_indices!=selected ||
+               !state->cue_value_preview ||
+               state->cue_value_preview->bytes!=reviewed.postimage.bytes ||
+               !state->cue_postimage_snapshot ||
+               state->cue_postimage_snapshot->original_bytes!=reviewed.original_bytes)
+                throw std::runtime_error(
+                    "CUE review changed during confirmation. Refresh the preview.");
+            verify_snapshot(state->entries[confirmation_track]);
+            verify_rules_snapshot(state->captured_rules);
+            if(state->physical_write_pending->exchange(true))
+                throw std::runtime_error("A file write is already pending.");
+            SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                L"Checking exact CUE and audio sources, then committing selected bytes...");
+            djmeta::online::ExternalCueCommitResult report;
+            try {
+                report=commit_confirmed_external_cue_review(
+                    reviewed,handle,edition);
+            } catch(...) {
+                state->physical_write_pending->store(false);
+                state->stale=true; // a failed post-replacement read is uncertain
+                update_online_field_preview_controls(*state);
+                throw;
+            }
+            state->physical_write_pending->store(false);
+            state->stale=true; // never re-use consent after any file transaction
+            update_online_field_preview_controls(*state);
+            std::wstring result;
+            switch(report.status) {
+            case djmeta::online::ExternalCueCommitStatus::Committed:
+                result=L"External CUE saved; exact bytes verified. ";break;
+            case djmeta::online::ExternalCueCommitStatus::ExactNoop:
+                result=L"External CUE unchanged; zero file writes. ";break;
+            case djmeta::online::ExternalCueCommitStatus::BackupRetained:
+                result=L"CUE result requires inspection; backup retained. ";break;
+            default:
+                result=L"External CUE write refused; original retained. ";break;
+            }
+            result+=from_utf8(readable_track_name(reviewed.source_path));
+            SetDlgItemTextW(dialog,IDC_BATCH_HINT,result.c_str());
+            if(report.status==djmeta::online::ExternalCueCommitStatus::Refused ||
+               report.status==djmeta::online::ExternalCueCommitStatus::BackupRetained) {
+                auto detail=result+L"\n\n"+from_utf8(report.reason);
+                if(!report.retained_backup.empty())
+                    detail+=L"\nBackup: "+report.retained_backup;
+                MessageBoxW(dialog,detail.c_str(),L"External CUE write result",
+                            MB_OK|MB_ICONWARNING);
+            }
+            return TRUE;
+        }
         if(id==IDC_ONLINE_WRITE_SELECTED && HIWORD(wp)==BN_CLICKED) {
             // No automatic commit when loading/searching/selecting a provider.
             // One explicit user click, one physical source, one final YES.

@@ -51,11 +51,7 @@ std::string exact_external_cue_bytes(const std::string& source_path) {
         before.source_guard.empty() || before.host_physical_key.empty())
         throw std::invalid_argument("External CUE physical source is unqualified.");
 
-    pfc::string8 canonical, native;
-    filesystem::g_get_canonical_path(source_path.c_str(), canonical);
-    if (!filesystem::g_get_native_path(canonical.get_ptr(), native, fb2k::noAbort))
-        throw std::invalid_argument("External CUE has no native local file path.");
-    const auto wide = strict_native_path(native.get_ptr());
+    const auto wide = resolve_native_external_cue_path(source_path);
     const HANDLE file = CreateFileW(wide.c_str(), GENERIC_READ,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -90,6 +86,16 @@ std::string exact_external_cue_bytes(const std::string& source_path) {
 }
 
 } // namespace
+
+std::wstring resolve_native_external_cue_path(const std::string& source_path) {
+    if (!external_cue_path(source_path))
+        throw std::invalid_argument("Native CUE resolution requires a .cue source.");
+    pfc::string8 canonical, native;
+    filesystem::g_get_canonical_path(source_path.c_str(), canonical);
+    if (!filesystem::g_get_native_path(canonical.get_ptr(), native, fb2k::noAbort))
+        throw std::invalid_argument("External CUE has no native local file path.");
+    return strict_native_path(native.get_ptr());
+}
 
 CueReadOnlySource read_cue_raw_on_demand(
     const metadb_handle_ptr& handle, const std::string& source_path) {

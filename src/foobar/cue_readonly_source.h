@@ -14,6 +14,10 @@ struct CueReadOnlySource {
     std::string diagnostic; // Source type only; never personal metadata.
 };
 
+// Resolve an external CUE through foobar's canonical/native filesystem mapper.
+// This grants no write eligibility; the native sink enforces its own policy.
+std::wstring resolve_native_external_cue_path(const std::string& source_path);
+
 // Intentional read-only, explicit user click:
 // - External .cue: resolve via foobar filesystem and open with GENERIC_READ;
 //   protect against races with physical source_guard before and after.

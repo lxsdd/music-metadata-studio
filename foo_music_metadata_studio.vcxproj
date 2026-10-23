@@ -89,6 +89,9 @@
     <ClCompile Include="src\foobar\batch_preview_dialog.cpp" />
     <ClCompile Include="src\writer\physical_tag_writer.cpp" />
     <ClCompile Include="src\writer\physical_tag_writer_qa.cpp" />
+    <ClCompile Include="src\core\batch_plan.cpp" Condition="'$(EnablePhysicalWrites)'=='true'" />
+    <ClCompile Include="src\writer\external_cue_transaction_win.cpp" Condition="'$(EnablePhysicalWrites)'=='true'" />
+    <ClCompile Include="src\foobar\external_cue_write_controller.cpp" Condition="'$(EnablePhysicalWrites)'=='true'" />
     <ClCompile Include="src\foobar\batch_table_settings.cpp" />
     <ClCompile Include="src\foobar\menu_settings.cpp" />
     <ClCompile Include="src\foobar\menu_preferences.cpp" />
@@ -112,6 +115,8 @@
     <ClInclude Include="src\foobar\discogs_http.h" />
     <ClInclude Include="src\foobar\beatport_public_http.h" />
     <ClInclude Include="src\foobar\cue_readonly_source.h" />
+    <ClInclude Include="src\foobar\external_cue_write_controller.h" />
+    <ClInclude Include="src\writer\external_cue_transaction_win.h" />
     <ClInclude Include="src\foobar\musicbrainz_http.h" />
     <ClInclude Include="include\djmeta\musicbrainz_provider.h" />
     <ClInclude Include="include\djmeta\external_cue.h" />
