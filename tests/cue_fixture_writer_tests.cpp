@@ -1,5 +1,6 @@
 #include "djmeta/cue_fixture_writer.h"
 #include <cstdlib>
+#include <chrono>
 #include <filesystem>
 #include <iostream>
 using namespace djmeta::online;
@@ -9,9 +10,20 @@ static void check(bool ok,const char* s) {
 }
 int main(){
  namespace fs=std::filesystem;
- const auto root=fs::temp_directory_path()/"djmeta-cue-transaction-test";
- std::error_code ec;fs::remove_all(root,ec);
- check(fs::create_directory(root,ec),"isolated fixture root");
+ // Never remove a shared fixed-name temp directory belonging to another
+ // process or a previous test. Create a genuinely new test-owned sandbox.
+ const auto base=fs::temp_directory_path();
+ const auto nonce=std::chrono::steady_clock::now().time_since_epoch().count();
+ std::error_code ec;
+ fs::path root;
+ for(unsigned attempt=0;attempt<128;++attempt) {
+    const auto candidate=base/("djmeta-cue-transaction-"+
+         std::to_string(nonce)+"-"+std::to_string(attempt));
+    ec.clear();
+    if(fs::create_directory(candidate,ec)) {root=candidate;break;}
+    if(ec)break;
+ }
+ check(!root.empty(),"isolated newly owned fixture root");
  const auto file=root/"synthetic.cue";
  const std::string before="FILE \"a.flac\" WAVE\r\nTITLE \"Original\"\r\n";
  const std::string after="FILE \"a.flac\" WAVE\r\nTITLE \"Updated\"\r\n";
@@ -35,9 +47,18 @@ int main(){
        "stale fixture source refuses a repeated write");
  CueApplyPreflight noop;
  noop.readiness=CueApplyReadiness::ExactNoop;
+ noop.postimage.bytes=after;
  check(commit_fixture_cue(root,file,noop,after).status==
        CueFixtureWriteStatus::Noop,
        "no-op performs zero file operations");
+ check(commit_fixture_cue(root,file,noop,before).status==
+       CueFixtureWriteStatus::Refused,
+       "stale source does not inherit a no-op result");
+ auto dishonest=noop;
+ dishonest.postimage.bytes=before;
+ check(commit_fixture_cue(root,file,dishonest,before).status==
+       CueFixtureWriteStatus::Refused,
+       "false no-op cannot pretend the source still has old bytes");
  check(commit_fixture_cue(root,file,CueApplyPreflight{},after).status==
        CueFixtureWriteStatus::Refused,
        "unqualified preflight is always refused");

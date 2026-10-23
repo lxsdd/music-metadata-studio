@@ -43,12 +43,15 @@ inline CueFixtureWriteResult commit_fixture_cue(
     };
     if(verified.readiness==CueApplyReadiness::Blocked)
         return reject("FIXTURE_PREFLIGHT_BLOCKED");
-    if(verified.readiness==CueApplyReadiness::ExactNoop)
-        return {CueFixtureWriteStatus::Noop,{}};
-    if(verified.readiness!=CueApplyReadiness::DetachedCandidate ||
-       !verified.postimage.changed ||
-       verified.postimage.bytes==reviewed_source_bytes)
+    if(verified.readiness==CueApplyReadiness::ExactNoop) {
+        if(verified.postimage.changed ||
+           verified.postimage.bytes!=reviewed_source_bytes)
+            return reject("FIXTURE_NOOP_SOURCE_POSTIMAGE_INCONSISTENT");
+    } else if(verified.readiness!=CueApplyReadiness::DetachedCandidate ||
+              !verified.postimage.changed ||
+              verified.postimage.bytes==reviewed_source_bytes) {
         return reject("FIXTURE_POSTIMAGE_INVALID");
+    }
     std::error_code ec;
     const auto root=fs::canonical(sandbox,ec);
     if(ec || !fs::is_directory(root))return reject("FIXTURE_ROOT_INVALID");
@@ -59,13 +62,17 @@ inline CueFixtureWriteResult commit_fixture_cue(
         return reject("FIXTURE_SOURCE_NOT_ISOLATED");
     const auto stage=root/".djmeta-cue-fixture-stage";
     const auto backup=root/".djmeta-cue-fixture-backup";
-    if(fs::exists(stage,ec) || fs::exists(backup,ec) || ec)
-        return reject("FIXTURE_TRANSACTION_COLLISION");
     std::string original;
     if(!read_bytes(file,original) || original!=reviewed_source_bytes ||
        cue_carrier_content_fingerprint(original)!=
           cue_carrier_content_fingerprint(reviewed_source_bytes))
         return reject("FIXTURE_ORIGINAL_CHANGED");
+    // A reported zero-change is valid only for this exact live source.
+    // It must not bypass physical/path/source verification.
+    if(verified.readiness==CueApplyReadiness::ExactNoop)
+        return {CueFixtureWriteStatus::Noop,{}};
+    if(fs::exists(stage,ec) || fs::exists(backup,ec) || ec)
+        return reject("FIXTURE_TRANSACTION_COLLISION");
     if(cue_carrier_content_fingerprint(verified.postimage.bytes)==
        cue_carrier_content_fingerprint(original))
         return reject("FIXTURE_CHANGED_FLAG_CONTRADICTS_BYTES");
