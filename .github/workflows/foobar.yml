@@ -7,6 +7,8 @@ on:
       - 'include/**'
       - 'src/core/**'
       - 'src/foobar/**'
+      - 'src/writer/**'
+      - 'CMakeLists.txt'
       - 'rules/**'
       - 'scripts/**'
       - 'tests/static_foobar_audit.py'
