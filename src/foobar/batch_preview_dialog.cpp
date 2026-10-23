@@ -50,6 +50,7 @@
 #include "djmeta/physical_sdk_postimage.h"
 #if defined(MMS_ENABLE_PHYSICAL_WRITES)
 #include "../writer/physical_tag_writer.h"
+#include "djmeta/physical_write_confirmation.h"
 #endif
 #include "djmeta/review_decisions.h"
 #include "djmeta/review_display.h"
@@ -62,6 +63,7 @@
 #include <shellapi.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <charconv>
 #include <limits>
@@ -147,6 +149,11 @@ struct PreviewState {
     std::size_t auto_search_track = (std::numeric_limits<std::size_t>::max)();
     bool modeless_registered = false;
     bool stale = false;
+#if defined(MMS_ENABLE_PHYSICAL_WRITES)
+    // Shared with the SDK completion; survives modeless window destruction.
+    std::shared_ptr<std::atomic_bool> physical_write_pending =
+        std::make_shared<std::atomic_bool>(false);
+#endif
     bool checking_snapshot = false;
     bool refreshing = false;
     int initial_client_width = 0;
@@ -1174,7 +1181,8 @@ void update_online_field_preview_controls(PreviewState& state) {
 #if defined(MMS_ENABLE_PHYSICAL_WRITES)
     const bool writer_ready=ready && state.online_field_preview &&
         state.online_field_preview->explicitly_changed>0 &&
-        !state.online_included_fields.empty();
+        !state.online_included_fields.empty() &&
+        !state.physical_write_pending->load();
     ShowWindow(GetDlgItem(state.dialog,IDC_ONLINE_WRITE_SELECTED),
                writer_ready?SW_SHOW:SW_HIDE);
     EnableWindow(GetDlgItem(state.dialog,IDC_ONLINE_WRITE_SELECTED),
@@ -2788,6 +2796,11 @@ bool same_workspace_selection(const PreviewState& state,
 }
 
 void refresh_workspace_snapshot(PreviewState& state) {
+#if defined(MMS_ENABLE_PHYSICAL_WRITES)
+    if(state.physical_write_pending->load())
+        throw std::runtime_error(
+            "Wait for the pending physical write result before refreshing.");
+#endif
     if (MessageBoxW(state.dialog,
             L"Reload the tracks already open in Music Metadata Studio?\n\n"
             L"All preview decisions, MusicBrainz hits, pasted comparisons and "
@@ -2922,6 +2935,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_ONLINE_INCLUDE_FIELDS,L"Include highlighted exact edition album fields or independently verified release-track credits in a detached preview. No files are changed."},
         {IDC_ONLINE_IGNORE_FIELDS,L"Remove highlighted edition fields from the in-memory preview. Existing tags remain intact."},
         {IDC_ONLINE_RESET_FIELDS,L"Clear every included online field for this exact edition. Does not modify any file or saved metadata."},
+        {IDC_ONLINE_WRITE_SELECTED,L"QA-only: submit the exact displayed physical tag differences for this one verified file after a separate final confirmation. No CUE or file move."},
         {IDC_METADATA_INSPECT_CUE,L"Read the source CUE and show its album/track fields. Embedded and external CUE are never written here."},
         {IDC_METADATA_IMPORT_CANDIDATE,L"Beatport offline: user-supplied track JSON, facts, or @beatport-public-jsonld from a public track page; complete edition+tracks JSON for releases. No authentication claim or writers."},
         {IDC_METADATA_LIST,L"Select a candidate or proposed change to inspect its source and status."},
@@ -5882,38 +5896,74 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             if(verified.state!=djmeta::online::PhysicalWriteGateState::Changed)
                 throw std::invalid_argument(
                     "Changes are stale, unqualified or already applied. Refresh.");
-            const std::wstring warning=
-                L"Write "+std::to_wstring(
-                    state->online_field_preview->explicitly_changed)+
-                L" explicitly reviewed physical metadata field(s) to ONE file?\n\n"+
-                from_utf8(entry.input.source_path)+
-                L"\n\nNo file move or CUE edit will be performed. "+
-                L"foobar will reread the file before editing. "+
-                L"Back up your test file before approving.";
+            const auto exact_changes=djmeta::physical_sdk_changed_field_approvals(
+                frozen.physical.original,verified.postimage.planned);
+            if(exact_changes.size()!=verified.postimage.explicitly_changed)
+                throw std::runtime_error(
+                    "Final physical field diff disagrees with frozen approval.");
+            const auto confirmation_version=state->online_context_version.current();
+            const auto confirmation_track=state->selected_track_index;
+            // Refuse rather than truncate a large multivalue confirmation.
+            // Every old/new value is visible before the one-file YES action.
+            const auto warning=from_utf8(
+                djmeta::format_physical_write_confirmation(
+                    frozen.source_path,exact_changes));
             if(MessageBoxW(dialog,warning.c_str(),
-                           L"Confirm physical tag change",
+                           L"Confirm exact physical tag changes",
                            MB_YESNO|MB_ICONWARNING|MB_DEFBUTTON2)!=IDYES)
                 return TRUE;
+            // The modal message pump can process a pending network/UI event.
+            // Revalidate the precise reviewed evidence after the human YES.
+            if(!IsWindow(dialog) || g_workspace!=dialog ||
+               GetWindowLongPtrW(dialog,GWLP_USERDATA)!=
+                   reinterpret_cast<LONG_PTR>(state))
+                return TRUE;
+            if(state->stale ||
+               state->selected_track_index!=confirmation_track ||
+               state->online_context_version.current()!=confirmation_version ||
+               !qualified_online_field_preview(*state) ||
+               !state->online_field_preview || !state->online_field_snapshot ||
+               state->online_included_fields!=frozen.selected ||
+               state->online_date_targets!=frozen.date_targets ||
+               state->online_field_preview->planned!=frozen.reviewed.planned ||
+               state->online_field_snapshot->physical_before!=
+                   frozen.official.physical_before)
+                throw std::runtime_error(
+                    "Reviewed selection changed during confirmation. Refresh.");
+            verify_snapshot(entry);
+            verify_rules_snapshot(state->captured_rules);
+            if(state->physical_write_pending->exchange(true))
+                throw std::runtime_error("A physical write is already pending.");
             // Callback owns no PreviewState; its result can outlive the HWND.
-            const auto result=submit_frozen_physical_tag_write(
-                entry.handle,frozen,[dialog](PhysicalWriteReport report){
-                    if(!IsWindow(dialog) || g_workspace!=dialog)return;
-                    const auto label=from_utf8(report.diagnostic);
-                    SetDlgItemTextW(dialog,IDC_BATCH_HINT,label.c_str());
-                    if(report.outcome!=PhysicalWriteOutcome::Completed &&
-                       report.outcome!=PhysicalWriteOutcome::Noop)
-                        MessageBoxW(dialog,label.c_str(),L"Physical tag result",
-                                    MB_OK|MB_ICONWARNING);
-                });
-            if(result.outcome!=PhysicalWriteOutcome::Submitted &&
-               result.outcome!=PhysicalWriteOutcome::Noop)
-                throw std::runtime_error(result.diagnostic);
-            SetDlgItemTextW(dialog,IDC_BATCH_HINT,
-                            from_utf8(result.diagnostic).c_str());
-            // The old preview is never reused for a second write; the user
-            // must refresh and explicitly re-review the source afterwards.
+            // Prevent duplicate submissions and refresh during asynchronous IO.
+            const auto pending=state->physical_write_pending;
             state->stale=true;
             update_live_provider_controls(*state);
+            try {
+                const auto result=submit_frozen_physical_tag_write(
+                    entry.handle,frozen,
+                    [dialog,pending](PhysicalWriteReport report){
+                        pending->store(false);
+                        if(!IsWindow(dialog) || g_workspace!=dialog)return;
+                        const auto label=from_utf8(report.diagnostic);
+                        SetDlgItemTextW(dialog,IDC_BATCH_HINT,label.c_str());
+                        if(report.outcome!=PhysicalWriteOutcome::Completed &&
+                           report.outcome!=PhysicalWriteOutcome::Noop)
+                            MessageBoxW(dialog,label.c_str(),L"Physical tag result",
+                                        MB_OK|MB_ICONWARNING);
+                    });
+                if(result.outcome==PhysicalWriteOutcome::Noop)
+                    pending->store(false);
+                if(result.outcome!=PhysicalWriteOutcome::Submitted &&
+                   result.outcome!=PhysicalWriteOutcome::Noop)
+                    throw std::runtime_error(result.diagnostic);
+                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                                from_utf8(result.diagnostic).c_str());
+            } catch(...) {
+                pending->store(false);
+                throw;
+            }
+            // This frozen approval can never be reused for a second write.
             return TRUE;
         }
 #endif

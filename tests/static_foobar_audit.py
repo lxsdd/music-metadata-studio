@@ -75,10 +75,15 @@ for token in ("src\\writer\\physical_tag_writer.cpp",
               "EnablePhysicalWrites", "MMS_ENABLE_PHYSICAL_WRITES"):
     if token not in project:
         raise SystemExit("STATIC SDK WRITER BUILD GATE FAIL: " + token)
-if "MMS_ENABLE_PHYSICAL_WRITES" not in (
-        root / "src" / "foobar" / "batch_preview_dialog.cpp"
-).read_text(encoding="utf-8"):
-    raise SystemExit("STATIC SDK WRITER GATE FAIL: no opt-in UI boundary")
+batch_writer_ui = (root / "src" / "foobar" / "batch_preview_dialog.cpp").read_text(
+    encoding="utf-8")
+for token in ("MMS_ENABLE_PHYSICAL_WRITES",
+              "format_physical_write_confirmation(",
+              "physical_write_pending->exchange(true)",
+              "state->online_context_version.current()!=confirmation_version",
+              "GetWindowLongPtrW(dialog,GWLP_USERDATA)"):
+    if token not in batch_writer_ui:
+        raise SystemExit("STATIC SDK WRITER UI GATE FAIL: " + token)
 
 # A single captured shared rules snapshot must be checked at each
 # transactional UI edit and during initial loading, in addition to
