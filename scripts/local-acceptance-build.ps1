@@ -78,11 +78,14 @@ try {
     $proof = Get-Content -LiteralPath $manifest -Raw
     $analysisOnly = if ($EnablePhysicalWrites) { 'false' } else { 'true' }
     $physicalWriteEnabled = if ($EnablePhysicalWrites) { 'true' } else { 'false' }
+    $externalCueWriteEnabled = $physicalWriteEnabled
+    $externalCueScope = if ($externalCueWriteEnabled -eq 'true') { 'value-only-exact-edition' } else { 'none' }
     foreach ($value in @("commit=$SourceSha",'root_dll_machine=0x014C',
                          'x64_dll_machine=0x8664',"write_mode=$mode",
                          "analysis_only=$analysisOnly",
                          "physical_tags_write_enabled=$physicalWriteEnabled",
-                         'external_cue_write_enabled=false',
+                         "external_cue_write_enabled=$externalCueWriteEnabled",
+                         "external_cue_write_scope=$externalCueScope",
                          'embedded_cue_write_enabled=false',
                          'file_operations_write_enabled=false','status=PASS')) {
         if (-not $proof.Contains($value)) { throw "Missing manifest proof: $value" }

@@ -247,6 +247,9 @@ struct PreviewState {
     djmeta::ReviewGridLayout<5> detail_grid;
     djmeta::ReviewGridLayout<4> candidate_track_grid;
     djmeta::ReviewGridLayout<5> candidate_detail_grid;
+    djmeta::ReviewGridLayout<4> online_detail_grid;
+    bool online_detail_has_saved=false;
+    bool online_detail_columns_applied=false;
     bool candidate_online_track_columns_active=false;
     bool updating_track_selection = false;
     bool updating_musicbrainz_selection = false;
@@ -1121,6 +1124,11 @@ void layout_musicbrainz_detail_pane(PreviewState& state) {
         ShowWindow(state.musicbrainz_details_label,SW_HIDE);
         return;
     }
+    // Preserve a user's column adjustments before any pane resize or
+    // track/release switch. First display applies saved widths or auto-fits.
+    if (state.online_detail_columns_applied)
+        capture_review_grid_controls(state.musicbrainz_details,
+            state.online_detail_grid,state.active_dpi);
     // Reserve a real caption line and vertical breathing room between the
     // browser and the nested table. The old +2/+17 geometry was overlapping
     // native ListView borders/fonts (visible at 100%-200% scaling).
@@ -1141,11 +1149,20 @@ void layout_musicbrainz_detail_pane(PreviewState& state) {
     EndDeferWindowPos(defer);
     ShowWindow(state.musicbrainz_details_label,SW_SHOW);
     ShowWindow(state.musicbrainz_details,SW_SHOW);
-    // Lower details table uses the same responsive width as the result list.
-    const int widths[]={28,23,32,17};
-    for (int i=0;i<4;++i)
-        ListView_SetColumnWidth(state.musicbrainz_details,i,
-            (std::max)(44,(width-8)*widths[i]/100));
+    if (!state.online_detail_columns_applied && !state.online_detail_has_saved) {
+        // Auto-size once for a new profile, not on each selection/resize.
+        const int widths[]={28,23,32,17};
+        const int available=(std::max)(160,regions.details.right-regions.details.left-8);
+        for (int i=0;i<4;++i)
+            ListView_SetColumnWidth(state.musicbrainz_details,i,
+                (std::max)(48,available*widths[i]/100));
+        capture_review_grid_controls(state.musicbrainz_details,
+            state.online_detail_grid,state.active_dpi);
+    } else {
+        apply_review_grid_controls(state.musicbrainz_details,
+            state.online_detail_grid,state.active_dpi);
+    }
+    state.online_detail_columns_applied=true;
 }
 
 // Separate the exact-edition physical lane from MusicBrainz CUE browsing,
@@ -4442,11 +4459,13 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_INFOTIP |
             LVS_EX_HEADERDRAGDROP);
         ListView_SetExtendedListViewStyle(state->musicbrainz_details,
-            LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_INFOTIP);
+            LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_INFOTIP | LVS_EX_HEADERDRAGDROP);
         add_column(state->musicbrainz_details, 0, L"Field", 92);
         add_column(state->musicbrainz_details, 1, L"Original", 75);
         add_column(state->musicbrainz_details, 2, L"Suggested", 88);
         add_column(state->musicbrainz_details, 3, L"Status", 65);
+        state->online_detail_grid=load_online_detail_grid_layout();
+        state->online_detail_has_saved=has_saved_online_detail_grid_layout();
         add_column(state->metadata_list, 0, L"Field", 78);
         add_column(state->metadata_list, 1, L"Original", 95);
         add_column(state->metadata_list, 2, L"Proposed", 95);
@@ -5218,6 +5237,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             store_track_grid_layout(state->track_grid);
             store_detail_grid_layout(state->detail_grid);
             store_candidate_track_grid_layout(state->candidate_track_grid);
+            if(state->online_detail_columns_applied)
+                capture_review_grid_controls(state->musicbrainz_details,
+                    state->online_detail_grid,current_dpi(state->musicbrainz_details));
+            store_online_detail_grid_layout(state->online_detail_grid);
             store_candidate_detail_grid_layout(state->candidate_detail_grid);
         } catch (const std::exception&) {
             // Invalid profile display state is non-critical; retain defaults.

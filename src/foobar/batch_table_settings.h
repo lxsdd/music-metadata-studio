@@ -35,5 +35,9 @@ djmeta::ReviewGridLayout<4> load_candidate_track_grid_layout();
 djmeta::ReviewGridLayout<5> load_candidate_detail_grid_layout();
 void store_candidate_track_grid_layout(const djmeta::ReviewGridLayout<4>& layout);
 void store_candidate_detail_grid_layout(const djmeta::ReviewGridLayout<5>& layout);
+// Dedicated lower online detail-pane widths/order, independent of the main grid.
+bool has_saved_online_detail_grid_layout();
+djmeta::ReviewGridLayout<4> load_online_detail_grid_layout();
+void store_online_detail_grid_layout(const djmeta::ReviewGridLayout<4>& layout);
 
 } // namespace djmeta_foobar

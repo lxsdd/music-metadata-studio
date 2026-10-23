@@ -44,6 +44,9 @@ cfg_string g_candidate_track_grid(kCandidateTrackGridGuid,
     "v1|0,1,2,3|280,75,90,85|15|0|0");
 cfg_string g_candidate_detail_grid(kCandidateDetailGridGuid,
     "v1|0,1,2,3,4|260,165,130,95,160|31|0|0");
+constexpr GUID kOnlineDetailGridGuid =
+    {0x859caf22,0xb607,0x4ebe,{0xab,0x62,0xa1,0x2d,0x54,0x6f,0xd6,0x70}};
+cfg_string g_online_detail_grid(kOnlineDetailGridGuid,"");
 
 } // namespace
 
@@ -158,4 +161,24 @@ void store_detail_grid_layout(const djmeta::ReviewGridLayout<5>& layout) {
         g_detail_grid_layout.set(text.c_str());
 }
 
+} // namespace djmeta_foobar
+
+namespace djmeta_foobar {
+bool has_saved_online_detail_grid_layout() {
+    const auto raw=g_online_detail_grid.get();
+    return !std::string_view(raw.c_str()).empty();
+}
+djmeta::ReviewGridLayout<4> load_online_detail_grid_layout() {
+    const auto raw=g_online_detail_grid.get();
+    return djmeta::parse_review_grid_layout(
+        std::string_view(raw.c_str()),
+        djmeta::default_review_grid_layout<4>({155,130,175,90}));
+}
+void store_online_detail_grid_layout(const djmeta::ReviewGridLayout<4>& layout) {
+    const auto encoded=djmeta::serialize_review_grid_layout(layout);
+    if(encoded.empty())
+        throw std::invalid_argument("Invalid online detail grid layout.");
+    if(std::string_view(g_online_detail_grid.get().c_str())!=encoded)
+        g_online_detail_grid.set(encoded.c_str());
+}
 } // namespace djmeta_foobar

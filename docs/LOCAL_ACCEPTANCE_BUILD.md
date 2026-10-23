@@ -75,3 +75,23 @@ alte `foo_dj_metadata_normalizer`-Paket erwarten noch es als Studio-Build
 umbenennen. SHA-Pin, Manifest-Prüfung, Architektur-Kennungen und `SHA256SUMS`
 bleiben verpflichtend. Der Vorgang installiert keine Komponente und
 schreibt weder Musikdateien noch CUEs oder Metadaten.
+
+## Optionale Schreib-Endabnahme (nicht öffentlich)
+
+Die normale Ausführung bleibt **read-only**. Erst der ausdrücklich gesetzte
+Schalter `-EnablePhysicalWrites` baut die private, separat gekennzeichnete
+Abnahmevariante mit freigegebenen **physischen SDK-Tagänderungen** und
+**externen CUE-Wertänderungen**. Sie schreibt weiterhin niemals im
+Hintergrund; jede Dateiänderung benötigt eine konkrete Vorschau und eine
+abschließende Bestätigung im foobar-Dialog. Eingebettete CUE-Schreibvorgänge,
+CUE-`FILE`-Referenzänderungen und File Operations bleiben deaktiviert.
+
+```powershell
+& $helper -SourceSha $sha -OutputDirectory 'C:\Temp\MMS-PrivateAcceptance' -EnablePhysicalWrites
+```
+
+Die beiden Varianten erhalten unterschiedliche Ausgabeordner. Das
+`BUILD-MANIFEST.txt` benennt `physical_tags_write_enabled`,
+`external_cue_write_enabled` und den auf `value-only-exact-edition`
+begrenzten CUE-Schreibumfang. Ein privater Build ist noch keine
+Windows-foobar-Praxisabnahme.
