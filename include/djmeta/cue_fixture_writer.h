@@ -89,11 +89,21 @@ inline CueFixtureWriteResult commit_fixture_cue(
         fs::rename(stage,file,ec);
     }
     if(ec) {
-        std::error_code restored;
-        fs::rename(backup,file,restored);
-        fs::remove(stage,restored);
-        if(restored)return {CueFixtureWriteStatus::Refused,
-                            "FIXTURE_RESTORE_FAILED_BACKUP_RETAINED"};
+        std::error_code restore_error;
+        fs::rename(backup,file,restore_error);
+        // Cleanup must not overwrite the result of the critical restore.
+        std::error_code cleanup_error;
+        fs::remove(stage,cleanup_error);
+        if(restore_error)
+            return {CueFixtureWriteStatus::Refused,
+                    "FIXTURE_RESTORE_FAILED_BACKUP_RETAINED"};
+        std::string restored_bytes;
+        if(!read_bytes(file,restored_bytes) || restored_bytes!=original)
+            return {CueFixtureWriteStatus::Refused,
+                    "FIXTURE_RESTORE_BYTE_VERIFICATION_FAILED"};
+        if(cleanup_error)
+            return {CueFixtureWriteStatus::Refused,
+                    "FIXTURE_RESTORE_OK_STAGE_CLEANUP_FAILED"};
         return {CueFixtureWriteStatus::Restored,
                 "FIXTURE_FAILED_ORIGINAL_RESTORED"};
     }
