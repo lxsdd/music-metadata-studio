@@ -862,6 +862,15 @@ std::vector<djmeta::online::FieldReviewRow> musicbrainz_cue_release_rows(
             output.push_back(std::move(row));
         }
     }
+    // The same exact-edition conflict gate protects the native display lane;
+    // no changed album or track field may look reviewable against a different
+    // disc barcode merely because the tracklist happens to align.
+    if(cue_media_barcode_conflict(cue,edition))
+        for(auto& row:output)
+            if(row.state==FieldReviewState::NeedsReview) {
+                row.state=FieldReviewState::Blocked;
+                row.reason="musicbrainz_cue_media_barcode_conflict_"+row.reason;
+            }
     return output;
 }
 
