@@ -462,3 +462,17 @@
   installed foobar visual/keyboard acceptance must be checked separately.
   This does not enable a physical, CUE or FileOps writer and does not
   change original metadata or the ruleset.
+
+### 2026-10-25 — DPI-scaled native edit baselines and final-gate hygiene (MMS-UI-01, MMS-UI-08, MMS-WF-02)
+
+- Search and manual-review EDIT insets now scale from the real window DPI
+  while retaining font-measured height and idempotent native alignment.
+  Resource-backed Windows tests check the shared padding policy at
+  100/125/150/200%; visual text baselines in installed foobar are still
+  a separate HOST gate.
+- The old preliminary host-smoke document was replaced with the binding
+  single-session private final-acceptance rule: exact SHA and SHA256,
+  no public binary or repeated owner tests. This changes documentation,
+  not writer permissions, credentials, rules or source metadata.
+- Commits `0702676c`–`00044da1`; exact-head CI is required before
+  assigning CI qualification.
