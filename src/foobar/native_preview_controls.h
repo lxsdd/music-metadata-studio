@@ -362,6 +362,25 @@ inline constexpr bool native_workspace_dismisses_tooltip(
     }
 }
 
+// The empty candidate view must explain the SELECTED discovery path. A
+// Beatport clipboard instruction under MusicBrainz/Discogs looked like a
+// mandatory extra step and concealed lawful pasted Deezer/Spotify evidence.
+inline constexpr const wchar_t* native_empty_online_candidate_hint(
+    bool discogs_selected, bool beatport_offline_selected) noexcept {
+    if (beatport_offline_selected)
+        return L"Beatport: click Find in Crates, then paste a public Beatport "
+               L"track URL or structured @beatport-track-facts and choose "
+               L"Import clipboard. Comparison only; no tags or files change.";
+    if (discogs_selected)
+        return L"Discogs: click Search for the selected track, then inspect an "
+               L"exact release. Structured clipboard evidence can also be "
+               L"imported, but pasted provider claims are unverified. Read-only.";
+    return L"MusicBrainz: click Search for the selected title/album, then "
+           L"inspect an exact release. Deezer or Spotify facts can be compared "
+           L"via Import clipboard with @provider=deezer or @provider=spotify; "
+           L"pasted content is unverified and read-only.";
+}
+
 // One search action serves three very different authorized transports.
 // A static Beatport-only tooltip on the MusicBrainz/Discogs Search button
 // wrongly describes how that button acts after changing providers. Keep

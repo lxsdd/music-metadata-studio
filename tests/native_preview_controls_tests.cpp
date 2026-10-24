@@ -418,6 +418,18 @@ int main() {
               WM_PAINT,0),
           "normal typing, painting and window reactivation cannot "
           "prematurely dismiss an explanatory tooltip");
+    const auto mb_empty=djmeta_foobar::native_empty_online_candidate_hint(false,false);
+    const auto discogs_empty=djmeta_foobar::native_empty_online_candidate_hint(true,false);
+    const auto beatport_empty=djmeta_foobar::native_empty_online_candidate_hint(false,true);
+    check(std::wcsstr(mb_empty,L"MusicBrainz") != nullptr &&
+          std::wcsstr(mb_empty,L"Deezer") != nullptr &&
+          std::wcsstr(mb_empty,L"Spotify") != nullptr &&
+          std::wcsstr(discogs_empty,L"Discogs") != nullptr &&
+          std::wcsstr(discogs_empty,L"Beatport") == nullptr &&
+          std::wcsstr(beatport_empty,L"Find in Crates") != nullptr &&
+          std::wcsstr(beatport_empty,L"MusicBrainz") == nullptr &&
+          std::wcsstr(mb_empty,L"read-only") != nullptr,
+          "first-use candidate guidance follows provider and labels manual claims");
     const auto mb_help=djmeta_foobar::native_search_action_tooltip(false,false);
     const auto discogs_help=djmeta_foobar::native_search_action_tooltip(true,false);
     const auto beatport_help=djmeta_foobar::native_search_action_tooltip(false,true);

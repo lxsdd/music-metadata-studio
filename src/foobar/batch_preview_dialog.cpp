@@ -1638,7 +1638,7 @@ void update_metadata_table(PreviewState& state) {
                   L"Unmatched tracks are blocked. No tags were written."
                 : state.search_attempt_notice.empty()
                     ? L"Select a candidate for its field-by-field identity evidence. "
-                      L"MB search rank is not match certainty; no files changed."
+                      L"Online search rank is not match certainty; no files changed."
                     : state.search_attempt_notice)
             : state.cue_inspection_mode &&
               state.candidate_source_index == state.selected_track_index
@@ -1655,9 +1655,9 @@ void update_metadata_table(PreviewState& state) {
             : !state.candidate_view_order.empty()
             ? L"Pasted evidence (provider unverified). No change / Review / Blocked are "
               L"comparison statuses, not write approvals. No tags were written."
-            : L"Copy a structured manual candidate or @beatport-track-facts "
-              L"with @provider=beatport, @id=track:NNN, TITLE, ARTIST, VERSION "
-              L"and DURATION=MM:SS. Import clipboard compares only; no writes.";
+            : native_empty_online_candidate_hint(
+                state.discogs_provider_selected,
+                state.beatport_offline_selected);
         SetDlgItemTextW(state.dialog, IDC_BATCH_HINT,
             native_workspace_display_hint(state.stale,hint.c_str()));
         return;
@@ -3140,7 +3140,7 @@ void install_workspace_tooltips(PreviewState& state) {
     struct HelpText { int id; const wchar_t* text; };
     const HelpText texts[] = { // static-lifetime literal text, dynamic provider ID
         {IDC_BATCH_TABS,L"1. Search online and compare. 2. Review local rule-based suggestions. 3. Preview file locations. These previews do not write files."},
-        {IDC_BATCH_GUIDE,L"Follow the steps from left to right. A MusicBrainz match is evidence, not an approved tag edit."},
+        {IDC_BATCH_GUIDE,L"Follow the steps from left to right. Online matches from any provider are evidence, never approved tag edits."},
         {IDC_METADATA_TRACK_LIST,L"Find tab: double-click/Enter searches MusicBrainz or Discogs, or opens Crates in Beatport mode using full TITLE and qualified ARTIST credits where available. Other tabs only navigate to Find without launching an online action."},
         {IDC_METADATA_MB_QUERY,L"MusicBrainz: TITLE/album. Discogs: title or exact release/master URL. Beatport: one canonical public track URL, or leave empty for the clipboard. No automatic requests."},
         {IDC_METADATA_ONLINE_PROVIDER,L"MusicBrainz and Discogs use official APIs. Beatport + Crates supports single public Beatport URLs, lawful clipboard evidence and a hand-off to the public Crates browser; no logged-in API impersonation."},
@@ -3155,7 +3155,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_ONLINE_RESET_FIELDS,L"Clear every included online field for this exact edition. Does not modify any file or saved metadata."},
         {IDC_ONLINE_WRITE_SELECTED,L"QA-only: submit the exact displayed physical tag differences for this one verified file after a separate final confirmation. No CUE or file move."},
         {IDC_METADATA_INSPECT_CUE,L"Read the source CUE and show its album/track fields. Embedded and external CUE are never written here."},
-        {IDC_METADATA_IMPORT_CANDIDATE,L"Import a supported structured clipboard candidate (including Beatport/Crates public facts or manually declared @provider evidence). Every value remains read-only until reviewed. No authentication claim or write."},
+        {IDC_METADATA_IMPORT_CANDIDATE,L"Import structured clipboard evidence for Beatport/Crates, MusicBrainz, Discogs, Deezer or Spotify. Manual @provider claims are unverified, even if an ID is supplied. No authentication claim, tag change or file write."},
         {IDC_METADATA_LIST,L"Select a candidate or proposed change to inspect its source and status."},
         {IDC_METADATA_MB_DETAILS,L"Field-by-field evidence for the selected online candidate. REVIEW is not a tag-write authorization."},
         {IDC_ONLINE_DATE_TARGET_LABEL,L"Do not infer an edition date from your current physical DATE."},
