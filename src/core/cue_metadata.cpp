@@ -31,6 +31,7 @@ std::string_view next_word(std::string_view line, std::size_t& offset) {
 bool recognized(std::string_view verb) {
     return verb == "TITLE" || verb == "PERFORMER" ||
            verb == "SONGWRITER" || verb == "ISRC" ||
+           verb == "CATALOG" ||
            verb == "REM GENRE" || verb == "REM DATE" ||
            verb == "REM COMMENT" || verb == "REM DISCNUMBER" ||
            verb == "REM TOTALDISCS";
@@ -89,6 +90,7 @@ bool is_field_for_scope(std::string_view name, bool track) {
         name.find_first_of(" \t\r\n\"", 4) == std::string_view::npos;
     if (!recognized(name) && !unknown_rem) return false;
     if (!track && name == "ISRC") return false;
+    if (track && name == "CATALOG") return false;
     return true;
 }
 
@@ -181,6 +183,8 @@ CueMetadataInventory inspect_cue_metadata(
                 }
             } else if (command == "ISRC" && current_track == none) {
                 review(out, "CUE_ISRC_OUTSIDE_TRACK");
+            } else if (command == "CATALOG" && current_track != none) {
+                review(out, "CUE_CATALOG_WITHIN_TRACK");
             }
         }
         if (eol == std::string_view::npos) break;
