@@ -223,10 +223,9 @@ CueEffectiveField effective_cue_field(
         result.source_line_number = selected->line_number;
         return result;
     }
-    // A global CUE TITLE is the ALBUM title, never a virtual track TITLE.
-    // ISRC belongs only to a track. The other supported document fields
-    // may be inherited by virtual tracks; never infer a new physical tag.
-    if (name == "TITLE" || name == "ISRC") return result;
+    // TITLE and CATALOG describe the disc, not a virtual track; ISRC belongs
+    // only to a track. Never invent a per-track barcode or physical tag.
+    if (name == "TITLE" || name == "CATALOG" || name == "ISRC") return result;
     for (const auto& field : inventory.globals)
         if (field.name == name) {
             ++count;
