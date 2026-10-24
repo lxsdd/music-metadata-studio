@@ -6041,12 +6041,15 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 (state->auto_search_track == state->selected_track_index &&
                  entered == to_utf8(state->auto_search_text));
             const std::string term=entered.empty()?local_title:entered;
-            if (term.empty() &&
-                (kind != djmeta::online::musicbrainz::SearchKind::Recording ||
-                 !suggested_query ||
-                 !djmeta::online::musicbrainz::valid_search_isrc(local_isrc)))
+            const bool identifier_only=suggested_query &&
+                (kind==djmeta::online::musicbrainz::SearchKind::Recording
+                    ? djmeta::online::musicbrainz::valid_search_isrc(local_isrc)
+                    : djmeta::online::musicbrainz::valid_release_search_barcode(
+                          local_barcode));
+            if (term.empty() && !identifier_only)
                 throw std::invalid_argument(
-                    "No TITLE is available. Enter a title/album or provide a valid ISRC for a physical recording.");
+                    "No TITLE is available. Enter a title/album or provide a valid "
+                    "physical ISRC or global CUE CATALOG barcode.");
             // One explicit request per activation; never silently loop through
             // an unbounded provider search or block foobar on multiple retries.
             // A zero-result next click broadens to the next visible strategy.
