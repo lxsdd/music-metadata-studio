@@ -46,7 +46,7 @@ BEGIN
     PUSHBUTTON      "Move up", IDC_PROVIDER_PRIORITY_UP, 395, 28, 77, 21, WS_TABSTOP
     PUSHBUTTON      "Move down", IDC_PROVIDER_PRIORITY_DOWN, 395, 58, 77, 21, WS_TABSTOP
     LTEXT           "Ranking is a tie-breaker, never a substitute for matching the right recording or mix.", -1, 12, 128, 460, 12
-    LTEXT           "Workspace can open on the top available source; change providers manually at any time.", -1, 12, 149, 460, 12
+    LTEXT           "Workspace starts with the first supported source; all searches require your action.", -1, 12, 149, 460, 12
     LTEXT           "Deezer is reserved in the priority list; native Deezer discovery is not yet available.", -1, 12, 170, 460, 12
 END
 
