@@ -445,3 +445,20 @@
   audit requires the production ListView routes. This is a partial keyboard
   and discoverability improvement, not installed DPI/theme acceptance or
   completion of all accessible-icon and spacing requirements.
+
+### 2026-10-25 — Compact expandable local review (MMS-WF-03/05, MMS-UI-08)
+
+- The normalization detail grid now starts with display-only groups for
+  REVIEW, CONFIDENT and SAFE proposals. Double-click/Enter expands each
+  group; sorting stays deterministic inside its class. Selected-track
+  summaries, original-tag inventory and online provider evidence remain
+  separate, and no action runs merely from expanding a group.
+- A pure projection validates every captured proposal index and rejects
+  duplicates, missing rows and out-of-range indices. Group headers use a
+  non-proposal sentinel; selection restoration and field actions ignore it.
+  Deterministic core tests cover collapsed/expanded ordering and invalid
+  identities; the native static audit checks the projection handoff.
+- Commits `93c7981c`–`af99ab11` on Draft PR #45. Exact-head CI and
+  installed foobar visual/keyboard acceptance must be checked separately.
+  This does not enable a physical, CUE or FileOps writer and does not
+  change original metadata or the ruleset.
