@@ -460,9 +460,9 @@ int main() {
     for(auto& field:barcode_edition.fields) field.provider="musicbrainz";
     for(auto& track:barcode_edition.tracks)
         for(auto& field:track.fields) field.provider="musicbrainz";
-    barcode_edition.fields.push_back(item(
-        "BARCODE",{"4006381333931"},EvidenceScope::Edition,
-        DateMeaning::NotDate,"881"));
+    barcode_edition.fields.push_back({
+        "BARCODE",{"4006381333931"},"musicbrainz","881",
+        EvidenceScope::Edition,DateMeaning::NotDate});
     const auto same_barcode=review_cue_release_edition(
         barcode_cue,barcode_edition);
     check(same_barcode.eligible && same_barcode.reasons.empty() &&
