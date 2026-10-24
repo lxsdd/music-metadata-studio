@@ -113,6 +113,19 @@ int main() {
               row.candidate.provider.starts_with("External CUE") &&
               row.candidate.source_id.starts_with("cue-line:"),
               "original facts cannot impersonate provider or writable evidence");
+    const auto catalog_originals=cue_original_inventory_rows(
+        inspect_cue_metadata(
+            "CATALOG 4006381333931\nTITLE Album\n"
+            "FILE album.flac WAVE\nTRACK 01 AUDIO\nTITLE First\n",
+            CueCarrierKind::ExternalText));
+    check(!catalog_originals.empty() &&
+          catalog_originals[0].field=="Album / CATALOG" &&
+          catalog_originals[0].original_values==
+              std::vector<std::string>{"4006381333931"} &&
+          catalog_originals[0].candidate.scope==EvidenceScope::Edition &&
+          catalog_originals[0].candidate.values.empty() &&
+          catalog_originals[0].state==FieldReviewState::Unchanged,
+          "CUE barcode is exact edition-scoped original evidence, not a provider proposal");
     const auto embedded_originals=cue_original_inventory_rows(
         inspect_cue_metadata(custom_text,CueCarrierKind::EmbeddedText));
     check(embedded_originals.size()==originals.size() &&
