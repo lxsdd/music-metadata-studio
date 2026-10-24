@@ -198,6 +198,22 @@ int main(){
     check(mb_preview.eligible && mb_preview.changed &&
           mb_preview.bytes==mb_expected,
           "exact release bridge preserves all non-selected bytes");
+    // A search hit with an otherwise matching tracklist cannot stage a
+    // postimage against a different exact-edition disc barcode.
+    const std::string coded_release_raw=
+        "CATALOG 4006381333931\n"+release_raw;
+    auto coded_mb=mb_edition;
+    coded_mb.fields.push_back({"BARCODE",{"4006381333931"},
+        "musicbrainz",mb,EvidenceScope::Edition});
+    const auto coded_same=capture_qualified_cue_edition_postimage(
+        coded_release_raw,CueCarrierKind::ExternalText,coded_mb);
+    check(coded_same.eligible && coded_same.rows.size()==2,
+          "matching CUE and MusicBrainz media codes preserve read-only postimage");
+    coded_mb.fields.back().values={"036000291452"};
+    const auto coded_conflict=capture_qualified_cue_edition_postimage(
+        coded_release_raw,CueCarrierKind::ExternalText,coded_mb);
+    check(!coded_conflict.eligible && coded_conflict.rows.empty(),
+          "different exact-edition barcode cannot stage album or track changes");
     auto mb_bad=mb_edition;
     mb_bad.tracks[0].source_track_id="unqualified";
     check(!capture_qualified_cue_edition_postimage(
