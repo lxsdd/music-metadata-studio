@@ -115,11 +115,11 @@ int main() {
           !valid_release_search_barcode("4006381333932") &&
           !valid_release_search_barcode("036000291453") &&
           !valid_release_search_barcode("40063813339X1") &&
-          !valid_release_search_barcode("4006381333931\\n") &&
+          !valid_release_search_barcode("4006381333931\n") &&
           !valid_release_search_barcode("12345"),
           "only check-digit-valid UPC-A/EAN-13 becomes a release identifier");
     const auto catalog_stages=release_search_plan(
-        "Live Set","Album Artist","4006381333931");
+        "Live Set","Artist feat. Guest","4006381333931");
     check(catalog_stages.size()==3 &&
           catalog_stages.front().label.find("barcode")!=std::string::npos &&
           catalog_stages.front().path==
