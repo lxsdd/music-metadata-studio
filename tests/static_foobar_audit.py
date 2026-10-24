@@ -382,6 +382,33 @@ for label, source, token in [
     if token not in source:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing " + label)
 
+# Switching among 54k selected tracks must not scan every proposal again.
+# The exact source-local index is built with the snapshot and atomically
+# exchanged on Refresh; the full proposal/approval data remains immutable.
+review_core = (root / "src" / "core" / "track_review.cpp").read_text(encoding="utf-8")
+review_tests = (root / "tests" / "track_review_tests.cpp").read_text(encoding="utf-8")
+for token in (
+    "djmeta::TrackDiffIndex metadata_row_index;",
+    "state.metadata_rows, state.metadata_row_index,",
+    "state->metadata_row_index = djmeta::index_track_diffs(",
+    "next.metadata_row_index=djmeta::index_track_diffs(",
+    "std::swap(state.metadata_row_index,next.metadata_row_index);",
+):
+    if token not in batch_table_dialog:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: source-local diff index wiring missing: " + token)
+for token in ("TrackDiffIndex index_track_diffs(",
+              "index.offsets[source_index]", "index.row_positions[i]",
+              "all[position].source_index!=source_index",
+              "index.captured_row_count!=all.size()"):
+    if token not in review_core:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: indexed diff integrity missing: " + token)
+for token in ("kLargeBatch=54129",
+              "indexed diff retains proposal identity and rule provenance",
+              "54k-track lookup touches only selected source",
+              "same-size row reassignment cannot cross source identities"):
+    if token not in review_tests:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: indexed diff regression missing: " + token)
+
 # Product policy: every built-in user-visible label must be English.
 # Original media tags / externally supplied routing profile values may
 # legitimately use other languages and must never be transliterated.

@@ -21,6 +21,19 @@ struct TrackReviewSummary {
     std::size_t confident_changes = 0;
 };
 
+// One-time source-to-row index for an immutable, flattened review snapshot.
+// Offsets identify contiguous ranges of original row positions, irrespective
+// of the order in which sources occurred in the input. Read-only, never a
+// sorting, staging, approval or physical write authority.
+struct TrackDiffIndex {
+    std::vector<std::size_t> offsets;       // track count + 1
+    std::vector<std::size_t> row_positions; // original diff-row indices
+    std::size_t captured_row_count = 0;
+};
+
+TrackDiffIndex index_track_diffs(
+    const std::vector<MetadataDiffRow>& proposals, std::size_t track_count);
+
 // A view classification ONLY: every proposal and its provenance are retained.
 // Custom/unknown fields remain visible under Extended / All, never deleted.
 bool is_music_metadata_field(std::string_view name);
@@ -30,6 +43,13 @@ std::vector<TrackReviewSummary> summarize_track_changes(
 
 std::vector<MetadataDiffRow> selected_track_diffs(
     const std::vector<MetadataDiffRow>& proposals,
+    std::size_t source_index, MetadataFocus focus);
+
+// Indexed equivalent: O(proposals for the selected track), not O(all proposals).
+// Refuses a structurally stale index and preserves original proposal identity.
+std::vector<MetadataDiffRow> selected_track_diffs(
+    const std::vector<MetadataDiffRow>& proposals,
+    const TrackDiffIndex& index,
     std::size_t source_index, MetadataFocus focus);
 
 // Filter track identities AFTER sorting; no proposal or source is modified.

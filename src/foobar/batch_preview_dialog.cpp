@@ -267,6 +267,7 @@ struct PreviewState {
     std::vector<djmeta::AnalysisResult> analyses;
     std::vector<std::vector<djmeta::ReviewDecision>> review_decisions;
     std::vector<djmeta::MetadataDiffRow> metadata_rows;
+    djmeta::TrackDiffIndex metadata_row_index; // built once per snapshot
     std::vector<std::size_t> metadata_view_order;
     std::vector<std::string> source_labels;
     std::vector<std::wstring> cached_track_names;
@@ -1680,7 +1681,8 @@ void update_metadata_table(PreviewState& state) {
         }
     }
     state.focused_metadata_rows = djmeta::selected_track_diffs(
-        state.metadata_rows, state.selected_track_index, state.metadata_focus);
+        state.metadata_rows, state.metadata_row_index,
+        state.selected_track_index, state.metadata_focus);
     state.focused_track_index = state.selected_track_index;
     const int logical_sort_column = state.detail_grid.sort_column == 4
         ? 99 : state.detail_grid.sort_column + 1;
@@ -2949,6 +2951,8 @@ void refresh_workspace_snapshot(PreviewState& state) {
         next.current_choice=choice;
         next.entries=capture_preview(handles,choice,next.analyses,next.captured_rules);
         next.metadata_rows=djmeta::describe_metadata_diffs(next.analyses);
+        next.metadata_row_index=djmeta::index_track_diffs(
+            next.metadata_rows,next.entries.size());
         for (const auto& analysis: next.analyses)
             next.review_decisions.emplace_back(analysis.proposals.size());
         for (const auto& entry: next.entries) {
@@ -2960,6 +2964,7 @@ void refresh_workspace_snapshot(PreviewState& state) {
         state.entries.swap(next.entries);
         state.analyses.swap(next.analyses);
         state.metadata_rows.swap(next.metadata_rows);
+        std::swap(state.metadata_row_index,next.metadata_row_index);
         state.review_decisions.swap(next.review_decisions);
         state.track_summaries.swap(next.track_summaries);
         state.source_labels.swap(next.source_labels);
@@ -6331,6 +6336,8 @@ void show_batch_preview_dialog(
         state->entries = capture_preview(
             handles, initial_choice, state->analyses, state->captured_rules);
         state->metadata_rows = djmeta::describe_metadata_diffs(state->analyses);
+        state->metadata_row_index = djmeta::index_track_diffs(
+            state->metadata_rows,state->entries.size());
         for (const auto& analysis : state->analyses)
             state->review_decisions.emplace_back(analysis.proposals.size());
         refresh_review_summaries(*state);

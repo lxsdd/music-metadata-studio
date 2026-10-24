@@ -162,6 +162,15 @@
   review decisions and Apply; selected-source online operations use the
   source-local evidence guard. Exact-SHA CI and installed-host responsiveness
   remain separate gates.
+- 2026-10-24: Indexed local normalization review (MMS-OPS-03 /
+  MMS-WF-03): the per-track detail grid now accesses an immutable
+  source-to-proposal index built once with each captured snapshot. Navigating
+  between 54,129 tracks visits only the chosen source's proposal rows,
+  retaining original field order, proposal IDs, provenance, focus filters,
+  multivalues and decisions. Explicit Refresh atomically swaps the index
+  with the captured diff rows; mismatched row count/source identity fail
+  closed. Automated core stress fixtures and source/audit gates qualify the
+  index; installed-host latency remains an independent gate.
 - 2026-10-24: Online selected-source validation scope (MMS-OPS-03 /
   MMS-WF-08): Search, Load release, next Discogs page, Inspect CUE,
   clipboard candidate comparison and single-source online write entry

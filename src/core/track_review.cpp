@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <array>
 #include <numeric>
+#include <limits>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 
@@ -24,6 +26,12 @@ std::string upper_ascii(std::string_view input) {
     std::string out(input);
     for (char& ch:out) if (ch>='a' && ch<='z') ch=static_cast<char>(ch-'a'+'A');
     return out;
+}
+bool matches_track_focus(const MetadataDiffRow& row, MetadataFocus focus) {
+    const bool music=is_music_metadata_field(row.field);
+    return focus==MetadataFocus::All ||
+        (focus==MetadataFocus::Music && music) ||
+        (focus==MetadataFocus::Extended && !music);
 }
 }
 bool is_music_metadata_field(std::string_view name) {
@@ -57,17 +65,55 @@ std::vector<TrackReviewSummary> summarize_track_changes(
     }
     return result;
 }
+TrackDiffIndex index_track_diffs(
+    const std::vector<MetadataDiffRow>& proposals, std::size_t track_count) {
+    if(track_count==(std::numeric_limits<std::size_t>::max)())
+        throw std::length_error("Track diff index count cannot overflow.");
+    TrackDiffIndex result;
+    result.captured_row_count=proposals.size();
+    result.offsets.assign(track_count+1,0);
+    for(const auto& row:proposals)
+        if(row.source_index<track_count)
+            ++result.offsets[row.source_index+1];
+    for(std::size_t i=1;i<result.offsets.size();++i)
+        result.offsets[i]+=result.offsets[i-1];
+    result.row_positions.resize(result.offsets.back());
+    auto cursors=result.offsets;
+    for(std::size_t i=0;i<proposals.size();++i) {
+        const auto source=proposals[i].source_index;
+        if(source<track_count)
+            result.row_positions[cursors[source]++]=i;
+    }
+    return result;
+}
 std::vector<MetadataDiffRow> selected_track_diffs(
     const std::vector<MetadataDiffRow>& all, std::size_t index,
     MetadataFocus focus) {
     std::vector<MetadataDiffRow> rows;
-    for(const auto& change:all){
-        if(change.source_index!=index) continue;
-        const bool music=is_music_metadata_field(change.field);
-        if(focus==MetadataFocus::All ||
-           (focus==MetadataFocus::Music && music) ||
-           (focus==MetadataFocus::Extended && !music))
+    for(const auto& change:all)
+        if(change.source_index==index && matches_track_focus(change,focus))
             rows.push_back(change);
+    return rows;
+}
+std::vector<MetadataDiffRow> selected_track_diffs(
+    const std::vector<MetadataDiffRow>& all, const TrackDiffIndex& index,
+    std::size_t source_index, MetadataFocus focus) {
+    if(index.offsets.empty() || index.captured_row_count!=all.size() ||
+       index.offsets.back()!=index.row_positions.size())
+        throw std::invalid_argument("Track diff index does not match snapshot.");
+    if(source_index>=index.offsets.size()-1) return {};
+    const auto begin=index.offsets[source_index];
+    const auto end=index.offsets[source_index+1];
+    if(end<begin || end>index.row_positions.size())
+        throw std::invalid_argument("Track diff index range is invalid.");
+    std::vector<MetadataDiffRow> rows;
+    rows.reserve(end-begin);
+    for(std::size_t i=begin;i<end;++i) {
+        const auto position=index.row_positions[i];
+        if(position>=all.size() || all[position].source_index!=source_index)
+            throw std::invalid_argument("Track diff index source identity changed.");
+        if(matches_track_focus(all[position],focus))
+            rows.push_back(all[position]);
     }
     return rows;
 }
