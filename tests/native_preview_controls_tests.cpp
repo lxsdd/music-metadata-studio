@@ -28,6 +28,7 @@ djmeta_foobar::PreviewCommand last_command = djmeta_foobar::PreviewCommand::None
 int command_notifications = 0;
 std::vector<std::size_t> active_track_order;
 std::size_t notified_track_identity = static_cast<std::size_t>(-1);
+int notified_master_deselections = 0;
 int notified_find_row = -99;
 std::vector<std::wstring> active_track_names;
 bool rebuilding_master = false;
@@ -62,6 +63,9 @@ INT_PTR CALLBACK test_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM l
             if (const auto track = djmeta_foobar::native_selected_track_change(
                     *change, active_track_order, rebuilding_master))
                 notified_track_identity = *track;
+            else if (djmeta_foobar::native_master_track_deselected(
+                         *change,rebuilding_master))
+                ++notified_master_deselections;
         }
     }
     const auto command = djmeta_foobar::native_preview_command(message, wp);
@@ -1150,7 +1154,11 @@ int main() {
 
     // The ListView fires real LVN_ITEMCHANGED notifications as its selection
     // changes. The dialog callback uses the production identity resolver.
+    const int deselections_before=notified_master_deselections;
     ListView_SetItemState(master, 2, 0, LVIS_SELECTED);
+    check(notified_master_deselections==deselections_before+1 &&
+          ListView_GetSelectedCount(master)==1,
+          "real master deselection updates marked count without retargeting source");
     ListView_SetItemState(master, 2, LVIS_SELECTED, LVIS_SELECTED);
     check(notified_track_identity == 9,
           "real LVN_ITEMCHANGED notification identifies source 9");
@@ -1287,6 +1295,17 @@ int main() {
           !djmeta_foobar::native_browser_selection_requires_reset(true,0,0) &&
           !djmeta_foobar::native_browser_selection_requires_reset(true,3,3),
           "a reused owner-data list row can never stand in for a new release ID");
+    NMLISTVIEW removed{};
+    removed.iItem=1;
+    removed.uChanged=LVIF_STATE;
+    removed.uOldState=LVIS_SELECTED;
+    removed.uNewState=0;
+    check(djmeta_foobar::native_master_track_deselected(removed,false) &&
+          !djmeta_foobar::native_master_track_deselected(removed,true),
+          "only real user deselection refreshes the marked-scope caption");
+    removed.uNewState=LVIS_SELECTED;
+    check(!djmeta_foobar::native_master_track_deselected(removed,false),
+          "selection events still use current-source activation path");
     const auto no_tracks=djmeta_foobar::native_review_scope_hint(
         0,2,1,1,false);
     const auto one_track=djmeta_foobar::native_review_scope_hint(

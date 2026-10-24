@@ -1536,6 +1536,25 @@ void update_online_release_load_button(PreviewState& state) {
     update_online_field_preview_controls(state);
 }
 
+void update_local_review_hint(PreviewState& state) {
+    if(!state.dialog || !state.show_metadata || state.show_candidate ||
+       state.existing_tags_view) return;
+    if(state.selected_track_index>=state.track_summaries.size()) {
+        SetDlgItemTextW(state.dialog,IDC_BATCH_HINT,
+            native_workspace_display_hint(state.stale,
+                L"No tracks match this filter. Choose All tracks to restore the full list."));
+        return;
+    }
+    const auto& summary=state.track_summaries[state.selected_track_index];
+    const auto count=ListView_GetSelectedCount(state.metadata_track_list);
+    const auto notice=native_review_scope_hint(
+        static_cast<std::size_t>((std::max)(0,count)),
+        summary.music_changes,summary.extended_changes,
+        summary.review_required,state.focused_metadata_rows.empty());
+    SetDlgItemTextW(state.dialog,IDC_BATCH_HINT,
+        native_workspace_display_hint(state.stale,notice.c_str()));
+}
+
 void update_metadata_table(PreviewState& state) {
     if (state.show_candidate) {
         update_online_field_preview_controls(state);
@@ -1760,23 +1779,7 @@ void update_metadata_table(PreviewState& state) {
                     LVIS_SELECTED, LVIS_SELECTED);
         InvalidateRect(state.metadata_list, nullptr, FALSE);
     }
-    if (state.dialog && state.show_metadata &&
-        state.selected_track_index < state.track_summaries.size()) {
-        const auto& summary = state.track_summaries[state.selected_track_index];
-        // The right grid is source-local, while the master may mark many
-        // tracks. Never describe a multi-track action as a single-track view.
-        const auto marked=static_cast<std::size_t>(
-            ListView_GetSelectedCount(state.metadata_track_list));
-        const auto notice=native_review_scope_hint(
-            marked,summary.music_changes,summary.extended_changes,
-            summary.review_required,state.focused_metadata_rows.empty());
-        SetDlgItemTextW(state.dialog, IDC_BATCH_HINT,
-            native_workspace_display_hint(state.stale,notice.c_str()));
-    } else if (state.dialog && state.show_metadata) {
-        SetDlgItemTextW(state.dialog, IDC_BATCH_HINT,
-            native_workspace_display_hint(state.stale,
-                L"No tracks match this filter. Choose All tracks to restore the full list."));
-    }
+    update_local_review_hint(state);
 }
 
 void update_master_table(PreviewState& state) {
@@ -5154,6 +5157,11 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                     // search, edit or file-plan action still checks the batch.
                     revalidate_workspace(*state);
                 }
+            } else if (native_master_track_deselected(
+                           *changed,state->updating_track_selection)) {
+                // The marked set shrank but the focused source did not change.
+                // Do not rerender/sort the detail grid or probe every track.
+                update_local_review_hint(*state);
             }
             return TRUE;
         }

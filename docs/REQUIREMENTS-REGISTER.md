@@ -424,3 +424,13 @@
   are unchanged. Native resource-backed and static regressions cover 0/1/500
   selected tracks. Installed visual legibility and the broader expandable
   grouped-review design remain separate gates.
+
+### 2026-10-24 — Native deselection refresh for marked scope (MMS-WF-03/05)
+
+- Removing a track from a multi-selection now refreshes only the marked
+  count/status. It does not change the current detail source, discard
+  proposal selections, re-sort the grid, launch a provider request or
+  revalidate an unrelated large batch.
+- Rebuild-generated ListView notifications are ignored. Synthetic message
+  policy and real owner-data HWND notification tests cover deselection.
+  This remains a display-only improvement, not a write approval.

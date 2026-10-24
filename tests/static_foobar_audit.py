@@ -989,6 +989,10 @@ if ('native_review_scope_hint(' not in batch_table_dialog or
     'ListView_GetSelectedCount(state.metadata_track_list)' not in batch_table_dialog or
     'native_review_scope_hint(' not in gui_test):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: current-track versus batch scope hint missing")
+if ('native_master_track_deselected(' not in batch_table_dialog or
+    'update_local_review_hint(*state)' not in batch_table_dialog or
+    'notified_master_deselections' not in gui_test):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: master deselection hint refresh missing")
 if 'review_split_gap_hit(' not in gui_test:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: splitter HWND test missing")
 if 'apply_native_preview_resize(' not in gui_test or 'review_split_geometry(' not in gui_test:

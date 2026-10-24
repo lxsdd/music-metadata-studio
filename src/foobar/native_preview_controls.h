@@ -280,6 +280,17 @@ inline std::optional<std::size_t> native_selected_track_change(
     return view_order[row];
 }
 
+// Deselecting a master row changes the batch scope count without choosing
+// a new current source. Refresh only the caption, never retarget the detail
+// grid or perform a network/source revalidation on this notification.
+inline bool native_master_track_deselected(
+    const NMLISTVIEW& change, bool rebuilding) noexcept {
+    return !rebuilding && change.iItem>=0 &&
+           (change.uChanged & LVIF_STATE)!=0 &&
+           (change.uOldState & LVIS_SELECTED)!=0 &&
+           (change.uNewState & LVIS_SELECTED)==0;
+}
+
 inline std::vector<std::size_t> selected_native_view_ids(
     HWND list, const std::vector<std::size_t>& view_order) {
     std::vector<std::size_t> ids;
