@@ -1351,3 +1351,29 @@ if 'SetDlgItemTextW(dialog,IDC_METADATA_MB_QUERY,L"");' not in crates_handoff:
 if 'maximum_public_beatport_url_length, 0);' not in batch_rules_guard or \
    'EM_LIMITTEXT, 150, 0' in batch_rules_guard:
     raise SystemExit('STATIC FOOBAR AUDIT FAIL: Beatport URL query may truncate')
+
+
+# Provider priority first-launch production wiring (MMS-CFG-02).
+# This is a structural path check; interactive foobar runtime still needs
+# its separate visual acceptance, and no search may launch on window open.
+workspace_cfg = (foobar / "batch_table_settings.cpp").read_text(encoding="utf-8")
+workspace_model = (root / "include" / "djmeta" / "workspace_defaults.h").read_text(encoding="utf-8")
+workspace_prefs = (foobar / "menu_preferences.cpp").read_text(encoding="utf-8")
+workspace_dialog = (foobar / "batch_preview_dialog.cpp").read_text(encoding="utf-8")
+for label, present in (
+    ("profile default selects preference-driven mode",
+     'g_workspace_defaults(kWorkspaceDefaultsGuid, "v1|0|3|0|0")' in workspace_cfg),
+    ("model default agrees with native profile",
+     "int online_provider = 3;" in workspace_model),
+    ("preferences allows explicit user override",
+     "IDC_DEFAULT_ONLINE_PROVIDER" in workspace_prefs and
+     "store_workspace_defaults(edited)" in workspace_prefs),
+    ("new window resolves persisted provider order",
+     "first_supported_search_mode(" in workspace_dialog and
+     "load_online_provider_preferences()" in workspace_dialog and
+     "CB_SETCURSEL,search_mode" in workspace_dialog),
+    ("priority is identified as a manual search selection",
+     "First supported in priority order" in workspace_prefs),
+):
+    if not present:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: provider priority wiring: " + label)
