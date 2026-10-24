@@ -1134,6 +1134,11 @@ void layout_musicbrainz_detail_pane(PreviewState& state) {
     const int height=frame.bottom-frame.top;
     const bool active=state.show_candidate && state.musicbrainz_live_view &&
         state.candidate_source_index==state.selected_track_index;
+    // Commit any user-adjusted widths even when this track switch hides the
+    // online details table. Never defer capture until a hidden HWND is shown.
+    if (state.online_detail_columns_applied)
+        capture_review_grid_controls(state.musicbrainz_details,
+            state.online_detail_grid,state.active_dpi);
     if (!active) {
         SetWindowPos(state.metadata_list,nullptr,frame.left,frame.top,
             (std::max)(8,width),(std::max)(8,height),
@@ -1142,11 +1147,6 @@ void layout_musicbrainz_detail_pane(PreviewState& state) {
         ShowWindow(state.musicbrainz_details_label,SW_HIDE);
         return;
     }
-    // Preserve a user's column adjustments before any pane resize or
-    // track/release switch. First display applies saved widths or auto-fits.
-    if (state.online_detail_columns_applied)
-        capture_review_grid_controls(state.musicbrainz_details,
-            state.online_detail_grid,state.active_dpi);
     // Reserve a real caption line and vertical breathing room between the
     // browser and the nested table. The old +2/+17 geometry was overlapping
     // native ListView borders/fonts (visible at 100%-200% scaling).
