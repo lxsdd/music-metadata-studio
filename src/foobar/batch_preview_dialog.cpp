@@ -3273,6 +3273,12 @@ void install_workspace_tooltips(PreviewState& state) {
     }
 }
 
+void dismiss_workspace_tooltips(PreviewState& state) {
+    native_workspace_pop_tooltips(state.help_tooltips,
+        {state.metadata_track_list,state.metadata_list,
+         state.musicbrainz_details,state.list});
+}
+
 // Tool info is HWND-identified exactly as when initially registered.
 // A provider switch updates its text in place and dismisses any prior popup.
 void update_workspace_search_tooltip(PreviewState& state) {
@@ -3287,7 +3293,7 @@ void update_workspace_search_tooltip(PreviewState& state) {
         state.discogs_provider_selected,state.beatport_offline_selected));
     SendMessageW(state.help_tooltips,TTM_UPDATETIPTEXTW,0,
                  reinterpret_cast<LPARAM>(&tool));
-    SendMessageW(state.help_tooltips,TTM_POP,0,0);
+    dismiss_workspace_tooltips(state);
 }
 
 void show_workspace_help(HWND dialog) {
@@ -4903,9 +4909,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             consume_beatport_public_network(dialog,*state);
         return TRUE;
     }
-    if (state->help_tooltips &&
-        native_workspace_dismisses_tooltip(message,wp))
-        SendMessageW(state->help_tooltips,TTM_POP,0,0);
+    if (native_workspace_dismisses_tooltip(message,wp))
+        dismiss_workspace_tooltips(*state);
     if(message==WM_WINDOWPOSCHANGED) {
         RECT normal_screen{};
         if(native_capture_normal_screen_bounds(dialog,normal_screen)) {
@@ -5033,7 +5038,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         const auto* header = reinterpret_cast<const NMHDR*>(lp);
         if (header && header->idFrom == IDC_BATCH_TABS &&
             header->code == TCN_SELCHANGE) {
-            if(state->help_tooltips) SendMessageW(state->help_tooltips,TTM_POP,0,0);
+            dismiss_workspace_tooltips(*state);
             invalidate_online_request(*state);
             const int selected_tab = TabCtrl_GetCurSel(state->tabs);
             show_preview_page(dialog, *state, selected_tab != 2, selected_tab == 0);
