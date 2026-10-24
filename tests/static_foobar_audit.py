@@ -1289,7 +1289,7 @@ for marker in (
     'L"Beatport + Crates"',
     'state->beatport_offline_selected=selected_provider==2;',
     'if(state->beatport_offline_selected)',
-    'L"Import Beatport"',
+    'L"Import clipboard"',
     'if(beatport_user_release || crates_visible_release ||\n               beatport_user_track || crates_visible_track)',
     'djmeta::online::parse_beatport_user_release_clipboard(text)',
     'djmeta::online::review_beatport_user_edition_physical(',
@@ -1377,3 +1377,15 @@ for label, present in (
 ):
     if not present:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: provider priority wiring: " + label)
+
+# A provider-search default cannot invalidate a separately user-declared
+# clipboard import. This is the real native WM_COMMAND handler; the shared
+# foobar host-smoke exercises it on an actual control and synthetic WAV.
+for token in (
+    'const bool manual_declared_candidate=text.starts_with("@provider=");',
+    '!manual_declared_candidate)',
+    'djmeta::online::parse_manual_candidate(text)',
+    'L"Import clipboard"',
+):
+    if token not in workspace_dialog:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: cross-provider manual clipboard: " + token)
