@@ -241,6 +241,17 @@ int main() {
           refresh_rect.bottom < hint_rect.top &&
           hint_rect.bottom < footer_rect.top,
           "refresh, two-line status and action row are distinct and non-overlapping");
+    check(!djmeta_foobar::native_workspace_should_relayout_on_size(
+              SIZE_MINIMIZED,0,0) &&
+          !djmeta_foobar::native_workspace_should_relayout_on_size(
+              SIZE_RESTORED,0,700) &&
+          !djmeta_foobar::native_workspace_should_relayout_on_size(
+              SIZE_RESTORED,900,0) &&
+          djmeta_foobar::native_workspace_should_relayout_on_size(
+              SIZE_RESTORED,900,700) &&
+          djmeta_foobar::native_workspace_should_relayout_on_size(
+              SIZE_MAXIMIZED,900,700),
+          "minimized or empty WM_SIZE cannot realign native controls");
     ShowWindow(dialog,SW_SHOWNA);
     ShowWindow(dialog,SW_MINIMIZE);
     check(IsIconic(dialog)!=FALSE,"native workspace minimizes independently");

@@ -4703,7 +4703,12 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         return TRUE;
     }
     if (message == WM_SIZE && state->initial_client_width > 0) {
-        resize_batch_dialog(*state, LOWORD(lp), HIWORD(lp));
+        const auto width=static_cast<unsigned>(LOWORD(lp));
+        const auto height=static_cast<unsigned>(HIWORD(lp));
+        if (!native_workspace_should_relayout_on_size(wp,width,height))
+            return TRUE; // Do not realign against an iconic/empty client.
+        resize_batch_dialog(*state,static_cast<int>(width),
+                           static_cast<int>(height));
         align_native_preview_form(dialog);
         return TRUE;
     }

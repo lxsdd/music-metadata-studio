@@ -205,6 +205,16 @@ inline void restore_native_view_selection(
     }
 }
 
+// WM_SIZE on minimization reports a zero client area. The real dialog
+// must retain its last usable child geometry, tooltips and preview columns
+// until a restored/maximized size with nonzero dimensions arrives.
+// This is a presentation-only guard, shared with native HWND regression.
+inline constexpr bool native_workspace_should_relayout_on_size(
+    WPARAM size_kind, unsigned client_width, unsigned client_height) noexcept {
+    return size_kind != SIZE_MINIMIZED &&
+           client_width > 0 && client_height > 0;
+}
+
 // Keep the two real master/detail ListViews balanced across a resize.
 // Rectangles use the dialog client coordinate system and remain separate
 // from review identity, normalization and write logic.
