@@ -131,6 +131,18 @@ inline std::string joined_artist_credit(const musicbrainz::Json& node) {
     }
     return joined;
 }
+// Discogs uses a compilation-placeholder album artist (usually "Various").
+// This is exact *album* evidence, never a known performer for each track.
+// Numeric suffixes are Discogs disambiguators, not individual artist credits.
+inline bool compilation_placeholder_artist(std::string_view name) {
+    const auto key=comparable(name);
+    if(key=="various" || key=="various artists") return true;
+    constexpr std::string_view prefix="various ";
+    if(!key.starts_with(prefix)) return false;
+    const auto suffix=std::string_view(key).substr(prefix.size());
+    return !suffix.empty() && std::all_of(suffix.begin(),suffix.end(),
+        [](char c){ return c>='0' && c<='9'; });
+}
 inline std::string year_field(const musicbrainz::Json& node) {
     const auto* v=node.get("year");
     if(!v || v->type!=musicbrainz::Json::Type::Number ||
@@ -919,10 +931,14 @@ inline ReleaseEdition parse_release(std::string_view json,std::uint64_t expected
             item.source_track_id.clear();
         item.recording.title=track_title;
         item.recording.duration_ms=duration_ms(string_field(track,"duration"));
-        // Explicit per-track credits override album credits; malformed or
-        // ambiguous multi-artist joins must not fall back to album identity.
+        // Explicit per-track credits override album credits. A known
+        // single-artist album can assist matching when Discogs omits the
+        // track credit, but "Various" is NOT any track's performer.
+        // Never manufacture track ARTIST field evidence from this fallback.
         item.recording.primary_artist=track.get("artists")
-            ? joined_artist_credit(track) : joined_artist_credit(root);
+            ? joined_artist_credit(track)
+            : (compilation_placeholder_artist(album_artist)
+                ? std::string{} : album_artist);
         if(!item.source_track_id.empty()) {
             int position=0;
             const auto [end,error]=std::from_chars(

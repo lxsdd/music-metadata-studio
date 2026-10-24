@@ -666,6 +666,38 @@ int main() {
           !track_field(collaboration.tracks[0],"ARTIST") &&
           collaboration.fields.size()>=2,
           "explicit multi-artist joins retained without invented separator");
+    // A sampler's "Various" edition credit cannot qualify an uncredited
+    // individual track. Explicit sibling track credits are still usable.
+    for(const char* compilation_credit:{"Various","Various Artists",
+                                        "Various (2)"}) {
+        const auto json=std::string(R"({
+            "id":783,"title":"Sampler","artists":[{"name":")")+
+            compilation_credit+R"("}],"tracklist":[
+                {"position":"1","title":"Unknown Performer"},
+                {"position":"2","title":"Known Performer",
+                 "artists":[{"name":"Actual DJ"}]}
+            ]
+        })";
+        const auto sampler=parse_release(json,783);
+        check(sampler.tracks.size()==2 &&
+              sampler.tracks[0].recording.primary_artist.empty() &&
+              !track_field(sampler.tracks[0],"ARTIST") &&
+              sampler.tracks[1].recording.primary_artist=="Actual DJ" &&
+              track_field(sampler.tracks[1],"ARTIST") &&
+              album_credit(sampler)==
+                  std::vector<std::string>{compilation_credit},
+              "compilation album credit never becomes missing track ARTIST");
+        LocalReleaseTrack misleading_local;
+        misleading_local.source_index=44;
+        misleading_local.recording.title="Unknown Performer";
+        misleading_local.recording.primary_artist=compilation_credit;
+        misleading_local.track_number=1;
+        const auto unsafe_alignment=align_release({misleading_local},sampler);
+        check(unsafe_alignment.matched==0 &&
+              unsafe_alignment.unmatched==1 &&
+              unsafe_alignment.tracks[0].edition_track_index==no_release_track,
+              "an uncredited sampler row cannot match on album placeholder");
+    }
     const auto trailing_join=parse_release(R"({
         "id":779,"title":"Trailing bad join","artists":[
             {"name":"Artist A","join":" & "},{"name":"Artist B","join":" x "}],
