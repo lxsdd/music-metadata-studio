@@ -990,11 +990,17 @@ for token in ['apply_review_grid_controls(', 'capture_review_grid_controls(',
               'ListView_GetColumnOrderArray', 'ListView_GetColumnWidth']:
     if token not in gui_test:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: review grid real HWND acceptance missing: " + token)
-for token in ('apply_native_preview_resize(', 'GetProcAddress(user32, "GetDpiForWindow")', 'state->active_dpi', 'WM_DPICHANGED',
+for token in ('apply_native_preview_resize(', 'return native_window_dpi(window);', 'state->active_dpi', 'WM_DPICHANGED',
               'restore_batch_dialog_window_size(*state)', 'save_batch_dialog_window_size(*state)',
               'WM_EXITSIZEMOVE', 'load_batch_preview_window_size()'):
     if token not in batch_table_dialog:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: production responsive per-monitor layout missing " + token)
+native_dpi_header=(foobar / "native_preview_controls.h").read_text(encoding="utf-8")
+for token in ('GetProcAddress(user32,"GetDpiForWindow")',
+              'inline int native_window_dpi(HWND window) noexcept',
+              'native_edit_padding_for_dpi(6,dpi)'):
+    if token not in native_dpi_header:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: shared DPI policy missing " + token)
 for token in ('review_split_gap_hit(', 'WM_LBUTTONDOWN', 'SetCapture(dialog)',
               'load_review_split_offset()', 'store_review_split_offset('):
     if token not in batch_table_dialog:
