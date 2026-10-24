@@ -1356,6 +1356,21 @@ if online_pane.find("capture_review_grid_controls(state.musicbrainz_details,") =
    online_pane.index("if (!active) {"):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: online columns not captured before pane hide")
 
+# DPI transitions must snapshot lower online detail widths at the OLD DPI and
+# apply them at the NEW DPI before SetWindowPos synchronously triggers WM_SIZE.
+dpi_change = batch_rules_guard.split("if (message == WM_DPICHANGED) {",1)[1].split(
+    "\n    if (message != WM_COMMAND)",1)[0]
+dpi_markers = (
+    "capture_review_grid_controls(state->musicbrainz_details,",
+    "state->active_dpi = new_dpi;",
+    "apply_review_grid_controls(state->musicbrainz_details,",
+    "const auto* dimensions = reinterpret_cast<const RECT*>(lp);",
+)
+if any(marker not in dpi_change for marker in dpi_markers) or \
+   sorted(dpi_change.index(marker) for marker in dpi_markers) != \
+   [dpi_change.index(marker) for marker in dpi_markers]:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: online column DPI snapshot/order missing")
+
 # A new Crates browser hand-off must discard the previous direct Beatport
 # URL before the user can paste or explicitly load a newly discovered track.
 # Otherwise the next button press could fetch an old, valid unrelated ID.
