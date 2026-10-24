@@ -550,6 +550,8 @@ for label, token in (
     ("CUE MusicBrainz release staged fallback", "release_search_plan("),
     ("CUE album CATALOG read from qualified inventory", 'unique_cue_album_value(inventory,"CATALOG")'),
     ("manual title never reuses source CUE barcode", "suggested_query?local_barcode:std::string{}"),
+    ("CUE barcode-only native guard", "valid_release_search_barcode("),
+    ("title-free discovery remains exact identifier only", "const bool identifier_only=suggested_query"),
     ("MusicBrainz plan source/kind isolation", 'std::string("release|")'),
     ("official lookup is separate user action", "id == IDC_METADATA_MB_LOAD_RELEASE && HIWORD(wp)==BN_CLICKED"),
     ("fixed-host reader", "fetch_musicbrainz_json_readonly(route,cancel)"),
