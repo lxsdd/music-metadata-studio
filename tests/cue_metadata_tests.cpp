@@ -112,7 +112,8 @@ int main() {
         CueCarrierKind::EmbeddedText);
     check(track_catalog.status == CueSyntaxStatus::NeedsReview &&
           has(track_catalog.diagnostics,"CUE_CATALOG_WITHIN_TRACK") &&
-          track_catalog.globals.empty() &&
+          track_catalog.globals.size() == 1 &&
+          track_catalog.globals[0].name == "TITLE" &&
           track_catalog.tracks[0].local_fields.empty(),
           "track-scoped CATALOG cannot become a false album search identifier");
 
