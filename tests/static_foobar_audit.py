@@ -1065,20 +1065,37 @@ for token in (
 if "prefill_musicbrainz_query(state,true);" in refresh_source:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: refresh unconditionally overwrites manual search")
 
-# The native release activation shortcut must identify the clicked/focused
-# row as the row that Load release will actually consume.
+# A multi-selected release ListView must first resolve the actual selected
+# double-click/Return target, then atomically retarget the first selected row
+# consumed by the existing Load release command. This is stronger than merely
+# comparing the clicked row to the first selected row: the user can activate
+# any highlighted release, and no stale/blank/unselected identity can load.
 release_activation = batch_rules_guard.split(
     "const bool release_activation=header &&",1)[1].split(
     "if (header && header->idFrom == IDC_METADATA_LIST &&",1)[0]
 for token in (
-    "const int release_selected_row=release_activation",
     "const int release_focused_row=release_activation",
     "reinterpret_cast<const NMITEMACTIVATE*>(lp)->iItem",
-    "may_activate_selected_native_list_row(header->code",
+    "const bool clicked_selected=release_clicked_row>=0",
+    "const bool focused_selected=release_focused_row>=0",
+    "native_selected_release_activation_row(header->code",
+    "!state->stale && state->show_candidate",
+    "native_focus_exact_release_row(",
+    "state->updating_musicbrainz_selection=true",
+    "update_online_release_load_button(*state);",
     "if (exact_release_activation &&",
 ):
     if token not in release_activation:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: release row intent is not qualified: "+token)
+for token in (
+    "return clicked_row >= 0 && clicked_selected ? clicked_row : -1;",
+    "return focused_row >= 0 && focused_selected ? focused_row : -1;",
+    "ListView_SetItemState(list, -1, 0, LVIS_SELECTED);",
+    "ListView_GetSelectedCount(list) == 1",
+    "ListView_GetNextItem(list, -1, LVNI_SELECTED) == target_row",
+):
+    if token not in sources:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: exact release target policy missing: "+token)
 
 # External-CUE inventories may involve slow multi-FILE source probes. All
 # distinct references must be rechecked together after the initial scan and
