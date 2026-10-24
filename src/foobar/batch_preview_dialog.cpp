@@ -496,34 +496,33 @@ void update_table(PreviewState& state) {
     }
 }
 
+const char* issue_status_text(std::string_view issue) {
+    if (issue == "PHYSICAL_SOURCE_UNQUALIFIED") return "Physical source: REVIEW";
+    if (issue == "TARGET_EXPRESSION_EMPTY") return "Empty target: REVIEW";
+    if (issue == "UNSAFE_RAW_DESTINATION_ROOT") return "Destination root: unsafe";
+    if (issue == "UNSAFE_RAW_RELATIVE_TARGET") return "Raw target: unsafe";
+    if (issue == "DUPLICATE_RAW_TARGET") return "Duplicate raw target";
+    if (issue == "RAW_TARGET_CASE_OR_SEPARATOR_COLLISION")
+        return "Possible Windows target collision";
+    if (issue == "RAW_TARGET_ALIASES_SOURCE") return "Raw target: source alias";
+    if (issue == "RAW_TARGET_IS_BATCH_SOURCE") return "Raw target: batch source";
+    if (issue == "RAW_TARGET_SHARED_PHYSICAL_ID") return "Raw targets: same file";
+    if (issue == "RAW_TARGET_SHARED_HOST_CANONICAL")
+        return "Raw targets: same host path";
+    if (issue == "RAW_TARGET_HOST_CANONICAL_UNQUALIFIED")
+        return "Raw host target: unqualified";
+    if (issue == "RAW_TARGET_EXISTS") return "Raw candidate exists";
+    if (issue == "RAW_TARGET_OBSERVATION_CONTRADICTORY")
+        return "Raw target: inconsistent observation";
+    if (issue == "RAW_TARGET_PROBE_UNQUALIFIED") return "Raw target: unqualified";
+    if (issue == "UNAPPROVED_METADATA_PROPOSALS") return "Metadata: REVIEW";
+    return "Other safety finding";
+}
+
 std::string status_text(const djmeta::BatchPreviewRow& row) {
     if (row.issues.empty()) return "Qualified inputs (not approved)";
-    for (const auto& issue : row.issues) {
-        if (issue == "PHYSICAL_SOURCE_UNQUALIFIED") return "Physical source: REVIEW";
-        if (issue == "TARGET_EXPRESSION_EMPTY") return "Empty target: REVIEW";
-        if (issue == "UNSAFE_RAW_DESTINATION_ROOT") return "Destination root: unsafe";
-        if (issue == "UNSAFE_RAW_RELATIVE_TARGET") return "Raw target: unsafe";
-        if (issue == "DUPLICATE_RAW_TARGET") return "Duplicate raw target";
-        if (issue == "RAW_TARGET_CASE_OR_SEPARATOR_COLLISION")
-            return "Possible Windows target collision";
-        if (issue == "RAW_TARGET_ALIASES_SOURCE") return "Raw target: source alias";
-        if (issue == "RAW_TARGET_IS_BATCH_SOURCE") return "Raw target: batch source";
-        if (issue == "RAW_TARGET_SHARED_PHYSICAL_ID") return "Raw targets: same file";
-        if (issue == "RAW_TARGET_SHARED_HOST_CANONICAL")
-            return "Raw targets: same host path";
-        if (issue == "RAW_TARGET_HOST_CANONICAL_UNQUALIFIED")
-            return "Raw host target: unqualified";
-        if (issue == "RAW_TARGET_EXISTS") return "Raw candidate exists";
-        if (issue == "RAW_TARGET_OBSERVATION_CONTRADICTORY")
-            return "Raw target: inconsistent observation";
-        if (issue == "RAW_TARGET_PROBE_UNQUALIFIED") return "Raw target: unqualified";
-        if (issue == "UNAPPROVED_METADATA_PROPOSALS") return "Metadata: REVIEW";
-    }
-    if (row.raw_target_presence == djmeta::RawTargetPresence::Missing)
-        return "Raw candidate absent";
-    // Global limitations are explained in the footer rather than shown
-    // repeatedly as a warning in every otherwise unremarkable row.
-    return "";
+    // A narrow status column presents one finding; the tooltip lists them all.
+    return issue_status_text(row.issues.front());
 }
 
 // Strip foobar's file:// locator only for presentation, never for identity.
@@ -5487,13 +5486,24 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                     const auto source_row = state->view_order[view_row];
                     if (source_row < state->entries.size()) {
                         const auto& entry = state->entries[source_row];
-                        const std::wstring detail = from_utf8(
-                            entry.source_probe_detail +
+                        std::string detail = entry.source_probe_detail +
                             "\nRaw candidate: " +
                             (entry.raw_target_probe_detail.empty()
-                                ? std::string("not inspected") : entry.raw_target_probe_detail) +
-                            "\nFinal foobar destination and CUE links remain unqualified.");
-                        lstrcpynW(tip->pszText, detail.c_str(), tip->cchTextMax);
+                                ? std::string("not inspected") : entry.raw_target_probe_detail);
+                        if (source_row < state->table.rows.size()) {
+                            const auto& issues = state->table.rows[source_row].issues;
+                            if (!issues.empty()) detail += "\nSafety findings:";
+                            for (const auto& issue : issues) {
+                                detail += "\n- ";
+                                detail += issue_status_text(issue);
+                                detail += " [";
+                                detail += issue;
+                                detail += "]";
+                            }
+                        }
+                        detail += "\nFinal foobar destination and CUE links remain unqualified.";
+                        const std::wstring wide_detail = from_utf8(detail);
+                        lstrcpynW(tip->pszText, wide_detail.c_str(), tip->cchTextMax);
                     }
                 }
             }
