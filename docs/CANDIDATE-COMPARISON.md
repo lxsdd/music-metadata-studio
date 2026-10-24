@@ -21,6 +21,7 @@ LABEL=Example Records
 ```
 
 3. Open **Candidate comparison**, click **Import clipboard** and inspect the two existing native tables: selected foobar track and `Field | Original | Proposed | Source | Status`.
+   Clipboard imports are independent of the selected online **search** provider. The default Beatport/Crates search mode can still import this manually declared `@provider=discogs` sample; it is never presented as a verified Discogs API response.
 4. `No change` means exact ordered multivalue equality, `Review` means new or different value, `Blocked` means structural tag, malformed value, conflicting date semantics or ambiguous local duplicate field. These are **not** approval decisions. Changing tab returns to the original normalization editor without modifying its pending choices.
 5. Close the entire window with Close. **No tags, CUE records, ReplayGain, naming expressions, paths, music files or timestamp values are touched.**
 
