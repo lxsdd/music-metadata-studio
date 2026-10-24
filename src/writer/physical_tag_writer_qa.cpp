@@ -236,7 +236,7 @@ public:
                 // physical tag snapshot, never from a hard-coded fixture title.
                 std::string current_title;
                 for(const auto& field:current.fields) {
-                    if(djmeta::ascii_upper_field(field.name)=="TITLE" &&
+                    if(_stricmp(field.name.c_str(),"TITLE")==0 &&
                        field.values.size()==1) {
                         current_title=field.values.front();
                         break;
