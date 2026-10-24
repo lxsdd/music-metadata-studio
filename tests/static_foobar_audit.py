@@ -1097,6 +1097,32 @@ for token in (
     if token not in sources:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: exact release target policy missing: "+token)
 
+# Native popup tooltips must be explicitly dismissed BEFORE hiding the
+# modeless dialog while an in-flight HTTPS worker finishes. The popup HWND
+# otherwise survives the invisible parent and may appear to stick over foobar.
+tooltip_header = (foobar / "native_preview_controls.h").read_text(encoding="utf-8")
+for token in (
+    "native_workspace_dismisses_tooltip(",
+    "case WM_CLOSE:",
+    "case WM_CANCELMODE:",
+    "case WM_SHOWWINDOW:",
+    "case WM_NCACTIVATE:",
+    "case WM_COMMAND:",
+):
+    if token not in tooltip_header:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: tooltip dismissal policy missing: "+token)
+tooltip_wiring = batch_rules_guard.split(
+    "if (message == kReadOnlyNetworkDoneMessage)",1)[1].split(
+    "if (message == WM_GETMINMAXINFO",1)[0]
+if not (
+    "native_workspace_dismisses_tooltip(message,wp)" in tooltip_wiring
+    and "SendMessageW(state->help_tooltips,TTM_POP,0,0);" in tooltip_wiring
+    and tooltip_wiring.index("native_workspace_dismisses_tooltip(message,wp)") <
+        tooltip_wiring.index("if (message == WM_CLOSE)") <
+        tooltip_wiring.index("ShowWindow(dialog,SW_HIDE)")
+):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: tooltip must pop before hidden close")
+
 # External-CUE inventories may involve slow multi-FILE source probes. All
 # distinct references must be rechecked together after the initial scan and
 # before publishing even advisory PRESENT/MISSING/ALIAS labels.

@@ -183,6 +183,13 @@
   available for navigation/preferences but cannot erase the stale warning or
   re-enable source-dependent actions. Native HWND test covers the real hint
   control; installed UX acceptance remains outstanding.
+- 2026-10-24: Tooltip popup lifetime hardening (MMS-UI-03 /
+  MMS-UI-05): owner-deactivation, hide-during-HTTPS-close, cancel/capture
+  changes, movement and explicit commands dismiss the separate tooltip
+  HWND. Explicit WM_CLOSE dismissal occurs before hiding for a bounded
+  network worker, while ordinary typing/activation does not. Pure native
+  message-policy tests are automated; a final installed foobar mouse-over
+  visual check is still required.
 - **Remaining decisions that can only be made by the owner:** one final
   installed Windows foobar acceptance; explicit merge/release/production
   write activation when qualified; any new provider legal terms or genuine

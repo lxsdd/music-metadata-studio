@@ -244,6 +244,36 @@ inline constexpr bool native_workspace_should_relayout_on_size(
            client_width > 0 && client_height > 0;
 }
 
+// Native tooltips are popup HWNDs. Hiding a modeless workspace while a
+// bounded network worker completes must dismiss the popup first: the parent
+// HWND survives and ordinary TTF_SUBCLASS mouse-leave may never arrive.
+// Also dismiss on activation loss, cancellation and explicit UI commands.
+// This policy does not create timers, hook foobar globally or block playback.
+inline constexpr bool native_workspace_dismisses_tooltip(
+    UINT message, WPARAM wp) noexcept {
+    switch(message) {
+    case WM_CLOSE:
+    case WM_CANCELMODE:
+    case WM_MOVE:
+    case WM_SIZE:
+    case WM_ENTERSIZEMOVE:
+    case WM_CAPTURECHANGED:
+    case WM_KILLFOCUS:
+    case WM_MOUSELEAVE:
+        return true;
+    case WM_SHOWWINDOW:
+    case WM_NCACTIVATE:
+    case WM_ENABLE:
+        return wp == FALSE;
+    case WM_ACTIVATE:
+        return LOWORD(wp) == WA_INACTIVE;
+    case WM_COMMAND:
+        return HIWORD(wp) == BN_CLICKED || HIWORD(wp) == CBN_SELCHANGE;
+    default:
+        return false;
+    }
+}
+
 // Keep the two real master/detail ListViews balanced across a resize.
 // Rectangles use the dialog client coordinate system and remain separate
 // from review identity, normalization and write logic.

@@ -4669,6 +4669,9 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             consume_beatport_public_network(dialog,*state);
         return TRUE;
     }
+    if (state->help_tooltips &&
+        native_workspace_dismisses_tooltip(message,wp))
+        SendMessageW(state->help_tooltips,TTM_POP,0,0);
     if (message == WM_CLOSE) {
         // Closing the modeless workspace must not freeze foobar while an
         // in-flight HTTPS request finishes. Hide, then destroy on completion.
@@ -4690,16 +4693,9 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             ShowWindow(dialog,SW_HIDE);
             return TRUE;
         }
-        if(state->help_tooltips) SendMessageW(state->help_tooltips,TTM_POP,0,0);
         DestroyWindow(dialog);
         return TRUE;
     }
-    if ((message == WM_MOVE || message == WM_SIZE || message == WM_ENTERSIZEMOVE)
-        && state->help_tooltips)
-        SendMessageW(state->help_tooltips,TTM_POP,0,0);
-    if (message == WM_ACTIVATE && LOWORD(wp)==WA_INACTIVE &&
-        state->help_tooltips)
-        SendMessageW(state->help_tooltips,TTM_POP,0,0);
     if (message == WM_ACTIVATE && LOWORD(wp)!=WA_INACTIVE) {
         revalidate_workspace(*state);
         return FALSE;

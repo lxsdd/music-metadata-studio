@@ -325,6 +325,34 @@ int main() {
           L"Provider changed: select a result")==0,
           "fresh snapshot restores ordinary provider guidance");
     SetDlgItemTextW(dialog,IDC_BATCH_HINT,previous_status);
+    check(djmeta_foobar::native_workspace_dismisses_tooltip(
+              WM_CLOSE,0) &&
+          djmeta_foobar::native_workspace_dismisses_tooltip(
+              WM_SHOWWINDOW,FALSE) &&
+          djmeta_foobar::native_workspace_dismisses_tooltip(
+              WM_ACTIVATE,WA_INACTIVE) &&
+          djmeta_foobar::native_workspace_dismisses_tooltip(
+              WM_NCACTIVATE,FALSE) &&
+          djmeta_foobar::native_workspace_dismisses_tooltip(
+              WM_CANCELMODE,0) &&
+          djmeta_foobar::native_workspace_dismisses_tooltip(
+              WM_ENTERSIZEMOVE,0) &&
+          djmeta_foobar::native_workspace_dismisses_tooltip(
+              WM_COMMAND,MAKEWPARAM(IDC_BATCH_HELP,BN_CLICKED)) &&
+          djmeta_foobar::native_workspace_dismisses_tooltip(
+              WM_COMMAND,MAKEWPARAM(IDC_METADATA_ONLINE_PROVIDER,CBN_SELCHANGE)),
+          "native tooltip always closes before hidden-inflight shutdown "
+          "and on loss of active interaction");
+    check(!djmeta_foobar::native_workspace_dismisses_tooltip(
+              WM_SHOWWINDOW,TRUE) &&
+          !djmeta_foobar::native_workspace_dismisses_tooltip(
+              WM_ACTIVATE,WA_ACTIVE) &&
+          !djmeta_foobar::native_workspace_dismisses_tooltip(
+              WM_COMMAND,MAKEWPARAM(IDC_METADATA_MB_QUERY,EN_CHANGE)) &&
+          !djmeta_foobar::native_workspace_dismisses_tooltip(
+              WM_PAINT,0),
+          "normal typing, painting and window reactivation cannot "
+          "prematurely dismiss an explanatory tooltip");
     ShowWindow(dialog,SW_SHOWNA);
     ShowWindow(dialog,SW_MINIMIZE);
     check(IsIconic(dialog)!=FALSE,"native workspace minimizes independently");
