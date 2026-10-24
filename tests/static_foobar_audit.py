@@ -1138,7 +1138,9 @@ if (
     or "SetFocus(GetDlgItem(dialog,IDC_METADATA_MB_QUERY))" not in track_activation
     or "prefill_musicbrainz_query(*state,true);" not in track_activation
     or "native_track_activation_starts_online_search(" not in track_activation
+    or "native_track_activation_starts_crates_handoff(" not in track_activation
     or track_activation.count("MAKEWPARAM(IDC_METADATA_MB_SEARCH,BN_CLICKED)") != 1
+    or track_activation.count("MAKEWPARAM(IDC_METADATA_DISCOGS_NEXT_PAGE,BN_CLICKED)") != 1
     or "already_searching" in track_activation
     or "header->code == LVN_ITEMACTIVATE" in track_activation
 ):
@@ -1147,10 +1149,13 @@ if (
                      " exactly once only from Find")
 if "native_track_activation_starts_online_search(0,false)" not in gui_test or (
     "native_track_activation_starts_online_search(1,false)" not in gui_test or
-    "native_track_activation_starts_online_search(0,true)" not in gui_test
+    "native_track_activation_starts_online_search(0,true)" not in gui_test or
+    "native_track_activation_starts_crates_handoff(0,true)" not in gui_test or
+    "native_track_activation_starts_crates_handoff(0,false)" not in gui_test or
+    "native_track_activation_starts_crates_handoff(1,true)" not in gui_test
 ):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing native tab-scoped"
-                     " activation regression tests")
+                     " official API and Crates activation regression tests")
 
 # Track navigation and an explicit track activation must have different
 # search-prefill semantics. A mere selection NEVER resets manual edits or
