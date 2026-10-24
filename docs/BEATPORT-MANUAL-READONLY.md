@@ -218,16 +218,23 @@ This feature is not automatic search, not a batch crawl, and not a verified
 live Beatport API integration. Genuine public-page layout and permissions
 have not yet been qualified by a real Beatport fetch.
 
-## Crates.co account-safe browser search (2026-10-21)
+## Crates.co account-safe browser search (updated 2026-10-24)
 
 In the native **Beatport + Crates** provider, select a physical recording and
-click **Find in Crates**. The browser hand-off copies only the original
-physical artist and full title (including e.g. Extended Mix) to the Windows
-clipboard and opens the **verified public** https://crates.co/ homepage in
-the user's default browser. Paste the copied query into Crates' existing
-Search field. There is **no assumed deep-link URL or undocumented search
-API**. Crates is usable without login; when the user logs into Crates with
-their **own Beatport account inside the normal browser**, that login stays
+click **Find in Crates**, or double-click/Enter its row on the Find tab. The
+default browser opens the confirmed public
+`https://crates.co/search?q=...` route with the local physical **artist and
+full title** (including e.g. Extended Mix) correctly percent-encoded. The
+search results are already loaded; no manual Ctrl+V into a search box is
+needed and the clipboard remains unchanged on a successful browser launch.
+Only if the default browser launch fails is the local search text copied to
+the clipboard for manual recovery.
+
+The artist and title query is sent to Crates via the browser URL; other tags,
+physical file paths, audio, credentials, cookies and access tokens are not.
+This is **a normal public browser page**, not an undocumented API endpoint or
+an authenticated Beatport catalog integration. Crates is usable without
+login; any Crates/Beatport login inside the user's own normal browser stays
 there. Neither a username/password nor a session/OAuth token is read by
 foobar, stored in a component, copied to GitHub or sent to this application.
 
