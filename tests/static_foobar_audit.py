@@ -88,6 +88,20 @@ for token in ("MMS_ENABLE_PHYSICAL_WRITES",
     if token not in batch_writer_ui:
         raise SystemExit("STATIC SDK WRITER UI GATE FAIL: " + token)
 
+# Group headings in the local Review ListView are display-only. Every
+# actionable child still maps to a captured proposal ID, and only an explicit
+# keyboard/mouse activation changes visibility (never an approval or network).
+for token in (
+    "std::array<bool,3> review_group_expanded",
+    "state.metadata_view_group.push_back(group);",
+    "state.metadata_view_group.push_back(-1);",
+    "state.metadata_view_order.push_back((std::numeric_limits<std::size_t>::max)());",
+    "if (proposal_row >= state.focused_metadata_rows.size()) continue;",
+    "state->review_group_expanded[group]=!state->review_group_expanded[group];",
+):
+    if token not in batch_writer_ui:
+        raise SystemExit("STATIC LOCAL REVIEW GROUP GATE FAIL: " + token)
+
 # A single captured shared rules snapshot must be checked at each
 # transactional UI edit and during initial loading, in addition to
 # per-track metadata fingerprints.
