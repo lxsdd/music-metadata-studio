@@ -326,6 +326,15 @@ for token in ("state->table.rows[source_row].issues", "for (const auto& issue : 
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: FileOps tooltip hides safety finding " + token)
 if fileops_tip.index('"Safety findings:"') > fileops_tip.index('"Physical source: "'):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: long paths may truncate FileOps safety findings")
+fileops_status = batch_table_dialog.split("std::string status_text(", 1)[1].split(
+    "// Strip foobar's file:// locator", 1)[0]
+for token in ("CUE_DEPENDENCIES_UNCHECKED", "FILESYSTEM_TARGET_UNCHECKED",
+              "continue;", "return issue_status_text(issue);", "Raw candidate absent"):
+    if token not in fileops_status:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: FileOps short status changed global limitation policy " + token)
+for token in ('"Final CUE links: not checked"', '"Final target: not checked"'):
+    if token not in batch_table_dialog:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: FileOps tooltip omits global limitation " + token)
 
 layout_storage = (foobar / "batch_table_settings.cpp").read_text(encoding="utf-8")
 route_preview = (foobar / "routing_preview.cpp").read_text(encoding="utf-8")
