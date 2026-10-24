@@ -26,13 +26,18 @@ of these defaults within the current workspace without mutating Preferences.
 
 The new **Workspace** child page offers:
 - opening view (Find / Review / Files), default Find;
-- initial provider (MusicBrainz / Discogs / Beatport + Crates), default MusicBrainz;
+- initial provider (MusicBrainz / Discogs / Beatport + Crates / first supported
+  source in saved priority), default first supported;
 - default route preview (Singles / Alben / Livesets), default Singles;
 - show invisible whitespace initially in normalization review, default Off.
 
 Every setting uses a versioned strict schema in the active foobar profile.
 Corrupted or unknown schemas reset to safe display defaults. Only Apply/OK
-commits them; Reset stages defaults and Cancel discards changes. No provider
+commits them; Reset stages defaults and Cancel discards changes. Existing profile choices including a saved manual MusicBrainz selection remain
+unchanged. The new default only affects profiles without a saved setting.
+Selecting the first supported source configures the initial **manual** search
+control; it never starts an HTTP lookup or skips a failed network request.
+No provider
 token, search content, track identity or review decision is persisted.
 
 Other existing state uses independent foobar profile keys: window placement,
