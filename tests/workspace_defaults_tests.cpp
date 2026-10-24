@@ -12,8 +12,8 @@
 int main() {
     const djmeta::WorkspaceDefaults defaults;
     CHECK(djmeta::workspace_defaults_valid(defaults));
-    CHECK(djmeta::serialize_workspace_defaults(defaults) == "v1|0|0|0|0");
-    CHECK(djmeta::parse_workspace_defaults("v1|0|0|0|0") == defaults);
+    CHECK(djmeta::serialize_workspace_defaults(defaults) == "v1|0|3|0|0");
+    CHECK(djmeta::parse_workspace_defaults("v1|0|3|0|0") == defaults);
 
     for (int tab = 0; tab < 3; ++tab)
         for (int provider = 0; provider < 4; ++provider)
@@ -34,6 +34,11 @@ int main() {
     CHECK(djmeta::serialize_workspace_defaults({-1, 0, 0, false}).empty());
     CHECK(djmeta::serialize_workspace_defaults({0, -1, 0, false}).empty());
     CHECK(djmeta::serialize_workspace_defaults({0, 0, 3, false}).empty());
+    const djmeta::WorkspaceDefaults old_explicit_musicbrainz{0, 0, 0, false};
+    CHECK(djmeta::parse_workspace_defaults("v1|0|0|0|0") ==
+          old_explicit_musicbrainz);
+    CHECK(djmeta::serialize_workspace_defaults(old_explicit_musicbrainz) ==
+          "v1|0|0|0|0");
     const djmeta::WorkspaceDefaults auto_source{0, 3, 0, false};
     CHECK(djmeta::serialize_workspace_defaults(auto_source) == "v1|0|3|0|0");
     CHECK(djmeta::parse_workspace_defaults("v1|0|3|0|0") == auto_source);
