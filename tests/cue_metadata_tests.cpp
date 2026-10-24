@@ -92,6 +92,30 @@ int main() {
           embedded.tracks[0].local_fields[0].value == title.value,
           "same raw cue text has same semantic parser for either carrier");
 
+    const std::string catalog_cue =
+        "CATALOG 4006381333931\n"
+        "TITLE Album\nFILE disc.flac WAVE\nTRACK 01 AUDIO\nTITLE Track\n";
+    const auto catalog = inspect_cue_metadata(
+        catalog_cue, CueCarrierKind::ExternalText);
+    check(catalog.status == CueSyntaxStatus::Parsed &&
+          catalog.globals.size() == 2 &&
+          catalog.globals[0].name == "CATALOG" &&
+          catalog.globals[0].value == "4006381333931" &&
+          catalog_cue.substr(catalog.globals[0].value_begin,
+              catalog.globals[0].value_end-catalog.globals[0].value_begin) ==
+              catalog.globals[0].value &&
+          !effective_cue_field(catalog,0,"CATALOG").present,
+          "global CUE media barcode retains exact source but never becomes a track tag");
+    const auto track_catalog = inspect_cue_metadata(
+        "TITLE Album\nFILE disc.flac WAVE\nTRACK 01 AUDIO\n"
+        "CATALOG 4006381333931\n",
+        CueCarrierKind::EmbeddedText);
+    check(track_catalog.status == CueSyntaxStatus::NeedsReview &&
+          has(track_catalog.diagnostics,"CUE_CATALOG_WITHIN_TRACK") &&
+          track_catalog.globals.empty() &&
+          track_catalog.tracks[0].local_fields.empty(),
+          "track-scoped CATALOG cannot become a false album search identifier");
+
     const auto duplicate = inspect_cue_metadata(
         "PERFORMER \"P\"\n"
         "PERFORMER \"Q\"\n"
