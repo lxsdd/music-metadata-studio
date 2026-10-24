@@ -338,6 +338,187 @@ public:
 
 preferences_page_factory_t<WorkspacePreferencesPage> g_workspace_preferences_factory;
 
+// Provider preference is independent of the manually selected online mode.
+// This list changes display order only for equal-evidence matches. It cannot
+// initiate network requests, enable a provider or authorize a metadata write.
+constexpr GUID kOnlineProviderPreferencesGuid =
+    {0x6b96e414, 0x87d0, 0x412e, {0xa3, 0xf2, 0x68, 0x3f, 0x1b, 0x3e, 0xd8, 0x05}};
+
+constexpr std::array<const wchar_t*, 5> kOnlineProviderLabels = {
+    L"Beatport", L"Crates", L"Discogs",
+    L"Deezer (lookup not yet available)", L"MusicBrainz"
+};
+
+djmeta::online::ProviderPreferences read_provider_order(HWND window) {
+    using namespace djmeta::online;
+    ProviderPreferences edited;
+    edited.preferred_order.clear();
+    const auto count = SendDlgItemMessageW(
+        window, IDC_PROVIDER_PRIORITY_LIST, LB_GETCOUNT, 0, 0);
+    if (count != static_cast<LRESULT>(kProviderNames.size()))
+        throw std::invalid_argument("Provider preference list is incomplete.");
+    for (int row = 0; row < count; ++row) {
+        const auto source = SendDlgItemMessageW(
+            window, IDC_PROVIDER_PRIORITY_LIST, LB_GETITEMDATA, row, 0);
+        if (source < 0 ||
+            source >= static_cast<LRESULT>(kProviderNames.size()))
+            throw std::invalid_argument("Provider preference identity is invalid.");
+        edited.preferred_order.emplace_back(
+            kProviderNames[static_cast<std::size_t>(source)]);
+    }
+    if (!valid_provider_preferences(edited))
+        throw std::invalid_argument("Provider preference is not a permutation.");
+    return edited;
+}
+
+void show_provider_order(HWND window,
+                         const djmeta::online::ProviderPreferences& settings,
+                         int selection = 0) {
+    using namespace djmeta::online;
+    if (!valid_provider_preferences(settings))
+        throw std::invalid_argument("Invalid provider preference.");
+    SendDlgItemMessageW(window, IDC_PROVIDER_PRIORITY_LIST, LB_RESETCONTENT, 0, 0);
+    for (const auto& id : settings.preferred_order) {
+        const auto it = std::find(kProviderNames.begin(), kProviderNames.end(), id);
+        if (it == kProviderNames.end())
+            throw std::invalid_argument("Unknown provider identity.");
+        const auto source = static_cast<std::size_t>(
+            it - kProviderNames.begin());
+        const auto row = SendDlgItemMessageW(
+            window, IDC_PROVIDER_PRIORITY_LIST, LB_ADDSTRING, 0,
+            reinterpret_cast<LPARAM>(kOnlineProviderLabels[source]));
+        if (row == LB_ERR || row == LB_ERRSPACE ||
+            SendDlgItemMessageW(window, IDC_PROVIDER_PRIORITY_LIST,
+                                LB_SETITEMDATA, row,
+                                static_cast<LPARAM>(source)) == LB_ERR)
+            throw std::runtime_error("Could not populate provider list.");
+    }
+    SendDlgItemMessageW(window, IDC_PROVIDER_PRIORITY_LIST,
+        LB_SETCURSEL, selection, 0);
+}
+
+class ProviderPreferencesInstance : public preferences_page_instance {
+public:
+    ProviderPreferencesInstance(fb2k::hwnd_t parent,
+                                preferences_page_callback::ptr callback)
+        : m_callback(std::move(callback)) {
+        m_window = CreateDialogParamW(core_api::get_my_instance(),
+            MAKEINTRESOURCEW(IDD_PROVIDER_PREFERENCES), parent,
+            dialog_proc, reinterpret_cast<LPARAM>(this));
+        if (!m_window)
+            throw std::runtime_error("Failed to create Online providers Preferences.");
+    }
+
+    ~ProviderPreferencesInstance() {
+        if (m_window && IsWindow(m_window)) DestroyWindow(m_window);
+    }
+
+    fb2k::hwnd_t get_wnd() override { return m_window; }
+
+    t_uint32 get_state() override {
+        t_uint32 flags = preferences_state::resettable |
+                         preferences_state::dark_mode_supported;
+        try {
+            if (!(read_provider_order(m_window) == load_online_provider_preferences()))
+                flags |= preferences_state::changed;
+        } catch (const std::exception&) {
+            flags |= preferences_state::changed;
+        }
+        return flags;
+    }
+
+    void apply() override {
+        try {
+            const auto edited = read_provider_order(m_window);
+            store_online_provider_preferences(edited);
+            state_changed();
+        } catch (const std::exception&) {
+            MessageBoxW(m_window,
+                L"Source order must include Beatport, Crates, Discogs, "
+                L"Deezer and MusicBrainz exactly once. Nothing was changed.",
+                L"Music Metadata Studio", MB_OK | MB_ICONWARNING);
+        }
+    }
+
+    void reset() override {
+        show_provider_order(m_window, {});
+        state_changed(); // Stage only. Apply/OK persists.
+    }
+
+private:
+    void move_selection(int direction) {
+        const auto row = SendDlgItemMessageW(
+            m_window, IDC_PROVIDER_PRIORITY_LIST, LB_GETCURSEL, 0, 0);
+        if (row == LB_ERR || row + direction < 0 ||
+            row + direction >= static_cast<int>(
+                djmeta::online::kProviderNames.size()))
+            return;
+        auto edited = read_provider_order(m_window);
+        std::swap(edited.preferred_order[static_cast<std::size_t>(row)],
+                  edited.preferred_order[static_cast<std::size_t>(row + direction)]);
+        show_provider_order(m_window, edited, static_cast<int>(row + direction));
+        state_changed();
+    }
+
+    static INT_PTR CALLBACK dialog_proc(HWND window, UINT msg,
+                                        WPARAM wp, LPARAM lp) {
+        if (msg == WM_INITDIALOG) {
+            auto* self = reinterpret_cast<ProviderPreferencesInstance*>(lp);
+            self->m_window = window;
+            SetWindowLongPtrW(window, GWLP_USERDATA,
+                reinterpret_cast<LONG_PTR>(self));
+            self->m_dark.AddDialogWithControls(window);
+            show_provider_order(window, load_online_provider_preferences());
+            return TRUE;
+        }
+        auto* self = reinterpret_cast<ProviderPreferencesInstance*>(
+            GetWindowLongPtrW(window, GWLP_USERDATA));
+        if (!self) return FALSE;
+        if (msg == WM_COMMAND && HIWORD(wp) == BN_CLICKED) {
+            try {
+                if (LOWORD(wp) == IDC_PROVIDER_PRIORITY_UP)
+                    self->move_selection(-1);
+                else if (LOWORD(wp) == IDC_PROVIDER_PRIORITY_DOWN)
+                    self->move_selection(+1);
+                else
+                    return FALSE;
+            } catch (const std::exception&) {
+                MessageBoxW(window, L"Unable to reorder source preferences.",
+                    L"Music Metadata Studio", MB_OK | MB_ICONWARNING);
+            }
+            return TRUE;
+        }
+        if (msg == WM_NCDESTROY) {
+            self->m_window = nullptr;
+            SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+        }
+        return FALSE;
+    }
+
+    void state_changed() {
+        if (m_callback.is_valid()) m_callback->on_state_changed();
+    }
+
+    preferences_page_callback::ptr m_callback;
+    fb2k::hwnd_t m_window = nullptr;
+    fb2k::CCoreDarkModeHooks m_dark;
+};
+
+class OnlineProviderPreferencesPage : public preferences_page_v3 {
+public:
+    const char* get_name() override { return "Online providers"; }
+    GUID get_guid() override { return kOnlineProviderPreferencesGuid; }
+    GUID get_parent_guid() override { return kPreferencesGuid; }
+    preferences_page_instance::ptr instantiate(
+        fb2k::hwnd_t parent,
+        preferences_page_callback::ptr callback) override {
+        return fb2k::service_new<ProviderPreferencesInstance>(
+            parent, std::move(callback));
+    }
+};
+
+preferences_page_factory_t<OnlineProviderPreferencesPage>
+    g_online_provider_preferences_factory;
 
 } // namespace
 } // namespace djmeta_foobar

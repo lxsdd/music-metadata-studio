@@ -4,6 +4,7 @@
 #include "djmeta/review_grid_layout.h"
 #include "djmeta/preview_window_geometry.h"
 #include "djmeta/workspace_defaults.h"
+#include "djmeta/online_match.h"
 #include <optional>
 
 namespace djmeta_foobar {
@@ -19,6 +20,11 @@ void store_batch_preview_window_size(djmeta::PreviewWindowSize size);
 // Only visual defaults for NEW studio windows; never search or write permission.
 djmeta::WorkspaceDefaults load_workspace_defaults();
 void store_workspace_defaults(const djmeta::WorkspaceDefaults& settings);
+
+// Profile-local presentation tie-breaker for independently matched sources.
+// Never initiates requests, overrides conflict evidence, or authorizes writes.
+djmeta::online::ProviderPreferences load_online_provider_preferences();
+void store_online_provider_preferences(const djmeta::online::ProviderPreferences& settings);
 
 // Remember only the user's preferred date target choice (0..7). No selected
 // provider values, per-track decisions or authorization is persisted.

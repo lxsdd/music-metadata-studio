@@ -3,6 +3,7 @@
 // P0 proof of concept: pure, read-only, provider-independent candidate ranking.
 // No network, SDK, metadata mutation, authentication, or file I/O.
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstdint>
 #include <map>
@@ -37,7 +38,51 @@ struct Candidate {
 // rejected/review-only candidate into a suggested match.
 struct ProviderPreferences {
     std::vector<std::string> preferred_order{"beatport", "crates", "discogs", "deezer", "musicbrainz"};
+
+    bool operator==(const ProviderPreferences&) const = default;
 };
+
+inline constexpr std::array<std::string_view, 5> kProviderNames = {
+    "beatport", "crates", "discogs", "deezer", "musicbrainz"
+};
+
+// Only a full permutation of the five known source identities may be saved.
+// Disabling or authorizing a provider is a separate, explicit user decision.
+inline bool valid_provider_preferences(const ProviderPreferences& value) {
+    if (value.preferred_order.size() != kProviderNames.size()) return false;
+    for (const auto known : kProviderNames) {
+        if (std::count(value.preferred_order.begin(),
+                       value.preferred_order.end(), known) != 1)
+            return false;
+    }
+    return true;
+}
+
+inline std::string serialize_provider_preferences(const ProviderPreferences& value) {
+    if (!valid_provider_preferences(value)) return {};
+    std::string result = "v1|";
+    for (const auto& provider : value.preferred_order) {
+        if (result.size() > 3) result += ',';
+        result += provider;
+    }
+    return result;
+}
+
+inline ProviderPreferences parse_provider_preferences(std::string_view raw) {
+    ProviderPreferences result;
+    if (!raw.starts_with("v1|")) return result;
+    ProviderPreferences parsed;
+    parsed.preferred_order.clear();
+    raw.remove_prefix(3);
+    while (!raw.empty()) {
+        const auto comma = raw.find(',');
+        parsed.preferred_order.emplace_back(raw.substr(0, comma));
+        if (comma == std::string_view::npos) break;
+        raw.remove_prefix(comma + 1);
+        if (raw.empty()) return result; // Trailing separator is corruption.
+    }
+    return valid_provider_preferences(parsed) ? parsed : result;
+}
 
 inline std::size_t preference_index(
     std::string_view provider, const ProviderPreferences& preferences) {

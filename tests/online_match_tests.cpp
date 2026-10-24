@@ -234,6 +234,35 @@ int main() {
     expect(customized[0].provider == "discogs" &&
            customized[1].provider == "beatport",
            "source preference can be explicitly customized");
+    const auto saved_priority = serialize_provider_preferences(discogs_first);
+    expect(saved_priority ==
+               "v1|discogs,beatport,crates,deezer,musicbrainz" &&
+           parse_provider_preferences(saved_priority) == discogs_first &&
+           parse_provider_preferences(serialize_provider_preferences({})) ==
+               ProviderPreferences{},
+           "full five-provider priority round-trips without losing Crates");
+    const auto restored = rank(original,
+        {beatport_equal, discogs_equal, musicbrainz_equal},
+        parse_provider_preferences(saved_priority));
+    expect(restored.size() == 3 && restored.front().provider == "discogs" &&
+           restored.front().score == restored[1].score,
+           "restored preference governs ranking ties, not evidence score");
+    for (std::string invalid : {
+            "", "v2|beatport,crates,discogs,deezer,musicbrainz",
+            "v1|beatport,crates,discogs,deezer",
+            "v1|beatport,beatport,discogs,deezer,musicbrainz",
+            "v1|beatport,crates,discogs,deezer,other",
+            "v1|beatport,crates,discogs,deezer,musicbrainz,",
+            "v1|beatport,crates,discogs,deezer,musicbrainz,other"}) {
+        expect(parse_provider_preferences(invalid) == ProviderPreferences{},
+               "corrupt source priority safely falls back to the full DJ order");
+    }
+    expect(serialize_provider_preferences(
+               ProviderPreferences{{"discogs", "beatport"}}).empty() &&
+           serialize_provider_preferences(
+               ProviderPreferences{{"discogs", "discogs", "beatport",
+                                    "deezer", "musicbrainz"}}).empty(),
+           "partial or repeated identities cannot be persisted");
     Candidate wrong_mix_beatport = beatport_equal;
     wrong_mix_beatport.identity.mix = MixKind::Radio;
     const auto safety_wins = rank(original,

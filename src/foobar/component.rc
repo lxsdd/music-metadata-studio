@@ -37,6 +37,19 @@ BEGIN
     LTEXT           "No automatic search, tag writes or remembered approvals.", -1, 12, 165, 459, 12
 END
 
+IDD_PROVIDER_PREFERENCES DIALOGEX 0, 0, 485, 194
+STYLE DS_SETFONT | DS_CONTROL | WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS
+FONT 9, "Segoe UI"
+BEGIN
+    LTEXT           "Preferred source order:", -1, 12, 20, 145, 12
+    LISTBOX         IDC_PROVIDER_PRIORITY_LIST, 167, 14, 216, 103, LBS_NOTIFY | WS_BORDER | WS_VSCROLL | WS_TABSTOP
+    PUSHBUTTON      "Move up", IDC_PROVIDER_PRIORITY_UP, 395, 28, 77, 21, WS_TABSTOP
+    PUSHBUTTON      "Move down", IDC_PROVIDER_PRIORITY_DOWN, 395, 58, 77, 21, WS_TABSTOP
+    LTEXT           "Ranking is a tie-breaker, never a substitute for matching the right recording or mix.", -1, 12, 128, 460, 12
+    LTEXT           "Choose the provider manually in Find & compare. No background or multi-provider searches.", -1, 12, 149, 460, 12
+    LTEXT           "Deezer is reserved in the priority list; native Deezer discovery is not yet available.", -1, 12, 170, 460, 12
+END
+
 IDD_BATCH_PREVIEW DIALOGEX 0, 0, 560, 396
 STYLE DS_SETFONT | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_CLIPCHILDREN | WS_CLIPSIBLINGS
 EXSTYLE WS_EX_APPWINDOW

@@ -23,6 +23,11 @@ constexpr GUID kWorkspaceDefaultsGuid =
     {0x251a5bf0,0x691e,0x4ab9,{0x85,0x93,0x37,0xcb,0x50,0xb2,0x5a,0x08}};
 cfg_string g_workspace_defaults(kWorkspaceDefaultsGuid, "v1|0|0|0|0");
 
+constexpr GUID kOnlineProviderPriorityGuid =
+    {0xc589a0c4, 0x9e6b, 0x4ca7, {0xb2, 0x14, 0x7a, 0x66, 0xa3, 0xfa, 0xa4, 0x18}};
+cfg_string g_online_provider_priority(kOnlineProviderPriorityGuid,
+    "v1|beatport,crates,discogs,deezer,musicbrainz");
+
 constexpr GUID kBatchTableLayoutGuid =
     {0xbca40f8b, 0x927b, 0x4fe6, {0xa1, 0x75, 0x16, 0x09, 0x63, 0xd1, 0x47, 0x21}};
 
@@ -93,6 +98,21 @@ void store_workspace_defaults(const djmeta::WorkspaceDefaults& settings) {
     const auto before = g_workspace_defaults.get();
     if (std::string_view(before.c_str()) != encoded)
         g_workspace_defaults.set(encoded.c_str());
+}
+
+djmeta::online::ProviderPreferences load_online_provider_preferences() {
+    const auto saved = g_online_provider_priority.get();
+    return djmeta::online::parse_provider_preferences(saved.c_str());
+}
+
+void store_online_provider_preferences(
+    const djmeta::online::ProviderPreferences& settings) {
+    const auto encoded = djmeta::online::serialize_provider_preferences(settings);
+    if (encoded.empty())
+        throw std::invalid_argument("Invalid online provider priority.");
+    const auto before = g_online_provider_priority.get();
+    if (std::string_view(before.c_str()) != encoded)
+        g_online_provider_priority.set(encoded.c_str());
 }
 
 int load_online_date_target_preference() {

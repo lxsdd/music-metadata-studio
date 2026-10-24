@@ -51,6 +51,19 @@ Crates ist neben Beatport/Discogs/Deezer eine priorisierte DJ-Quelle.
 Bei inhaltlich gleich gut belegten Treffern ist die voreingestellte
 Anzeigereihenfolge Beatport, Crates, Discogs, Deezer, MusicBrainz. Ein
 Mix-/Titelkonflikt wird niemals von dieser Reihenfolge überstimmt.
+Die Reihenfolge ist in foobar unter **Preferences → Tools → Music Metadata
+Studio → Online providers** mit **Move up / Move down** veränderbar und
+wird pro foobar-Profil gespeichert (Apply/OK; Reset setzt nur die
+Formularauswahl zurück, bis Apply erfolgt). Sie entscheidet ausschließlich
+bei gleich guter, bereits geprüfter Match-Evidenz über die Anzeige,
+nicht über einen automatischen Quellenabruf oder Schreibfreigaben.
+Unter **Workspace** bleibt der initiale Suchmodus wählbar; im
+**Find & compare**-Fenster kann er jederzeit manuell gewechselt werden.
+Crates wird aktuell gemeinsam mit Beatport über die ausdrücklich gestartete
+Zwischenablage-Übernahme bedient. Deezer steht in der Prioritätenliste,
+besitzt im laufenden Draft jedoch noch keine native Live-Suche. Für
+gleichzeitige Suchen über alle fünf Anbieter gibt es derzeit keinen
+freigegebenen Workflow.
 Die öffentliche, ohne Login erreichbare Crates-Trackseite zeigt unter
 anderem Titel/Mix, Künstler, Remix-Credits, Label, Release, Genre, BPM,
 Tonart und Dauer. Der Browserhelfer

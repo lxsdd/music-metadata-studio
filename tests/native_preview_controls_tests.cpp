@@ -158,6 +158,25 @@ int main() {
     check(GetDlgItem(workspace_prefs, IDC_DEFAULT_SHOW_WHITESPACE) != nullptr,
           "Workspace Preferences include the initial whitespace switch");
     DestroyWindow(workspace_prefs);
+    HWND provider_prefs = CreateDialogParamW(GetModuleHandleW(nullptr),
+        MAKEINTRESOURCEW(IDD_PROVIDER_PREFERENCES), dialog, test_dialog_proc, 0);
+    check(provider_prefs != nullptr,
+          "production Online providers Preferences child page instantiates");
+    const HWND provider_order = GetDlgItem(provider_prefs, IDC_PROVIDER_PRIORITY_LIST);
+    const HWND provider_up = GetDlgItem(provider_prefs, IDC_PROVIDER_PRIORITY_UP);
+    const HWND provider_down = GetDlgItem(provider_prefs, IDC_PROVIDER_PRIORITY_DOWN);
+    check(provider_order != nullptr &&
+          (GetWindowLongPtrW(provider_order, GWL_STYLE) & LBS_NOTIFY) != 0 &&
+          provider_up != nullptr && provider_down != nullptr,
+          "production source priority has a notified native list and move controls");
+    wchar_t move_caption[40]{};
+    if (provider_up) GetWindowTextW(provider_up, move_caption, 40);
+    check(std::wcscmp(move_caption, L"Move up") == 0,
+          "source reorder Up is visibly labelled in shipping resource");
+    if (provider_down) GetWindowTextW(provider_down, move_caption, 40);
+    check(std::wcscmp(move_caption, L"Move down") == 0,
+          "source reorder Down is visibly labelled in shipping resource");
+    if (provider_prefs) DestroyWindow(provider_prefs);
     // Test real RC-derived HWND styles, not a fabricated lookalike dialog.
     const DWORD workspace_style=static_cast<DWORD>(GetWindowLongPtrW(dialog,GWL_STYLE));
     const DWORD workspace_exstyle=static_cast<DWORD>(GetWindowLongPtrW(dialog,GWL_EXSTYLE));
