@@ -106,7 +106,7 @@
 | MMS-SRC-05 | PARTIAL | Compare full available original fields with provider evidence, including label/catalog/edition, credits, genre/style, remixers, ISRC, release dates, custom fields and multivalues. Unknown/absent never means delete. | #49 |
 | MMS-SRC-06 | PARTIAL | Separate recording, mix, original release, exact edition and CUE-global/track provenance; date values are not interchangeable. | #49 |
 | MMS-SRC-07 | OPEN | Field-specific source priority/allowlist/ignore policy, including transparent conflicts, user-selected values and repeatable confidence explanation. | #49 |
-| MMS-SRC-08 | OPEN | Concrete regression search cases: The KLF — What Time Is Love (Original Version) and difficult DJ cross-artist/version queries, alongside current official provider tests. | #50 |
+| MMS-SRC-08 | PARTIAL | Concrete regression search cases: The KLF — What Time Is Love (Original Version) and difficult DJ cross-artist/version queries, alongside current official provider tests. | #50 |
 | MMS-SRC-09 | PARTIAL | DATE as user's year-only convention, DATE_RAW as full existing date when present, ORIGINALDATE vs edition RELEASEDATE separately configurable; BPM is already supplied and should not be recalculated. | [workflow](UNIFIED-WORKFLOW.md) |
 
 ## CUE — physisch/virtuell und Precision CUE
@@ -231,6 +231,25 @@
   without re-registering, timer state or a background request. Pure policy
   tests protect against misleading Beatport text on other providers;
   installed visual mouse-over remains a final user gate.
+- 2026-10-24: Scoped Pending/Review refresh (MMS-OPS-03 / MMS-NRM-08):
+  after an explicit Accept/Reject/Reset/manual action, unchanged snapshot
+  field counts, source identities and other tracks' review counters are left
+  intact. Only affected tracks recount unresolved REVIEW proposals. Exact
+  decision-vector cardinality is checked fail-closed. Initial capture and
+  Refresh still build complete summaries; every Review action still passes
+  the original full-batch stale-input/ruleset verification. Commit
+  `832ae231`, all five exact-SHA GitHub CI runs SUCCESS. Real 54k installed
+  foobar responsiveness is pending, so MMS-OPS-03 remains PARTIAL.
+- 2026-10-24: MusicBrainz read-only DJ suffix discovery (MMS-SRC-01 /
+  MMS-SRC-08): explicitly recognized Vocal/Dub/Instrumental/Main Mix,
+  Club/Extended Edit, Original Club/Extended Mix and Extended Club Mix
+  create a base-title search attempt ahead of the preserved exact full-title
+  attempt. No tag values, exact edition identity or trust classification
+  change, and generic results remain Version review, not auto-approved.
+  Commit `63c6cc88`, Core CI Ubuntu/Windows, foobar Win32/x64 host smoke,
+  read-only source audits and isolated synthetic physical/no-op QA PASS on
+  the exact SHA. Official catalog hit rate and installed UI comparison remain
+  unqualified, hence MMS-SRC-08 is PARTIAL rather than HOST.
 - **Remaining decisions that can only be made by the owner:** one final
   installed Windows foobar acceptance; explicit merge/release/production
   write activation when qualified; any new provider legal terms or genuine
