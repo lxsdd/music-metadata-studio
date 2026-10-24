@@ -505,3 +505,4 @@
 
 - The read-only Windows path check now marks raw Title Formatting names and editable destination roots containing C1 controls or Unicode bidirectional display overrides/isolates as unqualified. Valid RTL letters and other ordinary UTF-8 remain accepted; no metadata or filenames are rewritten.
 - Regression covers relative names, drive/UNC roots, the visible batch diagnostic and ordinary RTL text. This is only a preliminary raw-path warning, not foobar's final sanitized File Operations path or permission to write. Exact-SHA CI and installed visual acceptance remain separate.
+- The collision table now counts every displayed raw candidate, including one whose physical source is independently unqualified. Duplicate literal and ASCII case/separator-equivalent target warnings appear on both rows; this does not promote either row to a qualified operation.
