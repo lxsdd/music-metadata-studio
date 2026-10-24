@@ -1335,7 +1335,7 @@ for marker in ("perform_beatport_public_page_lookup(dialog,*state)",
 for marker in (
     'L"Find in Crates"',
     'prepare_crates_browser_search(original)',
-    'L"https://crates.co/"',
+    'from_utf8(search.browser_url)',
     'ShellExecuteW(dialog,L"open",url.c_str()',
     'copy_crates_search_text(dialog,from_utf8(search.search_text))',
 ):
@@ -1351,6 +1351,11 @@ for marker in ("crates.co/api", "Crates token=", "beatport_password", "crates_se
 crates_handoff=batch_rules_guard.split("void open_crates_for_selected_physical_track(",1)[1].split("\\n// A Beatport public URL",1)[0]
 if 'SetDlgItemTextW(dialog,IDC_METADATA_MB_QUERY,L"");' not in crates_handoff:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: Crates hand-off may reuse a stale Beatport URL")
+if 'copy_crates_search_text' in crates_handoff.split('const HINSTANCE launched=',1)[0]:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: successful Crates search overwrites clipboard")
+if 'copy_crates_search_text(dialog,from_utf8(search.search_text))' not in \
+   crates_handoff.split('if(reinterpret_cast<INT_PTR>(launched)<=32)',1)[1]:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: failed Crates browser launch has no safe clipboard fallback")
 
 # A canonical Beatport URL may exceed the old 150-character MusicBrainz
 # input cap. The native edit limit must match the strict URL validator.
