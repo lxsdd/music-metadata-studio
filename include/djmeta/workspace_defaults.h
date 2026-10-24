@@ -5,9 +5,11 @@
 namespace djmeta {
 
 // Presentation-only defaults: never an authorization, approval or source tag.
+// A new workspace follows the profile's source order by default, but opens
+// only its manual search mode. It performs no background network lookup.
 struct WorkspaceDefaults {
     int opening_tab = 0;       // Find, Review, Files
-    int online_provider = 0;   // MusicBrainz, Discogs, Beatport + Crates, first available
+    int online_provider = 3;   // First supported provider in saved preference order; manual override remains available
     int routing_profile = 0;   // Singles, Alben, Livesets
     bool show_whitespace = false;
 
