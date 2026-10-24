@@ -386,17 +386,35 @@ inline bool align_label_to_input(HWND dialog, int label_id, int input_id) {
 // Align real native input text rows rather than assuming edit/combo fonts
 // occupy the same vertical pixels as themed pushbutton captions. Repeated
 // WM_SIZE calls use current control geometry, so alignment is idempotent.
-// A ListView can keep a previous selection when the user double-clicks
-// empty space or an unrelated highlighted row. Native Load release consumes
-// the FIRST selected row, so only a gesture on exactly that row may trigger
-// the load command. This guard is pure; it issues no network request.
-inline bool may_activate_selected_native_list_row(
-    UINT notification, int clicked_row, int selected_row,
-    int focused_row, UINT key = 0) noexcept {
-    if (selected_row < 0) return false;
-    if (notification == NM_DBLCLK) return clicked_row == selected_row;
-    return notification == LVN_KEYDOWN && key == VK_RETURN &&
-           focused_row == selected_row;
+// A multi-select ListView can have a first selected row DIFFERENT from
+// the one the user actually activates. Resolve the explicit mouse/keyboard
+// target only when THAT target is selected. Empty-space and unrelated
+// selection notifications must not authorize a provider request.
+inline int native_selected_release_activation_row(
+    UINT notification, int clicked_row, int focused_row,
+    bool clicked_selected, bool focused_selected, UINT key = 0) noexcept {
+    if (notification == NM_DBLCLK)
+        return clicked_row >= 0 && clicked_selected ? clicked_row : -1;
+    if (notification == LVN_KEYDOWN && key == VK_RETURN)
+        return focused_row >= 0 && focused_selected ? focused_row : -1;
+    return -1;
+}
+
+// The existing Load release command consumes the first selected ListView row.
+// Retarget it to the explicitly activated identity BEFORE dispatch, otherwise
+// a multi-selection could load the wrong edition. This deliberately collapses
+// the candidate selection on activation, never during ordinary comparison.
+inline bool native_focus_exact_release_row(HWND list, int target_row) {
+    if (!list || target_row < 0 || target_row >= ListView_GetItemCount(list) ||
+        (ListView_GetItemState(list, target_row, LVIS_SELECTED) &
+         LVIS_SELECTED) == 0)
+        return false;
+    ListView_SetItemState(list, -1, 0, LVIS_SELECTED);
+    ListView_SetItemState(list, target_row,
+        LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+    return ListView_GetSelectedCount(list) == 1 &&
+        ListView_GetNextItem(list, -1, LVNI_SELECTED) == target_row &&
+        ListView_GetNextItem(list, -1, LVNI_FOCUSED) == target_row;
 }
 
 // LVN_ITEMACTIVATE is the ListView's platform-native user intent for

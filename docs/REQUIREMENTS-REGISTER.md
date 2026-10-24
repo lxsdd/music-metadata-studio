@@ -168,6 +168,15 @@
   gated write controls. The stale warning has priority over normal stage
   hints until a separate explicit Refresh succeeds. Native resource tests
   qualify wiring; installed-host interaction remains outstanding.
+- 2026-10-24: Exact candidate activation (MMS-UI-02 / MMS-SRC-02):
+  a release ListView can have multiple highlighted candidates, but the Load
+  command resolves the first selected row. A double-click or Enter now
+  targets the explicitly activated selected row, collapses that candidate
+  selection only on activation, refreshes the action eligibility, and never
+  loads a previous different edition. Blank-space, unselected, pending, stale,
+  wrong-source and recording-only contexts refuse to dispatch. Both the pure
+  keyboard/mouse resolver and the actual owner-data RC ListView are regression
+  tested; real installed-foobar UX acceptance is still pending.
 - **Remaining decisions that can only be made by the owner:** one final
   installed Windows foobar acceptance; explicit merge/release/production
   write activation when qualified; any new provider legal terms or genuine

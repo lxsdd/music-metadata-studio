@@ -4891,25 +4891,54 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             (header->code==NM_DBLCLK ||
              (header->code==LVN_KEYDOWN &&
               reinterpret_cast<const NMLVKEYDOWN*>(lp)->wVKey==VK_RETURN));
-        // The Load release handler resolves the FIRST selected candidate.
-        // Check the actual double-click/Return row before using that handler:
-        // blank-space clicks, stale selections and ambiguous multi-selection
-        // must never load a different release from the one activated.
-        const int release_selected_row=release_activation
-            ? ListView_GetNextItem(state->metadata_list,-1,LVNI_SELECTED) : -1;
+        // The native Load release command consumes the FIRST selected row,
+        // but a mouse/Return gesture can target ANOTHER selected row. Bind
+        // the command to that exact activated identity, never a preceding
+        // multi-selection or the item behind a blank-space double-click.
         const int release_focused_row=release_activation
             ? ListView_GetNextItem(state->metadata_list,-1,LVNI_FOCUSED) : -1;
         const int release_clicked_row=release_activation &&
             header->code==NM_DBLCLK
             ? reinterpret_cast<const NMITEMACTIVATE*>(lp)->iItem : -1;
-        const bool exact_release_activation=release_activation &&
-            may_activate_selected_native_list_row(header->code,
-                release_clicked_row,release_selected_row,release_focused_row,
-                header->code==LVN_KEYDOWN?VK_RETURN:0);
+        const bool clicked_selected=release_clicked_row>=0 &&
+            (ListView_GetItemState(state->metadata_list,release_clicked_row,
+                                  LVIS_SELECTED)&LVIS_SELECTED)!=0;
+        const bool focused_selected=release_focused_row>=0 &&
+            (ListView_GetItemState(state->metadata_list,release_focused_row,
+                                  LVIS_SELECTED)&LVIS_SELECTED)!=0;
+        const int activated_release_row=release_activation
+            ? native_selected_release_activation_row(header->code,
+                release_clicked_row,release_focused_row,
+                clicked_selected,focused_selected,
+                header->code==LVN_KEYDOWN?VK_RETURN:0) : -1;
+        const bool activation_current=activated_release_row>=0 &&
+            static_cast<std::size_t>(activated_release_row)<
+                state->candidate_view_order.size() &&
+            !state->stale && state->show_candidate &&
+            state->candidate_source_index==state->selected_track_index &&
+            !state->discogs_request && !state->musicbrainz_request &&
+            !state->beatport_public_request &&
+            ((state->discogs_live_view && !state->musicbrainz_release_loaded) ||
+             (state->musicbrainz_live_view &&
+              state->musicbrainz_kind==
+                  djmeta::online::musicbrainz::SearchKind::Release &&
+              !state->musicbrainz_release_loaded));
+        bool exact_release_activation=false;
+        if(activation_current) {
+            // Suppress intermediate selection-change callbacks while changing
+            // the active row; refresh controls after the atomic retarget.
+            state->updating_musicbrainz_selection=true;
+            exact_release_activation=native_focus_exact_release_row(
+                state->metadata_list,activated_release_row);
+            state->updating_musicbrainz_selection=false;
+            if(exact_release_activation) {
+                refresh_musicbrainz_detail_rows(*state);
+                update_online_release_load_button(*state);
+            }
+        }
         const bool discogs_activation=exact_release_activation &&
-            state->show_candidate && state->discogs_live_view &&
-            !state->musicbrainz_release_loaded &&
-            state->candidate_source_index==state->selected_track_index;
+            state->discogs_live_view &&
+            !state->musicbrainz_release_loaded;
         if (exact_release_activation &&
             IsWindowEnabled(GetDlgItem(dialog,IDC_METADATA_MB_LOAD_RELEASE)) &&
             (discogs_activation || may_activate_musicbrainz_release(header->code,
