@@ -292,7 +292,7 @@ private:
                 {L"Find and compare", L"Review proposals", L"Plan file locations"});
             add_items(window, IDC_DEFAULT_ONLINE_PROVIDER,
                 {L"MusicBrainz", L"Discogs", L"Beatport + Crates",
-                 L"First available in priority order"});
+                 L"First supported in priority order"});
             add_items(window, IDC_DEFAULT_ROUTE_PROFILE,
                 {L"Singles", L"Alben", L"Livesets"});
             show_settings(window, load_workspace_defaults());
