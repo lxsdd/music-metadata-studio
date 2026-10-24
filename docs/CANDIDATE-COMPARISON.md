@@ -3,6 +3,10 @@
 **Status:** physical-track clipboard preview and Inspect CUE native UI accepted in foobar; **new CUE-specific clipboard comparison** remains subject to exact-head CI and a separate installed-host read-only acceptance.
 The **Candidate comparison** tab in `Music Metadata Studio → Prepare Tracks (Preview)` accepts a deliberately structured plain-text candidate that you copied or authored yourself. **Source column `Pasted: discogs` identifies only the user's declared provider; it is not a Discogs API result or source verification.** The tooltip retains the declared source ID and marks the claim unverified. It **never automatically fetches** Beatport, Discogs, Deezer, Spotify, or other services, never logs into third-party sites, and never writes tags/files. It is an initial zero-cost/offline fallback alongside planned authorized provider connectors.
 
+## Track double-click in Beatport + Crates mode
+
+When the saved provider priority resolves to **Beatport + Crates**, double-click/Enter on a qualified physical track in **1. Find & compare** explicitly invokes the existing **Find in Crates** browser hand-off: the default browser opens `https://crates.co/` and the local `ARTIST + full TITLE` (including mix/version) is copied to the clipboard for a manual Crates search. This is not a Beatport catalog API search, does not send the user's audio or tokens to Crates, and does not fetch metadata automatically. The user chooses an exact Beatport track URL or copies public-page facts and explicitly invokes **Load Beatport URL** or **Import clipboard**. A track double-click on **2. Review proposals** or **3. Plan file locations** only navigates to Find, with no browser/network action. Unsupported virtual CUE tracks fail the physical-source guard.
+
 ## How to try it (after the exact candidate build passes CI and installed-host QA)
 
 1. Select **one real physical audio track** in foobar2000 and open **Music Metadata Studio → Prepare Tracks (Preview)**. Do not choose an embedded CUE subsong for this initial comparison.
