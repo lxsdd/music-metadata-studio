@@ -2498,9 +2498,9 @@ void apply_review_action(HWND dialog, PreviewState& state,
         throw std::invalid_argument(
             "Original tag inventory is read-only. Select a proposal view first.");
     if (scope == 0) {
-        for (const auto proposal_row :
-                selected_native_view_ids(state.metadata_list, state.metadata_view_order)) {
-            if (proposal_row >= state.focused_metadata_rows.size()) continue;
+        for (const auto proposal_row : selected_native_proposal_ids(
+                state.metadata_list, state.metadata_view_order,
+                state.focused_metadata_rows.size())) {
             const auto& diff = state.focused_metadata_rows[proposal_row];
             targets.emplace(diff.source_index, diff.proposal_index);
         }
