@@ -198,6 +198,28 @@ int main(){
     check(mb_preview.eligible && mb_preview.changed &&
           mb_preview.bytes==mb_expected,
           "exact release bridge preserves all non-selected bytes");
+    // Exercise the actual official JSON parser, not only hand-built evidence.
+    // Its release-track occurrence must carry the same field provenance that
+    // the native comparison and selected CUE postimage both require.
+    const auto parsed_mb=musicbrainz::parse_release_lookup(R"MB({
+      "id":"00000000-0000-0000-0000-000000000001",
+      "title":"Other album","artist-credit":[{"name":"DJ"}],
+      "media":[{"tracks":[{"id":"00000000-0000-0000-0000-000000000002",
+        "position":1,"title":"Sunrise (Extended Mix)",
+        "artist-credit":[{"name":"DJ"}],
+        "recording":{"title":"Sunrise (Extended Mix)",
+          "isrcs":["GBABC2600001"]}}]}]
+    })MB",mb);
+    check(parsed_mb.tracks.size()==1 &&
+          parsed_mb.tracks[0].fields.size()==2 &&
+          parsed_mb.tracks[0].fields[0].source_id==occurrence &&
+          parsed_mb.tracks[0].fields[0].scope==EvidenceScope::Edition,
+          "official MusicBrainz parser supplies occurrence-bound CUE evidence");
+    const auto parsed_snapshot=capture_qualified_cue_edition_postimage(
+        release_raw,CueCarrierKind::ExternalText,parsed_mb);
+    check(parsed_snapshot.eligible && parsed_snapshot.rows.size()>=1 &&
+          parsed_snapshot.rows[0].reviewed.candidate.field=="ALBUM",
+          "actual parsed release crosses exact-edition CUE postimage gate");
     // A search hit with an otherwise matching tracklist cannot stage a
     // postimage against a different exact-edition disc barcode.
     const std::string coded_release_raw=
