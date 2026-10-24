@@ -1,6 +1,7 @@
 #include "djmeta/beatport_release_review.h"
 #include "djmeta/beatport_public_page.h"
 #include "djmeta/beatport_public_html.h"
+#include "djmeta/crates_browser_bridge.h"
 #include "djmeta/crates_visible_intake.h"
 #include "djmeta/crates_visible_release.h"
 #include "djmeta/native_candidate_labels.h"
@@ -658,6 +659,65 @@ int main() {
     djmeta::MetadataDocument crates_local;
     crates_local.fields.push_back({"TITLE",{"Stella (Extended Mix)"}});
     crates_local.fields.push_back({"ARTIST",{"Cherry (UA)"}});
+    // A public Crates search may use ALL explicit multivalue credits, without
+    // assigning a lead, inventing an x/feat. relation, or changing the mix.
+    const MetadataDocument collaboration{{
+        {"TITLE",{"1000 Years (DJ Version)"}},
+        {"ARTIST",{"Kyau & Albert","Maywave"}},
+        {"GENRE",{"Trance"}}
+    }};
+    const auto collaborative_search=prepare_crates_browser_search(collaboration);
+    check(collaborative_search.search_text==
+              "Kyau & Albert Maywave 1000 Years (DJ Version)" &&
+          collaborative_search.browser_url==
+              "https://crates.co/search?q=Kyau%20%26%20Albert%20Maywave%20"
+              "1000%20Years%20%28DJ%20Version%29",
+          "Crates searches both collaborators, encodes URL and retains mix");
+    const auto original_collaboration=collaboration;
+    check(prepare_crates_browser_search(collaboration).search_text==
+              collaborative_search.search_text &&
+          collaboration==original_collaboration,
+          "Crates collaborator query is deterministic and leaves tags unchanged");
+    const MetadataDocument duplicate_artist_fields{{
+        {"TITLE",{"1000 Years (DJ Version)"}},
+        {"ARTIST",{"Kyau & Albert"}},
+        {"artist",{"Maywave"}}
+    }};
+    check(prepare_crates_browser_search(duplicate_artist_fields).search_text==
+              "1000 Years (DJ Version)",
+          "ambiguous duplicate physical ARTIST fields never invent a lead");
+    const MetadataDocument invalid_artist{{
+        {"TITLE",{"1000 Years (DJ Version)"}},
+        {"ARTIST",{"Kyau & Albert","bad\ncredit"}}
+    }};
+    check(prepare_crates_browser_search(invalid_artist).search_text==
+              "1000 Years (DJ Version)",
+          "malformed collaborative credit falls back to title only");
+    const MetadataDocument many_artists{{
+        {"TITLE",{"1000 Years (DJ Version)"}},
+        {"ARTIST",std::vector<std::string>(9,"Artist")}
+    }};
+    check(prepare_crates_browser_search(many_artists).search_text==
+              "1000 Years (DJ Version)",
+          "unbounded multi-artist search is never partially truncated");
+    const MetadataDocument long_artists{{
+        {"TITLE",{"1000 Years (DJ Version)"}},
+        {"ARTIST",{std::string(110,'A'),std::string(110,'B')}}
+    }};
+    check(prepare_crates_browser_search(long_artists).search_text==
+              "1000 Years (DJ Version)",
+          "overlong credits use full TITLE, never partial artist list");
+    const MetadataDocument empty_artist{{
+        {"TITLE",{"1000 Years (DJ Version)"}},
+        {"ARTIST",{}}
+    }};
+    check(prepare_crates_browser_search(empty_artist).search_text==
+              "1000 Years (DJ Version)",
+          "empty artist vector never leaks a guessed collaborator");
+    rejects([]{(void)prepare_crates_browser_search(MetadataDocument{{
+        {"TITLE",{"one","two"}},{"ARTIST",{"Artist"}}
+    }});},"ambiguous physical TITLE cannot launch a Crates query");
+
     const auto crates_review=review_crates_public_track(
         crates_local,415000,crates_recording);
     check(crates_review.identity==MatchDecision::Suggested,

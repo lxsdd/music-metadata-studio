@@ -347,3 +347,17 @@
   sowie die echte Windows-`HWND`-Strecke `tests/native_preview_controls_tests.cpp`
   (Maximiert-/Normal-Koordinaten mit gemeinsamen Produktionshelfern).
   Live-foobar-Multimonitor-/DPI-Abnahme weiterhin separat ausstehend.
+
+### 2026-10-24 — Crates collaboration search from physical multivalues (MMS-SRC-04/08, MMS-UI-02)
+
+- Explicit user action Find in Crates now includes all ordered, valid
+  ARTIST values from one physical multivalue field with the complete TITLE,
+  including DJ mix annotation. No invented collaborator separator or provider
+  match and never sends paths, other tags or audio.
+- Duplicate physical ARTIST fields, invalid/empty credit vectors, more than
+  eight values and overlong queries fall back to complete TITLE; ambiguous
+  TITLE is blocked. The UI describes this conditional behavior honestly.
+- Regression: tests/beatport_manual_intake_tests.cpp, including Kyau & Albert /
+  Maywave, URL encoding, tag immutability, and bounded failure cases.
+  Manual Crates browser inspection remains a final host gate. No change in
+  API authorization or physical file writes.

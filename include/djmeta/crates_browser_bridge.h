@@ -57,10 +57,12 @@ inline CratesBrowserSearch prepare_crates_browser_search(
     return CratesBrowserSearch{std::move(query),std::move(url)};
 }
 
-// Only one value is eligible for an unambiguous human search. Multiple
-// artist values may be meaningful DJ collaborations; do not invent an
-// ordering or assume the first is the only creator. In that case search
-// by the full title alone, preserving all local original tags.
+// The order WITHIN one physical ARTIST multivalue vector is source evidence,
+// not a guessed feat./x/versus relation. Search all explicit collaborators
+// using spaces (no fabricated credit punctuation); preserve TITLE including
+// its mix/version suffix. More than one ARTIST field, malformed values or
+// oversized credit lists are ambiguous, so search by TITLE alone. Neither
+// choice suggests or approves a matching recording.
 inline CratesBrowserSearch prepare_crates_browser_search(
     const MetadataDocument& physical) {
     std::string title,artist;
@@ -73,10 +75,18 @@ inline CratesBrowserSearch prepare_crates_browser_search(
             title_seen=true;
             title=field.values.front();
         } else if(name=="ARTIST") {
-            if(artist_seen || field.values.size()!=1)
+            if(artist_seen || field.values.empty() || field.values.size()>8)
                 artist_ambiguous=true;
             artist_seen=true;
-            if(field.values.size()==1) artist=field.values.front();
+            if(!artist_ambiguous) for(const auto& value:field.values) {
+                if(!beatport::text_ok(value,150) ||
+                   artist.size()+(artist.empty()?0:1)+value.size()>150) {
+                    artist_ambiguous=true;
+                    break;
+                }
+                if(!artist.empty()) artist.push_back(' ');
+                artist+=value;
+            }
         }
     }
     if(!title_seen) throw std::invalid_argument("No physical TITLE for Crates lookup");
