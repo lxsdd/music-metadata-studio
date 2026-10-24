@@ -519,3 +519,8 @@
 - A single numerical global CUE CATALOG and a single official MusicBrainz exact-edition BARCODE now participate in a read-only consistency guard after the edition is loaded. A contradictory disc identifier blocks differing album and track proposals even when title, position and ISRC alignment appears complete; exact no-ops and original facts remain visible.
 - UPC-A and its leading-zero EAN-13 representation compare as the same code. Missing or non-unique provider/local barcode evidence is unknown rather than a fabricated contradiction. Discogs label catalog numbers are not treated as media barcodes.
 - The native MusicBrainz exact-edition table and the in-memory postimage gate now honor the same conflict; changed album and track rows are visibly BLOCKED. Core and native static regressions cover equal, conflicting, equivalent and absent values. This does not authorize any CUE/tag/FileOps write, and installed foobar visual QA plus exact-HEAD CI remain separate gates.
+
+### 2026-10-25 — MusicBrainz release keeps local CUE originals (MMS-CUE-01, MMS-UI-07)
+
+- The loaded exact MusicBrainz edition now displays the complete unchanged CUE inventory as a separate local group, including global CATALOG, repeated/unknown REM and structural FILE references. The same source carrier was already independently visible in the Discogs release comparison.
+- A 10,000-row display bound fails closed rather than silently dropping source occurrences; no local CUE fact is converted into a provider proposal. Native static audit requires the production handoff. Installed foobar layout remains a separate acceptance gate.
