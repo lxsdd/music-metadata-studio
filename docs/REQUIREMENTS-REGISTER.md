@@ -361,3 +361,17 @@
   Maywave, URL encoding, tag immutability, and bounded failure cases.
   Manual Crates browser inspection remains a final host gate. No change in
   API authorization or physical file writes.
+
+### 2026-10-24 — Consistent search-only artist credits across providers (MMS-SRC-01/04/08)
+
+- Share one bounded, read-only physical ARTIST credit-vector query helper
+  between Crates and Discogs. Both use the original sequence of valid
+  multivalue credits, separated by spaces only as search tokens. They do
+  not claim an "x", feat. or versus relationship or rewrite ARTIST.
+- The documented Discogs API query plan retains its exact mix and its later
+  title-only stages if the initial combined search misses. Duplicate physical
+  ARTIST field records are ambiguous; no single artist is guessed.
+- Regression: tests/discogs_provider_tests.cpp and the existing Crates
+  multivalue/fallback fixtures in tests/beatport_manual_intake_tests.cpp.
+  Actual result quality and installed foobar UX still require final host
+  acceptance, and no search result gains write permission.

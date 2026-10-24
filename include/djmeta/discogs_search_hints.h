@@ -3,6 +3,7 @@
 // is elevated into a verified recording/release association by these helpers.
 #include "djmeta/discogs_release_review.h"
 #include "djmeta/cue_metadata.h"
+#include "djmeta/online_search_credits.h"
 
 #include <cstddef>
 #include <string>
@@ -19,9 +20,9 @@ struct LocalSearchHints {
     std::string catalog_number;
 };
 
-// Optional source hints must never veto an explicitly typed search or
-// canonical release URL. Duplicate, oversized, invalid or multivalue fields
-// are simply omitted; original tags remain independently observable.
+// Optional source hints never veto a typed search or canonical release URL.
+// Scalar hints reject duplicates/invalid/multivalue fields; ARTIST may carry
+// one qualified multivalue vector, shared with the Crates search adapter.
 inline std::string unique_optional_physical_hint(
     const MetadataDocument& source, std::string_view name) {
     const auto value=unique_discogs_physical_tag(source,name);
@@ -34,7 +35,7 @@ inline LocalSearchHints physical_search_hints(
     const MetadataDocument& source) {
     LocalSearchHints hints;
     hints.title=unique_optional_physical_hint(source,"TITLE");
-    hints.artist=unique_optional_physical_hint(source,"ARTIST");
+    hints.artist=physical_collaborator_search_hint(source);
     hints.album=unique_optional_physical_hint(source,"ALBUM");
     hints.version=unique_optional_physical_hint(source,"VERSION");
     const auto barcode=unique_optional_physical_hint(source,"BARCODE");

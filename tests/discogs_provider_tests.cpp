@@ -1,5 +1,7 @@
 #include "djmeta/discogs_provider.h"
+#include "djmeta/discogs_search_hints.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
@@ -232,6 +234,35 @@ int main() {
     rejects([]{(void)release_title_search_path(std::string(151,'x'));},
             "album release title search is bounded");
 
+    const djmeta::MetadataDocument credited_collaboration{{
+        {"TITLE",{"1000 Years (DJ Version)"}},
+        {"ARTIST",{"Kyau & Albert","Maywave"}},
+        {"GENRE",{"Trance"}}
+    }};
+    const auto credited_hints=physical_search_hints(credited_collaboration);
+    check(credited_hints.title=="1000 Years (DJ Version)" &&
+          credited_hints.artist=="Kyau & Albert Maywave",
+          "Discogs physical hint preserves all explicit multivalue collaborators");
+    const auto credited_plan=track_search_plan(
+        credited_hints.title,credited_hints.artist);
+    check(credited_plan.front().path==
+              search_path("1000 Years (DJ Version)","Kyau & Albert Maywave") &&
+          std::any_of(credited_plan.begin(),credited_plan.end(),
+              [](const auto& step) {
+                  return step.path==track_search_path("1000 Years (DJ Version)");
+              }),
+          "Discogs collaborator query always retains a title-only fallback");
+    const djmeta::MetadataDocument duplicate_artist{{
+        {"TITLE",{"1000 Years"}},{"ARTIST",{"First"}},{"artist",{"Second"}}
+    }};
+    check(physical_search_hints(duplicate_artist).artist.empty() &&
+          physical_search_hints(duplicate_artist).title=="1000 Years",
+          "duplicate source ARTIST names remain ambiguous, not concatenated");
+    const auto unchanged_collaboration=credited_collaboration;
+    check(physical_search_hints(credited_collaboration).artist==
+              credited_hints.artist &&
+          credited_collaboration==unchanged_collaboration,
+          "Discogs artist discovery cannot mutate original metadata");
     // End-to-end discovery for a common physical layout: TITLE holds the
     // base name, VERSION holds the mix. Search both exact mix and fallback
     // without ever treating a search hit as a verified recording/edition.

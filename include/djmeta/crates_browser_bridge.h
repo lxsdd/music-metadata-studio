@@ -4,6 +4,7 @@
 // Beatport authorization impersonation, or HTML scraping in this adapter.
 // The user's existing Crates/Beatport browser session remains in the browser.
 #include "djmeta/beatport_provider.h"
+#include "djmeta/online_search_credits.h"
 
 #include <stdexcept>
 #include <string>
@@ -57,40 +58,21 @@ inline CratesBrowserSearch prepare_crates_browser_search(
     return CratesBrowserSearch{std::move(query),std::move(url)};
 }
 
-// The order WITHIN one physical ARTIST multivalue vector is source evidence,
-// not a guessed feat./x/versus relation. Search all explicit collaborators
-// using spaces (no fabricated credit punctuation); preserve TITLE including
-// its mix/version suffix. More than one ARTIST field, malformed values or
-// oversized credit lists are ambiguous, so search by TITLE alone. Neither
-// choice suggests or approves a matching recording.
+// Use the same optional physical ARTIST collaboration search hint as the
+// Discogs path. A missing/ambiguous credit falls back to full TITLE only.
 inline CratesBrowserSearch prepare_crates_browser_search(
     const MetadataDocument& physical) {
-    std::string title,artist;
-    bool title_seen=false,artist_seen=false,artist_ambiguous=false;
+    std::string title;
+    bool title_seen=false;
     for(const auto& field:physical.fields) {
-        const auto name=ascii_upper_field(field.name);
-        if(name=="TITLE") {
-            if(title_seen || field.values.size()!=1)
-                throw std::invalid_argument("Ambiguous physical TITLE for Crates lookup");
-            title_seen=true;
-            title=field.values.front();
-        } else if(name=="ARTIST") {
-            if(artist_seen || field.values.empty() || field.values.size()>8)
-                artist_ambiguous=true;
-            artist_seen=true;
-            if(!artist_ambiguous) for(const auto& value:field.values) {
-                if(!beatport::text_ok(value,150) ||
-                   artist.size()+(artist.empty()?0:1)+value.size()>150) {
-                    artist_ambiguous=true;
-                    break;
-                }
-                if(!artist.empty()) artist.push_back(' ');
-                artist+=value;
-            }
-        }
+        if(ascii_upper_field(field.name)!="TITLE") continue;
+        if(title_seen || field.values.size()!=1)
+            throw std::invalid_argument("Ambiguous physical TITLE for Crates lookup");
+        title_seen=true;
+        title=field.values.front();
     }
     if(!title_seen) throw std::invalid_argument("No physical TITLE for Crates lookup");
     return prepare_crates_browser_search(
-        title,artist_ambiguous?std::string_view{}:std::string_view{artist});
+        title,physical_collaborator_search_hint(physical));
 }
 } // namespace djmeta::online
