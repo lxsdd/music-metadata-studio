@@ -974,6 +974,18 @@ inline ReleaseEdition parse_release_lookup(std::string_view json,
             }
             if (row.recording.title.empty())
                 throw std::invalid_argument("MusicBrainz release track title missing");
+            // Track TITLE/ARTIST become edition-scoped evidence only when the
+            // official response supplies an exact release-track occurrence ID.
+            // Missing IDs remain matchable discovery facts, not CUE proposals.
+            if(!row.source_track_id.empty()) {
+                row.fields.push_back({"TITLE",{row.recording.title},
+                    "musicbrainz",row.source_track_id,EvidenceScope::Edition,
+                    DateMeaning::NotDate});
+                if(!row.recording.primary_artist.empty())
+                    row.fields.push_back({"ARTIST",{row.recording.primary_artist},
+                        "musicbrainz",row.source_track_id,EvidenceScope::Edition,
+                        DateMeaning::NotDate});
+            }
             // An empty ARTIST remains a deliberate unknown. A release artist
             // cannot be promoted to a recording identity or a tag proposal.
             edition.tracks.push_back(std::move(row));
