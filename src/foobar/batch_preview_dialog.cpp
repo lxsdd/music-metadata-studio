@@ -5486,13 +5486,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                     const auto source_row = state->view_order[view_row];
                     if (source_row < state->entries.size()) {
                         const auto& entry = state->entries[source_row];
-                        std::string detail = entry.source_probe_detail +
-                            "\nRaw candidate: " +
-                            (entry.raw_target_probe_detail.empty()
-                                ? std::string("not inspected") : entry.raw_target_probe_detail);
+                        std::string detail;
                         if (source_row < state->table.rows.size()) {
                             const auto& issues = state->table.rows[source_row].issues;
-                            if (!issues.empty()) detail += "\nSafety findings:";
+                            if (!issues.empty()) detail = "Safety findings:";
                             for (const auto& issue : issues) {
                                 detail += "\n- ";
                                 detail += issue_status_text(issue);
@@ -5501,7 +5498,14 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                                 detail += "]";
                             }
                         }
-                        detail += "\nFinal foobar destination and CUE links remain unqualified.";
+                        // Put safety first: long source/target paths must not
+                        // truncate a secondary warning in the native infotip.
+                        if (!detail.empty()) detail += "\n";
+                        detail += "Physical source: " + entry.source_probe_detail +
+                            "\nRaw candidate: " +
+                            (entry.raw_target_probe_detail.empty()
+                                ? std::string("not inspected") : entry.raw_target_probe_detail) +
+                            "\nFinal foobar destination and CUE links remain unqualified.";
                         const std::wstring wide_detail = from_utf8(detail);
                         lstrcpynW(tip->pszText, wide_detail.c_str(), tip->cchTextMax);
                     }
