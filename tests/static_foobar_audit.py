@@ -96,7 +96,7 @@ for token in (
     "djmeta::group_review_rows(",
     "if(index<state.focused_metadata_rows.size() &&",
     "state.metadata_view_group=grouped.group_at_row;",
-    "if (proposal_row >= state.focused_metadata_rows.size()) continue;",
+    "selected_native_proposal_ids(",
     "state->review_group_expanded[group]=!state->review_group_expanded[group];",
 ):
     if token not in batch_writer_ui:
