@@ -893,6 +893,11 @@ int main() {
     ListView_SetItemState(master, 2, LVIS_SELECTED, LVIS_SELECTED);
     check(notified_track_identity == 9,
           "real LVN_ITEMCHANGED notification identifies source 9");
+    check(djmeta_foobar::native_workspace_should_validate_entry(
+              notified_track_identity, notified_track_identity, 24, false) &&
+          !djmeta_foobar::native_workspace_should_validate_entry(
+              0, notified_track_identity, 24, false),
+          "selected real HWND event revalidates its stable track source only");
     const auto selected = djmeta_foobar::selected_native_view_ids(master, initial_order);
     check(selected == std::vector<std::size_t>({13, 9}),
           "multiple real listview selections resolve to stable track identities");

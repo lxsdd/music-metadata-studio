@@ -4837,10 +4837,12 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             const auto* changed = reinterpret_cast<const NMLISTVIEW*>(lp);
             if (const auto track = native_selected_track_change(
                     *changed, state->track_view_order, state->updating_track_selection)) {
-                if(*track!=state->selected_track_index) {
+                const bool selected_source_changed =
+                    *track != state->selected_track_index;
+                if (selected_source_changed) {
                     invalidate_online_request(*state);
                     state->online_included_fields.clear();
-            state->online_date_targets.clear();
+                    state->online_date_targets.clear();
                     state->online_field_preview.reset();
                     state->online_physical_edition.reset();
                     state->online_field_snapshot.reset();
@@ -4852,6 +4854,12 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 // is allowed to force a new query and issue a request.
                 prefill_musicbrainz_query(*state);
                 update_metadata_table(*state);
+                if (selected_source_changed) {
+                    // The newly visible source needs its own tag/file guard.
+                    // Do not re-read every background row; any subsequent
+                    // search, edit or file-plan action still checks the batch.
+                    revalidate_workspace(*state);
+                }
             }
             return TRUE;
         }
