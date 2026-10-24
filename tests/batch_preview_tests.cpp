@@ -31,7 +31,8 @@ int main() {
              std::string("Bj\xC3\xB6rk.mp3"),
              std::string("COM10.wav"),
              std::string("COM\xC2\xB9mix.wav"),
-             std::string(".profile")})
+             std::string(".profile"),
+             std::string("\xD8\xB3\xD9\x84\xD8\xA7\xD9\x85.mp3")})
         check(raw_relative_path_lexically_safe(valid),
               "legitimate relative path must pass lexical checks");
     for (const std::string& dangerous : {
@@ -46,7 +47,11 @@ int main() {
              std::string("A/LpT9.txt"), std::string("x. "),
              std::string("x."), std::string("name?.mp3"),
              std::string("name|x"), std::string("line\nfeed.mp3"),
-             std::string("nul\0byte.mp3", 12), std::string("\xC3\x28", 2)})
+             std::string("nul\0byte.mp3", 12), std::string("\xC3\x28", 2),
+             std::string("Track\xC2\x85" "Hidden.mp3"), // C1 control
+             std::string("Track\xE2\x80\x8E" "Hidden.mp3"), // LRM
+             std::string("Track\xE2\x80\xAE" "gpj.mp3"), // RTL override
+             std::string("Track\xE2\x81\xA7" "Hidden.mp3")}) // RTL isolate
         check(!raw_relative_path_lexically_safe(dangerous),
               "unsafe Title Formatting output must not resemble an approved target");
 
@@ -70,7 +75,9 @@ int main() {
              std::string("\\\\?\\C:\\Music"), std::string("\\\\.\\C:\\Music"),
              std::string("\\\\nas\\share\\..\\audio"),
              std::string("\\\\nas\\share\\\\music"),
-             std::string("C:\\null\0tail", 12)})
+             std::string("C:\\null\0tail", 12),
+             std::string("C:\\Music\\\xE2\x80\xAE" "Hidden"),
+             std::string("\\\\nas\\share\\\xC2\x85" "Hidden")})
         check(!raw_destination_root_lexically_safe(root),
               "ambiguous destination root must fail closed");
     auto unsafe_root = sample("absolute-root.mp3");
@@ -79,6 +86,13 @@ int main() {
     check(contains(unsafe_root_rows.rows[0], "UNSAFE_RAW_DESTINATION_ROOT") &&
           contains(unsafe_root_rows.rows[0], "FILESYSTEM_TARGET_UNCHECKED"),
           "unsafe root visibly unqualified even with safe basename");
+
+    auto disguised = sample("unicode-control.mp3");
+    disguised.raw_relative_path = "Album/Track\xE2\x80\xAE" "gpj.mp3";
+    const auto disguised_rows = djmeta::describe_batch_preview({disguised});
+    check(contains(disguised_rows.rows[0], "UNSAFE_RAW_RELATIVE_TARGET") &&
+          disguised_rows.unqualified_rows == 1,
+          "invisible direction controls must visibly disqualify a raw target");
 
     auto a = sample("a.mp3"), b = sample("b.mp3");
     const std::vector<djmeta::BatchPreviewInputRow> batch = {a,b};
