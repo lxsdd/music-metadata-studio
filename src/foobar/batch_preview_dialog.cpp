@@ -174,6 +174,10 @@ struct PreviewState {
     RECT last_normal_screen_bounds{};
     bool has_last_normal_screen_bounds=false;
     std::vector<NativePreviewResizeChild> resize_controls;
+    int review_split_offset_96 = 0;
+    int split_drag_start_x = 0;
+    int split_drag_start_offset_96 = 0;
+    bool split_dragging = false;
     std::vector<PreviewEntry> entries;
     djmeta::BatchPreviewTable table;
     RoutePreviewChoice current_choice;
@@ -1142,7 +1146,10 @@ void layout_musicbrainz_detail_pane(PreviewState& state) {
     GetClientRect(state.dialog,&client);
     const auto split=review_split_geometry(left->original,right->original,
         client.right-state.initial_client_width,
-        client.bottom-state.initial_client_height);
+        client.bottom-state.initial_client_height,
+        MulDiv(state.review_split_offset_96,state.active_dpi,96),
+        MulDiv(160,state.active_dpi,96),
+        MulDiv(180,state.active_dpi,96));
     const auto frame=split.detail;
     const int width=frame.right-frame.left;
     const int height=frame.bottom-frame.top;
@@ -2328,13 +2335,42 @@ void capture_resize_layout(PreviewState& state) {
     }, reinterpret_cast<LPARAM>(&state));
 }
 
+bool review_split_originals(const PreviewState& state, RECT& master, RECT& detail) {
+    bool found_master=false, found_detail=false;
+    for(const auto& child:state.resize_controls) {
+        if(child.window==state.metadata_track_list) {
+            master=child.original;
+            found_master=true;
+        }
+        if(child.window==state.metadata_list) {
+            detail=child.original;
+            found_detail=true;
+        }
+    }
+    return found_master && found_detail;
+}
+
+bool current_review_split_rects(const PreviewState& state,
+                                RECT& master, RECT& detail) {
+    if(!state.dialog || !state.metadata_track_list || !state.metadata_list ||
+       !GetWindowRect(state.metadata_track_list,&master) ||
+       !GetWindowRect(state.metadata_list,&detail)) return false;
+    MapWindowPoints(HWND_DESKTOP,state.dialog,
+                    reinterpret_cast<POINT*>(&master),2);
+    MapWindowPoints(HWND_DESKTOP,state.dialog,
+                    reinterpret_cast<POINT*>(&detail),2);
+    return true;
+}
+
 void resize_batch_dialog(PreviewState& state, int width, int height) {
     if (state.resize_controls.empty() || width < 1 || height < 1) return;
     const int dx = width - state.initial_client_width;
     const int dy = height - state.initial_client_height;
     if (!apply_native_preview_resize(
             state.resize_controls, state.metadata_track_list, state.metadata_list,
-            dx, dy)) return;
+            dx, dy, MulDiv(state.review_split_offset_96,state.active_dpi,96),
+            MulDiv(160,state.active_dpi,96),
+            MulDiv(180,state.active_dpi,96))) return;
     align_native_preview_form(state.dialog);
     layout_musicbrainz_detail_pane(state);
     if (state.musicbrainz_live_view)
@@ -4762,6 +4798,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         update_table(*state);
         update_master_table(*state);
         update_metadata_table(*state);
+        state->review_split_offset_96=load_review_split_offset();
         show_preview_page(dialog, *state,
             workspace_defaults.opening_tab != 2,
             workspace_defaults.opening_tab == 0);
@@ -4906,6 +4943,65 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                            static_cast<int>(height));
         align_native_preview_form(dialog);
         return TRUE;
+    }
+    if (message == WM_SETCURSOR &&
+        reinterpret_cast<HWND>(wp)==dialog && LOWORD(lp)==HTCLIENT &&
+        state->show_metadata) {
+        POINT cursor{};
+        RECT master{},detail{};
+        if(GetCursorPos(&cursor) && ScreenToClient(dialog,&cursor) &&
+           current_review_split_rects(*state,master,detail) &&
+           review_split_gap_hit(master,detail,cursor.x,cursor.y)) {
+            SetCursor(LoadCursorW(nullptr,IDC_SIZEWE));
+            return TRUE;
+        }
+    }
+    if (message == WM_LBUTTONDOWN && state->show_metadata) {
+        RECT master{},detail{};
+        const int x=static_cast<short>(LOWORD(lp));
+        const int y=static_cast<short>(HIWORD(lp));
+        if(current_review_split_rects(*state,master,detail) &&
+           review_split_gap_hit(master,detail,x,y)) {
+            state->split_dragging=true;
+            state->split_drag_start_x=x;
+            state->split_drag_start_offset_96=state->review_split_offset_96;
+            SetCapture(dialog);
+            return TRUE;
+        }
+    }
+    if (message == WM_MOUSEMOVE && state->split_dragging) {
+        RECT original_master{},original_detail{},client{};
+        if(review_split_originals(*state,original_master,original_detail) &&
+           GetClientRect(dialog,&client)) {
+            const int x=static_cast<short>(LOWORD(lp));
+            const int dx=client.right-state->initial_client_width;
+            const int dy=client.bottom-state->initial_client_height;
+            const int wanted_96=state->split_drag_start_offset_96+
+                MulDiv(x-state->split_drag_start_x,96,state->active_dpi);
+            const auto bounded=review_split_geometry(
+                original_master,original_detail,dx,dy,
+                MulDiv((std::clamp)(wanted_96,-2000,2000),state->active_dpi,96),
+                MulDiv(160,state->active_dpi,96),
+                MulDiv(180,state->active_dpi,96));
+            const int effective_px=bounded.master.right-
+                (original_master.right+dx/2);
+            const int effective_96=(std::clamp)(
+                MulDiv(effective_px,96,state->active_dpi),-2000,2000);
+            if(state->review_split_offset_96!=effective_96) {
+                state->review_split_offset_96=effective_96;
+                resize_batch_dialog(*state,client.right,client.bottom);
+            }
+        }
+        return TRUE;
+    }
+    if (message == WM_LBUTTONUP && state->split_dragging) {
+        state->split_dragging=false;
+        if(GetCapture()==dialog) ReleaseCapture();
+        return TRUE;
+    }
+    if (message == WM_CAPTURECHANGED && state->split_dragging) {
+        state->split_dragging=false;
+        return FALSE;
     }
     if (message == WM_EXITSIZEMOVE) {
         // Native buttons and hidden tab siblings must not leave paint ghosts
@@ -5471,6 +5567,11 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         }
         // UI layout is independent of preview Cancel/Close. Save only display
         // preferences, never route edits, media metadata or file operations.
+        try {
+            store_review_split_offset(state->review_split_offset_96);
+        } catch (const std::exception&) {
+            // Corrupt visual geometry must not block closing.
+        }
         try {
             if (state->initial_client_width <= 0 || !state->metadata_track_list ||
                 !state->metadata_list || !state->list) return FALSE;

@@ -397,3 +397,16 @@
   only MusicBrainz. Core regressions preserve ordered physical collaborator
   vectors and assert the exact "Pasted: spotify/deezer" unverified origin;
   a missing date role and empty TITLE still fail closed.
+
+### 2026-10-24 — Draggable native review panes (MMS-UI-09, MMS-UI-04)
+
+- The source-track and comparison panes now share a draggable native gap.
+  The divider respects DPI-scaled minimum widths, and its signed logical
+  offset persists only as foobar profile-local display geometry. No selected
+  track, approval, provider identity or write authority is persisted.
+- The same divider is used in the Find and local Review views; the existing
+  nested online-evidence table follows the resized right pane. Native HWND
+  geometry and gap-hit regressions cover displacement and extreme offsets.
+  This is a partial layout improvement, not completion of MMS-UI-09:
+  three-pane responsive composition and installed visual foobar acceptance
+  remain separate gates.

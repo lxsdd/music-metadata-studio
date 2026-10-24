@@ -1232,6 +1232,37 @@ int main() {
               "physical master/detail controls follow production resize geometry");
     }
 
+    // A profile-local divider displacement must preserve the native gap,
+    // minimum pane widths and physical HWND geometry. It is view-only.
+    const auto dragged = djmeta_foobar::review_split_geometry(
+        original_master,original_detail,241,80,72,160,180);
+    check(dragged.master.right -
+              djmeta_foobar::review_split_geometry(
+                  original_master,original_detail,241,80).master.right == 72 &&
+          dragged.detail.left-dragged.master.right==base_gap &&
+          dragged.master.right-dragged.master.left>=160 &&
+          dragged.detail.right-dragged.detail.left>=180 &&
+          djmeta_foobar::review_split_gap_hit(
+              dragged.master,dragged.detail,dragged.master.right,
+              dragged.master.top+10) &&
+          !djmeta_foobar::review_split_gap_hit(
+              dragged.master,dragged.detail,dragged.master.right-1,
+              dragged.master.top+10),
+          "dragged splitter moves both panes without confusing list clicks");
+    const auto clamped= djmeta_foobar::review_split_geometry(
+        original_master,original_detail,241,80,2000,160,180);
+    check(clamped.detail.right-clamped.detail.left==180 &&
+          clamped.detail.left-clamped.master.right==base_gap,
+          "extreme persisted divider offset cannot collapse detail pane");
+    check(djmeta_foobar::apply_review_split_geometry(
+              master,detail,original_master,original_detail,241,80,72),
+          "real resource ListViews accept a user-adjusted divider");
+    const auto moved_master=client_rect(dialog,master);
+    const auto moved_detail=client_rect(dialog,detail);
+    check(moved_master.right==dragged.master.right &&
+          moved_detail.left==dragged.detail.left,
+          "real HWND pane positions match draggable geometry");
+
     // Real Windows header widths at 100%, 125%, 150%, 200% DPI. This is
     // programmatic column-DPI qualification, not a visual host acceptance.
     for (int dpi : {96, 120, 144, 192}) {

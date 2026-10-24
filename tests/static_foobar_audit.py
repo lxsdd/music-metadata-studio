@@ -981,6 +981,12 @@ for token in ('apply_native_preview_resize(', 'GetProcAddress(user32, "GetDpiFor
               'WM_EXITSIZEMOVE', 'load_batch_preview_window_size()'):
     if token not in batch_table_dialog:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: production responsive per-monitor layout missing " + token)
+for token in ('review_split_gap_hit(', 'WM_LBUTTONDOWN', 'SetCapture(dialog)',
+              'load_review_split_offset()', 'store_review_split_offset('):
+    if token not in batch_table_dialog:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: draggable review pane wiring missing " + token)
+if 'review_split_gap_hit(' not in gui_test:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: splitter HWND test missing")
 if 'apply_native_preview_resize(' not in gui_test or 'review_split_geometry(' not in gui_test:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: actual resized HWND geometry test absent")
 if 'WS_CLIPCHILDREN' not in resources or 'WS_CLIPSIBLINGS' not in resources:

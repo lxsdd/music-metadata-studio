@@ -408,9 +408,19 @@ struct ReviewSplitGeometry {
     RECT detail{};
 };
 inline ReviewSplitGeometry review_split_geometry(
-    RECT master, RECT detail, int width_delta, int height_delta) {
-    const int master_delta = width_delta / 2;
-    master.right += master_delta;
+    RECT master, RECT detail, int width_delta, int height_delta,
+    int preferred_offset = 0, int min_master = 160, int min_detail = 180) {
+    const int gap = detail.left - master.right;
+    const int base_right = master.right + width_delta / 2;
+    const int left_limit = master.left + min_master;
+    const int right_limit = detail.right + width_delta - gap - min_detail;
+    // A very narrow host rectangle keeps the existing proportional split;
+    // otherwise a dragged divider cannot collapse either ListView.
+    const int boundary = right_limit >= left_limit
+        ? (std::clamp)(base_right + preferred_offset, left_limit, right_limit)
+        : base_right;
+    const int master_delta = boundary - master.right;
+    master.right = boundary;
     master.bottom += height_delta;
     detail.left += master_delta;
     detail.right += width_delta;
@@ -418,12 +428,19 @@ inline ReviewSplitGeometry review_split_geometry(
     return {master, detail};
 }
 
+inline bool review_split_gap_hit(RECT master, RECT detail, int x, int y) noexcept {
+    return x >= master.right && x < detail.left &&
+           y >= (std::max)(master.top, detail.top) &&
+           y < (std::min)(master.bottom, detail.bottom);
+}
+
 inline bool apply_review_split_geometry(HWND master_list, HWND detail_list,
                                         RECT original_master, RECT original_detail,
-                                        int width_delta, int height_delta) {
+                                        int width_delta, int height_delta, int preferred_offset = 0) {
     if (!IsWindow(master_list) || !IsWindow(detail_list)) return false;
     const auto next = review_split_geometry(original_master, original_detail,
-                                             width_delta, height_delta);
+                                             width_delta, height_delta,
+                                             preferred_offset);
     const UINT flags = SWP_NOZORDER | SWP_NOACTIVATE;
     return SetWindowPos(master_list, nullptr, next.master.left, next.master.top,
                         next.master.right - next.master.left,
@@ -448,7 +465,8 @@ struct NativePreviewResizeChild {
 
 inline bool apply_native_preview_resize(
     const std::vector<NativePreviewResizeChild>& children,
-    HWND master_list, HWND detail_list, int width_delta, int height_delta) {
+    HWND master_list, HWND detail_list, int width_delta, int height_delta,
+    int preferred_offset = 0, int min_master = 160, int min_detail = 180) {
     if (children.empty() || children.size() > 256) return false;
     const RECT* master = nullptr;
     const RECT* detail = nullptr;
@@ -457,7 +475,8 @@ inline bool apply_native_preview_resize(
         if (child.window == detail_list) detail = &child.original;
     }
     const auto split = master && detail
-        ? review_split_geometry(*master, *detail, width_delta, height_delta)
+        ? review_split_geometry(*master, *detail, width_delta, height_delta,
+                                preferred_offset, min_master, min_detail)
         : ReviewSplitGeometry{};
     HDWP defer = BeginDeferWindowPos(static_cast<int>(children.size()));
     if (!defer) return false;

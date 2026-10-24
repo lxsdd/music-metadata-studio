@@ -18,6 +18,11 @@ void store_batch_preview_window_placement(djmeta::PreviewWindowPlacement value);
 std::optional<djmeta::PreviewWindowSize> load_batch_preview_window_size();
 void store_batch_preview_window_size(djmeta::PreviewWindowSize size);
 
+// Profile-local, signed logical 96-DPI pane divider displacement. Only
+// geometry is persisted; no source selection or approval state.
+int load_review_split_offset();
+void store_review_split_offset(int logical_offset);
+
 // Only visual defaults for NEW studio windows; never search or write permission.
 djmeta::WorkspaceDefaults load_workspace_defaults();
 void store_workspace_defaults(const djmeta::WorkspaceDefaults& settings);

@@ -3,6 +3,7 @@
 #include "batch_table_settings.h"
 
 #include <SDK/cfg_var.h>
+#include <charconv>
 
 namespace djmeta_foobar {
 namespace {
@@ -13,6 +14,9 @@ cfg_string g_batch_preview_window_size(kBatchPreviewWindowSizeGuid, "");
 constexpr GUID kBatchPreviewPlacementGuid =
     {0x64c0a912, 0xe4c1, 0x4b53, {0x9d, 0xb1, 0x29, 0xd5, 0x43, 0x3f, 0x57, 0x86}};
 cfg_string g_batch_preview_placement(kBatchPreviewPlacementGuid, "");
+constexpr GUID kReviewSplitOffsetGuid =
+    {0x9c7a2e15, 0x4b60, 0x4cf5, {0x8b, 0xc2, 0x91, 0x30, 0x5f, 0xde, 0x68, 0x41}};
+cfg_string g_review_split_offset(kReviewSplitOffsetGuid, "v1|0");
 
 
 constexpr GUID kOnlineDateTargetGuid =
@@ -84,6 +88,27 @@ void store_batch_preview_window_size(djmeta::PreviewWindowSize size) {
     const auto before = g_batch_preview_window_size.get();
     if (std::string_view(before.c_str()) != serialized)
         g_batch_preview_window_size.set(serialized.c_str());
+}
+
+int load_review_split_offset() {
+    const auto raw = g_review_split_offset.get();
+    const std::string_view value(raw.c_str());
+    if (value.substr(0, 3) != "v1|") return 0;
+    int parsed = 0;
+    const auto digits = value.substr(3);
+    const auto result = std::from_chars(digits.data(),
+                                        digits.data() + digits.size(), parsed);
+    return result.ec == std::errc{} &&
+           result.ptr == digits.data() + digits.size() &&
+           parsed >= -2000 && parsed <= 2000 ? parsed : 0;
+}
+void store_review_split_offset(int logical_offset) {
+    if (logical_offset < -2000 || logical_offset > 2000)
+        throw std::invalid_argument("Invalid review split offset.");
+    const auto encoded = "v1|" + std::to_string(logical_offset);
+    const auto before = g_review_split_offset.get();
+    if (std::string_view(before.c_str()) != encoded)
+        g_review_split_offset.set(encoded.c_str());
 }
 
 djmeta::WorkspaceDefaults load_workspace_defaults() {
