@@ -205,6 +205,18 @@ inline void restore_native_view_selection(
     }
 }
 
+// Passive foobar window activation checks only the visible source. A source
+// selection invariant failure falls back to a full verification. A deliberate
+// Search, Review or File-plan action ALWAYS checks every captured source and
+// its physical guard. No preview approval is inferred from a focus check.
+// Indexes are stable source identities, independent of sorted ListView rows.
+inline constexpr bool native_workspace_should_validate_entry(
+    std::size_t source_index, std::size_t selected_source_index,
+    std::size_t source_count, bool full_source_check) noexcept {
+    return full_source_check || selected_source_index >= source_count ||
+           source_index == selected_source_index;
+}
+
 // WM_SIZE on minimization reports a zero client area. The real dialog
 // must retain its last usable child geometry, tooltips and preview columns
 // until a restored/maximized size with nonzero dimensions arrives.

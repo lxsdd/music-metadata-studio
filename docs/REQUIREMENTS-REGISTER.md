@@ -155,6 +155,11 @@
 - Historical technical pages remain linked for detailed algorithms and fixture
   gates. Older prose may describe prior phases; this register + exact current
   source/CI determines implementation status.
+- 2026-10-24: Studio-focus performance qualification (MMS-OPS-03):
+  ordinary activation revalidates only the selected stable source identity,
+  with full-batch fallback if the index is invalid; any consequential
+  operation still verifies every source and physical guard. Exact-SHA CI and
+  installed-host responsiveness remain separate gates.
 - **Remaining decisions that can only be made by the owner:** one final
   installed Windows foobar acceptance; explicit merge/release/production
   write activation when qualified; any new provider legal terms or genuine

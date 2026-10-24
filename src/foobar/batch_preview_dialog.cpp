@@ -2864,13 +2864,15 @@ void revalidate_workspace(PreviewState& state, bool full_source_check = false) {
     try {
         verify_rules_snapshot(state.captured_rules);
         for (std::size_t i = 0; i < state.entries.size(); ++i) {
+            // Normal Alt-Tab/playback focus must not fetch file_info for
+            // 54k captured tracks. Every consequential action still checks
+            // ALL tag snapshots and physical guards before continuing.
+            if (!native_workspace_should_validate_entry(
+                    i, state.selected_track_index, state.entries.size(),
+                    full_source_check))
+                continue;
             const auto& entry = state.entries[i];
             verify_snapshot(entry);
-            // Focus/restore checks the selected disk source; explicit actions
-            // verify the entire batch. Avoid a multi-thousand-file OS scan
-            // merely because foobar playback or playlist focus changed.
-            if (!full_source_check && i != state.selected_track_index)
-                continue;
             // A virtual external CUE must never bypass stale checks merely
             // because it is NOT a qualified physical audio/write target.
             if (entry.observed_source_guard.empty()) {

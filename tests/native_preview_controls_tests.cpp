@@ -252,6 +252,32 @@ int main() {
           djmeta_foobar::native_workspace_should_relayout_on_size(
               SIZE_MAXIMIZED,900,700),
           "minimized or empty WM_SIZE cannot realign native controls");
+    // Regression for large foobar libraries: Alt-Tab only validates the
+    // selected original source, but every explicitly consequential action
+    // revalidates all 54,129 sources before acting on stale data.
+    constexpr std::size_t kLargeBatch=54129;
+    std::size_t activation_checks=0, consequential_checks=0;
+    for(std::size_t i=0;i<kLargeBatch;++i) {
+        if(djmeta_foobar::native_workspace_should_validate_entry(
+                i,29017,kLargeBatch,false))
+            ++activation_checks;
+        if(djmeta_foobar::native_workspace_should_validate_entry(
+                i,29017,kLargeBatch,true))
+            ++consequential_checks;
+    }
+    check(activation_checks==1 && consequential_checks==kLargeBatch,
+          "passive focus avoids full-library reads; explicit actions scan all sources");
+    check(djmeta_foobar::native_workspace_should_validate_entry(
+              0,kLargeBatch,kLargeBatch,false) &&
+          djmeta_foobar::native_workspace_should_validate_entry(
+              kLargeBatch-1,kLargeBatch,kLargeBatch,false),
+          "invalid selected source index fails closed to full batch revalidation");
+    check(!djmeta_foobar::native_workspace_should_validate_entry(
+              0,3,10,false) &&
+          djmeta_foobar::native_workspace_should_validate_entry(
+              3,3,10,false),
+          "passive selection check uses stable source index, not display row");
+
     ShowWindow(dialog,SW_SHOWNA);
     ShowWindow(dialog,SW_MINIMIZE);
     check(IsIconic(dialog)!=FALSE,"native workspace minimizes independently");
