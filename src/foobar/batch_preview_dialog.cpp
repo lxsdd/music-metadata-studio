@@ -824,7 +824,7 @@ std::vector<djmeta::online::FieldReviewRow> musicbrainz_cue_release_rows(
     // Each remote track is displayed even if local identity is missing:
     // never invent a position-to-CUE assignment from the tracklist alone.
     for (std::size_t i=0;i<edition.tracks.size();++i) {
-        if (output.size()>1000)
+        if (output.size()>9998)
             throw std::invalid_argument("MusicBrainz preview row limit exceeded.");
         const auto& remote=edition.tracks[i];
         std::optional<std::size_t> local_ordinal;
