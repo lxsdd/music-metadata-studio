@@ -48,10 +48,36 @@ std::string preliminary_windows_spelling_key(std::string_view path) {
     return result;
 }
 
+// Raw Title Formatting may contain well-formed UTF-8 that changes how a
+// filename is *displayed* without changing its bytes. Treat C1 controls and
+// invisible bidirectional overrides/isolates as unqualified path evidence;
+// this does not reject ordinary non-ASCII or right-to-left letters.
+bool unsafe_invisible_path_control(std::string_view component) {
+    for (std::size_t i = 0; i < component.size(); ++i) {
+        const auto first = static_cast<unsigned char>(component[i]);
+        if (first == 0xc2 && i + 1 < component.size()) {
+            const auto second = static_cast<unsigned char>(component[i + 1]);
+            if (second >= 0x80 && second <= 0x9f) return true; // U+0080..009F
+        }
+        if (first == 0xe2 && i + 2 < component.size()) {
+            const auto second = static_cast<unsigned char>(component[i + 1]);
+            const auto third = static_cast<unsigned char>(component[i + 2]);
+            if (second == 0x80 &&
+                (third == 0x8e || third == 0x8f ||
+                 (third >= 0xaa && third <= 0xae)))
+                return true; // LRM/RLM and U+202A..202E overrides
+            if (second == 0x81 && third >= 0xa6 && third <= 0xa9)
+                return true; // U+2066..2069 directional isolates
+        }
+    }
+    return false;
+}
+
 bool safe_component(std::string_view component) {
     if (component.empty() || component == "." || component == ".." ||
         component.back() == '.' || component.back() == ' ' ||
-        ascii_reserved_windows_device(component)) return false;
+        ascii_reserved_windows_device(component) ||
+        unsafe_invisible_path_control(component)) return false;
     for (unsigned char ch : component) {
         if (ch < 0x20 || ch == 0x7f || ch == '<' || ch == '>' ||
             ch == ':' || ch == '\"' || ch == '|' || ch == '?' || ch == '*')
