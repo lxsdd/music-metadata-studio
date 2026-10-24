@@ -827,12 +827,20 @@ std::vector<djmeta::online::FieldReviewRow> musicbrainz_cue_release_rows(
         if (output.size()>9998)
             throw std::invalid_argument("MusicBrainz preview row limit exceeded.");
         const auto& remote=edition.tracks[i];
+        // A plausible alignment is insufficient if the occurrence fields
+        // are absent, foreign or do not belong to this exact track MBID.
+        const bool verified_occurrence=
+            musicbrainz::valid_mbid(remote.source_track_id) &&
+            qualified_cue_edition_track_provenance(edition,i) &&
+            std::all_of(remote.fields.begin(),remote.fields.end(),
+                [&](const FieldEvidence& evidence) {
+                    return evidence.source_id==remote.source_track_id;
+                });
         std::optional<std::size_t> local_ordinal;
         for (const auto& link:alignment.tracks) {
             if (link.edition_track_index==i &&
                 link.decision==MatchDecision::Suggested &&
-                link.conflicts.empty() &&
-                musicbrainz::valid_mbid(remote.source_track_id)) {
+                link.conflicts.empty() && verified_occurrence) {
                 local_ordinal=link.source_index;
                 break;
             }
@@ -851,7 +859,14 @@ std::vector<djmeta::online::FieldReviewRow> musicbrainz_cue_release_rows(
                 " / Track "+std::to_string(remote.track_number)+
                 " / "+name;
             row.candidate=field;
-            if (local_ordinal) {
+            const bool verified_value=verified_occurrence &&
+                std::any_of(remote.fields.begin(),remote.fields.end(),
+                    [&](const FieldEvidence& evidence) {
+                        return evidence.field==name &&
+                            evidence.values.size()==1 &&
+                            evidence.values.front()==value && !value.empty();
+                    });
+            if (local_ordinal && verified_value) {
                 const auto review=review_cue_candidate_fields(
                     cue,*local_ordinal,{field},true);
                 row.original_values=review.front().original_values;
@@ -860,7 +875,9 @@ std::vector<djmeta::online::FieldReviewRow> musicbrainz_cue_release_rows(
                            review.front().reason;
             } else {
                 row.state=FieldReviewState::Blocked;
-                row.reason="musicbrainz_live_release_unmatched_no_safe_track_identity";
+                row.reason=verified_occurrence && !verified_value
+                    ? "musicbrainz_live_release_track_field_unverified"
+                    : "musicbrainz_live_release_unmatched_no_safe_track_identity";
             }
             output.push_back(std::move(row));
         }
