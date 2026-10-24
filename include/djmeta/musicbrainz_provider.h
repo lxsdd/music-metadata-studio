@@ -823,8 +823,12 @@ inline ReleaseEdition parse_release_lookup(std::string_view json,
             row.recording.primary_artist=artist_credit(raw);
             if (row.recording.primary_artist.empty()&&rec)
                 row.recording.primary_artist=artist_credit(*rec);
-            if (row.recording.primary_artist.empty())
-                row.recording.primary_artist=artist;
+            // Do not substitute the edition's ALBUM ARTIST for missing
+            // track/recording ARTIST. A compilation may legitimately credit
+            // "Various Artists" at release level while an individual track's
+            // artist is unknown. Keep that track unverified so the
+            // provider-independent release matcher rejects its association,
+            // without discarding independently qualified sibling tracks.
             const auto duration=number_or(raw.get("length"),
                                            rec?number_or(rec->get("length")):-1);
             row.recording.duration_ms=(duration>=0&&duration<=10LL*60*60*1000)?
@@ -840,8 +844,10 @@ inline ReleaseEdition parse_release_lookup(std::string_view json,
                     valid_search_isrc(isrc->array.front().text))
                     row.recording.isrc=isrc->array.front().text;
             }
-            if (row.recording.title.empty()||row.recording.primary_artist.empty())
-                throw std::invalid_argument("MusicBrainz release track identity incomplete");
+            if (row.recording.title.empty())
+                throw std::invalid_argument("MusicBrainz release track title missing");
+            // An empty ARTIST remains a deliberate unknown. A release artist
+            // cannot be promoted to a recording identity or a tag proposal.
             edition.tracks.push_back(std::move(row));
         }
     }

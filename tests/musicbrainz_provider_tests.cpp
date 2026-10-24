@@ -463,6 +463,49 @@ int main() {
           "release lookup preserves exact edition, recording, date/disc/track scope");
 
 
+    // Release-level ALBUM ARTIST must never be copied into a missing
+    // track-level ARTIST. A partial compilation remains inspectable and
+    // individually credited sibling tracks stay matchable. The uncredited
+    // track must not receive a fabricated artist or automatic association.
+    const auto compilation=parse_release_lookup(R"MB({
+      "id":"11111111-1111-1111-1111-111111111111",
+      "title":"Mixed Artists",
+      "artist-credit":[{"name":"Various Artists"}],
+      "media":[{"tracks":[
+        {"position":1,"title":"Credited Song",
+         "artist-credit":[{"name":"Actual Track Performer"}],
+         "recording":{"title":"Credited Song",
+                      "artist-credit":[{"name":"Recording Performer"}]}},
+        {"position":2,"title":"Uncredited Song",
+         "recording":{"title":"Uncredited Song"}},
+        {"position":3,"title":"Recording Song",
+         "recording":{"title":"Recording Song",
+                      "artist-credit":[{"name":"Actual Recording Performer"}]}}
+      ]}]
+    })MB",first);
+    check(compilation.fields.size()==2 &&
+          compilation.fields[1].field=="ALBUM ARTIST" &&
+          compilation.fields[1].values==std::vector<std::string>{"Various Artists"} &&
+          compilation.tracks.size()==3 &&
+          compilation.tracks[0].recording.primary_artist=="Actual Track Performer" &&
+          compilation.tracks[1].recording.primary_artist.empty() &&
+          compilation.tracks[2].recording.primary_artist=="Actual Recording Performer",
+          "compilation retains release artist separately from track/recording artist");
+    LocalReleaseTrack local_uncredited;
+    local_uncredited.source_index=17;
+    local_uncredited.recording.title="Uncredited Song";
+    local_uncredited.recording.primary_artist="Unknown Local Performer";
+    local_uncredited.disc_number=1;
+    local_uncredited.track_number=2;
+    const auto uncredited_alignment=align_release({local_uncredited},compilation);
+    check(uncredited_alignment.matched==0 &&
+          uncredited_alignment.unmatched==1 &&
+          uncredited_alignment.tracks.size()==1 &&
+          uncredited_alignment.tracks[0].edition_track_index==no_release_track,
+          "missing provider track credit cannot be auto-matched via Various Artists");
+
+
+
     // The exact-edition parser previously accepted any nonempty DATE,
     // unlike the search display. Both paths now share one calendar gate.
     const auto lookup_with_date=[&](std::string_view date) {
