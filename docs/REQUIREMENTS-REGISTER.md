@@ -177,6 +177,12 @@
   wrong-source and recording-only contexts refuse to dispatch. Both the pure
   keyboard/mouse resolver and the actual owner-data RC ListView are regression
   tested; real installed-foobar UX acceptance is still pending.
+- 2026-10-24: STALE hint retains priority during nonconsequential
+  source-track activation/navigation, Beatport-offline provider selection,
+  and user date-target changes (MMS-WF-08 / MMS-UI-05). These controls remain
+  available for navigation/preferences but cannot erase the stale warning or
+  re-enable source-dependent actions. Native HWND test covers the real hint
+  control; installed UX acceptance remains outstanding.
 - **Remaining decisions that can only be made by the owner:** one final
   installed Windows foobar acceptance; explicit merge/release/production
   write activation when qualified; any new provider legal terms or genuine

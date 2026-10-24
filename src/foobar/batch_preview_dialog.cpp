@@ -4772,9 +4772,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 // search text. A later explicit Search click is required.
                 SetFocus(GetDlgItem(dialog,IDC_METADATA_MB_QUERY));
                 SetDlgItemTextW(dialog,IDC_BATCH_HINT,
-                    L"Selected track opened in Find & compare. Review the "
-                    L"search text and click Search or Load Beatport URL "
-                    L"explicitly; no network request was made.");
+                    native_workspace_display_hint(state->stale,
+                        L"Selected track opened in Find & compare. Review the "
+                        L"search text and click Search or Load Beatport URL "
+                        L"explicitly; no network request was made."));
                 return TRUE;
             }
             prefill_musicbrainz_query(*state,true);
@@ -4784,9 +4785,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 // Beatport evidence comparison; it never dispatches a faux
                 // MusicBrainz or Discogs request.
                 SetDlgItemTextW(dialog,IDC_BATCH_HINT,
-                    L"Beatport offline: this track is selected. "
-                    L"Copy lawfully sourced Beatport JSON or explicit facts "
-                    L"and click Import Beatport. No HTTP request was sent.");
+                    native_workspace_display_hint(state->stale,
+                        L"Beatport offline: this track is selected. "
+                        L"Copy lawfully sourced Beatport JSON or explicit facts "
+                        L"and click Import Beatport. No HTTP request was sent."));
                 return TRUE;
             }
             // Only a Find-tab track gesture may authorize a single provider
@@ -5405,12 +5407,13 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 prefill_musicbrainz_query(*state); // no network until explicit Search
             if(state->beatport_offline_selected)
                 SetDlgItemTextW(dialog,IDC_BATCH_HINT,
-                    L"Beatport offline: copy a public page's JSON-LD, "
-                    L"authorized track-detail JSON "
-                    L"(@beatport-track-json), complete edition+tracks JSON "
-                    L"or explicit @beatport-track-facts, then Import Beatport. "
-                    L"Alternatively enter ONE public track URL and click "
-                    L"Load Beatport URL. Catalog API access remains separate.");
+                    native_workspace_display_hint(state->stale,
+                        L"Beatport offline: copy a public page's JSON-LD, "
+                        L"authorized track-detail JSON "
+                        L"(@beatport-track-json), complete edition+tracks JSON "
+                        L"or explicit @beatport-track-facts, then Import Beatport. "
+                        L"Alternatively enter ONE public track URL and click "
+                        L"Load Beatport URL. Catalog API access remains separate."));
             return TRUE;
         }
         if (id == IDCANCEL) {
@@ -5436,13 +5439,14 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                   ? L"Preview both dates" : L"Include fields (preview)");
             if(choice==6 || choice==7)
                 SetDlgItemTextW(dialog,IDC_BATCH_HINT,
-                    choice==6
-                      ? L"Dual date preview: master year -> ORIGINALDATE; "
-                        L"exact edition date -> RELEASEDATE. "
-                        L"Click Preview both dates (nothing is written)."
-                      : L"Dual date preview: master year -> DATE; "
-                        L"exact edition date -> RELEASEDATE. "
-                        L"Click Preview both dates (nothing is written).");
+                    native_workspace_display_hint(state->stale,
+                        choice==6
+                          ? L"Dual date preview: master year -> ORIGINALDATE; "
+                            L"exact edition date -> RELEASEDATE. "
+                            L"Click Preview both dates (nothing is written)."
+                          : L"Dual date preview: master year -> DATE; "
+                            L"exact edition date -> RELEASEDATE. "
+                            L"Click Preview both dates (nothing is written)."));
             return TRUE;
         }
         if ((id==IDC_ONLINE_INCLUDE_FIELDS || id==IDC_ONLINE_IGNORE_FIELDS ||

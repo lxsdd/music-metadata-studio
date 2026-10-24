@@ -304,6 +304,27 @@ int main() {
           std::wcscmp(djmeta_foobar::native_workspace_display_hint(
               false,L"Old candidate found"),L"Old candidate found")==0,
           "stale warning survives tab/candidate review text refresh");
+    HWND workspace_status=GetDlgItem(dialog,IDC_BATCH_HINT);
+    check(workspace_status!=nullptr,
+          "production workspace hint control is present");
+    wchar_t previous_status[512]{};
+    GetWindowTextW(workspace_status,previous_status,512);
+    SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+        djmeta_foobar::native_workspace_display_hint(
+            true,L"Provider changed: select a result"));
+    wchar_t displayed_status[512]{};
+    GetWindowTextW(workspace_status,displayed_status,512);
+    check(std::wcscmp(displayed_status,
+          djmeta_foobar::kNativeStaleWorkspaceHint)==0,
+          "real HWND refuses to hide stale warning under provider/date hint");
+    SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+        djmeta_foobar::native_workspace_display_hint(
+            false,L"Provider changed: select a result"));
+    GetWindowTextW(workspace_status,displayed_status,512);
+    check(std::wcscmp(displayed_status,
+          L"Provider changed: select a result")==0,
+          "fresh snapshot restores ordinary provider guidance");
+    SetDlgItemTextW(dialog,IDC_BATCH_HINT,previous_status);
     ShowWindow(dialog,SW_SHOWNA);
     ShowWindow(dialog,SW_MINIMIZE);
     check(IsIconic(dialog)!=FALSE,"native workspace minimizes independently");
