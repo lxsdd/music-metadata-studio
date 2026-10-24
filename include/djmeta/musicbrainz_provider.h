@@ -653,12 +653,33 @@ inline RecordingSearchPlan recording_search_plan(
     return p;
 }
 
+// CUE CATALOG is the disc's media code, not a label catalog number.
+// Only check-digit-valid UPC-A / EAN-13 may become an exact identifier query;
+// malformed values remain original source facts without a provider request.
+inline bool valid_release_search_barcode(std::string_view value) {
+    if(value.size()!=12 && value.size()!=13) return false;
+    int sum=0;
+    for(std::size_t i=0;i<value.size();++i) {
+        if(value[i]<'0' || value[i]>'9') return false;
+        const int digit=value[i]-'0';
+        if(i+1==value.size()) return (sum+digit)%10==0;
+        sum+=digit*((value.size()-2-i)%2==0?3:1);
+    }
+    return false;
+}
+
 // Albums/CUE releases are often indexed with a different joined or release
-// artist credit. A second *user-triggered* exact-title-only query improves
-// discovery without treating missing artist evidence as a match.
+// artist credit. A CUE media barcode can provide a bounded exact discovery
+// stage; neither it nor the title-only fallback authorizes an edition match.
 inline std::vector<RecordingSearchAttempt> release_search_plan(
-    std::string_view album, std::string_view artist) {
+    std::string_view album, std::string_view artist,
+    std::string_view cue_barcode = {}) {
     std::vector<RecordingSearchAttempt> attempts;
+    if(valid_release_search_barcode(cue_barcode))
+        attempts.push_back({"Exact CUE barcode (edition review)",
+            "/ws/2/release?query="+
+            encode_url_query("barcode:"+std::string(cue_barcode))+
+            std::string(search_request_suffix)});
     if(valid_search_term(artist))
         attempts.push_back({"Release title + album artist",
             make_search_path(SearchKind::Release,album,artist)});
