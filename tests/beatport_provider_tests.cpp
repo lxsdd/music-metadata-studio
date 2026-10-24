@@ -37,14 +37,26 @@ int main() {
     const auto local_crates=prepare_crates_browser_search(
         "Home (Extended Mix)","DJ Example");
     check(local_crates.search_text=="DJ Example Home (Extended Mix)" &&
-          local_crates.browser_url=="https://crates.co/",
-          "Crates search retains exact mix while revealing no tag values in URL");
+          local_crates.browser_url==
+              "https://crates.co/search?q=DJ%20Example%20Home%20%28Extended%20Mix%29",
+          "Crates search deep-link preserves exact mix without leaking other tags");
+    const auto encoded_crates=prepare_crates_browser_search(
+        "A & B? #1 / Remix","Zo\xC3\xAB");
+    check(encoded_crates.search_text=="Zo\xC3\xAB A & B? #1 / Remix" &&
+          encoded_crates.browser_url==
+              "https://crates.co/search?q=Zo%C3%AB%20A%20%26%20B%3F%20%231%20%2F%20Remix",
+          "Crates URL percent-encodes UTF-8, reserved delimiters and full remix names");
+    check(prepare_crates_browser_search("Track + Main","A+B").browser_url==
+              "https://crates.co/search?q=A%2BB%20Track%20%2B%20Main",
+          "plus signs remain literal query text rather than URL form spaces");
     const MetadataDocument crates_document{{{"TITLE",{"Home (Extended Mix)"}},
         {"ARTIST",{"DJ Example"}},{"DATE",{"2026-10-16"}},
         {"CUESHEET",{"DO NOT COPY"}},{"BEATPORT_TOKEN",{"NEVER COPY"}}}};
     check(prepare_crates_browser_search(crates_document).search_text==
-              "DJ Example Home (Extended Mix)",
-          "Crates bridge excludes paths, secrets and unrelated original tags");
+              "DJ Example Home (Extended Mix)" &&
+          prepare_crates_browser_search(crates_document).browser_url==
+              local_crates.browser_url,
+          "Crates bridge excludes DATE, CUESHEET, token and other local tags from URL");
     check(prepare_crates_browser_search(MetadataDocument{{
         {"TITLE",{"Together (Extended Mix)"}},
         {"ARTIST",{"DJ A","DJ B"}}}}).search_text==
