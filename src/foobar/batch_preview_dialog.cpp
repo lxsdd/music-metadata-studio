@@ -3086,14 +3086,14 @@ void install_workspace_tooltips(PreviewState& state) {
     const HelpText texts[] = { // static-lifetime literal text, dynamic provider ID
         {IDC_BATCH_TABS,L"1. Search online and compare. 2. Review local rule-based suggestions. 3. Preview file locations. These previews do not write files."},
         {IDC_BATCH_GUIDE,L"Follow the steps from left to right. A MusicBrainz match is evidence, not an approved tag edit."},
-        {IDC_METADATA_TRACK_LIST,L"Find tab: double-click/Enter searches MusicBrainz or Discogs, or opens Crates in Beatport mode with copied ARTIST + TITLE. Other tabs only navigate to Find without launching an online action."},
+        {IDC_METADATA_TRACK_LIST,L"Find tab: double-click/Enter searches MusicBrainz or Discogs, or opens Crates in Beatport mode with ARTIST + full TITLE search applied. Other tabs only navigate to Find without launching an online action."},
         {IDC_METADATA_MB_QUERY,L"MusicBrainz: TITLE/album. Discogs: title or exact release/master URL. Beatport: one canonical public track URL, or leave empty for the clipboard. No automatic requests."},
         {IDC_METADATA_ONLINE_PROVIDER,L"MusicBrainz and Discogs use official APIs. Beatport + Crates supports single public Beatport URLs, lawful clipboard evidence and a hand-off to the public Crates browser; no logged-in API impersonation."},
         {IDC_METADATA_DISCOGS_TOKEN_LABEL,L"Discogs token only lives in this password control."},
         {IDC_METADATA_DISCOGS_TOKEN,L"Personal Discogs API token. Not saved, logged, embedded or copied into URLs."},
         {IDC_METADATA_MB_SEARCH,native_search_action_tooltip(
             state.discogs_provider_selected,state.beatport_offline_selected)},
-        {IDC_METADATA_DISCOGS_NEXT_PAGE,L"Discogs: explicitly load one more page. Beatport: Find in Crates copies only ARTIST and full TITLE (including mix) to the clipboard, then opens crates.co in your usual browser. Paste into Search. No Beatport credentials, cookies or metadata files are transferred."},
+        {IDC_METADATA_DISCOGS_NEXT_PAGE,L"Discogs: explicitly load one more page. Beatport: Find in Crates opens the public Crates search directly for ARTIST and full TITLE (including mix). Clipboard is unchanged on success; a failed browser launch copies the query as a fallback. No credentials, cookies or audio files are transferred."},
         {IDC_METADATA_MB_LOAD_RELEASE,L"Inspect a verified exact release; unmatched Discogs track credits remain blocked."},
         {IDC_ONLINE_INCLUDE_FIELDS,L"Include highlighted exact edition album fields or independently verified release-track credits in a detached preview. No files are changed."},
         {IDC_ONLINE_IGNORE_FIELDS,L"Remove highlighted edition fields from the in-memory preview. Existing tags remain intact."},
@@ -3180,8 +3180,9 @@ void show_workspace_help(HWND dialog) {
         L"choose a tag for each or PAIR to preview both in one click.\n\n"
         L"Beatport + Crates is not an authorized catalog API. On Find, "
         L"double-click/Enter on a physical track to open Crates in your "
-        L"browser with its ARTIST + full TITLE copied to clipboard. "
-        L"Paste into Crates Search; you choose the actual release/track. "
+        L"browser with its ARTIST + full TITLE search already applied. "
+        L"Only the search query enters the public browser URL; you choose "
+        L"the actual release/track. Clipboard stays unchanged on success. "
         L"Load Beatport URL fetches ONE exact public track page only after "
         L"your explicit click, without login, cookies or API impersonation. "
         L"Alternatively select Import clipboard for lawfully supplied "
@@ -3291,23 +3292,25 @@ void open_crates_for_selected_physical_track(
     const auto original=metadata_from_file_info(info->info());
     const auto search=djmeta::online::prepare_crates_browser_search(original);
     verify_online_source_snapshot(state,entry);
-    copy_crates_search_text(dialog,from_utf8(search.search_text));
-    const std::wstring url=L"https://crates.co/";
+    const auto url=from_utf8(search.browser_url);
     const HINSTANCE launched=ShellExecuteW(dialog,L"open",url.c_str(),
                                             nullptr,nullptr,SW_SHOWNORMAL);
-    if(reinterpret_cast<INT_PTR>(launched)<=32)
+    if(reinterpret_cast<INT_PTR>(launched)<=32) {
+        // Only a failed browser launch needs the original clipboard fallback.
+        copy_crates_search_text(dialog,from_utf8(search.search_text));
         throw std::runtime_error(
-            "Default browser could not open Crates. The safe search query is still in clipboard.");
+            "Could not open Crates in the default browser. The search query was copied to clipboard for manual search.");
+    }
     // A new deliberate Crates search must not leave an OLD, still-valid
     // Beatport URL in the native query box. Otherwise the next Load click
     // would silently load the previous track instead of the newly copied
     // Crates result, even though the clipboard contains the fresh URL.
     SetDlgItemTextW(dialog,IDC_METADATA_MB_QUERY,L"");
     SetDlgItemTextW(dialog,IDC_BATCH_HINT,
-        L"Crates opened in the default browser. Paste the copied full "
-        L"ARTIST + TITLE into Crates Search (Ctrl+V). Your Beatport login "
-        L"stays in the browser. Copy the exact Beatport track URL back to "
-        L"Load Beatport URL; no metadata was changed.");
+        L"Crates opened with ARTIST + full TITLE search applied. Select "
+        L"the exact edition in your browser, then copy its Beatport "
+        L"track URL into Load Beatport URL. Clipboard and metadata "
+        L"were not changed by this search.");
 }
 
 // A Beatport public URL is not a catalog API identity or staging authority.
