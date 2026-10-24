@@ -1,6 +1,7 @@
 #pragma once
 // CUE + MusicBrainz exact-edition qualification: read-only, no writer.
 #include "djmeta/cue_online_bridge.h"
+#include "djmeta/cue_release_review.h"
 #include "djmeta/musicbrainz_provider.h"
 #include <set>
 #include <string>
@@ -19,6 +20,7 @@ inline bool qualified_musicbrainz_cue_album_alignment(
        alignment.provider!=edition.provider ||
        alignment.edition_id!=edition.edition_id)
         return false;
+    if(cue_media_barcode_conflict(cue,edition)) return false;
     const auto local=prepare_cue_release_lookup(cue);
     if(!local.eligible || local.tracks.empty() ||
        local.tracks.size()!=edition.tracks.size() ||
