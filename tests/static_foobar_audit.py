@@ -314,6 +314,17 @@ for forbidden in ("DialogBoxParamW(", "EndDialog("):
     if forbidden in batch_table_dialog:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: blocking modal preview " + forbidden)
 
+# The compact FileOps status column may show only one finding, but the actual
+# native row tooltip must expose every issue, including secondary collisions.
+fileops_tip = batch_table_dialog.split(
+    "header->idFrom == IDC_BATCH_LIST &&\\n"
+    "            header->code == LVN_GETINFOTIPW", 1)[1].split(
+    "header->code == LVN_COLUMNCLICK", 1)[0]
+for token in ("state->table.rows[source_row].issues", "for (const auto& issue : issues)",
+              "issue_status_text(issue)", "detail += issue;"):
+    if token not in fileops_tip:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: FileOps tooltip hides safety finding " + token)
+
 layout_storage = (foobar / "batch_table_settings.cpp").read_text(encoding="utf-8")
 route_preview = (foobar / "routing_preview.cpp").read_text(encoding="utf-8")
 legacy_profiles = (foobar / "legacy_routing_profiles.h").read_text(encoding="utf-8")
