@@ -110,6 +110,31 @@ int main() {
               SearchKind::Release,"Live Set","") &&
           album_stages[1].label.find("unverified")!=std::string::npos,
           "CUE release offers bounded artist-free discovery without silently matching artist");
+    check(valid_release_search_barcode("4006381333931") &&
+          valid_release_search_barcode("036000291452") &&
+          !valid_release_search_barcode("4006381333932") &&
+          !valid_release_search_barcode("036000291453") &&
+          !valid_release_search_barcode("40063813339X1") &&
+          !valid_release_search_barcode("4006381333931\\n") &&
+          !valid_release_search_barcode("12345"),
+          "only check-digit-valid UPC-A/EAN-13 becomes a release identifier");
+    const auto catalog_stages=release_search_plan(
+        "Live Set","Album Artist","4006381333931");
+    check(catalog_stages.size()==3 &&
+          catalog_stages.front().label.find("barcode")!=std::string::npos &&
+          catalog_stages.front().path==
+              std::string("/ws/2/release?query=barcode%3A4006381333931")+
+                  std::string(search_request_suffix) &&
+          qualified_musicbrainz_request_path(catalog_stages.front().path) &&
+          catalog_stages[1].path==album_stages[0].path &&
+          catalog_stages[2].path==album_stages[1].path,
+          "validated CUE media barcode adds one bounded exact read-only search stage");
+    const auto invalid_catalog_stages=release_search_plan(
+        "Live Set","Artist feat. Guest","4006381333932");
+    check(invalid_catalog_stages.size()==album_stages.size() &&
+          invalid_catalog_stages.front().path==album_stages.front().path,
+          "invalid CUE media barcode never leaks into an official query");
+
     const auto album_without_artist=release_search_plan("Live Set","");
     check(album_without_artist.size()==1 &&
           album_without_artist[0].path==album_stages[1].path,
