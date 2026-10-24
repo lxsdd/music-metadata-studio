@@ -231,6 +231,7 @@ try {
  if($cueDispatch.ExitCode -ne 0) {throw 'Synthetic CUE source not accepted'}
  Start-Sleep -Seconds 2
  $cueCommand='/context_command:"Music Metadata Studio/QA write synthetic CUE" "'+$cueSource+'"'
+ $verifiedCueCommand=$cueCommand
  $cueAction=Start-Process -FilePath $exe -WorkingDirectory $hostDir -ArgumentList $cueCommand -Wait -PassThru
  if($cueAction.ExitCode -ne 0) {throw 'Synthetic CUE context command failed'}
  $cueEntered=$false
@@ -241,6 +242,7 @@ try {
  }
  if(-not $cueEntered) {
    $cueLeaf='/context_command:"QA write synthetic CUE" "'+$cueSource+'"'
+   $verifiedCueCommand=$cueLeaf
    $retry=Start-Process -FilePath $exe -WorkingDirectory $hostDir -ArgumentList $cueLeaf -Wait -PassThru
    if($retry.ExitCode -ne 0) {throw 'Synthetic CUE leaf command failed'}
    for($i=0;$i -lt 25;$i++) {
@@ -273,6 +275,43 @@ try {
  if(@(Get-ChildItem -LiteralPath $work -File -Filter '*.bak').Count -ne 0) {
    throw 'Verified CUE transaction left an unreported backup'
  }
+ # An exact repeat of the approved external CUE edition after its real
+ # transaction must be a no-op: no staging, replace, timestamp or audio write.
+ # Observe a NEW QA_CUE_NOOP line, never reuse an earlier diagnostic.
+ $cueNoopBytes=[IO.File]::ReadAllBytes($cueSource)
+ $cueNoopTime=(Get-Item -LiteralPath $cueSource).LastWriteTimeUtc
+ $audioNoopBytes=[IO.File]::ReadAllBytes($source)
+ $cueLogBefore=Get-Content -LiteralPath $env:MMS_QA_REPORT_PATH -Raw
+ $cueNoopBefore=([regex]::Matches($cueLogBefore,'QA_CUE_NOOP')).Count
+ $cueRepeat=Start-Process -FilePath $exe -WorkingDirectory $hostDir -ArgumentList $verifiedCueCommand -Wait -PassThru
+ if($cueRepeat.ExitCode -ne 0) {throw 'Repeated external CUE context command rejected'}
+ $cueNoopConfirmed=$false
+ for($i=0;$i -lt 40;$i++) {
+   $cueLogAfter=Get-Content -LiteralPath $env:MMS_QA_REPORT_PATH -Raw -ErrorAction SilentlyContinue
+   if($cueLogAfter -and $cueLogAfter.Length -gt $cueLogBefore.Length) {
+     $freshCueLog=$cueLogAfter.Substring($cueLogBefore.Length)
+     if($freshCueLog -match 'QA_CUE_EXCEPTION|QA_CUE_COMMIT_REFUSED|QA_CUE_SOURCE_REJECTED|QA_CUE_COMMITTED') {
+       throw "Repeated external CUE write not a no-op: $freshCueLog"
+     }
+     if(([regex]::Matches($cueLogAfter,'QA_CUE_NOOP')).Count -gt $cueNoopBefore) {
+       $cueNoopConfirmed=$true
+       break
+     }
+   }
+   Start-Sleep -Milliseconds 200
+ }
+ if(-not $cueNoopConfirmed) {throw 'Repeated external CUE has no fresh no-op proof'}
+ if(($cueNoopBytes -join ',') -cne ([IO.File]::ReadAllBytes($cueSource) -join ',') -or
+    (Get-Item -LiteralPath $cueSource).LastWriteTimeUtc -ne $cueNoopTime) {
+   throw 'Repeated identical external CUE approval rewrote the CUE'
+ }
+ if(($audioNoopBytes -join ',') -cne ([IO.File]::ReadAllBytes($source) -join ',')) {
+   throw 'Repeated identical external CUE approval modified audio bytes'
+ }
+ if(@(Get-ChildItem -LiteralPath $work -File -Filter '*.bak').Count -ne 0) {
+   throw 'Repeated external CUE no-op left an unreported backup'
+ }
+ Write-Host 'MMS_NATIVE_EXTERNAL_CUE_POSTWRITE_NOOP=PASS'
  Write-Host "MMS_NATIVE_EXTERNAL_CUE_HOST_QA_$Architecture=PASS"
  Write-Host "MMS_NATIVE_PHYSICAL_WRITER_QA_$Architecture=PASS"
 } finally {
