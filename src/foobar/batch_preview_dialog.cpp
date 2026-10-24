@@ -6208,7 +6208,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             state->cue_candidate_comparison_mode = compare_cue;
             state->musicbrainz_live_view =
                 beatport_user_release || crates_visible_release ||
-                beatport_user_track || crates_visible_track || pasted_physical;
+                beatport_user_track || crates_visible_track;
+            if(pasted_physical) state->musicbrainz_live_view = true;
             state->musicbrainz_release_loaded =
                 beatport_user_release || crates_visible_release ||
                 beatport_user_track || crates_visible_track;
