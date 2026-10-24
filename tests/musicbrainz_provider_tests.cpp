@@ -392,6 +392,44 @@ int main() {
     check(repeated_releases.candidates.size()==1 &&
           repeated_releases.candidates[0].title=="Edition",
           "duplicate edition identity cannot produce two selectable release rows");
+    // A MusicBrainz search hit may omit release artist-credit even though its
+    // edition MBID is still valid for a user-initiated exact release lookup.
+    // Never hide that release or invent a performer from local metadata.
+    const auto no_artist_releases=parse_search(R"({
+        "releases":[
+            {"id":"11111111-1111-1111-1111-111111111111",
+             "title":"Uncredited DJ Compilation","score":91},
+            {"id":"22222222-2222-2222-2222-222222222222",
+             "title":"Uncredited Live Edition","artist-credit":[],"date":"2026-10"},
+            {"id":"33333333-3333-3333-3333-333333333333",
+             "title":"","artist-credit":[]}
+        ]
+    })",SearchKind::Release);
+    check(no_artist_releases.candidates.size()==2 &&
+          no_artist_releases.candidates[0].mbid==first &&
+          no_artist_releases.candidates[0].artist.empty() &&
+          no_artist_releases.candidates[0].search_score==91 &&
+          no_artist_releases.candidates[1].mbid==second &&
+          no_artist_releases.candidates[1].artist.empty() &&
+          no_artist_releases.candidates[1].release_date=="2026-10" &&
+          recording_identity_label("Uncredited DJ Compilation","Local",
+              no_artist_releases.candidates[0].title,
+              no_artist_releases.candidates[0].artist)=="Artist unverified" &&
+          make_release_lookup_path(no_artist_releases.candidates[0].mbid)==
+              make_release_lookup_path(first),
+          "artist-unknown releases stay discoverable only as unverified edition IDs");
+    const auto no_artist_recordings=parse_search(R"({
+        "recordings":[
+            {"id":"11111111-1111-1111-1111-111111111111",
+             "title":"No Artist Evidence"},
+            {"id":"22222222-2222-2222-2222-222222222222",
+             "title":"Qualified Recording","artist-credit":[{"name":"DJ"}]}
+        ]
+    })",SearchKind::Recording);
+    check(no_artist_recordings.candidates.size()==1 &&
+          no_artist_recordings.candidates[0].mbid==second &&
+          no_artist_recordings.candidates[0].artist=="DJ",
+          "recording search still rejects uncredited identities");
     check(parse_search(R"({"releases":[]})",SearchKind::Release).candidates.empty(),
           "empty permitted source response never fabricates a hit");
     const auto release_search=std::string(R"MB({

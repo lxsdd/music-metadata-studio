@@ -710,8 +710,13 @@ inline SearchResult parse_search(std::string_view json, SearchKind kind) {
         if (length>=0 && length<=10LL*60*60*1000) row.duration_ms=length;
         const auto score=number_or(raw.get("score"),0);
         row.search_score=static_cast<int>((std::clamp<std::int64_t>)(score,0,100));
-        if (!valid_mbid(row.mbid) ||
-            row.title.empty() || row.artist.empty() ||
+        // An exact release MBID and title are sufficient to *display* an
+        // edition candidate and let the user load its full official details.
+        // A missing release artist stays unknown: it is never invented from
+        // the local CUE, another edition or a recording. Recordings without
+        // an artist still lack enough identity evidence for this search lane.
+        if (!valid_mbid(row.mbid) || row.title.empty() ||
+            (kind==SearchKind::Recording && row.artist.empty()) ||
             row.title.size()>1024 || row.artist.size()>512 ||
             !observed_mbids.insert(row.mbid).second) continue;
         output.candidates.push_back(std::move(row));
