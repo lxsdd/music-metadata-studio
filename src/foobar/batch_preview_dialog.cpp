@@ -874,6 +874,14 @@ std::vector<djmeta::online::FieldReviewRow> musicbrainz_cue_release_rows(
                 row.state=FieldReviewState::Blocked;
                 row.reason="musicbrainz_cue_media_barcode_conflict_"+row.reason;
             }
+    // The complete local CUE remains its own source lane after loading the
+    // official edition. Search/provider fields never replace original
+    // CATALOG, unknown REM occurrences or structural FILE references.
+    const auto original=cue_original_inventory_rows(cue,"CUE Original / ");
+    if(original.size()>10000 || output.size()>10000-original.size())
+        throw std::invalid_argument(
+            "MusicBrainz CUE comparison exceeds 10,000 display rows.");
+    output.insert(output.end(),original.begin(),original.end());
     return output;
 }
 
