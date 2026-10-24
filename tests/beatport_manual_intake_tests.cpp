@@ -1,6 +1,7 @@
 #include "djmeta/beatport_release_review.h"
 #include "djmeta/beatport_public_page.h"
 #include "djmeta/beatport_public_html.h"
+#include "djmeta/crates_visible_intake.h"
 #include "djmeta/native_candidate_labels.h"
 
 #include <algorithm>
@@ -621,5 +622,86 @@ int main() {
     check(native_candidate_source_label(local_only)=="Local physical" &&
           native_candidate_status_label(local_only)=="Keep original",
           "native original-only lane cannot masquerade as a Beatport edit");
+    // Crates is a distinct opt-in PUBLIC VISIBLE source, not Beatport API.
+    // One Crates track page and its visible outbound Beatport identity must
+    // refer to the same exact track before any field enters the review.
+    const std::string crates=
+        "@crates-public-track\n"
+        "@url=https://crates.co/track/stella/17136574\n"
+        "@beatport-url=https://www.beatport.com/track/stella/17136574\n"
+        "@provider=crates\n"
+        "@id=track:17136574\n"
+        "@scope=recording\n"
+        "TITLE=Stella (Extended Mix)\n"
+        "ARTIST=Cherry (UA)\n"
+        "VERSION=Extended Mix\n"
+        "DURATION=6:55\n"
+        "BPM=124\n"
+        "KEY=7B\n"
+        "LABEL=Siona Records\n"
+        "ALBUM=Glow\n"
+        "GENRE=Melodic House & Techno\n";
+    check(is_crates_public_track_clipboard(crates) &&
+          !is_beatport_user_facts_clipboard(crates),
+          "Crates public evidence has independent source type");
+    const auto crates_recording=parse_crates_public_track_clipboard(crates);
+    check(crates_recording.id==17136574 &&
+          crates_recording.title=="Stella (Extended Mix)" &&
+          crates_recording.mix_name=="Extended Mix" &&
+          crates_recording.artists==std::vector<std::string>{"Cherry (UA)"} &&
+          crates_recording.duration_ms==415000 &&
+          crates_recording.bpm==124 &&
+          crates_recording.musical_key=="7B" &&
+          crates_recording.release_date.empty(),
+          "real Crates page shape maps DJ facts without inventing DATE");
+    djmeta::MetadataDocument crates_local;
+    crates_local.fields.push_back({"TITLE",{"Stella (Extended Mix)"}});
+    crates_local.fields.push_back({"ARTIST",{"Cherry (UA)"}});
+    const auto crates_review=review_crates_public_track(
+        crates_local,415000,crates_recording);
+    check(crates_review.identity==MatchDecision::Suggested,
+          "exact Crates title/version/artist/duration support review-only");
+    const auto* crates_bpm=find(crates_review.fields,"BPM");
+    const auto* crates_genre=find(crates_review.fields,"GENRE");
+    check(crates_bpm && crates_bpm->candidate.provider=="crates" &&
+          crates_bpm->candidate.source_id=="track:17136574" &&
+          crates_bpm->reason.starts_with("crates_public_visible_") &&
+          crates_genre && crates_genre->state==FieldReviewState::NeedsReview &&
+          crates_genre->candidate.provider=="crates",
+          "Crates proposals keep distinct source attribution and read-only review");
+    const auto crates_wrong=review_crates_public_track(
+        crates_local,200000,crates_recording);
+    check(crates_wrong.identity!=MatchDecision::Suggested &&
+          std::all_of(crates_wrong.fields.begin(),crates_wrong.fields.end(),
+             [](const auto& row) {
+                 return row.candidate.provider!="crates" ||
+                        row.state==FieldReviewState::Blocked;
+             }),
+          "Crates duration mismatch blocks every source proposal");
+    const auto tampered_crates=[&](std::string old,std::string substitute) {
+        auto value=crates;
+        const auto index=value.find(old);
+        check(index!=std::string::npos,"Crates tamper source exists");
+        value.replace(index,old.size(),substitute);
+        return value;
+    };
+    rejects([&]{(void)parse_crates_public_track_clipboard(
+        tampered_crates("@beatport-url=https://www.beatport.com/track/stella/17136574",
+            "@beatport-url=https://www.beatport.com/track/stella/17136575"));},
+        "Crates/Beatport cross-track mismatch refused");
+    rejects([&]{(void)parse_crates_public_track_clipboard(
+        tampered_crates("@id=track:17136574","@id=track:17136575"));},
+        "Crates clipboard source ID mismatch refused");
+    rejects([&]{(void)parse_crates_public_track_clipboard(
+        tampered_crates("VERSION=Extended Mix","VERSION=Radio Edit"));},
+        "Crates title/version disagreement refused");
+    rejects([&]{(void)parse_crates_public_track_clipboard(
+        tampered_crates("TITLE=Stella (Extended Mix)",
+            "TITLE=Stella (Extended Mix)\nDATE@edition=2022-12-09"));},
+        "Visible Crates Date is not a qualified edition date");
+    rejects([&]{(void)parse_crates_public_track_clipboard(
+        tampered_crates("@url=https://crates.co/track/stella/17136574",
+            "@url=https://crates.co/track/stella/17136574?source=spoof"));},
+        "Crates URL query cannot impersonate canonical public source");
     std::cout<<"Beatport user clipboard read-only workflow PASS\n";
 }

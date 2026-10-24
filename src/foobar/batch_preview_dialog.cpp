@@ -40,6 +40,7 @@
 #include "djmeta/beatport_public_page.h"
 #include "djmeta/beatport_public_html.h"
 #include "djmeta/crates_browser_bridge.h"
+#include "djmeta/crates_visible_intake.h"
 #include "djmeta/beatport_release_review.h"
 #include "djmeta/discogs_release_review.h"
 #include "djmeta/native_candidate_labels.h"
@@ -3182,6 +3183,11 @@ void show_workspace_help(HWND dialog) {
         L"on the first line, followed by track JSON already lawfully supplied "
         L"to you. No Beatport login or network request is made. "
         L"Physical title, artist, version, ISRC and duration are compared. "
+        L"To import visible Crates metadata, open exactly one Crates track "
+        L"detail page and run scripts/crates-copy-visible-track-facts.js as a "
+        L"browser bookmarklet. Then choose Import Beatport to compare its "
+        L"@crates-public-track clipboard evidence. The source remains Crates, "
+        L"and its visible Date is not assumed to be an edition date. "
         L"Alternatively @beatport-track-facts accepts explicitly typed "
          L"TITLE/ARTIST/VERSION/DURATION=MM:SS and other visible factual "
          L"fields with @provider=beatport and @id=track:NNN. "
@@ -5468,7 +5474,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                         L"Beatport offline: copy a public page's JSON-LD, "
                         L"authorized track-detail JSON "
                         L"(@beatport-track-json), complete edition+tracks JSON "
-                        L"or explicit @beatport-track-facts, then Import Beatport. "
+                        L"or explicit @beatport-track-facts, or use the "
+                        L"@crates-public-track public-page helper, then Import Beatport. "
                         L"Alternatively enter ONE public track URL and click "
                         L"Load Beatport URL. Catalog API access remains separate."));
             return TRUE;
@@ -5927,26 +5934,30 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 djmeta::online::is_beatport_user_release_clipboard(text);
             const bool beatport_public_page =
                 djmeta::online::is_beatport_public_page_clipboard(text);
+            const bool crates_visible_track =
+                djmeta::online::is_crates_public_track_clipboard(text);
             const bool beatport_user_track=
                 beatport_user_json || beatport_user_facts || beatport_public_page;
             if(state->beatport_offline_selected &&
-               !beatport_user_release && !beatport_user_track)
+               !beatport_user_release && !beatport_user_track &&
+               !crates_visible_track)
                 throw std::invalid_argument(
-                    "Beatport mode requires @beatport-track-json, "
-                    "@beatport-track-facts, @beatport-public-jsonld, or both @beatport-release-json "
+                     "Beatport + Crates mode requires @beatport-track-json, "
+                    "@beatport-track-facts, @beatport-public-jsonld, "
+                    "@crates-public-track, or both @beatport-release-json "
                     "and @beatport-tracks-json. Plain webpage text "
                     "cannot be treated as authorized API evidence.");
             std::optional<djmeta::online::ManualCandidate> user_candidate;
             std::optional<djmeta::online::ReleaseEdition> user_edition;
             if(beatport_user_release)
                 user_edition=djmeta::online::parse_beatport_user_release_clipboard(text);
-            else if(!beatport_user_track)
+            else if(!beatport_user_track && !crates_visible_track)
                 user_candidate=djmeta::online::parse_manual_candidate(text);
             std::vector<djmeta::online::FieldReviewRow> rows;
             if (compare_cue) {
-                if(beatport_user_track)
+                if(beatport_user_track || crates_visible_track)
                     throw std::invalid_argument(
-                        "Beatport track import has no qualified CUE ordinal. "
+                        "Single-track source import has no qualified CUE ordinal. "
                         "Use structured @cue_track_ordinal evidence instead.");
                 // Dedicated CUE reader: exact external bytes or a qualified
                 // physical subsong-0 CUESHEET. A generic virtual file_info
@@ -5982,6 +5993,14 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                         : -1;
                     rows=djmeta::online::review_beatport_user_edition_physical(
                         original,duration_ms,*user_edition);
+                } else if(crates_visible_track) {
+                    const auto crates_track =
+                        djmeta::online::parse_crates_public_track_clipboard(text);
+                    const double seconds=ref->info().get_length();
+                    const std::int64_t duration_ms=seconds>0.0 && seconds<=36000.0
+                        ? static_cast<std::int64_t>(seconds*1000.0+0.5):-1;
+                    rows=djmeta::online::review_crates_public_track(
+                        original,duration_ms,crates_track).fields;
                 } else if(beatport_user_track) {
                     const auto beatport_track = beatport_user_json
                         ? djmeta::online::parse_beatport_user_json_clipboard(text)
@@ -6002,8 +6021,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             }
             verify_snapshot(entry);
             verify_rules_snapshot(state->captured_rules);
-            if(beatport_user_release || beatport_user_track) {
-                if(beatport_user_track) {
+            if(beatport_user_release || beatport_user_track || crates_visible_track) {
+                if(beatport_user_track || crates_visible_track) {
                     // One recording is ONE browser item; all its field
                     // comparisons belong to the independent details pane.
                     // The complete original physical tag inventory stays in
@@ -6011,7 +6030,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                     for(auto& row:rows) {
                         if(djmeta::online::is_local_physical_original(row))
                             row.field="Physical / "+row.field;
-                        else row.field="Beatport Track / "+row.field;
+                        else row.field=(crates_visible_track
+                            ? "Crates Track / " : "Beatport Track / ")+row.field;
                     }
                 }
                 auto grouped=group_musicbrainz_release_rows(rows);
@@ -6024,15 +6044,20 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             state->candidate_source_index = state->selected_track_index;
             state->cue_inspection_mode = false;
             state->cue_candidate_comparison_mode = compare_cue;
-            state->musicbrainz_live_view = beatport_user_release || beatport_user_track;
-            state->musicbrainz_release_loaded = beatport_user_release || beatport_user_track;
+            state->musicbrainz_live_view =
+                beatport_user_release || beatport_user_track || crates_visible_track;
+            state->musicbrainz_release_loaded =
+                beatport_user_release || beatport_user_track || crates_visible_track;
             state->musicbrainz_kind =
                 djmeta::online::musicbrainz::SearchKind::Release;
             state->search_attempt_notice = beatport_user_release
                 ? L"Beatport edition imported from user-provided JSON. "
                   L"Complete tracklist compared. Source is UNVERIFIED; "
                   L"no official API authentication or writes."
-                : beatport_user_track
+                : crates_visible_track
+                ? L"Crates visible track imported from a user-selected public page. "
+                  L"Version/artist/duration checked, source UNVERIFIED. "
+                  L"Preview only; no file writes." : beatport_user_track
                 ? L"Beatport track imported from user-provided evidence. "
                   L"Mix/version, ISRC and duration checked. Source is "
                   L"UNVERIFIED; preview only, no writes." : L"";

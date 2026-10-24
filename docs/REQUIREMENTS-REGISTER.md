@@ -260,7 +260,7 @@
   mass crawl. Crates already has Find-in-Crates and a selected Beatport-link
   browser bridge. Beatport already has a bounded public JSON-LD track
   fetch. Crates' own field extraction and Deezer public-page adapters
-  remain NOT IMPLEMENTED pending source/identity validation. Missing/
+  remained NOT IMPLEMENTED at this checkpoint pending source/identity validation. Missing/
   conflicting evidence stays REVIEW/BLOCK and physical/CUE writes disabled.
 - 2026-10-24: Cross-provider DJ title discovery (MMS-SRC-01 /
   MMS-SRC-04 / MMS-SRC-08): Discogs and offline Beatport query planners
@@ -272,6 +272,19 @@
   exact mix matching remains independent, no additional network transport
   or write permission is introduced. Automated CI is required before
   upgrading this checkpoint beyond CODE.
+- 2026-10-24: Crates public DOM source qualification (MMS-SRC-04 /
+  MMS-SRC-07 / MMS-SRC-08): verified an actually accessible logged-out
+  Crates track detail page with one exact track row and the same public
+  Beatport track ID (`Stella (Extended Mix)`, 17136574). Added an opt-in,
+  one-page, *visible-DOM-only* browser clipboard helper for TITLE, ARTIST,
+  VERSION, REMIXER, LABEL, ALBUM, GENRE, BPM, KEY and duration; no crawling,
+  API, session or stored credentials. C++ import independently validates
+  canonical Crates/Beatport public track identities and the complete version,
+  then uses the existing exact physical recording reviewer under `crates`
+  provenance. Conflicting source IDs, mix labels and duration are blocked;
+  the visible `Date` is deliberately excluded pending source meaning.
+  Native import remains preview-only, public binaries remain blocked. This
+  is a CODE/CI qualification, not installed foobar HOST acceptance.
 - **Remaining decisions that can only be made by the owner:** one final
   installed Windows foobar acceptance; explicit merge/release/production
   write activation when qualified; any new provider legal terms or genuine

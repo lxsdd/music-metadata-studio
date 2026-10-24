@@ -44,6 +44,29 @@ und offenen Issues #33, #46–#51. Neuer Code nennt die betroffenen IDs.
 - `docs/` – architecture and integration contracts.
 - `.github/workflows/` – reproducible CI.
 
+
+## Crates: ein sichtbarer Track, manuelle Quellübernahme (Draft PR #45)
+
+Crates ist neben Beatport/Discogs/Deezer eine priorisierte DJ-Quelle.
+Die öffentliche, ohne Login erreichbare Crates-Trackseite zeigt unter
+anderem Titel/Mix, Künstler, Remix-Credits, Label, Release, Genre, BPM,
+Tonart und Dauer. Der Browserhelfer
+[scripts/crates-copy-visible-track-facts.js](scripts/crates-copy-visible-track-facts.js)
+ist **kein Hintergrund-Crawler**: Er liest nur **eine vom Nutzer geöffnete
+Track-Detailseite** aus dem sichtbaren DOM und kopiert
+\`@crates-public-track\` mit einer exakten Crates- und Beatport-Track-ID.
+
+Zur Verwendung später den Skriptinhalt als \`javascript:\`-Lesezeichen im
+normalen Browser einrichten, auf einer einzelnen Crates-Trackseite aufrufen,
+in foobar **Beatport + Crates** und **Import clipboard / Import Beatport**
+wählen. Originale Tags werden ausschließlich mit den sichtbaren
+Quellangaben verglichen. Alle Vorschläge bleiben **read-only**. Die
+angezeigte Crates-*Date* wird nicht in DATE/RELEASEDATE verwandelt, weil
+ihre exakte Bedeutung nicht separat qualifiziert ist. Beatport-Login,
+Cookies, private APIs, Navigation, Dateischreibaktionen und zusätzliche
+Software sind nicht erforderlich. Das endgültige installierte
+Windows/foobar UX-Verhalten ist noch nicht manuell abgenommen.
+
 ## Current qualification (23 October 2026)
 
 Development continues in Draft PR #45; this is not a merged or released component.
