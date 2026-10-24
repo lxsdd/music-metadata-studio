@@ -51,6 +51,40 @@ inline bool qualified_cue_edition_track_provenance(
         });
 }
 
+// UPC-A and EAN-13 describe the same media code when the EAN carries a
+// leading zero. This is identity evidence only, never a CUE/tag write target.
+inline bool cue_media_barcode_digits(std::string_view code) {
+    return (code.size()==12 || code.size()==13) &&
+        std::all_of(code.begin(),code.end(),[](char c) {
+            return c>='0' && c<='9';
+        });
+}
+inline bool cue_media_barcode_conflict(
+    const CueMetadataInventory& cue, const ReleaseEdition& edition) {
+    if(edition.provider!="musicbrainz") return false;
+    std::string_view local, remote;
+    std::size_t local_count=0, remote_count=0;
+    for(const auto& field:cue.globals)
+        if(field.name=="CATALOG") {
+            ++local_count;
+            local=field.value;
+        }
+    for(const auto& field:edition.fields)
+        if(field.field=="BARCODE") {
+            ++remote_count;
+            if(field.values.size()!=1) return false;
+            remote=field.values.front();
+        }
+    if(local_count!=1 || remote_count!=1 ||
+       !cue_media_barcode_digits(local) ||
+       !cue_media_barcode_digits(remote)) return false;
+    if(local.size()==remote.size()) return local!=remote;
+    return local.size()==12
+        ? !(remote.size()==13 && remote.front()=='0' &&
+            remote.substr(1)==local)
+        : !(local.front()=='0' && local.substr(1)==remote);
+}
+
 inline CueEditionReview review_cue_release_edition(
     const CueMetadataInventory& cue, const ReleaseEdition& edition) {
     CueEditionReview result;
@@ -97,6 +131,10 @@ inline CueEditionReview review_cue_release_edition(
         return result;
     }
     result.eligible = true;
+    const bool media_barcode_conflict =
+        cue_media_barcode_conflict(cue,edition);
+    if(media_barcode_conflict)
+        result.reasons.push_back("cue_media_barcode_conflict");
     result.album_fields = review_cue_candidate_fields(
         cue, std::nullopt, edition.fields);
     // Official provider provenance does not by itself establish that the
@@ -182,6 +220,24 @@ inline CueEditionReview review_cue_release_edition(
         }
         row.fields=review_cue_edition_track_fields(cue,row.cue_ordinal,remote);
         result.tracks.push_back(std::move(row));
+    }
+    // Matching track names and ISRCs cannot override a contradictory disc
+    // barcode on the selected exact MusicBrainz edition. Retain no-ops and
+    // original facts; all differing provider values become blocked evidence.
+    if(media_barcode_conflict) {
+        for(auto& field:result.album_fields)
+            if(field.state==FieldReviewState::NeedsReview) {
+                field.state=FieldReviewState::Blocked;
+                field.reason="cue_media_barcode_conflict_"+field.reason;
+            }
+        for(auto& track:result.tracks) {
+            track.reasons.push_back("cue_media_barcode_conflict");
+            for(auto& field:track.fields)
+                if(field.state==FieldReviewState::NeedsReview) {
+                    field.state=FieldReviewState::Blocked;
+                    field.reason="cue_media_barcode_conflict_"+field.reason;
+                }
+        }
     }
     return result;
 }
