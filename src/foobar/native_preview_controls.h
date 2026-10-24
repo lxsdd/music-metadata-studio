@@ -47,6 +47,15 @@ inline bool native_track_activation_starts_online_search(
     return source_tab_index == 0 && !beatport_browser_mode;
 }
 
+// In the Beatport + Crates mode, Find-tab activation is explicit consent to
+// open the existing Crates browser hand-off, not permission to call a gated
+// Beatport catalog API or silently read a clipboard URL. From Review/File
+// pages even this browser action must remain navigation-only.
+inline bool native_track_activation_starts_crates_handoff(
+    int source_tab_index, bool beatport_browser_mode) noexcept {
+    return source_tab_index == 0 && beatport_browser_mode;
+}
+
 // Once a source/rules/physical guard marks the workspace STALE, no delayed
 // network completion, tab refresh or candidate-selection callback may make
 // source-dependent actions appear executable again. Refresh is separate.
