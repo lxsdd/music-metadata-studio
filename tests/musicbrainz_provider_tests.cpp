@@ -230,6 +230,31 @@ int main() {
               "Only You (John Smith Remix)","Matt Fax",
               "Only You","Matt Fax")=="Version review",
           "named DJ remix gains recall fallback but never an exact version match");
+    // Discogger's harder native corpus includes a credited main mix and an
+    // original edit. The exact track remains a distinct query and a base
+    // title hit is only a version-review candidate, never an exact mix.
+    for(const auto& fixture : {
+            std::pair{"Jóga (Howie B Main Mix)","Jóga"},
+            std::pair{"Eple (Original Edit)","Eple"}}) {
+        const auto plan=recording_search_plan(fixture.first,"Björk");
+        check(plan.full_title==fixture.first &&
+              plan.core_title==fixture.second &&
+              plan.attempts.size()==4 &&
+              plan.attempts[0].path==make_search_path(
+                  SearchKind::Recording,fixture.second,"Björk") &&
+              plan.attempts[1].path==make_search_path(
+                  SearchKind::Recording,fixture.first,"Björk") &&
+              recording_identity_label(fixture.first,"Björk",
+                  fixture.second,"Björk")=="Version review",
+              "credited main mix/original edit broadens lookup only");
+    }
+    check(search_title_core("Jóga - Howie B Main Mix")==
+              "Jóga - Howie B Main Mix" &&
+          search_title_core("Jóga (Howie B Live Main Mix)")==
+              "Jóga (Howie B Live Main Mix)" &&
+          search_title_core("Jóga (Howie B Club Dub)")==
+              "Jóga (Howie B Club Dub)",
+          "non-bracketed names and ambiguous live mixes stay exact");
     check(search_title_core("Title [Artist Rework]")=="Title" &&
           search_title_core("Title [Extended Mix]")=="Title" &&
           search_title_core("Title [Live at the Arena]")==

@@ -397,7 +397,7 @@ inline bool known_search_version_label(std::string_view text) {
     for(char& c:qualifier)
         if(c>='A'&&c<='Z') c=static_cast<char>(c+('a'-'A'));
     static constexpr std::string_view generic[]={
-        "original version","original mix","original","album version",
+        "original version","original mix","original edit","original","album version",
         "album mix","radio edit","radio version","radio mix",
         "extended version","extended mix","extended","club mix",
         "single version","single mix","instrumental","edit",
@@ -441,15 +441,19 @@ inline std::string search_title_core(std::string_view full) {
             if(pos!=std::string::npos && pos>0) {
                 const auto qualifier=trimmed.substr(pos+1,trimmed.size()-pos-2);
                 bool known=known_search_version_label(qualifier);
-                // A named remix/rework in parentheses is a safe recall hint
+                // A named remix/rework/main mix in parentheses is a safe recall hint
                 // only. The full exact mix title stays in the second query.
                 if(!known) {
                     std::string folded=qualifier;
                     for(char& c:folded)
                         if(c>='A'&&c<='Z') c=static_cast<char>(c+('a'-'A'));
-                    for(const std::string_view suffix : {" remix", " rework"}) {
+                    for(const std::string_view suffix : {
+                            " remix", " rework", " main mix"}) {
                         if(folded.size() > suffix.size() &&
                            folded.ends_with(suffix) &&
+                           (suffix!=" main mix" ||
+                            (folded.find(" live ")==std::string::npos &&
+                             !folded.starts_with("live "))) &&
                            std::string_view(folded)
                                .substr(0,folded.size()-suffix.size())
                                .find_first_not_of(" \t")!=std::string_view::npos) {

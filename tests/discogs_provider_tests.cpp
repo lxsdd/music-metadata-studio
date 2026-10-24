@@ -364,6 +364,59 @@ int main() {
               }),
           "unknown dash segments are not invented as mix qualifiers");
 
+    // Cross-project regression corpus from foo_discogger PR #17. These
+    // are portable search-plan contracts, NOT a claim that this component
+    // has passed Discogger's separate protected live OAuth/GUI matrix.
+    struct DiscoggerCase {
+        const char* full_title;
+        const char* artist;
+        const char* discovery_core;
+        const char* album;
+    };
+    const DiscoggerCase hard_cases[]={
+        {"1000 Years (DJ Version)","Kyau & Albert X Maywave","1000 Years","1000 Years"},
+        {"Sun & Moon (Club Mix)","Above & Beyond feat. Richard Bedford","Sun & Moon","Sun & Moon"},
+        {"Jóga (Howie B Main Mix)","Björk","Jóga","Jóga"},
+        {"Eple (Original Edit)","Röyksopp","Eple","Eple"},
+        {"Glue","Bicep","Glue","Glue EP"},
+        {"Born Slippy .NUXX","Underworld","Born Slippy .NUXX","Born Slippy .NUXX"},
+        {"Only You (Extended Mix)","Matt Fax","Only You","Only You"},
+        {"Till You Let Go (Extended Mix)","Matt Fax","Till You Let Go","Till You Let Go"},
+        {"Saltwater (Original Mix)","Chicane Featuring Maire Brennan","Saltwater","Saltwater"},
+        {"Insomnia (Monster Mix)","Faithless","Insomnia","Insomnia"}
+    };
+    for(const auto& fixture:hard_cases) {
+        const std::string full=fixture.full_title, artist=fixture.artist;
+        const std::string core=fixture.discovery_core;
+        const auto plan=track_search_plan(full,artist,{}, {},fixture.album);
+        const auto exact=track_search_path(full,artist);
+        const auto broad=track_search_path(core);
+        check(!plan.empty() && plan.size()<=16 &&
+              plan.front().path==release_title_search_path(fixture.album,artist) &&
+              std::any_of(plan.begin(),plan.end(),
+                  [&](const auto& step){return step.path==exact;}) &&
+              (full==core || std::any_of(plan.begin(),plan.end(),
+                  [&](const auto& step){return step.path==broad;})) &&
+              std::all_of(plan.begin(),plan.end(),
+                  [](const auto& step){return allowed_readonly_path(step.path);}) &&
+              std::count_if(plan.begin(),plan.end(),
+                  [&](const auto& step){return step.path==exact;})==1,
+              "Discogger complex case keeps exact mix, edition and bounded fallback");
+    }
+    const auto utf8_plan=track_search_plan(
+        "Jóga (Howie B Main Mix)","Björk",{}, {},"Jóga");
+    check(utf8_plan[0].path==
+              "/database/search?release_title=J%C3%B3ga&type=release&artist=Bj%C3%B6rk&page=1&per_page=20" &&
+          std::any_of(utf8_plan.begin(),utf8_plan.end(),
+              [](const auto& step) {
+                  return step.path==
+                      "/database/search?track=J%C3%B3ga&type=release&page=1&per_page=20";
+              }) &&
+          collaboration_tail_search_artist(
+              "Above & Beyond feat. Richard Bedford")=="Richard Bedford" &&
+          collaboration_tail_search_artist(
+              "Kyau & Albert X Maywave")=="Maywave",
+          "UTF-8 canonical encoding and nested ampersand artist preserved");
     const auto simple_plan=track_search_plan("Via Balearia","Estiva");
     check(simple_plan.size()==5 &&
           simple_plan[2].path==track_search_path("Via Balearia") &&
