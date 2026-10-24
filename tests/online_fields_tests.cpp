@@ -430,11 +430,39 @@ int main() {
              EvidenceScope::Edition,DateMeaning::EditionRelease}};
         const auto captured_bad=capture_online_field_review(
             stage_original,evidence_bad,true,true);
-        bool blocked=false;
-        try {(void)stage_selected_online_fields(
-            captured_bad,stage_original,{0},{{0,"DATE"}});}
-        catch(const std::invalid_argument&) {blocked=true;}
-        check(blocked,"invalid, ambiguous or timestamp-style DATE mappings fail closed");
+        // Reject malformed date evidence for every explicit physical
+        // date destination, not only the year-only DATE convention.
+        // The source comparison remains readable and original values
+        // remain immutable: this is purely a staging authorization gate.
+        check(captured_bad.comparisons[0].state==FieldReviewState::NeedsReview,
+              "malformed calendar evidence stays observable in read-only review");
+        for(const auto* target : {"DATE","DATE_RAW","ORIGINALDATE",
+                                  "RELEASEDATE","PUBLISHDATE","PUBLISH_DATE"}) {
+            bool blocked=false;
+            try {(void)stage_selected_online_fields(
+                captured_bad,stage_original,{0},{{0,target}});}
+            catch(const std::invalid_argument&) {blocked=true;}
+            check(blocked,"invalid ISO calendar data cannot enter any mapped date postimage");
+        }
+        check(stage_original.fields[3].values==std::vector<std::string>{"1998"},
+              "rejected dates preserve the original DATE");
+    }
+    // Valid partial and complete dates retain their precision on every
+    // explicitly selected non-DATE target; no year truncation is implied.
+    for(const std::string good:{"2024-02-29","2000-02-29","2026-10","2026"}) {
+        const auto sample=capture_online_field_review(
+            stage_original,
+            {{"RELEASEDATE",{good},"discogs","release:111",
+              EvidenceScope::Edition,DateMeaning::EditionRelease}},true,true);
+        for(const auto* target:{"DATE_RAW","ORIGINALDATE","RELEASEDATE",
+                                "PUBLISHDATE","PUBLISH_DATE"}) {
+            const auto staged=stage_selected_online_fields(
+                sample,stage_original,{0},{{0,target}});
+            check(staged.explicitly_changed==1 &&
+                  staged.planned.fields.back()==MetadataField{target,{good}} &&
+                  staged.planned.fields[3]==stage_original.fields[3],
+                  "valid ISO date precision survives explicit non-DATE staging");
+        }
     }
     const auto multivalue_date=capture_online_field_review(
         stage_original,{{"RELEASEDATE",{"2026","2025"},"discogs","release:100",
@@ -446,6 +474,15 @@ int main() {
     catch(const std::invalid_argument&) {multiple_years_blocked=true;}
     check(multiple_years_blocked,
           "multiple provider date values cannot silently collapse into one DATE");
+    for(const auto* target:{"DATE_RAW","ORIGINALDATE","RELEASEDATE",
+                            "PUBLISHDATE","PUBLISH_DATE"}) {
+        bool blocked=false;
+        try {(void)stage_selected_online_fields(
+            multivalue_date,stage_original,{0},{{0,target}});}
+        catch(const std::invalid_argument&) {blocked=true;}
+        check(blocked,
+              "multiple competing online date values cannot stage any physical date target");
+    }
     const auto refuses_date_target=[&](
         const std::vector<std::size_t>& indices,
         const std::map<std::size_t,std::string>& target) {

@@ -147,12 +147,16 @@ inline OnlineFieldStagedPreview stage_selected_online_fields(
            it!=explicit_date_targets.end()) {
             auto mapped=verified_row.candidate;
             mapped.field=ascii_upper_field(it->second);
-            if(mapped.field=="DATE") {
-                if(mapped.values.size()!=1)
-                    throw std::invalid_argument(
-                        "Year-only DATE needs exactly one qualified value");
-                mapped.values={online_year_only_date(mapped.values.front())};
-            }
+            // A manually mapped date remains a calendar date even when
+            // the target preserves its full precision (DATE_RAW, RELEASEDATE,
+            // ORIGINALDATE, PUBLISHDATE). Never stage an impossible day,
+            // ambiguous free text, timestamp or multiple conflicting dates.
+            if(mapped.values.size()!=1)
+                throw std::invalid_argument(
+                    "Explicit online date target needs exactly one qualified value");
+            const auto verified_year=online_year_only_date(mapped.values.front());
+            if(mapped.field=="DATE")
+                mapped.values={verified_year};
             const auto remapped=review_online_fields(current_physical,{mapped});
             if(remapped.size()!=1 || remapped[0].state==FieldReviewState::Blocked)
                 throw std::invalid_argument("Explicit date target cannot be reviewed");
