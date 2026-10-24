@@ -1,100 +1,61 @@
-# First installed-foobar host acceptance — preview-only / no writes
+# Music Metadata Studio — final installed-foobar acceptance gate
 
-**Gate:** the first real foobar2000 runtime smoke test. This is NOT writer
-acceptance and does not authorize an Apply path. Every existing tag and File
-Operations mutation route in this plugin remains disabled.
+This document describes the **remaining gate**, not an instruction to test a
+development snapshot now. Draft PR #45 stays open, `main` stays unchanged and
+productive physical-tag, CUE and FileOps writers stay disabled unless
+separately qualified and explicitly approved. Earlier preliminary host-smoke
+instructions are historical and must not be used as a substitute for the
+single consolidated final acceptance in Issue #50 and
+`docs/REQUIREMENTS-REGISTER.md`.
 
-## What has already passed in Actions
+## Before asking for the owner's Windows action
 
-- The immutable combined `.fb2k-component` candidate must come from the
-  **exact successful main commit** of this test-gate change.
-- The foobar CI verifies Win32 and x64 PE binaries, native SDK compilation,
-  a static absence-of-writers audit and archive layout.
-- The additional Windows `host-gate-script` job validates that the
-  acceptance script does not alter its source MP3, that an untouched
-  synthetic disposable sample passes, and that deliberate byte changes
-  are detected. The synthetic file is a script test, NOT a foobar runtime
-  sample.
+The development branch must have one exact 40-character HEAD with completed
+Core and foobar Win32/x64 checks, no known build/test failure and documented
+limits for every provider and writer path. A regular OAuth health check is
+not an authenticated Discogs Search → Release → Edition → Compare test.
+Protected live QA must be reported separately; a skipped protected job is
+not PASS. CI and SDK host smoke are not installed-foobar visual acceptance.
 
-These CI checks do not prove that the actual foobar host can load the DLL,
-open the dialog, or preserve live files. The user performs only that
-unavoidable installed-host gate.
+The acceptance build is **private and local** using
+`scripts/local-acceptance-build.ps1` at that exact SHA. Follow
+`docs/LOCAL_ACCEPTANCE_BUILD.md` only after the candidate is qualified.
+No public Actions artifact, release, tag or binary distribution is an
+acceptance prerequisite. The package manifest and `SHA256SUMS.txt` must
+identify the same source SHA and exact `.fb2k-component` bytes. A package
+hash from an earlier commit is invalid after any source change.
 
-## One short, safe Windows test
+## One consolidated disposable-media session
 
-1. Download the successful run's `foo-music-metadata-studio-component`
-   Actions artifact, extract it, and use `SHA256SUMS.txt` to verify the
-   `.fb2k-component` integrity. Install it into foobar2000 2.x via
-   Preferences → Components → Install, or an isolated/portable foobar
-   profile. Record foobar version and x64/Win32 architecture.
-2. Save `scripts/host-acceptance-noop.ps1` from the **same commit** locally.
-   Run the following in PowerShell with the path to ONE ordinary MP3:
+Only when the software-side gates are complete, provide the owner one short
+integrated script for foobar2000 2.x Win32 and x64, including:
 
-   ```powershell
-   powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\Downloads\host-acceptance-noop.ps1" -Mode Prepare -SampleFile "Z:\Music\path\one-track.mp3"
-   ```
+- installation/load and the single modeless workspace alongside normal
+  playback and playlist use; close/reopen, minimize/maximize, Alt-Tab and
+  restart placement/column/sort persistence;
+- 100/125/150/200% DPI and light/dark visual inspection of search, scope
+  actions, review groups, pane split, tooltips and keyboard/double-click;
+- explicit MusicBrainz and authorized Discogs read-only Search → Release
+  → Edition → field/CUE comparison, with source identity and conflict states;
+- full physical/custom/multivalue original-tag inventory, normalization
+  Accept/Reject/Reset/manual preview, selected-track and batch scope, and
+  a safe file plan with target/collision/no-op and final confirmation;
+- disposable MP3/FLAC and external/embedded CUE cases, including virtual
+  subsongs that never become generic physical write targets;
+- before/after SHA-256, length and timestamps for each disposable source,
+  plus an outcome report that omits personal paths, metadata and secrets.
 
-   This creates a new unique folder under Windows Temp and uses
-   `Copy-Item` to create `sample-a.mp3` and `sample-b.mp3`; a short
-   external `sample-a.cue` references the first. The original MP3 is
-   **read only**, is not tagged, moved or otherwise modified. All tests
-   below use only the disposable copies.
-3. Add the copied MP3 files to a temporary foobar playlist; optionally
-   open `sample-a.cue` separately to inspect its virtual track. Invoke
-   the Music Metadata Studio **Prepare Tracks (Preview)** context menu
-   on the MP3 file(s). Switch between Metadata changes and File
-   locations. Review the raw target / no-write statuses; optionally
-   select one or two File locations rows, right-click and select
-   **Inspect selected raw targets (read-only)**. Confirm the dialog
-   opens without error and that virtual CUE subsongs are not treated
-   as independent physical tag-write targets. Close/Cancel the dialog.
-   **Do not run foobar's own ordinary tag writer, ReplayGain scan or File
-   Operations on the test files** during this test.
-   **Optional Discogs live-read gate (separate from the basic host PASS):**
-   In the same disposable playlist, select one copied physical MP3, switch
-   to Discogs and enter **your own** authorized personal API token in the
-   password-style control. Initiate Search using either its existing tags or
-   a pasted canonical release URL such as
-   `https://www.discogs.com/release/38012673`. Verify the result is an
-   **exact release**, select its album/track summary, inspect the native
-   Original/Suggested/Status detail rows and confirm uncertain or unrelated
-   tracks remain blocked. Repeat on the disposable external CUE where
-   applicable; no source audio, tags, CUE or filename may change.
-   Do not submit or record the token, response payload, personal metadata
-   or music path. If authorization is unavailable, record
-   `DISCOGS_LIVE=NOT_TESTED`, not PASS. A successful static/DLL build is
-   not proof of this live host path.
+`scripts/host-acceptance-noop.ps1` can prepare and verify disposable copies
+as an integrity helper, but its green result alone does not prove the above
+UI, provider or writer matrix. The ordinary preview build must not perform
+productive tag/CUE/FileOps writes. Any separately qualified write-acceptance
+variant must be identified explicitly and limited to disposable fixtures with
+fresh source revalidation and an individual final click; no blanket consent
+or automatic write is inferred.
 
-4. Run verification using the exact `TEST_FOLDER` printed by Prepare:
-
-   ```powershell
-   powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\Downloads\host-acceptance-noop.ps1" -Mode Verify -TestFolder "C:\Users\...\AppData\Local\Temp\DJMetaHostGate-..."
-   ```
-
-   The script recomputes SHA-256, length, creation and modified timestamps
-   for both copied MP3s and the CUE, compares against the baseline and
-   prints `FILE_INTEGRITY=PASS` or detailed failure. It writes only
-   `HOST-RESULT.txt` in the disposable folder; it never edits media.
-5. Report only: foobar architecture/version, whether Prepare Tracks dialog
-   appeared without error, whether selecting the physical and virtual
-   tracks behaved as expected, and `HOST-RESULT.txt`. The report omits
-   the original personal music path and metadata contents. Screenshots
-   are optional only if the UI fails. Do not send personal MP3 files.
-
-## Interpretation
-
-- **PASS** means the tested preview dialog was actually usable and the
-  disposable MP3/CUE bytes and both tracked timestamps remained unchanged.
-- **FAIL** means no host acceptance; preserve the failing report and
-  investigate exact component SHA plus foobar version without exposing
-  private library files.
-- **NOT YET TESTED:** productive tag writer-call counts, full physical
-  ReplayGain/embedded-CUE preservation under writes, host File Operations
-  timestamp preferences, copy/move collision behavior, Win32 if only x64
-  was run, asynchronous throughput at 15,000/NAS files and final executable
-  batch gating. A later, separately approved mutation candidate must
-  receive one consolidated host acceptance with these checks.
-
-The first gate is intentionally small: the entire project remains
-GitHub-first and no persistent local source repository or local compiler
-is required. The user may delete the Temp test directory afterward.
+The owner should never paste an API token into chat, GitHub, logs or an
+acceptance report. If a protected live run cannot be initiated through the
+available integration, ask only for its protected manual workflow start when
+all independent work is finished. A successful installed session is the
+human HOST gate, not permission to merge, tag, release or activate production
+writers; those decisions remain explicit.
