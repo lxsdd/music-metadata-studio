@@ -12,10 +12,30 @@
 namespace djmeta::online {
 struct CratesBrowserSearch {
     std::string search_text;
-    // Public, verified Crates landing page. Do not invent an internal
-    // query URL or carry local tags in URL parameters.
-    std::string browser_url = "https://crates.co/";
+    // Verified public browser SEARCH route. Only physical artist/title
+    // appear in q; no local paths, other tags, login details or tokens.
+    std::string browser_url;
 };
+
+// Encode each UTF-8 byte for the public Crates browser route. Never use
+// untrusted physical tags as URL syntax, query delimiters or fragments.
+inline std::string crates_percent_encode(std::string_view query) {
+    constexpr char hex[]="0123456789ABCDEF";
+    std::string encoded;
+    encoded.reserve(query.size()*3);
+    for(const unsigned char ch:query) {
+        if((ch>='A' && ch<='Z') || (ch>='a' && ch<='z') ||
+           (ch>='0' && ch<='9') || ch=='-' || ch=='_' ||
+           ch=='.' || ch=='~') {
+            encoded.push_back(static_cast<char>(ch));
+        } else {
+            encoded.push_back('%');
+            encoded.push_back(hex[ch>>4]);
+            encoded.push_back(hex[ch&15]);
+        }
+    }
+    return encoded;
+}
 
 inline CratesBrowserSearch prepare_crates_browser_search(
     std::string_view title,std::string_view artist) {
@@ -32,7 +52,9 @@ inline CratesBrowserSearch prepare_crates_browser_search(
     query.append(title);
     if(!beatport::text_ok(query,150))
         throw std::invalid_argument("Crates browser search query exceeds 150 bytes");
-    return CratesBrowserSearch{std::move(query)};
+    const auto url=std::string("https://crates.co/search?q=")+
+                   crates_percent_encode(query);
+    return CratesBrowserSearch{std::move(query),std::move(url)};
 }
 
 // Only one value is eligible for an unambiguous human search. Multiple
