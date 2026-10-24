@@ -47,6 +47,23 @@ inline bool native_track_activation_starts_online_search(
     return source_tab_index == 0 && !beatport_browser_mode;
 }
 
+// Once a source/rules/physical guard marks the workspace STALE, no delayed
+// network completion, tab refresh or candidate-selection callback may make
+// source-dependent actions appear executable again. Refresh is separate.
+inline constexpr bool native_workspace_action_ready(
+    bool stale_snapshot, bool eligible) noexcept {
+    return !stale_snapshot && eligible;
+}
+
+inline constexpr const wchar_t* kNativeStaleWorkspaceHint =
+    L"Source metadata, file identity or rules changed. Results are stale. "
+    L"Refresh snapshot to discard old decisions; no files were changed.";
+
+inline constexpr const wchar_t* native_workspace_display_hint(
+    bool stale_snapshot, const wchar_t* normal_text) noexcept {
+    return stale_snapshot ? kNativeStaleWorkspaceHint : normal_text;
+}
+
 // A master ID, unverified candidate, stale context or pending request
 // can never enable release-track inspection.
 inline bool native_release_loadable(

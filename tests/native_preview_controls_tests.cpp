@@ -278,6 +278,32 @@ int main() {
               3,3,10,false),
           "passive selection check uses stable source index, not display row");
 
+    // The actual shipping resource controls must stay disabled after a stale
+    // source is detected, including when candidate/UI refresh code recomputes
+    // normal eligibility or an asynchronous provider response completes.
+    for(const int id : {IDC_METADATA_MB_SEARCH,IDC_METADATA_MB_LOAD_RELEASE,
+                        IDC_METADATA_IMPORT_CANDIDATE,IDC_METADATA_INSPECT_CUE,
+                        IDC_ONLINE_INCLUDE_FIELDS,IDC_ONLINE_DATE_TARGET,
+                        IDC_ONLINE_WRITE_SELECTED}) {
+        HWND action=GetDlgItem(dialog,id);
+        check(action!=nullptr,"stale-gated action exists in actual dialog resource");
+        const bool previously_enabled=IsWindowEnabled(action)!=FALSE;
+        EnableWindow(action,djmeta_foobar::native_workspace_action_ready(true,true));
+        check(IsWindowEnabled(action)==FALSE,
+              "stale snapshot cannot reenable production action control");
+        EnableWindow(action,djmeta_foobar::native_workspace_action_ready(false,true));
+        check(IsWindowEnabled(action)!=FALSE,
+              "fresh verified action can be reenabled");
+        EnableWindow(action,djmeta_foobar::native_workspace_action_ready(false,false));
+        check(IsWindowEnabled(action)==FALSE,
+              "ineligible action stays disabled even if snapshot is fresh");
+        EnableWindow(action,previously_enabled?TRUE:FALSE);
+    }
+    check(std::wcscmp(djmeta_foobar::native_workspace_display_hint(
+              true,L"Old candidate found"),djmeta_foobar::kNativeStaleWorkspaceHint)==0 &&
+          std::wcscmp(djmeta_foobar::native_workspace_display_hint(
+              false,L"Old candidate found"),L"Old candidate found")==0,
+          "stale warning survives tab/candidate review text refresh");
     ShowWindow(dialog,SW_SHOWNA);
     ShowWindow(dialog,SW_MINIMIZE);
     check(IsIconic(dialog)!=FALSE,"native workspace minimizes independently");

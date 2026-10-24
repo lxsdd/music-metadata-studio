@@ -161,6 +161,13 @@
   index is invalid; any consequential operation still verifies every source
   and physical guard. Exact-SHA CI and installed-host responsiveness remain
   separate gates.
+- 2026-10-24: STALE UI freeze invariant (MMS-WF-08 / MMS-UI-05):
+  after an invalid source/rules/physical guard, candidate rerenders, tab
+  switching and delayed Discogs/MusicBrainz completion must not re-enable
+  online search, release loading, clipboard comparison, CUE inspection or
+  gated write controls. The stale warning has priority over normal stage
+  hints until a separate explicit Refresh succeeds. Native resource tests
+  qualify wiring; installed-host interaction remains outstanding.
 - **Remaining decisions that can only be made by the owner:** one final
   installed Windows foobar acceptance; explicit merge/release/production
   write activation when qualified; any new provider legal terms or genuine

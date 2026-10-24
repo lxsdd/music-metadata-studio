@@ -1483,7 +1483,7 @@ void update_online_release_load_button(PreviewState& state) {
         state.discogs_request!=nullptr || state.musicbrainz_request!=nullptr,
         selected_identity,exact_ids);
     EnableWindow(GetDlgItem(state.dialog,IDC_METADATA_MB_LOAD_RELEASE),
-                 ready?TRUE:FALSE);
+                 native_workspace_action_ready(state.stale,ready)?TRUE:FALSE);
     update_online_field_preview_controls(state);
 }
 
@@ -1527,7 +1527,8 @@ void update_metadata_table(PreviewState& state) {
             state.candidate_source_index == state.selected_track_index &&
             (state.cue_inspection_mode || state.cue_candidate_comparison_mode);
         EnableWindow(GetDlgItem(state.dialog, IDC_METADATA_IMPORT_CANDIDATE),
-                     (physical || selected_cue_preview) ? TRUE : FALSE);
+                     native_workspace_action_ready(
+                         state.stale,physical || selected_cue_preview)?TRUE:FALSE);
         const bool cue_readable = selected_valid &&
             (is_external_cue_locator(
                 state.entries[state.selected_track_index].input.source_path) ||
@@ -1538,7 +1539,7 @@ void update_metadata_table(PreviewState& state) {
                  state.entries[state.selected_track_index].input.source_path) &&
               state.entries[state.selected_track_index].handle->get_subsong_index() != 0));
         EnableWindow(GetDlgItem(state.dialog, IDC_METADATA_INSPECT_CUE),
-                     cue_readable ? TRUE : FALSE);
+                     native_workspace_action_ready(state.stale,cue_readable)?TRUE:FALSE);
         EnableWindow(GetDlgItem(state.dialog, IDC_METADATA_MB_SEARCH),
                      (physical || (!state.beatport_offline_selected && cue_readable)) &&
                      !state.discogs_request && !state.musicbrainz_request &&
@@ -1632,7 +1633,8 @@ void update_metadata_table(PreviewState& state) {
             : L"Copy a structured manual candidate or @beatport-track-facts "
               L"with @provider=beatport, @id=track:NNN, TITLE, ARTIST, VERSION "
               L"and DURATION=MM:SS. Import clipboard compares only; no writes.";
-        SetDlgItemTextW(state.dialog, IDC_BATCH_HINT, hint.c_str());
+        SetDlgItemTextW(state.dialog, IDC_BATCH_HINT,
+            native_workspace_display_hint(state.stale,hint.c_str()));
         return;
     }
     // A separate inventory mode is not a proposal and can never be accepted.
@@ -1657,9 +1659,10 @@ void update_metadata_table(PreviewState& state) {
             static_cast<int>(state.existing_tag_rows.size()),
             LVSICF_NOINVALIDATEALL|LVSICF_NOSCROLL);
         SetDlgItemTextW(state.dialog,IDC_BATCH_HINT,
-            L"All original physical tag fields and multivalues are displayed. "
-            L"Unchanged tags are included; the inventory is read-only. "
-            L"Virtual CUE subtracks are intentionally excluded.");
+            native_workspace_display_hint(state.stale,
+                L"All original physical tag fields and multivalues are displayed. "
+                L"Unchanged tags are included; the inventory is read-only. "
+                L"Virtual CUE subtracks are intentionally excluded."));
         InvalidateRect(state.metadata_list,nullptr,FALSE);
         return;
     }
@@ -1714,10 +1717,12 @@ void update_metadata_table(PreviewState& state) {
             L" need review. Preview only; no tags were written.";
         if (state.focused_metadata_rows.empty())
             notice += L" No proposed changes in this view.";
-        SetDlgItemTextW(state.dialog, IDC_BATCH_HINT, notice.c_str());
+        SetDlgItemTextW(state.dialog, IDC_BATCH_HINT,
+            native_workspace_display_hint(state.stale,notice.c_str()));
     } else if (state.dialog && state.show_metadata) {
         SetDlgItemTextW(state.dialog, IDC_BATCH_HINT,
-            L"No tracks match this filter. Choose All tracks to restore the full list.");
+            native_workspace_display_hint(state.stale,
+                L"No tracks match this filter. Choose All tracks to restore the full list."));
     }
 }
 
@@ -1943,8 +1948,9 @@ void show_preview_page(HWND dialog, PreviewState& state,
         update_metadata_table(state);
     } else {
         SetDlgItemTextW(dialog, IDC_BATCH_HINT,
-            L"Right-click selected rows to inspect raw candidate targets (read-only). "
-            L"Final foobar destinations and CUE dependencies are NOT verified.");
+            native_workspace_display_hint(state.stale,
+                L"Right-click selected rows to inspect raw candidate targets (read-only). "
+                L"Final foobar destinations and CUE dependencies are NOT verified."));
     }
 }
 
@@ -2821,13 +2827,12 @@ void mark_stale_workspace(PreviewState& state) {
                    IDC_METADATA_MB_SEARCH, IDC_METADATA_MB_LOAD_RELEASE,
                    IDC_METADATA_DISCOGS_NEXT_PAGE,
                    IDC_ONLINE_INCLUDE_FIELDS,IDC_ONLINE_IGNORE_FIELDS,
-                   IDC_ONLINE_RESET_FIELDS,
+                   IDC_ONLINE_RESET_FIELDS, IDC_ONLINE_DATE_TARGET_LABEL,
+                   IDC_ONLINE_DATE_TARGET, IDC_ONLINE_WRITE_SELECTED,
                    IDC_METADATA_INSPECT_CUE, IDC_METADATA_IMPORT_CANDIDATE})
         EnableWindow(GetDlgItem(state.dialog,id), FALSE);
     SetWindowTextW(state.dialog,L"Music Metadata Studio - STALE snapshot (Read-only)");
-    SetDlgItemTextW(state.dialog,IDC_BATCH_HINT,
-        L"Source metadata, file identity or rules changed. Results are stale. "
-        L"Refresh snapshot to discard old decisions; no files were changed.");
+    SetDlgItemTextW(state.dialog,IDC_BATCH_HINT,kNativeStaleWorkspaceHint);
 }
 
 // Verify the physical source on the UI thread before publishing asynchronous
@@ -4012,7 +4017,8 @@ void consume_discogs_network(HWND dialog, PreviewState& state) {
         DestroyWindow(dialog);
         return;
     }
-    EnableWindow(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH),TRUE);
+    EnableWindow(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH),
+                 native_workspace_action_ready(state.stale,true)?TRUE:FALSE);
     try {
         if(context && !state.online_context_version.matches(context->context_version)) {
             // Context changes deliberately cancel this reply, without a popup.
@@ -4188,7 +4194,8 @@ void consume_musicbrainz_network(HWND dialog, PreviewState& state) {
         DestroyWindow(dialog);
         return;
     }
-    EnableWindow(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH),TRUE);
+    EnableWindow(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH),
+                 native_workspace_action_ready(state.stale,true)?TRUE:FALSE);
     try {
         if(request && !state.online_context_version.matches(request->context_version)) {
             update_metadata_table(state); // stale responses cannot interrupt foobar
