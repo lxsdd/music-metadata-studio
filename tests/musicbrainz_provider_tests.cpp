@@ -858,6 +858,20 @@ int main() {
           identified.tracks[1].source_track_id==
               "44444444-4444-4444-4444-444444444444",
           "release track IDs remain distinct despite shared recording MBID");
+    check(identified.tracks[0].fields.size()==2 &&
+          identified.tracks[0].fields[0].field=="TITLE" &&
+          identified.tracks[0].fields[0].values==std::vector<std::string>{"One"} &&
+          identified.tracks[0].fields[1].field=="ARTIST" &&
+          identified.tracks[0].fields[1].values==std::vector<std::string>{"Artist"} &&
+          identified.tracks[0].fields[0].provider=="musicbrainz" &&
+          identified.tracks[0].fields[0].source_id==identified.tracks[0].source_track_id &&
+          identified.tracks[0].fields[0].scope==EvidenceScope::Edition &&
+          identified.tracks[1].fields[0].source_id==identified.tracks[1].source_track_id,
+          "exact TITLE/ARTIST evidence belongs to each distinct release-track occurrence");
+    check(edition.tracks[0].fields.empty() &&
+          compilation.tracks[1].fields.empty() &&
+          enriched.tracks[0].fields.empty(),
+          "missing release-track IDs do not synthesize edition-scoped track fields");
     std::vector<LocalReleaseTrack> repeated_recording(2);
     repeated_recording[0].source_index=0;
     repeated_recording[0].recording.title="One";
