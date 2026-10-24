@@ -263,6 +263,10 @@ struct PreviewState {
     djmeta::TrackDiscovery track_discovery = djmeta::TrackDiscovery::All;
     std::vector<djmeta::TrackReviewSummary> track_summaries;
     std::vector<std::size_t> track_view_order;
+    // Basename order is immutable until Refresh, even when review counts change.
+    // Cache ascending and descending separately to keep stable equal-name ties.
+    std::vector<std::size_t> cached_name_order_ascending;
+    std::vector<std::size_t> cached_name_order_descending;
     std::vector<djmeta::MetadataDiffRow> focused_metadata_rows;
     std::vector<djmeta::AnalysisResult> analyses;
     std::vector<std::vector<djmeta::ReviewDecision>> review_decisions;
@@ -270,6 +274,7 @@ struct PreviewState {
     djmeta::TrackDiffIndex metadata_row_index; // built once per snapshot
     std::vector<std::size_t> metadata_view_order;
     std::vector<std::string> source_labels;
+    std::vector<std::string> cached_track_sort_labels;
     std::vector<std::wstring> cached_track_names;
     djmeta::BatchTableLayout layout = djmeta::default_batch_table_layout();
     // Visible ListView item index -> underlying input row identity.
@@ -1733,15 +1738,31 @@ void update_master_table(PreviewState& state) {
     // This is essential for Selected tracks actions after a sort/filter.
     const auto previously_selected =
         selected_native_view_ids(state.metadata_track_list, state.track_view_order);
-    std::vector<std::string> labels;
-    labels.reserve(state.source_labels.size());
-    for(const auto& path:state.source_labels)
-        labels.push_back(readable_track_name(path));
-    state.track_view_order = djmeta::sort_track_summaries(
-        state.track_summaries, labels, state.track_grid.sort_column,
-        state.track_grid.sort_descending);
+    // Immutable source names are parsed once when capturing/refreshing the
+    // snapshot. Avoid 54k repeated string allocations on every review action.
+    if(state.cached_track_sort_labels.size()!=state.entries.size())
+        throw std::runtime_error("Track sort-label cache is stale; refresh snapshot.");
+    std::vector<std::size_t> sorted_sources;
+    if(state.track_grid.sort_column==0) {
+        // File identity/name cannot be edited by in-memory review decisions.
+        // Reuse the stable filename sort during 54k-track batch approvals.
+        auto& cached=state.track_grid.sort_descending
+            ? state.cached_name_order_descending
+            : state.cached_name_order_ascending;
+        if(cached.size()!=state.entries.size())
+            cached=djmeta::sort_track_summaries(
+                state.track_summaries,state.cached_track_sort_labels,
+                0,state.track_grid.sort_descending);
+        sorted_sources=cached;
+    } else {
+        // Review counts change after Accept/Reject/Reset: always re-sort
+        // those dynamic columns against the newly refreshed summaries.
+        sorted_sources=djmeta::sort_track_summaries(
+            state.track_summaries,state.cached_track_sort_labels,
+            state.track_grid.sort_column,state.track_grid.sort_descending);
+    }
     state.track_view_order = djmeta::filter_track_view(
-        state.track_summaries, state.track_view_order, state.track_discovery);
+        state.track_summaries, sorted_sources, state.track_discovery);
     const std::set<std::size_t> visible(state.track_view_order.begin(),
                                         state.track_view_order.end());
     std::vector<std::size_t> selected;
@@ -2957,8 +2978,9 @@ void refresh_workspace_snapshot(PreviewState& state) {
             next.review_decisions.emplace_back(analysis.proposals.size());
         for (const auto& entry: next.entries) {
             next.source_labels.push_back(entry.input.source_path);
-            next.cached_track_names.push_back(from_utf8(
-                readable_track_name(entry.input.source_path)));
+            const auto name=readable_track_name(entry.input.source_path);
+            next.cached_track_sort_labels.push_back(name);
+            next.cached_track_names.push_back(from_utf8(name));
         }
         refresh_review_summaries(next);
         state.entries.swap(next.entries);
@@ -2968,6 +2990,7 @@ void refresh_workspace_snapshot(PreviewState& state) {
         state.review_decisions.swap(next.review_decisions);
         state.track_summaries.swap(next.track_summaries);
         state.source_labels.swap(next.source_labels);
+        state.cached_track_sort_labels.swap(next.cached_track_sort_labels);
         state.cached_track_names.swap(next.cached_track_names);
         state.captured_rules=std::move(next.captured_rules);
         state.current_choice=std::move(next.current_choice);
@@ -3007,6 +3030,8 @@ void refresh_workspace_snapshot(PreviewState& state) {
         state.track_discovery=djmeta::TrackDiscovery::All;
         state.focused_metadata_rows.clear();
         state.track_view_order.clear();
+        state.cached_name_order_ascending.clear();
+        state.cached_name_order_descending.clear();
         state.metadata_view_order.clear();
         state.view_order.clear();
         state.stale=false;
@@ -6343,8 +6368,9 @@ void show_batch_preview_dialog(
         refresh_review_summaries(*state);
         for (const auto& item : state->entries) {
             state->source_labels.push_back(item.input.source_path);
-            state->cached_track_names.push_back(from_utf8(
-                readable_track_name(item.input.source_path)));
+            const auto name=readable_track_name(item.input.source_path);
+            state->cached_track_sort_labels.push_back(name);
+            state->cached_track_names.push_back(from_utf8(name));
         }
         INITCOMMONCONTROLSEX controls = {};
         controls.dwSize = sizeof(controls);

@@ -382,6 +382,43 @@ for label, source, token in [
     if token not in source:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing " + label)
 
+# Original source filenames are immutable within the captured workspace.
+# Reuse their already-parsed UTF-8 sort labels on every review decision,
+# column sort and filter. Refresh swaps them with its complete new snapshot.
+for token in (
+    "std::vector<std::string> cached_track_sort_labels;",
+    "state.track_summaries, state.cached_track_sort_labels,",
+    "next.cached_track_sort_labels.push_back(name);",
+    "state->cached_track_sort_labels.push_back(name);",
+    "state.cached_track_sort_labels.swap(next.cached_track_sort_labels);",
+    "state.cached_track_sort_labels.size()!=state.entries.size()",
+):
+    if token not in batch_table_dialog:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing immutable 54k track-name cache: " + token)
+master_sort_body = batch_table_dialog.split(
+    "void update_master_table(PreviewState& state) {",1)[1].split(
+    "void update_live_provider_controls(PreviewState& state) {",1)[0]
+if "labels.push_back(readable_track_name(path))" in master_sort_body:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: O(54k) name rematerialization reintroduced")
+
+# The default filename sort is stable throughout in-memory decisions.
+# Cache both orders (not a reversed ascending order, which would flip ties),
+# but keep review-count sorting live after Accept/Reject/Reset.
+for token in (
+    "cached_name_order_ascending",
+    "cached_name_order_descending",
+    "if(state.track_grid.sort_column==0)",
+    "cached=djmeta::sort_track_summaries(",
+    "sorted_sources=djmeta::sort_track_summaries(",
+    "state.cached_name_order_ascending.clear();",
+    "state.cached_name_order_descending.clear();",
+):
+    if token not in batch_table_dialog:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: source-name sort cache incomplete: " + token)
+if "dynamic review count cannot" not in (
+    root / "tests" / "track_review_tests.cpp").read_text(encoding="utf-8"):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing immutable-vs-dynamic sort regression")
+
 # Switching among 54k selected tracks must not scan every proposal again.
 # The exact source-local index is built with the snapshot and atomically
 # exchanged on Refresh; the full proposal/approval data remains immutable.

@@ -162,6 +162,22 @@
   review decisions and Apply; selected-source online operations use the
   source-local evidence guard. Exact-SHA CI and installed-host responsiveness
   remain separate gates.
+- 2026-10-24: Stable master-grid filename order (MMS-OPS-03 /
+  MMS-WF-03): ascending and descending original-filename sort orders are
+  memoized independently for a captured snapshot. Accept/Reject/Reset
+  change review counts but cannot change the original filename key; each
+  recalculation now filters cached order rather than performing another
+  54k-row stable sort. Count columns still re-sort dynamically; explicit
+  Refresh clears both caches. Unit tests cover decisions changing counts,
+  Unicode-independent stable equal-name ties and separate sort directions.
+- 2026-10-24: Immutable master-grid sort labels (MMS-OPS-03):
+  UTF-8 basename keys for original sources are calculated once alongside
+  the existing Unicode display labels, and swapped together on Refresh.
+  Review decisions and column/filter changes reuse these keys instead of
+  allocating 54,129 new strings before sorting. The source filename is
+  never inferred from a proposed destination; stale cache count blocks
+  the update. Native static audit enforces the reuse; host latency remains
+  unqualified until installed Windows acceptance.
 - 2026-10-24: Indexed local normalization review (MMS-OPS-03 /
   MMS-WF-03): the per-track detail grid now accesses an immutable
   source-to-proposal index built once with each captured snapshot. Navigating

@@ -130,6 +130,29 @@ int main(){
     check((by_name==std::vector<std::size_t>{1,2,0}) &&
           (by_review==std::vector<std::size_t>{0,1,2}),
           "stable master row sort and index mapping");
+    // The native grid may reuse a filename order after preview decisions,
+    // because those decisions change only counts, never source identity.
+    auto modified_summaries=all;
+    modified_summaries[2].review_required=100;
+    modified_summaries[2].music_changes=100;
+    const auto by_name_after_decision=sort_track_summaries(
+        modified_summaries,names,0,false);
+    const auto by_name_desc=sort_track_summaries(all,names,0,true);
+    const auto by_name_desc_after_decision=sort_track_summaries(
+        modified_summaries,names,0,true);
+    const auto by_review_after_decision=sort_track_summaries(
+        modified_summaries,names,3,true);
+    check(by_name_after_decision==by_name &&
+          by_name_desc==std::vector<std::size_t>({0,2,1}) &&
+          by_name_desc_after_decision==by_name_desc &&
+          by_review_after_decision!=by_review,
+          "immutable source filename order can be cached; dynamic review count cannot");
+    const std::vector<std::string> tied_names={"same","same","z"};
+    const auto tied_ascending=sort_track_summaries(all,tied_names,0,false);
+    const auto tied_descending=sort_track_summaries(all,tied_names,0,true);
+    check(tied_ascending==std::vector<std::size_t>({0,1,2}) &&
+          tied_descending==std::vector<std::size_t>({2,0,1}),
+          "ascending and descending filename caches keep stable equal-name source order");
     const auto all_tracks=filter_track_view(all,by_name,TrackDiscovery::All);
     const auto changed_tracks=filter_track_view(all,by_name,TrackDiscovery::Changed);
     const auto review_tracks=filter_track_view(all,by_name,TrackDiscovery::NeedsReview);
