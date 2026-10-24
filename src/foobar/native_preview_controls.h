@@ -26,8 +26,8 @@ inline POINT native_column_menu_point(HWND header, LPARAM pointer) {
     RECT bounds{};
     if(header && GetWindowRect(header,&bounds) &&
        bounds.right>bounds.left && bounds.bottom>bounds.top)
-        return {bounds.left+(std::min)(12,bounds.right-bounds.left-1),
-                bounds.top+(std::min)(12,bounds.bottom-bounds.top-1)};
+        return {bounds.left+(std::min)(12L,bounds.right-bounds.left-1),
+                bounds.top+(std::min)(12L,bounds.bottom-bounds.top-1)};
     POINT fallback{};
     GetCursorPos(&fallback);
     return fallback;
