@@ -524,3 +524,9 @@
 
 - The loaded exact MusicBrainz edition now displays the complete unchanged CUE inventory as a separate local group, including global CATALOG, repeated/unknown REM and structural FILE references. The same source carrier was already independently visible in the Discogs release comparison.
 - A 10,000-row display bound fails closed rather than silently dropping source occurrences; no local CUE fact is converted into a provider proposal. Native static audit requires the production handoff. Installed foobar layout remains a separate acceptance gate.
+
+### 2026-10-25 — MusicBrainz release-track evidence parity (MMS-CUE-01, MMS-SRC-08)
+
+- The official exact-release parser now attaches TITLE and, where present, ARTIST evidence to a valid release-track occurrence MBID. Missing occurrence IDs or missing artist credits remain unknown rather than acquiring a release/recording substitute.
+- The native CUE comparison now requires this same edition-scoped field provenance and exact value before a matched track difference is marked reviewable. Foreign, missing or mismatched fields remain blocked diagnostics; a plausible title/ISRC match alone is insufficient.
+- Regression follows a parsed official response through the source-verified in-memory CUE postimage adapter, not just synthetic hand-built editions. No CUE/tag/FileOps writer was enabled; exact-HEAD CI and installed foobar visual QA remain separate gates.
