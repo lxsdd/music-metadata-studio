@@ -375,3 +375,14 @@
   multivalue/fallback fixtures in tests/beatport_manual_intake_tests.cpp.
   Actual result quality and installed foobar UX still require final host
   acceptance, and no search result gains write permission.
+
+### 2026-10-24 — FileOps preflight: contradictory literal path / canonical key (MMS-FILE-03/06)
+
+- Copy, move and rename to a byte-identical source pathname are now blocked
+  if host-supplied canonical keys disagree. An inconsistent/stale host key
+  must not convert the exact same file path into a purported distinct copy
+  destination or an overwrite needing consent. A real exact-key/path move
+  remains a no-op; case-only aliases continue to require separate qualification.
+- Tested both missing and pre-existing destination observations for all
+  three actions, including blanket overwrite approval and the detached
+  freeze boundary. Pure read-only core; no filesystem probe or writer added.

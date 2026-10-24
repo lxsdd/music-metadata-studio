@@ -398,6 +398,15 @@ BatchPlanReview review_batch_plan(
                 !(item.action != FileAction::Copy &&
                   item.source_key == item.target_key &&
                   item.source_path == item.target_path);
+            // A host-supplied canonical key may be stale or inconsistent.
+            // Equal literal source/target paths cannot describe a distinct
+            // copy/move destination even when their supplied keys disagree.
+            // Never turn such a contradiction into a destructive self-copy
+            // or a separately approved overwrite.
+            if (!item.target_path.empty() &&
+                item.target_path == item.source_path &&
+                item.target_key != item.source_key)
+                block(decision, "SOURCE_TARGET_KEY_CONTRADICTS_SAME_PATH");
             if (item.target_path.empty() || item.target_key.empty())
                 block(decision, "MISSING_TARGET_PATH_OR_IDENTITY");
             if (!item.target_key.empty() && target_key_counts[item.target_key] > 1)

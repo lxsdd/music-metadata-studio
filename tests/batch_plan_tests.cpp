@@ -1002,6 +1002,47 @@ void test_same_canonical_key_but_different_raw_path_is_not_noop() {
             "exact same source and target path remains a no-op");
 }
 
+void test_same_raw_path_with_different_keys_fails_closed() {
+    // A stale/corrupt canonicalization result must not turn the same
+    // literal file into a purported new target (or an overwrite).
+    for (auto action : {djmeta::FileAction::Copy,
+                        djmeta::FileAction::Move,
+                        djmeta::FileAction::Rename}) {
+        auto item = audio("ContradictoryCanonicalKey");
+        item.action = action;
+        item.target_path = item.source_path;
+        // Retain its nominal 'Singles' key, different from 'Downloads'.
+        for (auto presence : {djmeta::TargetPresence::Missing,
+                              djmeta::TargetPresence::Existing}) {
+            item.target_presence = presence;
+            item.target_guard = presence == djmeta::TargetPresence::Existing
+                ? "fresh-existing-target" : "";
+            item.target_physical_id = presence == djmeta::TargetPresence::Existing
+                ? "existing-os-target" : "";
+            const auto result = djmeta::review_batch_plan({item});
+            require(result.blocked == 1 && !result.ready_to_apply &&
+                    result.decisions[0].status == djmeta::PlanStatus::Blocked &&
+                    has_reason(result.decisions[0],
+                        "SOURCE_TARGET_KEY_CONTRADICTS_SAME_PATH") &&
+                    !result.decisions[0].file_operation_needed &&
+                    !result.decisions[0].will_replace_existing_target,
+                    "exact same pathname with different canonical keys must block FileOps");
+            const djmeta::BatchApproval approval{
+                result.plan_fingerprint, true};
+            const auto reviewed = djmeta::review_batch_plan({item}, &approval);
+            require(reviewed.blocked == 1 && !reviewed.ready_to_apply &&
+                    !reviewed.decisions[0].file_operation_needed &&
+                    !reviewed.decisions[0].will_replace_existing_target,
+                    "blanket consent cannot bypass contradictory identity evidence");
+            try {
+                (void)djmeta::freeze_reviewed_batch_preview({item}, approval);
+                require(false,
+                    "contradictory FileOps target must never freeze for execution");
+            } catch (const std::invalid_argument&) {}
+        }
+    }
+}
+
 void test_embedded_nul_in_plan_identity_fails_closed() {
     const auto sample = audio("nul-input");
     const auto inject_nul = [](std::string& field) {
@@ -1456,6 +1497,7 @@ int main() {
     test_cue_rewrite_only_on_external_cue_items();
     test_metadata_only_requires_physical_identity();
     test_same_canonical_key_but_different_raw_path_is_not_noop();
+    test_same_raw_path_with_different_keys_fails_closed();
     test_embedded_nul_in_plan_identity_fails_closed();
     test_frozen_approved_snapshot_is_detached_and_non_executing();
     test_noop_and_missing_ids();
