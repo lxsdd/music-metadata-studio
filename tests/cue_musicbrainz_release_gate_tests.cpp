@@ -34,7 +34,27 @@ int main(){
           "known named mix and ISRC are independently suggested");
     check(qualified_musicbrainz_cue_album_alignment(cue,edition,alignment),
           "complete exact edition qualifies source-only album comparison");
-    // An MB release-track occurrence ID belongs to EDITION evidence.
+    const auto coded_cue=inspect_cue_metadata(
+        "CATALOG 4006381333931\nTITLE \"Local album\"\n"
+        "PERFORMER \"DJ\"\nFILE \"set.flac\" WAVE\n"
+        "TRACK 01 AUDIO\nTITLE \"Sunrise (Extended Mix)\"\n"
+        "PERFORMER \"DJ\"\nISRC GBABC2600001\nINDEX 01 00:00:00\n",
+        CueCarrierKind::EmbeddedText);
+    auto coded_edition=edition;
+    coded_edition.fields.push_back({"BARCODE",{"4006381333931"},
+        "musicbrainz",edition_id,EvidenceScope::Edition});
+    check(qualified_musicbrainz_cue_album_alignment(
+        coded_cue,coded_edition,alignment),
+        "equal exact-edition media barcode retains full album alignment");
+    coded_edition.fields.back().values={"036000291452"};
+    check(!qualified_musicbrainz_cue_album_alignment(
+        coded_cue,coded_edition,alignment),
+        "different exact-edition media barcode defeats plausible track alignment");
+    coded_edition.fields.pop_back();
+    check(qualified_musicbrainz_cue_album_alignment(
+        coded_cue,coded_edition,alignment),
+        "missing provider barcode remains unknown, not a fabricated conflict");
+
     // Its TITLE/ARTIST compare against that exact local CUE track through
     // the dedicated edition-track mapper, never the physical recording tag.
     FieldEvidence occurrence{"TITLE",{"Sunrise (Extended Mix)"},
