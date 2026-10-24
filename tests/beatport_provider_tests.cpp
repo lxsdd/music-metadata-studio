@@ -57,11 +57,18 @@ int main() {
           prepare_crates_browser_search(crates_document).browser_url==
               local_crates.browser_url,
           "Crates bridge excludes DATE, CUESHEET, token and other local tags from URL");
-    check(prepare_crates_browser_search(MetadataDocument{{
+    const MetadataDocument collaboration_original{{
         {"TITLE",{"Together (Extended Mix)"}},
-        {"ARTIST",{"DJ A","DJ B"}}}}).search_text==
-              "Together (Extended Mix)",
-          "multivalued artist credits remain untouched and no primary artist is invented");
+        {"ARTIST",{"DJ A","DJ B"}}}};
+    const auto collaboration_search=prepare_crates_browser_search(
+        collaboration_original);
+    check(collaboration_search.search_text==
+              "DJ A DJ B Together (Extended Mix)" &&
+          collaboration_search.browser_url==
+              "https://crates.co/search?q=DJ%20A%20DJ%20B%20Together%20%28Extended%20Mix%29" &&
+          collaboration_original.fields[1].values==
+              std::vector<std::string>({"DJ A","DJ B"}),
+          "multiple physical artists remain untouched while all are used as search tokens");
     check(prepare_crates_browser_search("Home",std::string(149,'A')).search_text==
               "Home",
           "oversize joint search safely preserves the original full title");
