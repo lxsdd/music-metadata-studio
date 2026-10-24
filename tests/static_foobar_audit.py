@@ -1201,6 +1201,7 @@ for token in (
     "const bool focused_selected=release_focused_row>=0",
     "native_selected_release_activation_row(header->code",
     "!state->stale && state->show_candidate",
+    "!pasted_comparison_group_view(*state)",
     "native_focus_exact_release_row(",
     "state->updating_musicbrainz_selection=true",
     "update_online_release_load_button(*state);",

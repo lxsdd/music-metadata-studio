@@ -5106,6 +5106,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             static_cast<std::size_t>(activated_release_row)<
                 state->candidate_view_order.size() &&
             !state->stale && state->show_candidate &&
+            // Pasted comparison groups are not provider release hits. A
+            // double-click may inspect them but must not collapse a user's
+            // multi-selection into a fake Load release action.
+            !pasted_comparison_group_view(*state) &&
             state->candidate_source_index==state->selected_track_index &&
             !state->discogs_request && !state->musicbrainz_request &&
             !state->beatport_public_request &&
