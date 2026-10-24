@@ -387,7 +387,7 @@ for label, source, token in [
 # column sort and filter. Refresh swaps them with its complete new snapshot.
 for token in (
     "std::vector<std::string> cached_track_sort_labels;",
-    "state.track_summaries, state.cached_track_sort_labels,",
+    "state.track_summaries,state.cached_track_sort_labels,",
     "next.cached_track_sort_labels.push_back(name);",
     "state->cached_track_sort_labels.push_back(name);",
     "state.cached_track_sort_labels.swap(next.cached_track_sort_labels);",
