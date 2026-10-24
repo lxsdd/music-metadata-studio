@@ -106,6 +106,25 @@ int main() {
           "unverified host/cue gates must remain visible");
     check(c.unqualified_rows == 2, "unqualified rows must be counted");
 
+    // A source can be independently blocked while its displayed raw target
+    // still conflicts with a qualified row. Both rows must show that warning.
+    a = sample("unqualified-source.mp3");
+    b = sample("qualified-source.mp3");
+    a.physical_source_qualified = false;
+    const auto mixed_qualification = djmeta::describe_batch_preview({a, b});
+    check(mixed_qualification.raw_collision_items == 2 &&
+          contains(mixed_qualification.rows[0], "PHYSICAL_SOURCE_UNQUALIFIED") &&
+          contains(mixed_qualification.rows[0], "DUPLICATE_RAW_TARGET") &&
+          contains(mixed_qualification.rows[1], "DUPLICATE_RAW_TARGET"),
+          "unqualified source cannot hide a raw collision from its peer");
+    a.destination_root = "z:\\music\\singles";
+    a.raw_relative_path = "test\\artist - track";
+    const auto mixed_spelling = djmeta::describe_batch_preview({a, b});
+    check(mixed_spelling.raw_collision_items == 2 &&
+          contains(mixed_spelling.rows[0], "RAW_TARGET_CASE_OR_SEPARATOR_COLLISION") &&
+          contains(mixed_spelling.rows[1], "RAW_TARGET_CASE_OR_SEPARATOR_COLLISION"),
+          "unqualified source cannot hide a Windows spelling collision");
+
     // Different literal text can still name the same prospective Windows
     // target. This is not canonical FileOps path proof.
     a=sample("case-a.mp3");
