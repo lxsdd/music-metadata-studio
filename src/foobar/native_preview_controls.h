@@ -320,6 +320,18 @@ inline std::vector<std::size_t> selected_native_view_ids(
     return ids;
 }
 
+// Display-only group headers use a sentinel outside the captured proposal
+// range. Resolve a native multi-selection to actionable proposal rows only.
+inline std::vector<std::size_t> selected_native_proposal_ids(
+    HWND list, const std::vector<std::size_t>& view_order,
+    std::size_t proposal_count) {
+    auto ids=selected_native_view_ids(list,view_order);
+    ids.erase(std::remove_if(ids.begin(),ids.end(),
+        [proposal_count](std::size_t id) { return id>=proposal_count; }),
+        ids.end());
+    return ids;
+}
+
 // The detail grid always shows ONE current source even when the master grid
 // marks many sources for a later scoped review action. Keep that distinction
 // visible without scanning a 54k-row selection on each LVN_ITEMCHANGED.
