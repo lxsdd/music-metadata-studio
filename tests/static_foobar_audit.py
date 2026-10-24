@@ -850,6 +850,21 @@ for token in (
     if token not in batch_table_dialog:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: MB/CUE release full alignment gate missing: "+token)
 
+# Native MusicBrainz CUE rows must use the same occurrence-bound field
+# provenance as the parsed release and the selected postimage adapter.
+mb_cue_provenance = batch_table_dialog.split(
+    "musicbrainz_cue_release_rows(", 1)[-1].split(
+    "// The core matcher is the only authority", 1)[0]
+for token in (
+    "qualified_cue_edition_track_provenance(edition,i)",
+    "evidence.source_id==remote.source_track_id",
+    "evidence.values.front()==value",
+    "if (local_ordinal && verified_value)",
+    "musicbrainz_live_release_track_field_unverified",
+):
+    if token not in mb_cue_provenance:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: MB CUE occurrence field provenance missing: "+token)
+
 # The loaded MusicBrainz edition must keep the complete real CUE carrier
 # visible as a separate source group, just like the Discogs edition view.
 mb_cue_rows = batch_table_dialog.split(
