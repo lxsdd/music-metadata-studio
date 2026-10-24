@@ -762,11 +762,12 @@ if "constexpr std::string_view lookup_suffix=" in online_transport or \
    "constexpr std::string_view search_suffix=" in online_transport:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: duplicated native MusicBrainz route suffix")
 
-# Native track tooltip must describe the actual tab/provider-dependent
-# gesture. It must never falsely imply that Review/File tabs trigger search.
+# Native track tooltip must describe both guarded Find-tab actions:
+# official MB/Discogs HTTPS or explicit Crates browser hand-off. Review/File
+# navigation must not trigger either a provider request or browser launch.
 if "search MusicBrainz from any tab" in batch_table_dialog or \
-   "Find tab: double-click/Enter searches MusicBrainz or Discogs." not in batch_table_dialog or \
-   "Other tabs: navigate to Find without searching." not in batch_table_dialog:
+   "Find tab: double-click/Enter searches MusicBrainz or Discogs, or opens Crates" not in batch_table_dialog or \
+   "Other tabs only navigate to Find without launching an online action." not in batch_table_dialog:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: misleading track activation tooltip")
 
 # Track-selection prefill is provider-aware: never insert TITLE in a URL
