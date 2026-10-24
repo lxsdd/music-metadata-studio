@@ -34,6 +34,7 @@ int main(){
           "known named mix and ISRC are independently suggested");
     check(qualified_musicbrainz_cue_album_alignment(cue,edition,alignment),
           "complete exact edition qualifies source-only album comparison");
+    // The native album gate must honor the same media-identity conflict.
     const auto coded_cue=inspect_cue_metadata(
         "CATALOG 4006381333931\nTITLE \"Local album\"\n"
         "PERFORMER \"DJ\"\nFILE \"set.flac\" WAVE\n"
@@ -55,6 +56,7 @@ int main(){
         coded_cue,coded_edition,alignment),
         "missing provider barcode remains unknown, not a fabricated conflict");
 
+    // An MB release-track occurrence ID belongs to EDITION evidence.
     // Its TITLE/ARTIST compare against that exact local CUE track through
     // the dedicated edition-track mapper, never the physical recording tag.
     FieldEvidence occurrence{"TITLE",{"Sunrise (Extended Mix)"},
