@@ -680,11 +680,15 @@ inline std::vector<RecordingSearchAttempt> release_search_plan(
             "/ws/2/release?query="+
             encode_url_query("barcode:"+std::string(cue_barcode))+
             std::string(search_request_suffix)});
-    if(valid_search_term(artist))
-        attempts.push_back({"Release title + album artist",
-            make_search_path(SearchKind::Release,album,artist)});
-    attempts.push_back({"Release title only (artist unverified)",
-        make_search_path(SearchKind::Release,album,"")});
+    if(valid_search_term(album)) {
+        if(valid_search_term(artist))
+            attempts.push_back({"Release title + album artist",
+                make_search_path(SearchKind::Release,album,artist)});
+        attempts.push_back({"Release title only (artist unverified)",
+            make_search_path(SearchKind::Release,album,"")});
+    }
+    if(attempts.empty())
+        throw std::invalid_argument("A qualified release title or CUE barcode is required");
     return attempts;
 }
 
