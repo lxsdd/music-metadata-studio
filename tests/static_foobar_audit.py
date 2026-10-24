@@ -1123,6 +1123,18 @@ if not (
 ):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: tooltip must pop before hidden close")
 
+# Search-button hover help must follow the chosen online source rather
+# than leaving Beatport-only instructions visible on MusicBrainz/Discogs.
+provider_change = batch_rules_guard.split(
+    "if(id==IDC_METADATA_ONLINE_PROVIDER && HIWORD(wp)==CBN_SELCHANGE)",1)[1].split(
+    "if (id == IDCANCEL)",1)[0]
+if not (
+    "update_workspace_search_tooltip(*state);" in provider_change
+    and "TTM_UPDATETIPTEXTW" in batch_rules_guard
+    and "native_search_action_tooltip(" in batch_rules_guard
+):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: provider help is not updated")
+
 # External-CUE inventories may involve slow multi-FILE source probes. All
 # distinct references must be rechecked together after the initial scan and
 # before publishing even advisory PRESENT/MISSING/ALIAS labels.

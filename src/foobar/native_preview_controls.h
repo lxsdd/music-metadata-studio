@@ -274,6 +274,25 @@ inline constexpr bool native_workspace_dismisses_tooltip(
     }
 }
 
+// One search action serves three very different authorized transports.
+// A static Beatport-only tooltip on the MusicBrainz/Discogs Search button
+// wrongly describes how that button acts after changing providers. Keep
+// provider help pure and backed by immutable storage for tooltip HWNDs.
+inline constexpr const wchar_t* native_search_action_tooltip(
+    bool discogs_selected, bool beatport_offline_selected) noexcept {
+    if (beatport_offline_selected)
+        return L"Beatport offline: search is an explicit public track URL "
+               L"lookup. Paste one canonical URL or leave the box empty "
+               L"to use a URL you just copied from Crates. No catalog login.";
+    if (discogs_selected)
+        return L"Search Discogs with the current title/artist/version or "
+               L"exact release/master URL. Use Broaden/Next page explicitly. "
+               L"Your personal token is never stored.";
+    return L"Search MusicBrainz with title/album plus available source "
+           L"identity and guarded fallback strategies. This is evidence, "
+           L"not an approved metadata change.";
+}
+
 // Keep the two real master/detail ListViews balanced across a resize.
 // Rectangles use the dialog client coordinate system and remain separate
 // from review identity, normalization and write logic.

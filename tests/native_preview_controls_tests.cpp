@@ -353,6 +353,18 @@ int main() {
               WM_PAINT,0),
           "normal typing, painting and window reactivation cannot "
           "prematurely dismiss an explanatory tooltip");
+    const auto mb_help=djmeta_foobar::native_search_action_tooltip(false,false);
+    const auto discogs_help=djmeta_foobar::native_search_action_tooltip(true,false);
+    const auto beatport_help=djmeta_foobar::native_search_action_tooltip(false,true);
+    check(std::wcsstr(mb_help,L"MusicBrainz")!=nullptr &&
+          std::wcsstr(mb_help,L"Beatport")==nullptr &&
+          std::wcsstr(discogs_help,L"Discogs")!=nullptr &&
+          std::wcsstr(discogs_help,L"MusicBrainz")==nullptr &&
+          std::wcsstr(beatport_help,L"Beatport")!=nullptr &&
+          std::wcsstr(beatport_help,L"Discogs")==nullptr &&
+          djmeta_foobar::native_search_action_tooltip(true,true)==beatport_help,
+          "search action tooltips follow selected MusicBrainz/Discogs/"
+          "Beatport transport rather than claiming Beatport for every source");
     ShowWindow(dialog,SW_SHOWNA);
     ShowWindow(dialog,SW_MINIMIZE);
     check(IsIconic(dialog)!=FALSE,"native workspace minimizes independently");

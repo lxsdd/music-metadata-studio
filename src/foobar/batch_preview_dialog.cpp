@@ -3039,7 +3039,7 @@ void install_workspace_tooltips(PreviewState& state) {
     SendMessageW(tips,TTM_SETDELAYTIME,TTDT_RESHOW,200);
     SendMessageW(tips,TTM_SETDELAYTIME,TTDT_AUTOPOP,5200);
     struct HelpText { int id; const wchar_t* text; };
-    static constexpr HelpText texts[] = {
+    const HelpText texts[] = { // static-lifetime literal text, dynamic provider ID
         {IDC_BATCH_TABS,L"1. Search online and compare. 2. Review local rule-based suggestions. 3. Preview file locations. These previews do not write files."},
         {IDC_BATCH_GUIDE,L"Follow the steps from left to right. A MusicBrainz match is evidence, not an approved tag edit."},
         {IDC_METADATA_TRACK_LIST,L"Find tab: double-click/Enter searches MusicBrainz or Discogs. Other tabs: navigate to Find without searching. Beatport requires Find in Crates or an explicit URL."},
@@ -3047,7 +3047,8 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_METADATA_ONLINE_PROVIDER,L"MusicBrainz and Discogs use official APIs. Beatport + Crates supports single public Beatport URLs, lawful clipboard evidence and a hand-off to your existing Crates browser account; no logged-in API impersonation."},
         {IDC_METADATA_DISCOGS_TOKEN_LABEL,L"Discogs token only lives in this password control."},
         {IDC_METADATA_DISCOGS_TOKEN,L"Personal Discogs API token. Not saved, logged, embedded or copied into URLs."},
-        {IDC_METADATA_MB_SEARCH,L"Beatport: enter one exact public track URL, or leave the box empty and click after copying that URL from Crates. Only a canonical https://www.beatport.com/track/slug/id is accepted. No login, redirects, retries or tag writes."},
+        {IDC_METADATA_MB_SEARCH,native_search_action_tooltip(
+            state.discogs_provider_selected,state.beatport_offline_selected)},
         {IDC_METADATA_DISCOGS_NEXT_PAGE,L"Discogs: explicitly load one more page. Beatport: Find in Crates copies only ARTIST and full TITLE (including mix) to the clipboard, then opens crates.co in your usual browser. Paste into Search. No Beatport credentials, cookies or metadata files are transferred."},
         {IDC_METADATA_MB_LOAD_RELEASE,L"Inspect a verified exact release; unmatched Discogs track credits remain blocked."},
         {IDC_ONLINE_INCLUDE_FIELDS,L"Include highlighted exact edition album fields or independently verified release-track credits in a detached preview. No files are changed."},
@@ -3096,6 +3097,23 @@ void install_workspace_tooltips(PreviewState& state) {
         if (!SendMessageW(tips,TTM_ADDTOOLW,0,reinterpret_cast<LPARAM>(&tool)))
             throw std::runtime_error("Native tooltip registration failed.");
     }
+}
+
+// Tool info is HWND-identified exactly as when initially registered.
+// A provider switch updates its text in place and dismisses any prior popup.
+void update_workspace_search_tooltip(PreviewState& state) {
+    const HWND child=GetDlgItem(state.dialog,IDC_METADATA_MB_SEARCH);
+    if(!state.help_tooltips || !child) return;
+    TOOLINFOW tool{};
+    tool.cbSize=TTTOOLINFOW_V2_SIZE;
+    tool.uFlags=TTF_IDISHWND|TTF_SUBCLASS;
+    tool.hwnd=state.dialog;
+    tool.uId=reinterpret_cast<UINT_PTR>(child);
+    tool.lpszText=const_cast<LPWSTR>(native_search_action_tooltip(
+        state.discogs_provider_selected,state.beatport_offline_selected));
+    SendMessageW(state.help_tooltips,TTM_UPDATETIPTEXTW,0,
+                 reinterpret_cast<LPARAM>(&tool));
+    SendMessageW(state.help_tooltips,TTM_POP,0,0);
 }
 
 void show_workspace_help(HWND dialog) {
@@ -5362,6 +5380,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             const bool was_beatport=state->beatport_offline_selected;
             state->discogs_provider_selected=selected_provider==1;
             state->beatport_offline_selected=selected_provider==2;
+            update_workspace_search_tooltip(*state);
             const auto query_transition=djmeta::provider_query_transition(
                 was_beatport,state->beatport_offline_selected);
             if(query_transition!=djmeta::ProviderQueryTransition::Preserve) {

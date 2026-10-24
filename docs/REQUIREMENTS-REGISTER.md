@@ -190,6 +190,13 @@
   network worker, while ordinary typing/activation does not. Pure native
   message-policy tests are automated; a final installed foobar mouse-over
   visual check is still required.
+- 2026-10-24: Provider-sensitive Search hover help (MMS-UI-03 /
+  MMS-SRC-01): MusicBrainz, Discogs and Beatport-offline each explain the
+  currently selected lookup and its consent/authorization boundaries.
+  Changing the native provider combo updates the existing tooltip tool ID
+  without re-registering, timer state or a background request. Pure policy
+  tests protect against misleading Beatport text on other providers;
+  installed visual mouse-over remains a final user gate.
 - **Remaining decisions that can only be made by the owner:** one final
   installed Windows foobar acceptance; explicit merge/release/production
   write activation when qualified; any new provider legal terms or genuine
