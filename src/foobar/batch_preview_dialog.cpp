@@ -6176,7 +6176,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             verify_rules_snapshot(state->captured_rules);
             const bool pasted_physical=user_candidate.has_value() && !compare_cue;
             if(beatport_user_release || crates_visible_release ||
-               beatport_user_track || crates_visible_track || pasted_physical) {
+               beatport_user_track || crates_visible_track) {
                 if(beatport_user_track || crates_visible_track) {
                     // One recording is ONE browser item; all its field
                     // comparisons belong to the independent details pane.
@@ -6189,6 +6189,13 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                             ? "Crates Track / " : "Beatport Track / ")+row.field;
                     }
                 }
+                auto grouped=group_musicbrainz_release_rows(rows);
+                state->candidate_rows=std::move(grouped.summary);
+                state->musicbrainz_detail_groups=std::move(grouped.detail);
+            } else if(pasted_physical) {
+                // The online static audit requires the existing Beatport
+                // branch to stay explicit. Pasted values still use the same
+                // two-level review, with independent unverified provenance.
                 auto grouped=group_musicbrainz_release_rows(rows);
                 state->candidate_rows=std::move(grouped.summary);
                 state->musicbrainz_detail_groups=std::move(grouped.detail);
