@@ -513,3 +513,9 @@
 - A global textual CUE `CATALOG` remains an exact, read-only original source field; it is not inherited as a virtual-track tag. Track-scoped `CATALOG` is marked for review rather than promoted to an album identifier.
 - An unambiguous, check-digit-valid UPC-A/EAN-13 from the inspected CUE can add one bounded official MusicBrainz `barcode:` release-search stage before title fallbacks. With no album TITLE, only that exact identifier is queried; there is no artist-only fallback. Invalid or ambiguous identifiers are omitted, and a manually edited title never silently reuses the source barcode. This is a disc media code, not the label catalog number.
 - Provider hits still require explicit exact-edition/tracklist review. No CUE, tag, FileOps or source-media write is enabled. Core/native audit and exact-HEAD CI remain the qualification gates; protected Discogs QA and installed foobar acceptance remain separate.
+
+### 2026-10-25 — Exact-edition CUE media barcode conflict (MMS-CUE-01, MMS-SRC-08)
+
+- A single numerical global CUE CATALOG and a single official MusicBrainz exact-edition BARCODE now participate in a read-only consistency guard after the edition is loaded. A contradictory disc identifier blocks differing album and track proposals even when title, position and ISRC alignment appears complete; exact no-ops and original facts remain visible.
+- UPC-A and its leading-zero EAN-13 representation compare as the same code. Missing or non-unique provider/local barcode evidence is unknown rather than a fabricated contradiction. Discogs label catalog numbers are not treated as media barcodes.
+- Core regression covers equal, conflicting, equivalent and absent values. This does not authorize any CUE/tag/FileOps write, and installed foobar visual QA plus exact-HEAD CI remain separate gates.
