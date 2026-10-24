@@ -1265,6 +1265,8 @@ for token in (
 tooltip_header = (foobar / "native_preview_controls.h").read_text(encoding="utf-8")
 for token in (
     "native_workspace_dismisses_tooltip(",
+    "native_workspace_pop_tooltips(",
+    "ListView_GetToolTips(list)",
     "case WM_CLOSE:",
     "case WM_CANCELMODE:",
     "case WM_SHOWWINDOW:",
@@ -1278,7 +1280,11 @@ tooltip_wiring = batch_rules_guard.split(
     "if (message == WM_GETMINMAXINFO",1)[0]
 if not (
     "native_workspace_dismisses_tooltip(message,wp)" in tooltip_wiring
-    and "SendMessageW(state->help_tooltips,TTM_POP,0,0);" in tooltip_wiring
+    and "dismiss_workspace_tooltips(*state);" in tooltip_wiring
+    and "native_workspace_pop_tooltips(state.help_tooltips," in batch_rules_guard
+    and "dismiss_workspace_tooltips(*state);" in batch_rules_guard.split(
+        "header->code == TCN_SELCHANGE",1)[1].split(
+        "invalidate_online_request(*state)",1)[0]
     and tooltip_wiring.index("native_workspace_dismisses_tooltip(message,wp)") <
         tooltip_wiring.index("if (message == WM_CLOSE)") <
         tooltip_wiring.index("ShowWindow(dialog,SW_HIDE)")
