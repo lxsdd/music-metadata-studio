@@ -1345,6 +1345,17 @@ for marker in ("crates.co/api", "Crates token=", "beatport_password", "crates_se
     if marker in batch_rules_guard:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: Crates credentials/undocumented API leaked into native host")
 
+# A track change can hide the lower online detail pane. Capture live user
+# widths BEFORE the inactive early-return; otherwise persisting only after
+# re-showing a hidden ListView can restore stale widths.
+online_pane = batch_rules_guard.split(
+    "void layout_musicbrainz_detail_pane(PreviewState& state) {",1)[1].split(
+    "\\n// Separate the exact-edition physical lane",1)[0]
+if online_pane.find("capture_review_grid_controls(state.musicbrainz_details,") == -1 or \
+   online_pane.index("capture_review_grid_controls(state.musicbrainz_details,") > \
+   online_pane.index("if (!active) {"):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: online columns not captured before pane hide")
+
 # A new Crates browser hand-off must discard the previous direct Beatport
 # URL before the user can paste or explicitly load a newly discovered track.
 # Otherwise the next button press could fetch an old, valid unrelated ID.
