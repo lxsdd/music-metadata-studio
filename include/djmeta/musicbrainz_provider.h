@@ -410,7 +410,12 @@ inline std::string search_title_core(std::string_view full) {
         "extended version","extended mix","extended","club mix",
         "single version","single mix","instrumental","edit",
         "remastered","remaster","remastered version",
-        "dj version","dj mix","dj edit"
+        "dj version","dj mix","dj edit",
+        // Common DJ release qualifiers are discovery hints only. The exact
+        // mix identity remains available in full-title search and review.
+        "vocal mix","dub mix","instrumental mix","main mix",
+        "club edit","extended edit","original club mix",
+        "original extended mix","extended club mix"
     };
     bool known=false;
     for(auto key:generic) if(qualifier==key) {known=true;break;}

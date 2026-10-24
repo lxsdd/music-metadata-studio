@@ -158,6 +158,37 @@ int main() {
               "Track (Unknown Remixer Club Dub)" &&
           search_title_core("Track (Extended Mix)")=="Track",
           "unknown remix preserved, generic version only stripped for search");
+    // Additional DJ mixes often share a base recording with an officially
+    // indexed title that omits its version. Broad searches never change tags,
+    // discard the full-title attempt, or assert an exact version match.
+    for(const std::string_view suffix : {
+            std::string_view("Vocal Mix"),std::string_view("Dub Mix"),
+            std::string_view("Instrumental Mix"),std::string_view("Main Mix"),
+            std::string_view("Club Edit"),std::string_view("Extended Edit"),
+            std::string_view("Original Club Mix"),
+            std::string_view("Original Extended Mix"),
+            std::string_view("Extended Club Mix")}) {
+        const std::string full="Via Balearia ("+std::string(suffix)+")";
+        const auto plan=recording_search_plan(full,"Estiva");
+        check(plan.full_title==full && plan.core_title=="Via Balearia" &&
+              plan.attempts.size()==4 &&
+              plan.attempts[0].path==make_search_path(
+                  SearchKind::Recording,"Via Balearia","Estiva") &&
+              plan.attempts[1].path==make_search_path(
+                  SearchKind::Recording,full,"Estiva") &&
+              qualified_musicbrainz_request_path(plan.attempts[0].path) &&
+              qualified_musicbrainz_request_path(plan.attempts[1].path) &&
+              recording_identity_label(full,"Estiva","Via Balearia","Estiva")==
+                  "Version review",
+              "DJ suffix broadened for official discovery, never auto-matched");
+    }
+    check(search_title_core("Title (Live at the Arena)")==
+              "Title (Live at the Arena)" &&
+          search_title_core("Title (20th Anniversary Edition)")==
+              "Title (20th Anniversary Edition)" &&
+          search_title_core("Title [Unverified Bonus Track]")==
+              "Title [Unverified Bonus Track]",
+          "unknown edition and live qualifiers are never stripped");
     const auto named_remix=recording_search_plan(
         "Only You (John Smith Remix)", "Matt Fax");
     check(named_remix.core_title=="Only You" &&
