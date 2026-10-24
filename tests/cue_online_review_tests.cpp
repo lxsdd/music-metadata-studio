@@ -453,7 +453,7 @@ int main() {
     // A disc-level CUE CATALOG and the loaded exact-edition BARCODE must not
     // silently disagree merely because the titles, positions and ISRCs align.
     auto barcode_cue=inspect_cue_metadata(
-        "CATALOG 4006381333931\\n"+matched_cue,
+        "CATALOG 4006381333931\n"+matched_cue,
         CueCarrierKind::ExternalText);
     auto barcode_edition=complete_edition;
     barcode_edition.provider="musicbrainz";
@@ -483,7 +483,7 @@ int main() {
           "conflicting edition barcode blocks only proposed changes, not exact no-ops");
     barcode_edition.fields.back().values={"0036000291452"};
     const auto upc_cue=inspect_cue_metadata(
-        "CATALOG 036000291452\\n"+matched_cue,
+        "CATALOG 036000291452\n"+matched_cue,
         CueCarrierKind::ExternalText);
     const auto equivalent_barcode=review_cue_release_edition(
         upc_cue,barcode_edition);
