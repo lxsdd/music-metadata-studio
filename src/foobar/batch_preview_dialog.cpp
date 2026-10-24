@@ -4593,10 +4593,17 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                                  L"Beatport + Crates"})
             SendDlgItemMessageW(dialog,IDC_METADATA_ONLINE_PROVIDER,CB_ADDSTRING,
                 0,reinterpret_cast<LPARAM>(name));
+        // Workspace 'first available' honors the profile's ranking while
+        // preserving the existing explicit-only provider search workflow.
+        // Deezer has no native lookup yet and is never auto-selected here.
+        const int search_mode=workspace_defaults.online_provider == 3
+            ? djmeta::online::first_supported_search_mode(
+                load_online_provider_preferences())
+            : workspace_defaults.online_provider;
         SendDlgItemMessageW(dialog,IDC_METADATA_ONLINE_PROVIDER,
-            CB_SETCURSEL,workspace_defaults.online_provider,0);
-        state->discogs_provider_selected = workspace_defaults.online_provider == 1;
-        state->beatport_offline_selected = workspace_defaults.online_provider == 2;
+            CB_SETCURSEL,search_mode,0);
+        state->discogs_provider_selected = search_mode == 1;
+        state->beatport_offline_selected = search_mode == 2;
         SendDlgItemMessageW(dialog, IDC_METADATA_MB_QUERY, EM_SETCUEBANNER,
             FALSE, reinterpret_cast<LPARAM>(
                 state->beatport_offline_selected

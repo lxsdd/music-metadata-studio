@@ -84,6 +84,20 @@ inline ProviderPreferences parse_provider_preferences(std::string_view raw) {
     return valid_provider_preferences(parsed) ? parsed : result;
 }
 
+// Maps a preference list onto the three manual search modes in the
+// current foobar workspace. Crates uses the explicit Beatport/Crates clipboard
+// mode. Deezer is skipped until a separately qualified native lookup exists.
+// This only selects a visible control; it NEVER performs a network request.
+inline int first_supported_search_mode(const ProviderPreferences& preferences) {
+    if (!valid_provider_preferences(preferences)) return 0;
+    for (const auto& provider : preferences.preferred_order) {
+        if (provider == "beatport" || provider == "crates") return 2;
+        if (provider == "discogs") return 1;
+        if (provider == "musicbrainz") return 0;
+    }
+    return 0;
+}
+
 inline std::size_t preference_index(
     std::string_view provider, const ProviderPreferences& preferences) {
     const auto it = std::find(preferences.preferred_order.begin(),

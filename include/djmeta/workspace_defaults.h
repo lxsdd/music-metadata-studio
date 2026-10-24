@@ -7,7 +7,7 @@ namespace djmeta {
 // Presentation-only defaults: never an authorization, approval or source tag.
 struct WorkspaceDefaults {
     int opening_tab = 0;       // Find, Review, Files
-    int online_provider = 0;   // MusicBrainz, Discogs, Beatport
+    int online_provider = 0;   // MusicBrainz, Discogs, Beatport + Crates, first available
     int routing_profile = 0;   // Singles, Alben, Livesets
     bool show_whitespace = false;
 
@@ -16,7 +16,7 @@ struct WorkspaceDefaults {
 
 inline bool workspace_defaults_valid(const WorkspaceDefaults& s) noexcept {
     return s.opening_tab >= 0 && s.opening_tab <= 2 &&
-           s.online_provider >= 0 && s.online_provider <= 2 &&
+           s.online_provider >= 0 && s.online_provider <= 3 &&
            s.routing_profile >= 0 && s.routing_profile <= 2;
 }
 
@@ -38,7 +38,7 @@ inline WorkspaceDefaults parse_workspace_defaults(std::string_view raw) noexcept
     if (raw.size() != 10 || raw.substr(0, 3) != "v1|" ||
         raw[4] != '|' || raw[6] != '|' || raw[8] != '|' ||
         raw[3] < '0' || raw[3] > '2' ||
-        raw[5] < '0' || raw[5] > '2' ||
+        raw[5] < '0' || raw[5] > '3' ||
         raw[7] < '0' || raw[7] > '2' ||
         (raw[9] != '0' && raw[9] != '1'))
         return {};

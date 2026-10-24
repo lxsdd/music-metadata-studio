@@ -57,8 +57,12 @@ wird pro foobar-Profil gespeichert (Apply/OK; Reset setzt nur die
 Formularauswahl zurück, bis Apply erfolgt). Sie entscheidet ausschließlich
 bei gleich guter, bereits geprüfter Match-Evidenz über die Anzeige,
 nicht über einen automatischen Quellenabruf oder Schreibfreigaben.
-Unter **Workspace** bleibt der initiale Suchmodus wählbar; im
-**Find & compare**-Fenster kann er jederzeit manuell gewechselt werden.
+Unter **Workspace** bleibt der initiale Suchmodus wählbar: auch die
+Einstellung **First available in priority order** ist möglich. Sie wählt
+beim Öffnen nur den ersten bereits unterstützten Suchmodus aus der
+Prioritätenliste und startet ausdrücklich **keine** Suche.
+Im **Find & compare**-Fenster kann der Anbieter jederzeit manuell
+gewechselt werden.
 Crates wird aktuell gemeinsam mit Beatport über die ausdrücklich gestartete
 Zwischenablage-Übernahme bedient. Deezer steht in der Prioritätenliste,
 besitzt im laufenden Draft jedoch noch keine native Live-Suche. Für
