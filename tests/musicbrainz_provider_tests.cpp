@@ -190,6 +190,33 @@ int main() {
           search_title_core("Title [Unverified Bonus Track]")==
               "Title [Unverified Bonus Track]",
           "unknown edition and live qualifiers are never stripped");
+    // Two recognized decorations can obscure a title already present in
+    // the official recording index. Exact version evidence and identity
+    // remain unmodified and the full-title query is still emitted.
+    const auto stacked_version=recording_search_plan(
+        "1000 Years (DJ Version) [Remastered]", "Kyau & Albert X Maywave");
+    check(stacked_version.core_title=="1000 Years" &&
+          stacked_version.full_title=="1000 Years (DJ Version) [Remastered]" &&
+          stacked_version.attempts.size()==7 &&
+          stacked_version.attempts[0].path==make_search_path(
+              SearchKind::Recording,"1000 Years","Kyau & Albert X Maywave") &&
+          stacked_version.attempts[1].path==make_search_path(
+              SearchKind::Recording,stacked_version.full_title,
+              "Kyau & Albert X Maywave") &&
+          stacked_version.attempts[4].path==make_search_path(
+              SearchKind::Recording,"1000 Years","Maywave") &&
+          qualified_musicbrainz_request_path(stacked_version.attempts[0].path),
+          "stacked generic versions broaden discovery without extra requests");
+    check(search_title_core("Track - Extended Mix [Remastered]")=="Track" &&
+          search_title_core("Track (Original Mix) - Radio Edit")=="Track" &&
+          search_title_core("Track (John Smith Remix) (Remastered)")=="Track" &&
+          search_title_core("Track (Live at the Arena) (Extended Mix)")==
+              "Track (Live at the Arena)" &&
+          search_title_core("Track (Extended Mix) [Unknown Edition]")==
+              "Track (Extended Mix) [Unknown Edition]" &&
+          search_title_core("Track (Extended Mix) [Remastered] (Radio Edit)")==
+              "Track (Extended Mix)",
+          "bounded suffix peeling stops on unknown qualifiers and after two recognized versions");
     const auto named_remix=recording_search_plan(
         "Only You (John Smith Remix)", "Matt Fax");
     check(named_remix.core_title=="Only You" &&

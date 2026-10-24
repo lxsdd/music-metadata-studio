@@ -422,50 +422,66 @@ inline std::string search_title_core(std::string_view full) {
     const auto end=trimmed.find_last_not_of(" \t");
     if(end==std::string::npos) return {};
     trimmed.resize(end+1);
-    if(trimmed.size()<4) return trimmed;
-    const auto prefix=[&](std::size_t pos) {
-        std::string core=trimmed.substr(0,pos);
-        const auto last=core.find_last_not_of(" \t");
-        if(last==std::string::npos) return trimmed;
-        core.resize(last+1);
-        return core;
-    };
-    if(trimmed.back()==')' || trimmed.back()==']') {
-        const char opening=trimmed.back()==')' ? '(' : '[';
-        const auto pos=trimmed.find_last_of(opening);
-        if(pos==std::string::npos || pos==0) return trimmed;
-        const auto qualifier=trimmed.substr(pos+1,trimmed.size()-pos-2);
-        bool known=known_search_version_label(qualifier);
-        // A named remix/rework in parentheses is a safe recall hint only.
-        if(!known) {
-            std::string folded=qualifier;
-            for(char& c:folded)
-                if(c>='A'&&c<='Z') c=static_cast<char>(c+('a'-'A'));
-            for(const std::string_view suffix : {" remix", " rework"}) {
-                if(folded.size() > suffix.size() &&
-                   folded.ends_with(suffix) &&
-                   std::string_view(folded).substr(0,folded.size()-suffix.size())
-                       .find_first_not_of(" \t")!=std::string_view::npos) {
-                    known=true;
-                    break;
+    // Two explicit, recognized version decorations commonly occur together:
+    // "Title (DJ Version) [Remastered]". Apply a bounded recall-only
+    // reduction; never remove unknown/live/edition qualifiers, mutate the
+    // physical TITLE, or skip the separate exact full-title search attempt.
+    for(int pass=0;pass<2 && trimmed.size()>=4;++pass) {
+        const auto prefix=[&](std::size_t pos) {
+            std::string core=trimmed.substr(0,pos);
+            const auto last=core.find_last_not_of(" \t");
+            if(last==std::string::npos) return trimmed;
+            core.resize(last+1);
+            return core;
+        };
+        bool stripped=false;
+        if(trimmed.back()==')' || trimmed.back()==']') {
+            const char opening=trimmed.back()==')' ? '(' : '[';
+            const auto pos=trimmed.find_last_of(opening);
+            if(pos!=std::string::npos && pos>0) {
+                const auto qualifier=trimmed.substr(pos+1,trimmed.size()-pos-2);
+                bool known=known_search_version_label(qualifier);
+                // A named remix/rework in parentheses is a safe recall hint
+                // only. The full exact mix title stays in the second query.
+                if(!known) {
+                    std::string folded=qualifier;
+                    for(char& c:folded)
+                        if(c>='A'&&c<='Z') c=static_cast<char>(c+('a'-'A'));
+                    for(const std::string_view suffix : {" remix", " rework"}) {
+                        if(folded.size() > suffix.size() &&
+                           folded.ends_with(suffix) &&
+                           std::string_view(folded)
+                               .substr(0,folded.size()-suffix.size())
+                               .find_first_not_of(" \t")!=std::string_view::npos) {
+                            known=true;
+                            break;
+                        }
+                    }
+                }
+                if(known) {
+                    trimmed=prefix(pos);
+                    stripped=true;
                 }
             }
         }
-        return known ? prefix(pos) : trimmed;
-    }
-    // Common DJ TITLE layouts use a dash rather than "(Extended Mix)".
-    // Require whitespace on both sides and an EXACT known generic suffix;
-    // "Song - Live at the Arena" and "Song - Remixer Remix" stay intact.
-    for(const std::string_view separator : {
-            std::string_view(" - "),
-            std::string_view(" \xE2\x80\x93 "), // en dash, UTF-8
-            std::string_view(" \xE2\x80\x94 ")  // em dash, UTF-8
-        }) {
-        const auto pos=trimmed.rfind(separator);
-        if(pos!=std::string::npos && pos>0 &&
-           known_search_version_label(std::string_view(trimmed).substr(
-               pos+separator.size())))
-            return prefix(pos);
+        if(stripped) continue;
+        // Dash-delimited variants must be exactly recognized generic
+        // versions. Never split an arbitrary hyphenated track title.
+        for(const std::string_view separator : {
+                std::string_view(" - "),
+                std::string_view(" \xE2\x80\x93 "), // en dash, UTF-8
+                std::string_view(" \xE2\x80\x94 ")  // em dash, UTF-8
+            }) {
+            const auto pos=trimmed.rfind(separator);
+            if(pos!=std::string::npos && pos>0 &&
+               known_search_version_label(std::string_view(trimmed).substr(
+                   pos+separator.size()))) {
+                trimmed=prefix(pos);
+                stripped=true;
+                break;
+            }
+        }
+        if(!stripped) break;
     }
     return trimmed;
 }
