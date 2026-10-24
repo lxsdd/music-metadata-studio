@@ -4,6 +4,7 @@
 #include "djmeta/online_fields.h"
 #include <cstddef>
 #include <map>
+#include <string_view>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -18,6 +19,48 @@ namespace djmeta::online {
 // value can be staged; exactly matching values remain harmless no-ops.
 inline bool online_date_requires_explicit_target(const FieldEvidence& field) {
     return field.date_meaning!=DateMeaning::NotDate;
+}
+
+    
+// DATE is deliberately a four-digit year in the owner's DJ library.
+// Keep a provider's complete ISO release/publication date available in its
+// original FieldEvidence and in an independently selected DATE_RAW,
+// RELEASEDATE or PUBLISHDATE target. Mapping a verified date to DATE
+// deliberately drops precision ONLY in the detached, visible postimage.
+// Reject malformed or ambiguous calendar values rather than guessing a year.
+inline std::string online_year_only_date(std::string_view date) {
+    const auto numeric=[](std::string_view v) {
+        int value=0;
+        if(v.empty()) return -1;
+        for(const unsigned char c:v) {
+            if(c<'0' || c>'9') return -1;
+            value=value*10+(c-'0');
+        }
+        return value;
+    };
+    if(date.size()!=4 && date.size()!=7 && date.size()!=10)
+        throw std::invalid_argument("DATE target requires ISO year or date");
+    const int year=numeric(date.substr(0,4));
+    if(year<1)
+        throw std::invalid_argument("DATE target has an invalid year");
+    if(date.size()>4) {
+        if(date[4]!='-')
+            throw std::invalid_argument("DATE target requires ISO separators");
+        const int month=numeric(date.substr(5,2));
+        if(month<1 || month>12)
+            throw std::invalid_argument("DATE target has an invalid month");
+        if(date.size()==10) {
+            if(date[7]!='-')
+                throw std::invalid_argument("DATE target requires ISO separators");
+            const int day=numeric(date.substr(8,2));
+            constexpr int lengths[]={31,28,31,30,31,30,31,31,30,31,30,31};
+            const bool leap=(year%4==0 && (year%100!=0 || year%400==0));
+            const int max_day=lengths[month-1]+(month==2 && leap?1:0);
+            if(day<1 || day>max_day)
+                throw std::invalid_argument("DATE target has an invalid day");
+        }
+    }
+    return std::string(date.substr(0,4));
 }
 
 struct OnlineFieldReviewSnapshot {
@@ -87,7 +130,8 @@ inline OnlineFieldStagedPreview stage_selected_online_fields(
             throw std::invalid_argument("Unselected or nondate target mapping");
         const auto name=ascii_upper_field(target);
         if(name!="DATE" && name!="ORIGINALDATE" &&
-           name!="RELEASEDATE" && name!="DATE_RAW" && name!="PUBLISHDATE")
+           name!="RELEASEDATE" && name!="DATE_RAW" &&
+           name!="PUBLISHDATE" && name!="PUBLISH_DATE")
             throw std::invalid_argument("Unqualified explicit date target");
     }
     std::set<std::size_t> chosen_rows;
@@ -103,6 +147,12 @@ inline OnlineFieldStagedPreview stage_selected_online_fields(
            it!=explicit_date_targets.end()) {
             auto mapped=verified_row.candidate;
             mapped.field=ascii_upper_field(it->second);
+            if(mapped.field=="DATE") {
+                if(mapped.values.size()!=1)
+                    throw std::invalid_argument(
+                        "Year-only DATE needs exactly one qualified value");
+                mapped.values={online_year_only_date(mapped.values.front())};
+            }
             const auto remapped=review_online_fields(current_physical,{mapped});
             if(remapped.size()!=1 || remapped[0].state==FieldReviewState::Blocked)
                 throw std::invalid_argument("Explicit date target cannot be reviewed");

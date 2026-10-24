@@ -375,9 +375,77 @@ int main() {
         session,stage_original,{2},{{2,"DATE"}});
     check(chosen_date_override.explicitly_changed==1 &&
           chosen_date_override.planned.fields[3].values==
-              std::vector<std::string>{"2026-10-21"} &&
+              std::vector<std::string>{"2026"} &&
           stage_original.fields[3].values==std::vector<std::string>{"1998"},
-          "only explicit named DATE choice may replace physical DATE in memory");
+          "explicit DATE override truncates ISO date to the owner's year-only convention");
+    // The full provider date is never erased or rewritten. Explicit
+    // DATE_RAW, RELEASEDATE and the two publication spellings retain it.
+    const auto raw_full_date=stage_selected_online_fields(
+        session,stage_original,{2},{{2,"DATE_RAW"}});
+    check(raw_full_date.planned.fields.back()==
+              MetadataField{"DATE_RAW",{"2026-10-21"}} &&
+          raw_full_date.planned.fields[3]==stage_original.fields[3] &&
+          session.evidence[2].values==std::vector<std::string>{"2026-10-21"},
+          "DATE year conversion does not erase provider precision or touch DATE_RAW");
+    const auto raw_publication=std::vector<FieldEvidence>{
+        {"PUBLISH_DATE",{"2026-10-24"},"beatport","release:222",
+         EvidenceScope::Edition,DateMeaning::DigitalPublication}};
+    const auto publication_session=capture_online_field_review(
+        stage_original,raw_publication,true,true);
+    const auto publication=stage_selected_online_fields(
+        publication_session,stage_original,{0},{{0,"PUBLISH_DATE"}});
+    check(publication.planned.fields.back()==
+              MetadataField{"PUBLISH_DATE",{"2026-10-24"}} &&
+          publication.planned.fields[3]==stage_original.fields[3],
+          "Beatport publication date can be explicitly mapped without replacing DATE");
+    const auto original_year=std::vector<FieldEvidence>{
+        {"DATE",{"1998-06-15"},"discogs","release:100",
+         EvidenceScope::Edition,DateMeaning::EditionRelease}};
+    const auto year_session=capture_online_field_review(
+        stage_original,original_year,true,true);
+    const auto same_year=stage_selected_online_fields(
+        year_session,stage_original,{0},{{0,"DATE"}});
+    check(same_year.planned==stage_original &&
+          same_year.exact_noops==1 && same_year.explicitly_changed==0,
+          "same year in a full provider ISO date is a true physical metadata no-op");
+    for(const std::string iso : {"2024-02-29","2000-02-29","2026-10","2026"}) {
+        const auto verified_date=std::vector<FieldEvidence>{
+            {"RELEASEDATE",{iso},"discogs","release:101",
+             EvidenceScope::Edition,DateMeaning::EditionRelease}};
+        const auto qualified_date=capture_online_field_review(
+            stage_original,verified_date,true,true);
+        const auto converted=stage_selected_online_fields(
+            qualified_date,stage_original,{0},{{0,"DATE"}});
+        const auto expected=iso.substr(0,4);
+        check(converted.planned.fields[3].values==
+                  std::vector<std::string>{expected},
+              "ISO year/month/full date has a deterministic year-only target");
+    }
+    for(const std::string bad : {"0000","2025-02-29","1900-02-29",
+                                 "2026-13-01","2026-04-31","2026-00",
+                                 "2026-1-1","2026/01/01","2026anything",
+                                 "2026-10-24T00:00:00"}) {
+        const auto evidence_bad=std::vector<FieldEvidence>{
+            {"RELEASEDATE",{bad},"discogs","release:100",
+             EvidenceScope::Edition,DateMeaning::EditionRelease}};
+        const auto captured_bad=capture_online_field_review(
+            stage_original,evidence_bad,true,true);
+        bool blocked=false;
+        try {(void)stage_selected_online_fields(
+            captured_bad,stage_original,{0},{{0,"DATE"}});}
+        catch(const std::invalid_argument&) {blocked=true;}
+        check(blocked,"invalid, ambiguous or timestamp-style DATE mappings fail closed");
+    }
+    const auto multivalue_date=capture_online_field_review(
+        stage_original,{{"RELEASEDATE",{"2026","2025"},"discogs","release:100",
+                         EvidenceScope::Edition,DateMeaning::EditionRelease}},
+        true,true);
+    bool multiple_years_blocked=false;
+    try {(void)stage_selected_online_fields(
+        multivalue_date,stage_original,{0},{{0,"DATE"}});}
+    catch(const std::invalid_argument&) {multiple_years_blocked=true;}
+    check(multiple_years_blocked,
+          "multiple provider date values cannot silently collapse into one DATE");
     const auto refuses_date_target=[&](
         const std::vector<std::size_t>& indices,
         const std::map<std::size_t,std::string>& target) {

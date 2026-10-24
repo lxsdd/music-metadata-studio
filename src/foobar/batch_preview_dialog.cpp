@@ -3104,7 +3104,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_METADATA_LIST,L"Select a candidate or proposed change to inspect its source and status."},
         {IDC_METADATA_MB_DETAILS,L"Field-by-field evidence for the selected online candidate. REVIEW is not a tag-write authorization."},
         {IDC_ONLINE_DATE_TARGET_LABEL,L"Do not infer an edition date from your current physical DATE."},
-        {IDC_ONLINE_DATE_TARGET,L"Choose a tag separately for each exact edition or linked master date, or choose PAIR to stage Master -> ORIGINALDATE (or DATE) plus Edition -> RELEASEDATE. No file write."},
+        {IDC_ONLINE_DATE_TARGET,L"Choose a tag for each verified release date. DATE keeps only the four-digit year (YYYY); RELEASEDATE and DATE_RAW keep the full ISO date. PAIR stages Master -> ORIGINALDATE (or year-only DATE) plus Edition -> RELEASEDATE. Memory-only preview, no file write."},
         {IDC_METADATA_FILTER,L"Limit the local normalization review to music, extended or all tags."},
         {IDC_METADATA_TRACK_FILTER,L"Filter original tracks by whether they have rule proposals. This never removes files."},
         {IDC_METADATA_REVIEW_SCOPE,L"Choose whether to review selected change rows, selected tracks or all tracks. Review decisions are preview-only."},
@@ -4486,11 +4486,17 @@ void change_online_field_preview(PreviewState& state,int action) {
     state.online_field_preview=std::move(projected);
     refresh_musicbrainz_detail_rows(state);
     const auto& result=*state.online_field_preview;
+    const bool year_only_date_target=std::any_of(
+        state.online_date_targets.begin(),state.online_date_targets.end(),
+        [](const auto& choice){return choice.second=="DATE";});
     const std::wstring notice=L"Online tag preview: "+
         std::to_wstring(state.online_included_fields.size())+
         L" selected, "+std::to_wstring(result.explicitly_changed)+
         L" proposed changes, "+std::to_wstring(result.exact_noops)+
         L" no-ops (memory only). No writes."+
+        (year_only_date_target
+            ? std::wstring(L" DATE uses YYYY; complete provider date preserved.")
+            : std::wstring{})+
         (state.online_raw_route_valid
             ? (state.online_raw_route_before==state.online_raw_route_after
                 ? std::wstring(L" Raw filename unchanged.")
@@ -4582,7 +4588,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             djmeta::online::maximum_public_beatport_url_length, 0);
         SendDlgItemMessageW(dialog, IDC_METADATA_DISCOGS_TOKEN, EM_LIMITTEXT, 256, 0);
         for(const wchar_t* target:{
-                L"Keep original date",L"DATE (explicit replace)",
+                L"Keep original date",L"DATE (year YYYY; explicit replace)",
                 L"RELEASEDATE",L"ORIGINALDATE",L"DATE_RAW",L"PUBLISHDATE",
                 L"PAIR: Master -> ORIGINALDATE, edition -> RELEASEDATE",
                 L"PAIR: Master -> DATE, edition -> RELEASEDATE"})

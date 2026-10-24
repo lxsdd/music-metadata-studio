@@ -309,3 +309,23 @@
   Invalid/unbounded original ARTIST never generates truncated lead/partner
   requests. Code + deterministic edge and source-allowlist tests accompany
   the change; exact-SHA CI and installed host acceptance are distinct.
+
+### 2026-10-24 — Providerübergreifende DATE-Abbildung (MMS-SRC-05/06/09, MMS-FILE-06)
+
+- Explizit auf `DATE` abgebildete, qualifizierte ISO-Fakten aus Discogs,
+  Beatport/Crates oder einem anderen überprüften Provider ergeben im
+  *abgekoppelten Preview* ausschließlich `YYYY` gemäß DJ-Sammlungsstandard.
+  `RELEASEDATE`, `DATE_RAW` und `PUBLISH_DATE` behalten auf ausdrückliche
+  Auswahl ihre volle ISO-Präzision; Originalwerte und Provider-Evidenz bleiben
+  unverändert. Die reine Policy ist providerunabhängig; das native
+  Live-Field-Staging ist gegenwärtig auf unabhängig verifizierte Discogs-
+  Editions-/Masterfelder begrenzt. Beatport/Crates bleiben ein expliziter
+  manueller Vergleich ohne Schreibbefugnis.
+- Ungültige Kalenderdaten, mehrwertige DATE-Abbildungen, unqualifizierte
+  Provider-Evidenz und stale Snapshots werden blockiert. Dieselbe Jahreszahl
+  bei ursprünglich voller Provider-Datumsangabe ist ein echter No-op.
+- Regression: `tests/online_fields_tests.cpp` — Schaltjahre, ungültige Monats-/
+  Tageswerte, nicht-ISO-/Timestamp-artige Angaben, PUBLISH_DATE, No-op, Erhalt
+  von DATE_RAW und Multiwerten. Die native Date-Target-Combobox und der
+  Preview-Status benennen die YYYY-Abbildung explizit. Installed foobar-Abnahme
+  steht separat aus.
