@@ -198,28 +198,37 @@ int main() {
            independent[1].decision == MatchDecision::Suggested,
            "same opaque ID in separate provider namespaces remains independent");
 
-    // Source preference is solely a stable display tie-break. Beatport and
-    // Discogs should be visible ahead of MB when evidence is equivalent.
+    // Display priority reflects the owner's DJ sources. It is solely a
+    // stable tie-break after independently verified recording/mix evidence.
     const Candidate beatport_equal{"beatport", "900", same};
+    const Candidate crates_equal{"crates", "903", same};
     const Candidate discogs_equal{"discogs", "901", same};
+    const Candidate deezer_equal{"deezer", "904", same};
     const Candidate musicbrainz_equal{"musicbrainz", "902", same};
     const auto catalog_priority = rank(original,
-        {musicbrainz_equal, discogs_equal, beatport_equal});
-    expect(catalog_priority.size() == 3 &&
+        {musicbrainz_equal, deezer_equal, discogs_equal,
+         crates_equal, beatport_equal});
+    expect(catalog_priority.size() == 5 &&
            catalog_priority[0].provider == "beatport" &&
-           catalog_priority[1].provider == "discogs" &&
-           catalog_priority[2].provider == "musicbrainz" &&
-           catalog_priority[0].score == catalog_priority[2].score &&
-           catalog_priority[0].decision == catalog_priority[2].decision,
+           catalog_priority[1].provider == "crates" &&
+           catalog_priority[2].provider == "discogs" &&
+           catalog_priority[3].provider == "deezer" &&
+           catalog_priority[4].provider == "musicbrainz" &&
+           catalog_priority[0].score == catalog_priority[4].score &&
+           catalog_priority[0].decision == catalog_priority[4].decision,
            "DJ source preference breaks equal evidence only");
     const auto reordered = rank(original,
-        {beatport_equal, musicbrainz_equal, discogs_equal});
-    expect(reordered.size() == 3 &&
+        {beatport_equal, musicbrainz_equal, crates_equal,
+         deezer_equal, discogs_equal});
+    expect(reordered.size() == 5 &&
            reordered[0].provider == "beatport" &&
-           reordered[1].provider == "discogs" &&
-           reordered[2].provider == "musicbrainz",
+           reordered[1].provider == "crates" &&
+           reordered[2].provider == "discogs" &&
+           reordered[3].provider == "deezer" &&
+           reordered[4].provider == "musicbrainz",
            "preferred source ordering is independent of retrieval order");
-    const ProviderPreferences discogs_first{{"discogs", "beatport", "musicbrainz"}};
+    const ProviderPreferences discogs_first{{"discogs", "beatport", "crates",
+                                             "deezer", "musicbrainz"}};
     const auto customized = rank(original,
         {beatport_equal, discogs_equal, musicbrainz_equal}, discogs_first);
     expect(customized[0].provider == "discogs" &&

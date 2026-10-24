@@ -36,7 +36,7 @@ struct Candidate {
 // Provider origin is not evidence of recording identity and cannot turn a
 // rejected/review-only candidate into a suggested match.
 struct ProviderPreferences {
-    std::vector<std::string> preferred_order{"beatport", "discogs", "musicbrainz"};
+    std::vector<std::string> preferred_order{"beatport", "crates", "discogs", "deezer", "musicbrainz"};
 };
 
 inline std::size_t preference_index(
