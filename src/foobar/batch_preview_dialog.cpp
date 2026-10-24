@@ -516,13 +516,25 @@ const char* issue_status_text(std::string_view issue) {
         return "Raw target: inconsistent observation";
     if (issue == "RAW_TARGET_PROBE_UNQUALIFIED") return "Raw target: unqualified";
     if (issue == "UNAPPROVED_METADATA_PROPOSALS") return "Metadata: REVIEW";
+    if (issue == "CUE_DEPENDENCIES_UNCHECKED") return "Final CUE links: not checked";
+    if (issue == "FILESYSTEM_TARGET_UNCHECKED") return "Final target: not checked";
     return "Other safety finding";
 }
 
 std::string status_text(const djmeta::BatchPreviewRow& row) {
     if (row.issues.empty()) return "Qualified inputs (not approved)";
-    // A narrow status column presents one finding; the tooltip lists them all.
-    return issue_status_text(row.issues.front());
+    // Global preview limitations belong in the footer and full tooltip, not
+    // repeatedly in every narrow status cell. Preserve the first row-specific
+    // warning even when only global issues precede or follow it.
+    for (const auto& issue : row.issues) {
+        if (issue == "CUE_DEPENDENCIES_UNCHECKED" ||
+            issue == "FILESYSTEM_TARGET_UNCHECKED")
+            continue;
+        return issue_status_text(issue);
+    }
+    if (row.raw_target_presence == djmeta::RawTargetPresence::Missing)
+        return "Raw candidate absent";
+    return "";
 }
 
 // Strip foobar's file:// locator only for presentation, never for identity.
