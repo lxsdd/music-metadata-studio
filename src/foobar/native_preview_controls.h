@@ -775,6 +775,26 @@ inline const wchar_t* native_discogs_search_caption(
     return may_broaden ? L"Broaden Discogs" : L"Search Discogs";
 }
 
+inline int native_window_dpi(HWND window) noexcept {
+    // The foobar SDK targets older _WIN32_WINNT declarations, so resolve the
+    // per-monitor API dynamically and retain the system-DPI fallback.
+    using QueryFn=UINT (WINAPI*)(HWND);
+    static const auto query=[]() -> QueryFn {
+        const HMODULE user32=GetModuleHandleW(L"user32.dll");
+        return user32 ? reinterpret_cast<QueryFn>(
+            GetProcAddress(user32,"GetDpiForWindow")) : nullptr;
+    }();
+    if(query && window) {
+        const UINT dpi=query(window);
+        if(dpi) return static_cast<int>(dpi);
+    }
+    HDC dc=GetDC(window);
+    if(!dc) return 96;
+    const int dpi=GetDeviceCaps(dc,LOGPIXELSX);
+    ReleaseDC(window,dc);
+    return dpi>0 ? dpi : 96;
+}
+
 inline int native_edit_padding_for_dpi(int logical_pixels, int dpi) noexcept {
     return MulDiv(logical_pixels, (std::clamp)(dpi,96,384), 96);
 }
@@ -801,7 +821,7 @@ inline bool align_native_edit_to_action(HWND dialog,
     ReleaseDC(edit,dc);
     if (!measured) return false;
     const int actionHeight=action.bottom-action.top;
-    const int dpi=static_cast<int>(GetDpiForWindow(dialog));
+    const int dpi=native_window_dpi(dialog);
     // The font already scales with DPI; scale only the optical pixel insets.
     const int edit_padding=native_edit_padding_for_dpi(6,dpi);
     const int baseline_offset=native_edit_padding_for_dpi(4,dpi);
