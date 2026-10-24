@@ -264,7 +264,7 @@ for token in (
     "show_workspace_help(", "header->code == NM_DBLCLK",
     "MAKEWPARAM(IDC_METADATA_MB_SEARCH,BN_CLICKED)",
     "search_attempt_notice", "recording_search_plan(", "TTDT_AUTOPOP",
-    "TTM_POP", "align_native_preview_form(state.dialog)",
+    "dismiss_workspace_tooltips(", "align_native_preview_form(state.dialog)",
     'L"Reload the tracks already open in Music Metadata Studio?\\n\\n"',
 ):
     if token not in batch_table_dialog:
