@@ -231,8 +231,21 @@ public:
                 djmeta::PhysicalTagSourceSnapshot captured{
                     true,false,observed.host_physical_key,
                     observed.source_guard,current};
+                // The same no-op action must work both BEFORE and AFTER a
+                // real SDK tag update. Derive its candidate from the selected
+                // physical tag snapshot, never from a hard-coded fixture title.
+                std::string current_title;
+                for(const auto& field:current.fields) {
+                    if(djmeta::ascii_upper_field(field.name)=="TITLE" &&
+                       field.values.size()==1) {
+                        current_title=field.values.front();
+                        break;
+                    }
+                }
+                if(current_title.empty())
+                    throw std::runtime_error("QA_NOOP_TITLE_NOT_QUALIFIED");
                 const djmeta::online::FieldEvidence equal_title{
-                    "TITLE",{"1000 Years"},"discogs",
+                    "TITLE",{current_title},"discogs",
                     "qa-synthetic-noop",djmeta::online::EvidenceScope::Edition};
                 const auto review=djmeta::online::capture_online_field_review(
                     current,{equal_title},true,true);
