@@ -858,6 +858,7 @@ mb_cue_rows = batch_table_dialog.split(
 for token in (
     'cue_original_inventory_rows(cue,"CUE Original / ")',
     'output.insert(output.end(),original.begin(),original.end())',
+    'output.size()>9998',
     'output.size()>10000-original.size()',
 ):
     if token not in mb_cue_rows:
