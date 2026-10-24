@@ -74,7 +74,7 @@ int main() {
           grouped_manual.front().original_values==std::vector<std::string>{"Example DJ"} &&
           grouped_manual[compare.size()].field=="Physical / ARTIST" &&
           is_local_physical_original(grouped_manual[compare.size()]) &&
-          grouped_manual[compare.size()+2].candidate.values==
+          grouped_manual[compare.size()+2].original_values==
               std::vector<std::string>({"House","Deep House"}) &&
           local.fields[2].values==std::vector<std::string>({"House","Deep House"}),
           "structured pasted comparison preserves per-field evidence and complete physical inventory");
