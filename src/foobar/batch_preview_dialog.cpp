@@ -1100,15 +1100,6 @@ std::wstring candidate_cell_text(const djmeta::online::FieldReviewRow& item,
     }
 }
 
-int local_review_group(djmeta::SafetyClass safety) noexcept {
-    switch(safety) {
-    case djmeta::SafetyClass::Review: return 0;
-    case djmeta::SafetyClass::Confident: return 1;
-    case djmeta::SafetyClass::Safe: return 2;
-    }
-    return 0;
-}
-
 const wchar_t* local_review_group_name(int group) noexcept {
     switch(group) {
     case 0: return L"Needs review";
@@ -1800,38 +1791,25 @@ void update_metadata_table(PreviewState& state) {
                 return state.detail_grid.sort_descending ? lhs > rhs : lhs < rhs;
             });
     }
-    // Compact groups do not change immutable proposal identities or sort order
-    // within a class. Collapsed rows never become action targets.
-    state.metadata_view_order.clear();
-    state.metadata_view_group.clear();
-    state.review_group_counts={};
-    for(const auto index:sorted_proposals)
-        if(index<state.focused_metadata_rows.size())
-            ++state.review_group_counts[local_review_group(
-                state.focused_metadata_rows[index].safety)];
-    for(int group=0;group<3;++group) {
-        if(state.review_group_counts[group]==0) continue;
-        state.metadata_view_order.push_back((std::numeric_limits<std::size_t>::max)());
-        state.metadata_view_group.push_back(group);
-        if(!state.review_group_expanded[group]) continue;
-        for(const auto index:sorted_proposals) {
-            if(index>=state.focused_metadata_rows.size() ||
-               local_review_group(state.focused_metadata_rows[index].safety)!=group)
-                continue;
-            state.metadata_view_order.push_back(index);
-            state.metadata_view_group.push_back(-1);
-        }
-    }
+    // Projection validates every sorted index before any native ListView access.
+    const auto grouped=djmeta::group_review_rows(
+        state.focused_metadata_rows,sorted_proposals,state.review_group_expanded);
+    state.metadata_view_order=grouped.row_order;
+    state.metadata_view_group=grouped.group_at_row;
+    state.review_group_counts=grouped.counts;
     if (state.metadata_list) {
         ListView_SetItemCountEx(state.metadata_list,
             static_cast<int>(state.metadata_view_order.size()),
             LVSICF_NOINVALIDATEALL | LVSICF_NOSCROLL);
         ListView_SetItemState(state.metadata_list, -1, 0, LVIS_SELECTED);
-        for (std::size_t row = 0; row < state.metadata_view_order.size(); ++row)
-            if (selected_proposals.count(
-                    state.focused_metadata_rows[state.metadata_view_order[row]].proposal_index))
+        for (std::size_t row = 0; row < state.metadata_view_order.size(); ++row) {
+            const auto index=state.metadata_view_order[row];
+            if(index<state.focused_metadata_rows.size() &&
+               selected_proposals.count(
+                   state.focused_metadata_rows[index].proposal_index))
                 ListView_SetItemState(state.metadata_list, static_cast<int>(row),
                     LVIS_SELECTED, LVIS_SELECTED);
+        }
         InvalidateRect(state.metadata_list, nullptr, FALSE);
     }
     update_local_review_hint(state);
