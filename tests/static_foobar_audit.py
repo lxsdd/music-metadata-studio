@@ -1350,7 +1350,7 @@ for marker in ("crates.co/api", "Crates token=", "beatport_password", "crates_se
 # re-showing a hidden ListView can restore stale widths.
 online_pane = batch_rules_guard.split(
     "void layout_musicbrainz_detail_pane(PreviewState& state) {",1)[1].split(
-    "\\n// Separate the exact-edition physical lane",1)[0]
+    "\n// Separate the exact-edition physical lane",1)[0]
 if online_pane.find("capture_review_grid_controls(state.musicbrainz_details,") == -1 or \
    online_pane.index("capture_review_grid_controls(state.musicbrainz_details,") > \
    online_pane.index("if (!active) {"):
@@ -1359,7 +1359,7 @@ if online_pane.find("capture_review_grid_controls(state.musicbrainz_details,") =
 # A new Crates browser hand-off must discard the previous direct Beatport
 # URL before the user can paste or explicitly load a newly discovered track.
 # Otherwise the next button press could fetch an old, valid unrelated ID.
-crates_handoff=batch_rules_guard.split("void open_crates_for_selected_physical_track(",1)[1].split("\\n// A Beatport public URL",1)[0]
+crates_handoff=batch_rules_guard.split("void open_crates_for_selected_physical_track(",1)[1].split("\n// A Beatport public URL",1)[0]
 if 'SetDlgItemTextW(dialog,IDC_METADATA_MB_QUERY,L"");' not in crates_handoff:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: Crates hand-off may reuse a stale Beatport URL")
 if 'copy_crates_search_text' in crates_handoff.split('const HINSTANCE launched=',1)[0]:
