@@ -3,7 +3,8 @@
 // Search-result evidence mapping (not a tag import or writer).
 // An MB recording's artist/title is not the release's album artist/album.
 
-#include "djmeta/musicbrainz_provider.h"#include "djmeta/online_fields.h"
+#include "djmeta/musicbrainz_provider.h"
+#include "djmeta/online_fields.h"
 
 #include <optional>
 #include <string>
