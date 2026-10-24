@@ -151,11 +151,13 @@ inline ManualCandidate parse_manual_candidate(std::string_view raw) {
             !valid_utf8_metadata_text(field_part) ||
             field_part.find('=') != std::string_view::npos)
             throw std::invalid_argument("invalid candidate field name");
-        if (at != std::string_view::npos &&
-            upper != "DATE" && upper != "DATE_RAW")
+        // Accept exactly the same typed date names as review_online_fields.
+        // Previously RELEASEDATE/ORIGINALDATE/PUBLISHDATE clipboard fields
+        // were either rejected or reached review with unknown semantics.
+        const bool date_field=is_online_date_field(upper);
+        if (at != std::string_view::npos && !date_field)
             throw std::invalid_argument("date role used on non-date field");
-        if ((upper == "DATE" || upper == "DATE_RAW") &&
-            date_role == DateMeaning::NotDate)
+        if (date_field && date_role == DateMeaning::NotDate)
             throw std::invalid_argument("date role must be explicit");
         require_valid_tag_value(raw_value);
         std::size_t index = result.fields.size();

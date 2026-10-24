@@ -145,6 +145,15 @@ inline bool valid_evidence_origin(std::string_view value, std::size_t limit) {
     return true;
 }
 
+// One canonical date-field vocabulary for clipboard intake and field review.
+// Providers must supply an explicit original/edition/digital meaning for each
+// of these tags; otherwise the comparison fails closed before any writer.
+inline constexpr bool is_online_date_field(std::string_view uppercase) noexcept {
+    return uppercase=="DATE" || uppercase=="DATE_RAW" ||
+           uppercase=="ORIGINALDATE" || uppercase=="RELEASEDATE" ||
+           uppercase=="PUBLISHDATE" || uppercase=="PUBLISH_DATE";
+}
+
 inline bool is_structural_or_non_tag_field(const std::string& uppercase) {
     return is_protected_cue_metadata(uppercase) ||
            is_lyrics_metadata(uppercase) ||
@@ -223,10 +232,7 @@ inline std::vector<FieldReviewRow> review_online_fields(
         // Every physical date-like tag must carry a known temporal meaning.
         // A provider cannot disguise an untyped RELEASEDATE as a safe value,
         // nor smuggle a claimed original date into a non-date target.
-        const bool date_name=name=="DATE" || name=="DATE_RAW" ||
-            name=="ORIGINALDATE" || name=="RELEASEDATE" ||
-            name=="PUBLISHDATE" || name=="PUBLISH_DATE";
-        if (date_name !=
+        if (is_online_date_field(name) !=
             (evidence.date_meaning!=DateMeaning::NotDate)) {
             row.reason = "unknown_date_semantics";
             rows.push_back(std::move(row));

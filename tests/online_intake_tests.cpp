@@ -65,6 +65,28 @@ int main() {
         parse_manual_candidate("@provider=deezer\n@id=track:7\nDATE@digital=2003-01-02\n");
     check(digitally_published.fields[0].date_meaning == DateMeaning::DigitalPublication,
           "digital publication date remains distinguishable");
+    // The full supported date vocabulary is shared by parser and comparison:
+    // manually declared provider origin never upgrades a date to official API.
+    const auto typed_dates=parse_manual_candidate(
+        "@provider=deezer\n@id=album:7\n@scope=edition\n"
+        "ORIGINALDATE@original=2001-03-05\n"
+        "RELEASEDATE@edition=2003-01-02\n"
+        "PUBLISHDATE@digital=2004-04-06\n"
+        "PUBLISH_DATE@digital=2004-04-06\n"
+        "DATE_RAW@edition=2003-01-02\n");
+    const auto typed_date_review=review_online_fields(MetadataDocument{},typed_dates.fields);
+    check(typed_dates.fields.size()==5 &&
+          typed_dates.fields[0].date_meaning==DateMeaning::OriginalRelease &&
+          typed_dates.fields[1].date_meaning==DateMeaning::EditionRelease &&
+          typed_dates.fields[2].date_meaning==DateMeaning::DigitalPublication &&
+          typed_dates.fields[3].date_meaning==DateMeaning::DigitalPublication &&
+          typed_dates.fields[4].date_meaning==DateMeaning::EditionRelease &&
+          typed_date_review.size()==5 &&
+          typed_date_review[0].state==FieldReviewState::NeedsReview &&
+          typed_date_review[1].state==FieldReviewState::NeedsReview &&
+          typed_date_review[2].state==FieldReviewState::NeedsReview &&
+          online_evidence_origin_label(typed_date_review[1])=="Pasted: deezer",
+          "all supported typed dates reach read-only review without origin escalation");
 
     // Both still-missing live providers have a supported, explicitly
     // unverified manual lane. Merely naming a provider cannot impersonate
@@ -106,6 +128,16 @@ int main() {
           "Deezer manual digital date retains unverified origin and never rewrites originals");
     fails("@provider=spotify\n@id=track:912345\nDATE=2026\n",
           "Spotify manual date without typed date meaning is rejected");
+    for(const auto* date_field:{"ORIGINALDATE","RELEASEDATE",
+                                 "PUBLISHDATE","PUBLISH_DATE","DATE_RAW"}) {
+        const std::string missing="@provider=spotify\n@id=track:4\n"+
+            std::string(date_field)+"=2026-01-02\n";
+        fails(missing,"every date field requires an explicit temporal meaning");
+    }
+    fails("@provider=spotify\n@id=track:4\nRELEASEDATE@unknown=2026-01-02\n",
+          "unknown release date meaning cannot be imported");
+    fails("@provider=spotify\n@id=track:4\nTITLE@edition=2026-01-02\n",
+          "non-date fields cannot claim an edition date");
     fails("@provider=deezer\n@id=track:4318295162\nTITLE=\n",
           "Deezer manual empty title cannot imply tag deletion");
 
