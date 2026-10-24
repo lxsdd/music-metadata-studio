@@ -377,8 +377,13 @@ inline std::vector<SearchAttempt> track_search_plan(
     if (!album.empty()) validated_term(album);
     if (!version.empty()) validated_term(version);
     const auto annotation = split_title_mix(title);
-    const auto core = annotation.version.empty()
-        ? title : annotation.base;
+    // Shared discovery-only DJ title hints support bracketed versions AND
+    // dash/en-dash/em-dash generic suffixes. The independent exact edition
+    // matcher and the untouched full local TITLE retain the mix identity.
+    const auto discovery_core = musicbrainz::search_title_core(title);
+    const std::string_view core = !annotation.version.empty()
+        ? annotation.base : (discovery_core.empty()
+            ? title : std::string_view(discovery_core));
     std::vector<SearchAttempt> plan;
     const auto add = [&](std::string label, std::string path) {
         for (const auto& previous : plan)
@@ -418,6 +423,9 @@ inline std::vector<SearchAttempt> track_search_plan(
     if (!title.empty()) {
         add("Release title with artist", search_path(title,artist));
         add("Exact track in release", track_search_path(title,artist));
+        if(core!=title && annotation.version.empty() && !artist.empty())
+            add("Track base title + artist (version identity review)",
+                track_search_path(core,artist));
         // Real collaborative releases may be indexed under the separately
         // credited guest instead of the raw combined ARTIST. Try exactly
         // one independently qualified collaborator before title-only search.

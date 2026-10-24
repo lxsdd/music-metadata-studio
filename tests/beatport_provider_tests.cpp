@@ -91,6 +91,30 @@ int main() {
           track_search_plan("Title (Extended Mix)","Artist").size()==2 &&
           track_search_plan("feat. Singer","Producer").size()==2,
           "mixed-case features are optional query alternatives, not empty searches");
+    // A DJ tag without parentheses is a broader SEARCH, not a weaker
+    // edition match. Preserve both full and base title requests.
+    for(const std::string& full : {
+            std::string("Home - Extended Mix"),
+            std::string("Home \xE2\x80\x93 Radio Edit"),
+            std::string("Home \xE2\x80\x94 Original Version")}) {
+        const auto plan=track_search_plan(full,"DJ Example");
+        check(plan.size()==4 &&
+              plan[0].path==search_path("DJ Example "+full) &&
+              plan[1].path==search_path("DJ Example Home") &&
+              plan[2].path==search_path("Home") &&
+              plan[3].path==search_path(full) &&
+              plan[0].reason.find("version review")!=std::string::npos &&
+              plan[3].reason.find("version review")!=std::string::npos,
+              "Beatport dash suffix keeps exact full title, DJ base and mix review");
+    }
+    const auto unrelated_dash=track_search_plan(
+        "Home - Live at the Arena","DJ Example");
+    check(unrelated_dash.size()==2 &&
+          unrelated_dash[0].path==search_path(
+              "DJ Example Home - Live at the Arena") &&
+          unrelated_dash[1].path==search_path("Home - Live at the Arena"),
+          "unknown dashed track text is not silently removed in Beatport");
+
     const auto by_isrc=track_search_plan(
         "Home (Extended Mix)","DJ Example","GB-XYZ-26-01234");
     check(canonical_search_isrc("gb-xyz-26-01234")==

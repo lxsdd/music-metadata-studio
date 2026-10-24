@@ -250,6 +250,28 @@
   read-only source audits and isolated synthetic physical/no-op QA PASS on
   the exact SHA. Official catalog hit rate and installed UI comparison remain
   unqualified, hence MMS-SRC-08 is PARTIAL rather than HOST.
+- 2026-10-24: Owner-approved source priority (MMS-SRC-04 /
+  MMS-SRC-07 / MMS-SRC-08): Beatport and Crates, then Discogs and Deezer,
+  are the user's main discovery sources; MusicBrainz is complementary.
+  The owner expressly permits LOW-VOLUME private reading of publicly
+  visible single-track/release facts from Beatport, crates.co and Deezer.
+  This is consent to add opt-in public-page extraction, not a provider
+  license, private API access, token reuse, CAPTCHA/rate-limit bypass or
+  mass crawl. Crates already has Find-in-Crates and a selected Beatport-link
+  browser bridge. Beatport already has a bounded public JSON-LD track
+  fetch. Crates' own field extraction and Deezer public-page adapters
+  remain NOT IMPLEMENTED pending source/identity validation. Missing/
+  conflicting evidence stays REVIEW/BLOCK and physical/CUE writes disabled.
+- 2026-10-24: Cross-provider DJ title discovery (MMS-SRC-01 /
+  MMS-SRC-04 / MMS-SRC-08): Discogs and offline Beatport query planners
+  now reuse the conservative MusicBrainz generic trailing-mix suffix hint
+  for hyphen, en dash and em dash (Extended Mix, Radio Edit, etc.). Discogs
+  preserves full-title release/track attempts before adding qualified
+  base-title track search; Beatport preserves full-title artist/solo paths
+  while adding base-title attempts. Unknown suffixes are not stripped,
+  exact mix matching remains independent, no additional network transport
+  or write permission is introduced. Automated CI is required before
+  upgrading this checkpoint beyond CODE.
 - **Remaining decisions that can only be made by the owner:** one final
   installed Windows foobar acceptance; explicit merge/release/production
   write activation when qualified; any new provider legal terms or genuine

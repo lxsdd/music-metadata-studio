@@ -122,12 +122,25 @@ inline std::vector<SearchAttempt> track_search_plan(
         (!tagged_artist.empty() && !text_ok(tagged_artist, 150)))
         throw std::invalid_argument("Invalid Beatport track search identity");
     const auto annotated=split_title_mix(tagged_title);
-    const auto title=annotated.version.empty()
-        ? tagged_title : annotated.base;
+    // Use the same conservative DJ suffix discovery as MusicBrainz and
+    // Discogs without touching the strict recording/mix verifier.
+    const auto discovery_core=musicbrainz::search_title_core(tagged_title);
+    const bool alternate_suffix=annotated.version.empty() &&
+        !discovery_core.empty() && discovery_core!=tagged_title;
+    const std::string_view title=!annotated.version.empty()
+        ? annotated.base : (alternate_suffix
+            ? std::string_view(discovery_core) : tagged_title);
     std::vector<SearchAttempt> result;
     if(const auto isrc=canonical_search_isrc(tagged_isrc))
         result.push_back({"ISRC first (recording only; mix requires verification)",
                           search_path(*isrc)});
+    // Preserve an exact original-title query alongside the broader base
+    // when a dash/bracket search hint was recognized by discovery only.
+    if(alternate_suffix && !tagged_artist.empty() &&
+       tagged_artist.size()+1+tagged_title.size()<=150) {
+        result.push_back({"Original full title + artist (version review)",
+            search_path(std::string(tagged_artist)+" "+std::string(tagged_title))});
+    }
     if (!tagged_artist.empty() &&
         tagged_artist.size() + 1 + title.size() <= 150) {
         result.push_back({"Artist and base title",
@@ -137,6 +150,13 @@ inline std::vector<SearchAttempt> track_search_plan(
     if (std::none_of(result.begin(),result.end(),
             [&](const SearchAttempt& step){return step.path==title_path;}))
         result.push_back({"Base title without artist restriction", title_path});
+    if(alternate_suffix) {
+        const auto full_path=search_path(tagged_title);
+        if(std::none_of(result.begin(),result.end(),
+            [&](const SearchAttempt& step){return step.path==full_path;}))
+            result.push_back({"Original full title only (version review)",
+                full_path});
+    }
     const auto without_feat=search_title_without_feature_credit(title);
     if(!without_feat.empty() && without_feat!=title) {
         if(!tagged_artist.empty() &&

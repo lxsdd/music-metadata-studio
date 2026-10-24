@@ -303,6 +303,36 @@ int main() {
             "empty Discogs stage plan is not executable");
     rejects([]{(void)next_search_attempt("x","x",7,5);},
             "stale stage index is never silently reused");
+    // Same safe discovery-only suffix interpretation across native
+    // Discogs and MusicBrainz. Full title must remain in exact attempts.
+    for(const std::string& full : {
+            std::string("Via Balearia - Extended Mix"),
+            std::string("Via Balearia \xE2\x80\x93 Radio Edit"),
+            std::string("Via Balearia \xE2\x80\x94 Original Version")}) {
+        const auto plan=track_search_plan(full,"Estiva");
+        check(plan.size()==7 &&
+              plan[0].path==search_path(full,"Estiva") &&
+              plan[1].path==track_search_path(full,"Estiva") &&
+              plan[2].path==track_search_path("Via Balearia","Estiva") &&
+              plan[3].path==track_search_path(full) &&
+              plan[4].path==track_search_path("Via Balearia") &&
+              plan[5].path==search_path("Via Balearia") &&
+              plan[6].path==artist_search_path("Estiva") &&
+              std::all_of(plan.begin(),plan.end(),
+                  [](const auto& step){return allowed_readonly_path(step.path);}),
+              "Discogs keeps exact original title and searches qualified DJ base");
+    }
+    const auto unknown_dash=track_search_plan(
+        "Only You - Live at the Arena","Matt Fax");
+    check(unknown_dash.size()==5 &&
+          unknown_dash[0].path==search_path(
+              "Only You - Live at the Arena","Matt Fax") &&
+          std::none_of(unknown_dash.begin(),unknown_dash.end(),
+              [](const auto& stage){
+                  return stage.path==track_search_path("Only You","Matt Fax");
+              }),
+          "unknown dash segments are not invented as mix qualifiers");
+
     const auto simple_plan=track_search_plan("Via Balearia","Estiva");
     check(simple_plan.size()==5 &&
           simple_plan[2].path==track_search_path("Via Balearia") &&
