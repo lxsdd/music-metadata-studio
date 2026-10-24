@@ -129,6 +129,12 @@ int main() {
           catalog_stages[1].path==album_stages[0].path &&
           catalog_stages[2].path==album_stages[1].path,
           "validated CUE media barcode adds one bounded exact read-only search stage");
+    const auto barcode_only=release_search_plan(
+        "","Artist feat. Guest","4006381333931");
+    check(barcode_only.size()==1 &&
+          barcode_only.front().path==catalog_stages.front().path &&
+          barcode_only.front().path.find("artist")==std::string::npos,
+          "missing CUE album title permits only exact barcode discovery");
     const auto invalid_catalog_stages=release_search_plan(
         "Live Set","Artist feat. Guest","4006381333932");
     check(invalid_catalog_stages.size()==album_stages.size() &&
