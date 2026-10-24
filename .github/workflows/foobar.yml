@@ -2,20 +2,40 @@ name: foobar Preview Component
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feature/online-metadata-discovery-foundation-20261009 ]
     paths:
       - 'include/**'
       - 'src/core/**'
       - 'src/foobar/**'
+      - 'src/writer/**'
+      - 'CMakeLists.txt'
       - 'rules/**'
       - 'scripts/**'
       - 'tests/static_foobar_audit.py'
-      - 'foo_dj_metadata_normalizer.vcxproj'
+      # Native regression fixtures also trigger exact-source Win32/x64 gate.
+      - 'tests/**'
+      - 'foo_music_metadata_studio.vcxproj'
       - 'VERSION'
       - '.github/workflows/foobar.yml'
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      discogs_live:
+        description: 'Explicitly run official authenticated Discogs native QA (requires protected discogs-qa environment)'
+        type: boolean
+        required: true
+        default: false
+      discogs_release_id:
+        description: 'Public Discogs release ID from existing regression set (read-only)'
+        type: choice
+        required: true
+        default: '38012673'
+        options:
+          - '38012673'
+          - '37332711'
+          - '36397609'
+          - '36819730'
 
 permissions:
   contents: read
@@ -32,10 +52,10 @@ jobs:
       - uses: actions/checkout@v7
       - name: Verify analysis-only foobar boundary
         run: python tests/static_foobar_audit.py
-      - name: Enforce public artifact and release licensing hold
-        run: python3 scripts/verify-public-artifact-hold.py
-      - name: Verify immutable Git SDK source and stale-cache safety contract
+      - name: Verify immutable shared foobar SDK Git-tree source and cache safety
         run: python3 tests/sdk_source_pin_contract.py
+      - name: Enforce repository-wide public artifact hold
+        run: python3 scripts/verify-public-artifact-hold.py
 
   host-gate-script:
     needs: static-audit
@@ -46,36 +66,50 @@ jobs:
       - name: Test isolated host acceptance preparation and integrity verification
         shell: pwsh
         run: ./tests/host_acceptance_noop_tests.ps1
+      - name: Validate authenticated Discogs discovery contract offline
+        shell: pwsh
+        run: ./tests/discogs_discovery_contract_tests.ps1
+      - name: Verify Studio package format on synthetic PE only
+        shell: pwsh
+        run: ./tests/package_foobar_noop_tests.ps1
 
   windows-build:
     needs: static-audit
     runs-on: windows-2022
     timeout-minutes: 20
     strategy:
-      fail-fast: true
+      # An SDK transport failure in one architecture must not suppress
+      # independent Win32/x64 diagnosis. Both gates remain mandatory.
+      fail-fast: false
       matrix:
         platform: [Win32, x64]
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: lxsdd/foobar2000_component_template
+          ref: 31a35947a7527826c2199491692802e3ce3d8bd7
+          path: external/sdk-template
+          persist-credentials: false
       - uses: microsoft/setup-msbuild@v2
-      - name: Verify local private acceptance build prerequisites without downloading
+      - name: Preflight private Studio local acceptance helper (no download)
         shell: pwsh
         run: ./scripts/local-acceptance-build.ps1 -PreflightOnly
-      - name: Verify standalone MMS helper downloaded to Windows Temp
-        if: matrix.platform == 'x64' && github.event_name == 'pull_request'
+      - name: Verify standalone Studio helper from isolated Windows Temp
+        if: matrix.platform == 'x64' && github.event_name == 'push'
         shell: pwsh
         env:
-          EXACT_SHA: ${{ github.event.pull_request.head.sha }}
+          EXACT_SHA: ${{ github.sha }}
         run: |
           $ErrorActionPreference = 'Stop'
-          if ($env:EXACT_SHA.Length -ne 40 -or $env:EXACT_SHA -notmatch '^[a-f0-9]+$') { throw 'Non-SHA PR HEAD' }
-          $helper = Join-Path $env:RUNNER_TEMP 'music-metadata-studio-standalone.ps1'
+          if ($env:EXACT_SHA -cnotmatch '^[a-f0-9]{40}$') { throw 'Exact SHA missing' }
+          $helper = Join-Path $env:RUNNER_TEMP 'studio-standalone.ps1'
           $url = 'https://raw.githubusercontent.com/lxsdd/music-metadata-studio/' + $env:EXACT_SHA + '/scripts/local-acceptance-build.ps1'
           Invoke-WebRequest -UseBasicParsing -MaximumRedirection 5 -Uri $url -OutFile $helper
           Push-Location $env:RUNNER_TEMP
           try {
             & $helper -PreflightOnly
-            if (-not $?) { throw 'Standalone helper preflight failed' }
+            if (-not $?) { throw 'Standalone SHA-pinned helper preflight failed' }
           } finally {
             Pop-Location
             Remove-Item -LiteralPath $helper -Force -ErrorAction SilentlyContinue
@@ -83,24 +117,190 @@ jobs:
       - name: Build foobar preview component
         shell: pwsh
         run: ./scripts/build-foobar.ps1 -Platform '${{ matrix.platform }}' -Configuration Release -PlatformToolset v143
-      - name: Verify private local Git-SHA-pinned Win32/x64 candidate end-to-end
-        if: false # Full local source-to-package qualification PASS (GitHub run 39435120160); avoid repeated expensive builds
+      - name: HARD GATE - foobar2000 ${{ matrix.platform }} component host load
+        uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@31930d4fca571f449f2c57044bea5ba2e01f0ca7
+        with:
+          architecture: ${{ matrix.platform }}
+          component-dll: out/foobar/${{ matrix.platform }}/Release/foo_music_metadata_studio.dll
+          context-command: 'Music Metadata Studio/Prepare Tracks (Preview)...'
+          expected-window-title: 'Music Metadata Studio - Prepare Tracks (Read-only)'
+          required-control-ids: '270,273,271,291,292,293,294,299,303,304,305'
+          offline-clipboard-test: |
+            @provider=discogs
+            @id=release:123456
+            @scope=edition
+            TITLE=Runner Synthetic Recording
+            GENRE=Progressive Trance
+            DATE_RAW@edition=2026-10-20
+          clipboard-button-id: '289'
+          clipboard-list-id: '271'
+          beatport-edition-host-probe: 'true'
+          external-cue-host-probe: 'true'
+          embedded-cue-host-probe: 'true'
+          multi-file-cue-host-probe: 'true'
+          raw-target-host-probe: 'true'
+          stale-physical-host-probe: 'true'
+      # Compile BOTH sides of the feature gate. The normal host-loaded binary
+      # above contains no callable write UI. The QA-only DLL is never run
+      # against user files, installed, uploaded or packaged.
+      - name: Compile gated physical tag writer action (QA-only, no execution)
         shell: pwsh
-        run: ./scripts/local-acceptance-build.ps1 -SourceSha '${{ github.event.pull_request.head.sha }}' -OutputDirectory "$env:RUNNER_TEMP\MMS-nonpublic-acceptance"
-
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $arch = '${{ matrix.platform }}'
+          try {
+            & msbuild.exe .\foo_music_metadata_studio.vcxproj /m /restore "/p:Configuration=Release" "/p:Platform=$arch" "/p:PlatformToolset=v143" "/p:EnablePhysicalWrites=true"
+            if ($LASTEXITCODE -ne 0) { throw 'Isolated QA write-action compile failed' }
+            $dll = Join-Path "out/physical-write-qa/$arch/Release" 'foo_music_metadata_studio.dll'
+            if (-not (Test-Path -LiteralPath $dll -PathType Leaf)) {
+              throw 'QA-only component DLL not generated'
+            }
+            Write-Host "MMS_GATED_WRITE_UI_COMPILE_$arch=PASS; no writer invoked"
+          } finally {
+            Remove-Item -LiteralPath 'out/physical-write-qa','build/physical-write-qa' -Force -Recurse -ErrorAction SilentlyContinue
+          }
       - name: Upload DLL
-        if: false # Source-only qualification: no preview DLL artifacts
+        if: false # Safety hold: no public DLL artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: foo-dj-metadata-normalizer-${{ matrix.platform }}
-          path: out/foobar/${{ matrix.platform }}/Release/foo_dj_metadata_normalizer.dll
+          name: foo-music-metadata-studio-${{ matrix.platform }}
+          path: out/foobar/${{ matrix.platform }}/Release/foo_music_metadata_studio.dll
           if-no-files-found: error
           retention-days: 7
 
+  # Real SDK metadata mutation, but ONLY on one generated FLAC inside
+  # RUNNER_TEMP. This custom QA-DLL is NEVER packaged, uploaded or installed
+  # in a user profile. Both first write and exact no-op are mandatory gates.
+  physical-sdk-runtime-qa:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feature/online-metadata-discovery-foundation-20261009'
+    needs: static-audit
+    runs-on: windows-2022
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [Win32, x64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: lxsdd/foobar2000_component_template
+          ref: 31a35947a7527826c2199491692802e3ce3d8bd7
+          path: external/sdk-template
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: lxsdd/dev-infrastructure-public
+          ref: 31930d4fca571f449f2c57044bea5ba2e01f0ca7
+          path: external/shared-foobar
+          persist-credentials: false
+      - uses: microsoft/setup-msbuild@v2
+      - name: Build QA-only guarded physical SDK component
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $arch = '${{ matrix.platform }}'
+          & ./scripts/build-foobar.ps1 -Platform $arch -Configuration Release -PlatformToolset v143
+          if ($LASTEXITCODE -ne 0) { throw 'Standard SDK bootstrap failed' }
+          & msbuild.exe .\foo_music_metadata_studio.vcxproj /m /restore "/p:Configuration=Release" "/p:Platform=$arch" "/p:PlatformToolset=v143" "/p:EnablePhysicalWrites=true"
+          if ($LASTEXITCODE -ne 0) { throw 'Guarded QA component compile failed' }
+      - name: Exercise real foobar physical no-op/write and external CUE transaction
+        shell: pwsh
+        run: |
+          $arch = '${{ matrix.platform }}'
+          & ./scripts/qa-physical-writer-host.ps1 -Architecture $arch -ComponentDll "out/physical-write-qa/$arch/Release/foo_music_metadata_studio.dll" -SharedActionRoot "external/shared-foobar/.github/actions/foobar-host-smoke"
+          if (-not $?) { throw 'SDK physical writer runtime QA failed' }
+      - name: Cleanup QA-only local binaries
+        if: always()
+        shell: pwsh
+        run: Remove-Item -LiteralPath 'out/physical-write-qa','build/physical-write-qa' -Force -Recurse -ErrorAction SilentlyContinue
+
+  # Privileged third-party API QA has an isolated, manually approved
+  # GitHub environment. Ordinary PR workflows receive NO Discogs token.
+  # This job neither uploads nor packages the DLL and NEVER runs for forks.
+  discogs-authorized-native:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.discogs_live == true &&
+      github.ref == 'refs/heads/feature/online-metadata-discovery-foundation-20261009'
+    needs: static-audit
+    environment: discogs-qa
+    runs-on: windows-2022
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [Win32, x64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: lxsdd/foobar2000_component_template
+          ref: 31a35947a7527826c2199491692802e3ce3d8bd7
+          path: external/sdk-template
+          persist-credentials: false
+      - uses: microsoft/setup-msbuild@v2
+      - name: Build the exact checked-out foobar component for Discogs QA
+        shell: pwsh
+        run: ./scripts/build-foobar.ps1 -Platform '${{ matrix.platform }}' -Configuration Release -PlatformToolset v143
+      - name: Authorized official Discogs staged search and exact-edition QA
+        if: matrix.platform == 'Win32'
+        shell: pwsh
+        env:
+          MMS_DISCOGS_QA_TOKEN: ${{ secrets.MMS_DISCOGS_QA_TOKEN }}
+        run: ./scripts/qa-discogs-discovery.ps1 -Mode Live -ReleaseId '${{ inputs.discogs_release_id }}'
+      - name: Authorized official Discogs native exact-edition gate
+        uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@31930d4fca571f449f2c57044bea5ba2e01f0ca7
+        env:
+          FB2K_DISCOGS_QA_TOKEN: ${{ secrets.MMS_DISCOGS_QA_TOKEN }}
+        with:
+          architecture: ${{ matrix.platform }}
+          component-dll: out/foobar/${{ matrix.platform }}/Release/foo_music_metadata_studio.dll
+          context-command: 'Music Metadata Studio/Prepare Tracks (Preview)...'
+          expected-window-title: 'Music Metadata Studio - Prepare Tracks (Read-only)'
+          required-control-ids: '270,273,271,291,292,293,294,299,301,303,304,305'
+          authorized-discogs-probe: 'true'
+          authorized-discogs-full-artist-probe: ${{ inputs.discogs_release_id == '37332711' && 'true' || 'false' }}
+          discogs-release-id: ${{ inputs.discogs_release_id }}
+
+  # One-shot source-to-component package qualification on disposable CI only.
+  # No binaries are uploaded, retained or exposed as GitHub artifacts.
+  private-package-qualification:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feature/online-metadata-discovery-foundation-20261009' && contains(github.event.head_commit.message, '[qualify-private-package]')
+    needs: [static-audit, windows-build]
+    runs-on: windows-2022
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: microsoft/setup-msbuild@v2
+      - name: Private source-SHA-to-Win32-and-x64-package end-to-end
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sha = '${{ github.sha }}'
+          if ($sha -cnotmatch '^[a-f0-9]{40}$') { throw 'Unpinned source revision' }
+          $target = Join-Path $env:RUNNER_TEMP 'mms-private-qualify'
+          try {
+            & ./scripts/local-acceptance-build.ps1 -SourceSha $sha -OutputDirectory $target
+            if (-not $?) { throw 'Private component acceptance build rejected' }
+            $package = Join-Path (Join-Path $target ('MMS-local-' + $sha)) 'BUILD-MANIFEST.txt'
+            if (-not (Test-Path -LiteralPath $package -PathType Leaf)) { throw 'Private package manifest missing' }
+            $text = Get-Content -LiteralPath $package -Raw
+            if (-not $text.Contains('commit=' + $sha) -or -not $text.Contains('status=PASS')) { throw 'Private exact-source package proof missing' }
+            Write-Host 'PRIVATE_SOURCE_TO_PACKAGE=PASS (Win32+x64, manifest, PE and SHA256 verified; no public artifact)'
+          } finally {
+            Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue
+          }
   # Internal PRs may publish short-lived QA artifacts, never GitHub Releases.
   # Fork PRs remain build-only so untrusted code cannot publish previews.
   package:
-    if: false # Package upload disabled until rights clearance
+    if: false # Safety hold: do not package public DLLs
     needs: [static-audit, host-gate-script, windows-build]
     runs-on: windows-2022
     timeout-minutes: 10
@@ -108,27 +308,27 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
-          name: foo-dj-metadata-normalizer-Win32
+          name: foo-music-metadata-studio-Win32
           path: candidate-input/Win32
       - uses: actions/download-artifact@v8
         with:
-          name: foo-dj-metadata-normalizer-x64
+          name: foo-music-metadata-studio-x64
           path: candidate-input/x64
       - name: Package verified combined component
         shell: pwsh
         run: |
           $version = (Get-Content -Raw -LiteralPath VERSION).Trim()
           ./scripts/package-foobar.ps1 `
-            -Win32Dll 'candidate-input/Win32/foo_dj_metadata_normalizer.dll' `
-            -X64Dll 'candidate-input/x64/foo_dj_metadata_normalizer.dll' `
+            -Win32Dll 'candidate-input/Win32/foo_music_metadata_studio.dll' `
+            -X64Dll 'candidate-input/x64/foo_music_metadata_studio.dll' `
             -OutputDirectory 'candidate-output' `
             -Version $version `
             -Commit '${{ github.event.pull_request.head.sha || github.sha }}'
       - name: Upload combined component
-        if: false # Do not publish components until clearance
+        if: false # Safety hold: no public binary packages
         uses: actions/upload-artifact@v7
         with:
-          name: foo-dj-metadata-normalizer-component
+          name: foo-music-metadata-studio-component
           path: |
             candidate-output/*.fb2k-component
             candidate-output/BUILD-MANIFEST.txt

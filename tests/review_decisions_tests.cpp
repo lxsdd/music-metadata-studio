@@ -1,4 +1,5 @@
 #include "djmeta/review_decisions.h"
+#include "djmeta/review_display.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -79,6 +80,23 @@ int main() {
           edited.unresolved_semantic == 0,
           "Accept/Reject/Manual and unchanged SAFE are deterministic");
 
+    // The native "Proposed" column must display the decision's actual
+    // staged value, not a discarded change after Reject. Reset is a
+    // *preview* and must never be mislabeled as an applied tag.
+    check(review_visible_value(" Old Title ", "Old Title", &decisions[0])==
+              " Old Title " &&
+          review_visible_value("Original Artist","Canonical Artist",
+                               &decisions[1])=="Canonical Artist" &&
+          review_visible_value("Mix A","Mix B",&decisions[2])=="Custom Edit",
+          "native Accept/Reject/Manual readback matches staged semantic choice");
+    const ReviewDecision reset_view{ReviewAction::Pending, ""};
+    check(review_visible_value("Mix A","Mix B",&reset_view)=="Mix B" &&
+          review_visible_value("Mix A","Mix B",nullptr)=="Mix A",
+          "Reset displays a pending proposal but missing decision keeps original");
+    const ReviewDecision invalid_view{
+        static_cast<ReviewAction>(100), "forbidden"};
+    check(review_visible_value("Mix A","Mix B",&invalid_view)=="Mix A",
+          "unknown review decision must never display a proposed write");
     decisions[2] = ReviewDecision{ReviewAction::Pending, ""};
     const auto pending = project_review_decisions(original, analysis, decisions);
     check(pending.unresolved_semantic == 1 &&

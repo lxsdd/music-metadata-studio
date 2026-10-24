@@ -189,12 +189,12 @@ void show_custom_route_preview(
         report += "sidecars and timestamp policies have NOT been checked.";
         report += "\nSelect a different route from the context menu or Prepare Tracks dialog.";
         report += "\nNo tags were written and no files were changed.";
-        popup_message::g_show(report.c_str(), "DJ Metadata Normalizer - Routing");
+        popup_message::g_show(report.c_str(), "Music Metadata Studio - Routing");
     } catch (const std::exception& error) {
         std::string message =
             "Routing preview failed. Nothing was changed.\n\n";
         message += error.what();
-        popup_message::g_show(message.c_str(), "DJ Metadata Normalizer");
+        popup_message::g_show(message.c_str(), "Music Metadata Studio");
     }
 }
 
@@ -202,7 +202,7 @@ void show_legacy_route_preview(const metadb_handle_list& handles, std::size_t ro
     if (route_index >= legacy_move_route_count) {
         popup_message::g_show(
             "Unknown routing profile. Nothing was changed.",
-            "DJ Metadata Normalizer");
+            "Music Metadata Studio");
         return;
     }
     const LegacyMoveRoute& legacy = legacy_move_routes[route_index];

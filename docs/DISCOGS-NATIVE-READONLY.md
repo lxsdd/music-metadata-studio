@@ -1,0 +1,203 @@
+# Native Discogs lookup (Draft PR #45; read-only)
+
+The foobar Prepare Tracks / Find & compare page now offers a source selector
+**MusicBrainz** / **Discogs (token)**. Discogs uses the existing fixed-host
+WinHTTP GET adapter and the existing bounded official catalog/edition parsers.
+
+- Official Discogs **search and exact-edition HTTPS requests** execute on a
+  dedicated, joined native worker. Only the fixed API path and runtime token
+  cross that boundary; foobar SDK calls, source/CUE reads, parsing, visual
+  updates and pre/post-snapshot verification stay on the main UI thread.
+  Closing during an active request hides the workspace and completes
+  destruction after its bounded response; a late result after refresh,
+  provider switch or source selection change is discarded without changes.
+  Native Windows HWND regression tests cover delayed completion, responsive
+  event dispatch, errors and safe request lifetime.
+- Enter a **personal access token authorized by Discogs** in the masked
+  temporary native control. It is neither persisted, logged, committed, added
+  to URLs, nor stored in the user's foobar configuration.
+- Manually pasted canonical Discogs release/master URLs stay reachable even
+  when the selected source has duplicate, multi-value, malformed or absent
+  TITLE, ARTIST or ALBUM tags; those local fields are merely optional
+  discovery hints. An invalid track title cannot suppress an independently
+  qualified ALBUM search. CUE-global duplicates are likewise ignored for
+  discovery (never arbitrarily selected), while actual track/CUE association
+  remains blocked or review-only when its identity cannot be established.
+  An exact URL always resolves to the fixed official API path; no arbitrary
+  pasted URL is fetched and no missing source value becomes an edit proposal.
+- When the selected physical track has a single valid BARCODE and/or
+  CATALOGNUMBER, the explicitly initiated Discogs search first tries those
+  documented, fixed-host **edition** filters (preserving leading zeros and
+  punctuation) before returning to release/track/artist text search.
+  Duplicate or multivalue identifiers are never chosen arbitrarily. Manually
+  edited queries bypass these automatic local identifier filters.
+  The provider search hit is still only a candidate until the exact release
+  detail is inspected; a barcode cannot authorize tag writes.
+- A qualified single-value physical **ALBUM** (or a parsed CUE-global
+  **TITLE**) adds an independent official `release_title` search stage,
+  before TITLE-based release/track fallback. The original track TITLE stays
+  unchanged, and a missing/ambiguous/malformed album is not guessed.
+  Explicitly edited search text does not silently mix in local ALBUM.
+  This is a candidate-discovery hint, never proof of the exact edition.
+- A uniquely qualified local ARTIST (physical audio) or CUE-global PERFORMER
+  now enables deliberate **artist-only** Discogs release discovery even when
+  no usable track or album TITLE is present. This is the last broad release
+  search stage before optional master navigation, with at most 20 unverified
+  page-1 results. Explicit candidate selection and exact-edition inspection
+  are still mandatory. Artist-only hits do not establish track/CUE identity,
+  never authorize writes, and use only the fixed official token-header API.
+- Ordinary Discogs searches now expose a separate **Next results page**
+  native button when the official API reports another page. Each click loads
+  exactly one bounded page of the SAME authenticated official search stage.
+  Page numbers, page size and canonical filters are checked; an edited query,
+  changed source/CUE bytes, different provider, stale preview or invalid page
+  refuses the result. Pages REPLACE the current candidates (no silent merges).
+  The ordinary Search button still broadens strategies, while master pages
+  retain their existing separate navigation. Search hits still require exact
+  release detail inspection before they can participate in tag/CUE comparison.
+- Search begins only with a deliberate user action. After zero hits its
+  bounded official strategies automatically broaden; a nonempty result
+  requires another deliberate Search click. The joined network worker waits
+  for the 1.6-second request interval without blocking foobar, and closing
+  can cancel that wait. A canonical
+  `https://www.discogs.com/release/<id>` URL performs one fixed-host
+  release lookup directly. A canonical
+  `https://www.discogs.com/master/<id>` instead requests the documented
+  master versions page 1 on the same official token-header transport.
+  Each page displays at most 20 concrete release editions, including available
+  format/label/country/catalog/year. **Next master page** explicitly loads
+  exactly one subsequent official page; the native page counter shows progress.
+  Pages replace rather than silently append candidates, and the bounded
+  canonical transport accepts only page numbers 1–100000. Provider-advertised
+  totals above that limit remain explicitly incomplete. A master/version list
+  is never exact tag evidence: select a release and **Load release** separately.
+  Foreign pagination, unknown hosts and unqualified IDs are rejected.
+- **Local physical** original-only tags appear in a separate native Physical
+  section, not as part of the inspected Discogs edition. A provider-absent
+  custom/ReplayGain/multivalue tag is kept intact and explicitly displays
+  **Keep original**, without a fabricated remote source/edition ID. The
+  same carrier-origin separation applies to MusicBrainz search and manually
+  entered Beatport review; edition evidence retains its real source ID.
+- Discogs and MusicBrainz search details show all original physical tags
+  up to the native 1,024-row capacity, rather than silently dropping them
+  after 50 rows. If an unusually large inventory exceeds the native pane,
+  a blocked, explicit **Additional physical tags not displayed** row shows
+  the remaining count and points to **Review proposals > All current tags**,
+  where the complete local inventory can be inspected independently.
+  Provider facts remain separate from the local original rows.
+- Native result and field detail provenance distinguish official Discogs API,
+  official MusicBrainz API and user-pasted evidence; hovering a field shows
+  exact provider source ID, scope, date meaning and refusal reason. Up to
+  1,024 detail rows are rendered; excessive evidence is explicitly marked,
+  never silently truncated or treated as write approval.
+- Discogs exact-edition tracklists expand qualified `index` `sub_tracks`
+  into independently sourced, display-only recording rows. Headings/videos
+  remain non-audio. Missing index children, malformed nested entries and
+  unknown track types reject the entire edition rather than displaying an
+  incomplete album as verified. No CUE timing or write approval is inferred.
+- Every Discogs edition track now has a protected, display-only MATCH
+  diagnostic. Suggested identity displays independent evidence such as
+  title, artist, duration and position without implying certainty or write
+  approval. Missing physical duration, duplicate local identity, wrong remix,
+  ambiguous assignment and tainted provider provenance explain why the
+  individual track is blocked. MATCH_DIAGNOSTIC can never be a physical tag.
+- Inspect a verified release: full multivalue edition fields are shown
+  separately from individual recording/track fields, each preserving source
+  IDs. A qualified physical file may compare track-specific fields only when
+  its TITLE, ARTIST, actual foobar duration and optional mix/position/ISRC
+  yield a unique Suggested one-to-one alignment without conflicts.
+  Missing duration, duplicate local identities, ambiguous editions, wrong
+  remix and unverified track provenance remain blocked. The current
+  Discogs tracklist adapter does not provide verified track ISRC: any
+  local ISRC remains visible but is not used as remote identity evidence.
+  No matched field is approved for writing.
+- For an inspected parsed CUE missing a unique TITLE/PERFORMER on any track,
+  the native exact-edition view now retains **BLOCKED album-only** comparison
+  rows with original CUE-global values and verified edition provenance, plus
+  explicit CUE-track MATCH diagnostics. No remote credit is assigned to a
+  track and no online field becomes an editable proposal. Unparsed CUE syntax
+  or invalid edition source identities still rejects the entire comparison.
+- For an inspected qualified CUE, `review_cue_release_edition` separates
+  verified track candidates from weaker evidence. Missing independent
+  duration/ISRC no longer hides all useful exact-edition fields: when an
+  otherwise unique title/artist track association is under-corroborated, its
+  provider fields are shown next to original CUE values exclusively as
+  **BLOCKED, non-actionable evidence**. Wrong remix, ambiguous alignment,
+  forged source IDs and unverified track provenance cannot borrow credits.
+- Both **Inspect CUE** and the exact Discogs edition detail use the same
+  read-only source inventory. The comparison shows every parsed original
+  CUE-global and CUE-track field (including repeated values and unknown REM)
+  plus FILE references in separate **CUE Original** groups with actual source
+  lines and external/embedded carrier identity. Provider-absent values display
+  **Keep original CUE** and **(not supplied)**; no remote identity is invented.
+  Unknown REM remains display-only, not an editable/inherited canonical tag.
+  CUE original inventory is bounded to 10,000 rows; the 1,024-row native
+  detail view explicitly marks overflow instead of silent truncation.
+- The existing source/rules snapshot and CUE post-read guards run before
+  publishing any result. The online page remains a **read-only comparison**:
+  no accepting online metadata as a write operation, audio modification,
+  CUE modification, ReplayGain change or file organization is enabled.
+- Network access requires an authorized token and the provider's applicable
+  terms. No fallback to scraping, paid subscriptions or undocumented endpoints.
+
+Qualification still required: exact-HEAD Core and Win32/x64 CI, real
+foobar2000 Win32 and x64 native layout/token/source/track interaction at
+100%–200% scaling, plus end-to-end authorized live lookup. CI success
+alone is **not** installed-host acceptance.
+
+## Separate physical VERSION discovery (read-only)
+
+When the selected physical source has one qualified `TITLE` and one
+qualified `VERSION` (for example, `1000 Years` and `DJ Version`),
+an explicitly initiated Discogs search now tries the documented fixed-host
+`track` and `q` release-candidate filters for `1000 Years (DJ Version)`
+before the ordinary unqualified title fallback. An existing recognized
+mix suffix in `TITLE` is never appended again. Duplicate, malformed or
+oversized VERSION evidence is omitted rather than guessed. Manually typed
+queries and canonical release URLs remain independent of local VERSION;
+CUE-global TITLE is an album and never gains an invented track mix. Each
+additional zero-hit request is paced on the native worker. Search hits
+remain unverified: exact release detail, independent track alignment,
+provenance and host snapshot checks are still mandatory, with no writes.
+
+## GitHub runner: authenticated *real native* QA (manual only, 2026-10-20)
+
+A separately gated `discogs-authorized-native` job is now attached to
+`.github/workflows/foobar.yml`. It is **not part of pull_request or push
+runs**, never uses `pull_request_target`, and is only eligible for a manual
+`workflow_dispatch` on the exact canonical PR #45 development branch when
+`discogs_live` is explicitly set to true. The Win32 and x64 matrices build
+the exact selected branch HEAD and run official SHA-256-pinned foobar2000
+2.26.1 in isolated GitHub-hosted Windows environments.
+
+The job requests protected GitHub environment **`discogs-qa`**. Set a
+**single environment secret** named **`MMS_DISCOGS_QA_TOKEN`**, obtained
+and authorized independently from Discogs. Enable a required reviewer and
+restrict the environment to the canonical Studio branch before launching.
+Never paste a token into a chat, PR description, GitHub issue, YAML, workflow
+input, file, URL or command line. The token only enters the secret-scoped
+action step and masked Win32 password control; it is removed from the runner
+shell environment **before** starting foobar, so foobar does not inherit it.
+No secrets are present in normal PR CI. No artifacts, merges, releases or
+writes are performed by the manual job.
+
+In one explicit native UI Search click, the test opens
+`https://www.discogs.com/release/<allowlisted id>`. The plugin's own
+fixed-host official HTTPS transport receives the token in the Authorization
+header, reads the exact edition and promotes it directly into native
+read-only release/track/field comparison. The test requires real native
+summary and field-detail rows, expected read-only status, responsive UI,
+modeless reuse and unchanged synthetic WAV bytes/timestamps. The test does
+**not** prove matching of the selected artificial local track, complete CUE
+coverage, visual field correctness, or actual tag/media writer safety.
+
+The allowlist comprises historical user-reported discovery problems:
+38012673, 37332711, 36397609, 36819730. Select only one per manual run,
+honor Discogs request limits, and never treat a source-owned token as a
+license to scrape or bulk-download. Auth failures, missing protected secret,
+rate limits, invalid responses or unavailable catalog entries are reported as
+FAIL, not silently skipped or reclassified as host success.
+
+The separate `core`, build and ordinary PR host gates stay independent.
+The default `workflow_dispatch` input `discogs_live=false` cannot access
+this secret-bearing job. Manual QA does not upload or package draft DLLs.

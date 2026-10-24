@@ -57,6 +57,7 @@ CueAssociationPlan qualify_external_cue_association(
     }
 
     std::set<std::string> related;
+    std::map<std::string, std::string> proposed_name_per_physical_source;
     for (std::size_t i = 0; i < cue.references.size(); ++i) {
         const auto found = by_index.find(i);
         if (found == by_index.end()) {
@@ -77,6 +78,13 @@ CueAssociationPlan qualify_external_cue_association(
             fail(plan, "CUE_DESTINATION_RELATION_UNVERIFIED");
             return plan;
         }
+        const auto [destination, inserted] =
+            proposed_name_per_physical_source.emplace(
+                host.resolved_source_key, host.proposed_filename);
+        if (!inserted && destination->second != host.proposed_filename) {
+            fail(plan, "CUE_SAME_SOURCE_CONFLICTING_DESTINATION_REFERENCES");
+            return plan;
+        }
         // For files not selected in the batch, the host must nevertheless
         // verify the post-move FILE reference still points to that file.
         const auto selected = selected_source_to_id.find(host.resolved_source_key);
@@ -85,6 +93,10 @@ CueAssociationPlan qualify_external_cue_association(
             plan.changes.push_back({i, original.filename, host.proposed_filename});
     }
 
+    if (related.size() != selected_physical_ids.size()) {
+        fail(plan, "SELECTED_AUDIO_NOT_REFERENCED_BY_CUE");
+        return plan;
+    }
     const auto post = preview_external_cue_reference_rewrite(raw_cue_bytes, plan.changes);
     if (!post.eligible) {
         fail(plan, "CUE_REFERENCE_POSTIMAGE_INVALID");

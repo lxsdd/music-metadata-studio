@@ -23,6 +23,9 @@ struct BatchPreviewInputRow {
     std::string source_physical_key; // genuine host-observed source identity
     std::string raw_target_physical_key; // genuine host-observed target identity, when existing
     std::string raw_target_guard; // observed target state, not overwrite approval
+    // Foobar-native *raw* candidate canonical locator. Not final FileOps path.
+    // Recorded only on stable Existing/Missing host observations.
+    std::string raw_target_host_canonical;
     bool physical_source_qualified = false;
     bool semantic_proposals_pending = false;
     bool cue_dependencies_checked = false;
@@ -46,6 +49,9 @@ struct BatchPreviewTable {
 // True means only that the relative fragment has no obvious Windows path
 // traps; it is NOT proof of final foobar File Operations sanitization.
 bool raw_relative_path_lexically_safe(std::string_view raw);
+// Preliminary absolute Windows drive/UNC destination root validation.
+// This does not assert host File Operations sanitation or approval.
+bool raw_destination_root_lexically_safe(std::string_view root);
 
 // Pure read-only table description; no filesystem I/O, no OS path identity
 // assumptions, no use of this result as an executor approval token.

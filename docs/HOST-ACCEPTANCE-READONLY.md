@@ -22,7 +22,7 @@ unavoidable installed-host gate.
 
 ## One short, safe Windows test
 
-1. Download the successful run's `foo-dj-metadata-normalizer-component`
+1. Download the successful run's `foo-music-metadata-studio-component`
    Actions artifact, extract it, and use `SHA256SUMS.txt` to verify the
    `.fb2k-component` integrity. Install it into foobar2000 2.x via
    Preferences → Components → Install, or an isolated/portable foobar
@@ -41,7 +41,7 @@ unavoidable installed-host gate.
    below use only the disposable copies.
 3. Add the copied MP3 files to a temporary foobar playlist; optionally
    open `sample-a.cue` separately to inspect its virtual track. Invoke
-   the DJ Metadata Normalizer **Prepare Tracks (Preview)** context menu
+   the Music Metadata Studio **Prepare Tracks (Preview)** context menu
    on the MP3 file(s). Switch between Metadata changes and File
    locations. Review the raw target / no-write statuses; optionally
    select one or two File locations rows, right-click and select
@@ -50,6 +50,21 @@ unavoidable installed-host gate.
    as independent physical tag-write targets. Close/Cancel the dialog.
    **Do not run foobar's own ordinary tag writer, ReplayGain scan or File
    Operations on the test files** during this test.
+   **Optional Discogs live-read gate (separate from the basic host PASS):**
+   In the same disposable playlist, select one copied physical MP3, switch
+   to Discogs and enter **your own** authorized personal API token in the
+   password-style control. Initiate Search using either its existing tags or
+   a pasted canonical release URL such as
+   `https://www.discogs.com/release/38012673`. Verify the result is an
+   **exact release**, select its album/track summary, inspect the native
+   Original/Suggested/Status detail rows and confirm uncertain or unrelated
+   tracks remain blocked. Repeat on the disposable external CUE where
+   applicable; no source audio, tags, CUE or filename may change.
+   Do not submit or record the token, response payload, personal metadata
+   or music path. If authorization is unavailable, record
+   `DISCOGS_LIVE=NOT_TESTED`, not PASS. A successful static/DLL build is
+   not proof of this live host path.
+
 4. Run verification using the exact `TEST_FOLDER` printed by Prepare:
 
    ```powershell

@@ -2,7 +2,7 @@
 
 ## Product goal
 
-DJ Metadata Normalizer replaces the current multi-step foobar2000 workflow with one explicit, reviewable plan:
+Music Metadata Studio replaces the current multi-step foobar2000 workflow with one explicit, reviewable plan:
 
 1. analyze and normalize metadata;
 2. derive the final filename from the canonical metadata;
@@ -474,3 +474,28 @@ tag-only vs move-only isolation and proving that virtual subsongs never cause
 partial physical ID3 serialization. The current preview-only component
 cannot independently demonstrate writer-call suppression because it has no
 productive writer; no such claim is made.
+
+### Exact individual overwrite approval membership (October 2026)
+
+The pure no-I/O planner now validates every individual overwrite approval
+against one explicitly observed **existing** destination and one active,
+independently identified physical source. Unknown IDs, duplicate IDs, empty
+IDs, or approvals for a missing destination, tag-only row or an exact
+source-equals-target rename/move no-op invalidate the
+**whole** batch, including otherwise no-op rows. Blanket overwrite approval
+cannot mask an inconsistent individual subset. A frozen preview refuses these
+cases. Large 15,000-track explicit approval and ordinary blanket-overwrite
+regressions remain part of Core CI. This is advisory in-memory approval
+validation, not an executor, and does not enable physical file operations.
+
+### Online query provenance across track selection (October 2026)
+
+The modeless native Candidate comparison search no longer retains the
+**previous physical track's automatically filled title** when the next
+source has no unambiguous TITLE/ALBUM or is an external .cue awaiting its
+separate inventory. It clears only an **automatic** query on routine
+navigation; deliberately edited searches remain intact, including Unicode
+and exact provider URLs. Explicit source activation may reset the edit
+field to that source's suggestion. A cross-platform pure UI-state regression
+prevents inadvertent lookup of the previous track. This does not execute
+network requests by itself and does not change the zero-write boundary.
