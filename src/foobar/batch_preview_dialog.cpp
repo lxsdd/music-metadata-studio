@@ -2155,9 +2155,8 @@ void show_column_menu(HWND dialog, PreviewState& state, LPARAM pointer) {
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, kColumnMenuReset, L"Reset column layout");
 
-    POINT location{static_cast<SHORT>(LOWORD(pointer)),
-                   static_cast<SHORT>(HIWORD(pointer))};
-    if (location.x == -1 && location.y == -1) GetCursorPos(&location);
+    const POINT location=native_column_menu_point(
+        ListView_GetHeader(state.list),pointer);
     const UINT selected = TrackPopupMenu(menu,
         TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY, location.x, location.y,
         0, dialog, nullptr);
@@ -2205,9 +2204,8 @@ bool show_review_grid_column_menu(
     AppendMenuW(menu, MF_STRING, menu_base + static_cast<unsigned>(N),
                 L"Reset columns");
 
-    POINT location{static_cast<SHORT>(LOWORD(pointer)),
-                   static_cast<SHORT>(HIWORD(pointer))};
-    if (location.x == -1 && location.y == -1) GetCursorPos(&location);
+    const POINT location=native_column_menu_point(
+        ListView_GetHeader(list),pointer);
     const UINT selected = TrackPopupMenu(menu,
         TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY,
         location.x, location.y, 0, dialog, nullptr);
@@ -5513,6 +5511,18 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             DestroyMenu(menu);
             if (command == inspectCommand)
                 SendMessageW(dialog, WM_COMMAND, MAKEWPARAM(inspectCommand, 0), 0);
+            return TRUE;
+        }
+        if (requested == state->metadata_track_list) {
+            if (show_active_track_grid_column_menu(dialog,*state,lp)) {
+                update_master_table(*state);
+                update_metadata_table(*state);
+            }
+            return TRUE;
+        }
+        if (requested == state->metadata_list) {
+            if (show_active_detail_grid_column_menu(dialog,*state,lp))
+                update_metadata_table(*state);
             return TRUE;
         }
         if (requested == state->musicbrainz_details) {

@@ -16,6 +16,23 @@
 
 namespace djmeta_foobar {
 
+// A keyboard WM_CONTEXTMENU carries (-1,-1), not a pointer location.
+// Place the column picker at its header so Shift+F10 remains usable when
+// the mouse is on another monitor. Mouse right-click keeps its exact point.
+inline POINT native_column_menu_point(HWND header, LPARAM pointer) {
+    if(pointer!=static_cast<LPARAM>(-1))
+        return {static_cast<SHORT>(LOWORD(pointer)),
+                static_cast<SHORT>(HIWORD(pointer))};
+    RECT bounds{};
+    if(header && GetWindowRect(header,&bounds) &&
+       bounds.right>bounds.left && bounds.bottom>bounds.top)
+        return {bounds.left+(std::min)(12,bounds.right-bounds.left-1),
+                bounds.top+(std::min)(12,bounds.bottom-bounds.top-1)};
+    POINT fallback{};
+    GetCursorPos(&fallback);
+    return fallback;
+}
+
 // Only normal, unminimized windows yield genuine screen coordinates.
 // An iconic WINDOWPLACEMENT normal rectangle is always workspace-based;
 // retaining the last observed normal screen rectangle avoids switching

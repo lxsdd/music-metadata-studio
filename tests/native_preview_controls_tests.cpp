@@ -976,6 +976,20 @@ int main() {
           actual_track_order == track_layout.order,
           "real track header supports independent drag order");
     const HWND track_header = ListView_GetHeader(track_list);
+    RECT track_header_bounds{};
+    check(GetWindowRect(track_header,&track_header_bounds)!=FALSE,
+          "real review track header has screen bounds for keyboard menu");
+    const auto keyboard_column_point=djmeta_foobar::native_column_menu_point(
+        track_header,static_cast<LPARAM>(-1));
+    check(keyboard_column_point.x>=track_header_bounds.left &&
+          keyboard_column_point.x<track_header_bounds.right &&
+          keyboard_column_point.y>=track_header_bounds.top &&
+          keyboard_column_point.y<track_header_bounds.bottom,
+          "Shift+F10 column menu anchors to the focused native header");
+    const auto mouse_column_point=djmeta_foobar::native_column_menu_point(
+        track_header,MAKELPARAM(321,654));
+    check(mouse_column_point.x==321 && mouse_column_point.y==654,
+          "mouse column menu retains the actual screen click location");
     HDITEMW selected_sort{};
     selected_sort.mask = HDI_FORMAT;
     check(SendMessageW(track_header, HDM_GETITEMW, 1,
@@ -1037,6 +1051,17 @@ int main() {
     auto detail_layout = djmeta::default_review_grid_layout<5>({80, 105, 105, 60, 75});
     detail_layout.order = {4, 0, 1, 3, 2};
     HWND detail_list = GetDlgItem(dialog, IDC_METADATA_LIST);
+    RECT detail_header_bounds{};
+    const HWND detail_header=ListView_GetHeader(detail_list);
+    check(GetWindowRect(detail_header,&detail_header_bounds)!=FALSE,
+          "real review detail header has screen bounds for keyboard menu");
+    const auto detail_keyboard_point=djmeta_foobar::native_column_menu_point(
+        detail_header,static_cast<LPARAM>(-1));
+    check(detail_keyboard_point.x>=detail_header_bounds.left &&
+          detail_keyboard_point.x<detail_header_bounds.right &&
+          detail_keyboard_point.y>=detail_header_bounds.top &&
+          detail_keyboard_point.y<detail_header_bounds.bottom,
+          "detail-grid keyboard column menu anchors to its own header");
     djmeta_foobar::apply_review_grid_controls(detail_list, detail_layout, 96);
     std::array<int, 5> actual_detail_order{};
     check(ListView_GetColumnOrderArray(detail_list, 5, actual_detail_order.data()) &&

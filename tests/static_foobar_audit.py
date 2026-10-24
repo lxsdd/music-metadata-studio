@@ -993,6 +993,12 @@ if ('native_master_track_deselected(' not in batch_table_dialog or
     'update_local_review_hint(*state)' not in batch_table_dialog or
     'notified_master_deselections' not in gui_test):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: master deselection hint refresh missing")
+if ('native_column_menu_point(' not in native_controls or
+    'native_column_menu_point(' not in gui_test or
+    'requested == state->metadata_track_list' not in batch_table_dialog or
+    'requested == state->metadata_list' not in batch_table_dialog or
+    'ListView_GetHeader(list),pointer' not in batch_table_dialog):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: review grid keyboard/list column menu missing")
 if 'review_split_gap_hit(' not in gui_test:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: splitter HWND test missing")
 if 'apply_native_preview_resize(' not in gui_test or 'review_split_geometry(' not in gui_test:

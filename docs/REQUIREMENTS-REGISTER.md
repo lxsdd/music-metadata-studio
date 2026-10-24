@@ -60,7 +60,7 @@
 | MMS-UI-03 | PARTIAL | Hover tooltips explain icons, controls, stage and consequences, disappear at correct lifetime; no lingering tooltip over other windows or after switching stages. | #48 |
 | MMS-UI-04 | PARTIAL | Persist window position, logical size, maximized state, per-grid column width/order/visibility/sort; custom widths survive track changes/restarts; initial auto-fit only before customization. | #33, #47, #49 |
 | MMS-UI-05 | PARTIAL | Native modeless focus/keyboard/Tab/Escape/Alt-Tab and light/dark theme; no forced foobar owner blocking; minimize/maximize/repeated open/close robust. | #47, #33 |
-| MMS-UI-06 | OPEN | Accessible icons, high-DPI scaling and consistent spacing; no horizontal page scroll when reasonable; column context menu/reset and keyboard alternatives. | #33 |
+| MMS-UI-06 | PARTIAL | Accessible icons, high-DPI scaling and consistent spacing; no horizontal page scroll when reasonable; column context menu/reset and keyboard alternatives. | #33 |
 | MMS-UI-07 | PARTIAL | Track/result filters, source provenance and clear field comparison; optional invisible-character display; selection remains stable across sort/filter. | #49 |
 | MMS-UI-08 | OPEN | Consistent design/behavior across all Studio subviews: shared control metrics, dialog policy, tooltip lifecycle, status/loading style and keyboard semantics; regression tests common to foobar products where applicable. | #33 |
 | MMS-UI-09 | OPEN | Compact, responsive wide-window layout: source list, grouped review details, and provider/conflict evidence; panes resize with sensible minima and preserve user geometry. | #48, #49 |
@@ -434,3 +434,14 @@
 - Rebuild-generated ListView notifications are ignored. Synthetic message
   policy and real owner-data HWND notification tests cover deselection.
   This remains a display-only improvement, not a write approval.
+
+### 2026-10-24 — Keyboard column menus on review grids (MMS-UI-06/08)
+
+- Track and field-comparison grids expose their existing independent
+  show/hide/reset-column menus from the grid itself. Shift+F10 anchors the
+  menu at that grid's header, even if the mouse is elsewhere; pointer clicks
+  retain their real location. Candidate/Review column settings stay separate.
+- Real HWND geometry tests cover both headers and pointer location; static
+  audit requires the production ListView routes. This is a partial keyboard
+  and discoverability improvement, not installed DPI/theme acceptance or
+  completion of all accessible-icon and spacing requirements.
