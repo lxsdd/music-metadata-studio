@@ -1548,7 +1548,7 @@ void update_local_review_hint(PreviewState& state) {
     const auto& summary=state.track_summaries[state.selected_track_index];
     const auto count=ListView_GetSelectedCount(state.metadata_track_list);
     const auto notice=native_review_scope_hint(
-        static_cast<std::size_t>((std::max)(0,count)),
+        static_cast<std::size_t>(count),
         summary.music_changes,summary.extended_changes,
         summary.review_required,state.focused_metadata_rows.empty());
     SetDlgItemTextW(state.dialog,IDC_BATCH_HINT,
