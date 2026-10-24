@@ -258,6 +258,19 @@ int main() {
     tip_info.lpszText=hover_text;
     check(SendMessageW(tip,TTM_ADDTOOLW,0,reinterpret_cast<LPARAM>(&tip_info))!=FALSE,
           "native Refresh button supports hover explanation");
+    const HWND track_tip_list=GetDlgItem(dialog,IDC_METADATA_TRACK_LIST);
+    const HWND detail_tip_list=GetDlgItem(dialog,IDC_METADATA_LIST);
+    check(track_tip_list && detail_tip_list,
+          "resource-backed review lists exist for independent row infotips");
+    ListView_SetExtendedListViewStyleEx(track_tip_list,LVS_EX_INFOTIP,LVS_EX_INFOTIP);
+    ListView_SetExtendedListViewStyleEx(detail_tip_list,LVS_EX_INFOTIP,LVS_EX_INFOTIP);
+    check(ListView_GetToolTips(track_tip_list) != nullptr &&
+          ListView_GetToolTips(detail_tip_list) != nullptr,
+          "each native ListView owns a separate row infotip HWND");
+    djmeta_foobar::native_workspace_pop_tooltips(tip,
+        {track_tip_list,detail_tip_list,GetDlgItem(dialog,IDC_BATCH_LIST),nullptr});
+    check(IsWindow(tip) && IsWindow(ListView_GetToolTips(detail_tip_list)),
+          "dismissing help and row infotips never destroys native controls");
     DestroyWindow(tip);
     RECT refresh_rect{}, hint_rect{}, footer_rect{};
     check(GetWindowRect(refresh,&refresh_rect) &&
