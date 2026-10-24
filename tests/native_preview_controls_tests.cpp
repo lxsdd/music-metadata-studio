@@ -556,8 +556,14 @@ int main() {
           !djmeta_foobar::native_track_activation_starts_online_search(-1,false) &&
           !djmeta_foobar::native_track_activation_starts_online_search(0,true) &&
           !djmeta_foobar::native_track_activation_starts_online_search(1,true),
-          "only Find-tab track activation authorizes an online search, never "
-          "cross-tab navigation or offline Beatport browser handoff");
+          "only Find-tab MusicBrainz/Discogs activation authorizes an official API search");
+    check(djmeta_foobar::native_track_activation_starts_crates_handoff(0,true) &&
+          !djmeta_foobar::native_track_activation_starts_crates_handoff(0,false) &&
+          !djmeta_foobar::native_track_activation_starts_crates_handoff(1,true) &&
+          !djmeta_foobar::native_track_activation_starts_crates_handoff(2,true) &&
+          !djmeta_foobar::native_track_activation_starts_crates_handoff(-1,true),
+          "Beatport-first track activation opens Crates only from Find, never "
+          "from Review/File tabs or an official API source");
     const std::vector<std::string> exact_ids{
         "release:38012673", "release:37332711"};
     check(djmeta_foobar::native_release_loadable(
