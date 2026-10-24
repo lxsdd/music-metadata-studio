@@ -441,17 +441,17 @@ inline std::string search_title_core(std::string_view full) {
             if(pos!=std::string::npos && pos>0) {
                 const auto qualifier=trimmed.substr(pos+1,trimmed.size()-pos-2);
                 bool known=known_search_version_label(qualifier);
-                // A named remix/rework/main mix in parentheses is a safe recall hint
+                // A named remix/rework/mix in parentheses is a safe recall hint
                 // only. The full exact mix title stays in the second query.
                 if(!known) {
                     std::string folded=qualifier;
                     for(char& c:folded)
                         if(c>='A'&&c<='Z') c=static_cast<char>(c+('a'-'A'));
                     for(const std::string_view suffix : {
-                            " remix", " rework", " main mix"}) {
+                            " remix", " rework", " mix"}) {
                         if(folded.size() > suffix.size() &&
                            folded.ends_with(suffix) &&
-                           (suffix!=" main mix" ||
+                           (suffix!=" mix" ||
                             (folded.find(" live ")==std::string::npos &&
                              !folded.starts_with("live "))) &&
                            std::string_view(folded)

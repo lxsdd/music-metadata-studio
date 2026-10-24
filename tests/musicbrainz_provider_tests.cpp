@@ -248,6 +248,24 @@ int main() {
                   fixture.second,"Björk")=="Version review",
               "credited main mix/original edit broadens lookup only");
     }
+    const auto named_mix=recording_search_plan(
+        "Insomnia (Monster Mix)","Faithless");
+    check(named_mix.full_title=="Insomnia (Monster Mix)" &&
+          named_mix.core_title=="Insomnia" &&
+          named_mix.attempts.size()==4 &&
+          named_mix.attempts[0].path==make_search_path(
+              SearchKind::Recording,"Insomnia","Faithless") &&
+          named_mix.attempts[1].path==make_search_path(
+              SearchKind::Recording,"Insomnia (Monster Mix)","Faithless") &&
+          recording_identity_label(
+              "Insomnia (Monster Mix)","Faithless",
+              "Insomnia","Faithless")=="Version review",
+          "named bracketed mix expands read-only search, never approves identity");
+    check(search_title_core("Insomnia (Live Mix)")==
+              "Insomnia (Live Mix)" &&
+          search_title_core("Insomnia (Unknown Club Dub)")==
+              "Insomnia (Unknown Club Dub)",
+          "ambiguous live/dub annotations stay exact");
     check(search_title_core("Jóga - Howie B Main Mix")==
               "Jóga - Howie B Main Mix" &&
           search_title_core("Jóga (Howie B Live Main Mix)")==
