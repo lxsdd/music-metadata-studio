@@ -93,9 +93,9 @@ for token in ("MMS_ENABLE_PHYSICAL_WRITES",
 # keyboard/mouse activation changes visibility (never an approval or network).
 for token in (
     "std::array<bool,3> review_group_expanded",
-    "state.metadata_view_group.push_back(group);",
-    "state.metadata_view_group.push_back(-1);",
-    "state.metadata_view_order.push_back((std::numeric_limits<std::size_t>::max)());",
+    "djmeta::group_review_rows(",
+    "if(index<state.focused_metadata_rows.size() &&",
+    "state.metadata_view_group=grouped.group_at_row;",
     "if (proposal_row >= state.focused_metadata_rows.size()) continue;",
     "state->review_group_expanded[group]=!state->review_group_expanded[group];",
 ):
