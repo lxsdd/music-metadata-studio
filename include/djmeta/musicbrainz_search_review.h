@@ -2,7 +2,8 @@
 
 // Search-result evidence mapping (not a tag import or writer).
 // An MB recording's artist/title is not the release's album artist/album.
-#include "djmeta/online_fields.h"
+
+#include "djmeta/musicbrainz_provider.h"#include "djmeta/online_fields.h"
 
 #include <optional>
 #include <string>
@@ -42,38 +43,8 @@ inline std::vector<FieldReviewRow> review_musicbrainz_search_hit_fields(
 // MusicBrainz supplies either YYYY, YYYY-MM or YYYY-MM-DD.
 inline std::optional<FieldReviewRow> musicbrainz_search_edition_date(
     const std::string& exact_source_id, const std::string& date) {
-    if (date.size()!=4 && date.size()!=7 && date.size()!=10)
-        return std::nullopt;
-    if (!valid_evidence_origin(exact_source_id,512)) return std::nullopt;
-    for (std::size_t i=0;i<date.size();++i) {
-        if ((i==4 || i==7) && i<date.size()) {
-            if (date[i]!='-') return std::nullopt;
-        } else if (date[i]<'0' || date[i]>'9') {
-            return std::nullopt;
-        }
-    }
-    // Search snippets are advisory, but an impossible calendar date must
-    // never be presented as genuine edition evidence. Partial YYYY and
-    // YYYY-MM values remain valid when their known components are valid.
-    const auto digits = [&](std::size_t start, std::size_t count) {
-        unsigned value=0;
-        for(std::size_t i=0;i<count;++i)
-            value=value*10u+static_cast<unsigned>(date[start+i]-'0');
-        return value;
-    };
-    const unsigned year=digits(0,4);
-    if(year==0) return std::nullopt;
-    if(date.size()>=7) {
-        const unsigned month=digits(5,2);
-        if(month<1 || month>12) return std::nullopt;
-        if(date.size()==10) {
-            constexpr unsigned days_in_month[]={0,31,28,31,30,31,30,31,31,30,31,30,31};
-            const bool leap=year%4==0 && (year%100!=0 || year%400==0);
-            const unsigned last=days_in_month[month]+(month==2 && leap?1u:0u);
-            const unsigned day=digits(8,2);
-            if(day<1 || day>last) return std::nullopt;
-        }
-    }
+    if (!musicbrainz::valid_partial_edition_date(date) ||
+        !valid_evidence_origin(exact_source_id,512)) return std::nullopt;
     FieldReviewRow row;
     row.field="EDITION DATE (read-only)";
     row.candidate={"EDITION DATE (read-only)",{date},"musicbrainz",

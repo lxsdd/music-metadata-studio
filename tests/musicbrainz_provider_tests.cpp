@@ -405,6 +405,30 @@ int main() {
           releases.candidates[0].release_date=="2001-06-15",
           "release search retains explicit release-edition date");
 
+
+    // Search results must not display an impossible release calendar value
+    // as verified edition evidence; the candidate identity stays available.
+    const auto search_with_date=[&](std::string_view date) {
+        auto json=release_search;
+        const auto at=json.find("\"date\":\"2001-06-15\"");
+        check(at!=std::string::npos,"synthetic release date fixture is stable");
+        json.replace(at,std::string("\"date\":\"2001-06-15\"").size(),
+                     "\"date\":\""+std::string(date)+"\"");
+        return parse_search(json,SearchKind::Release);
+    };
+    for(const char* invalid:{"0000","2026-02-29","2026-04-31",
+                             "1900-02-29","2026-13","2026/02/20"}) {
+        const auto result=search_with_date(invalid);
+        check(result.candidates.size()==1 &&
+              result.candidates[0].release_date.empty(),
+              "invalid MusicBrainz search calendar date is not edition evidence");
+    }
+    for(const char* valid:{"2026","2026-02","2024-02-29","2000-02-29"}) {
+        const auto result=search_with_date(valid);
+        check(result.candidates.size()==1 &&
+              result.candidates[0].release_date==valid,
+              "valid MusicBrainz search date retains its original precision");
+    }
     const auto edition_json=std::string(R"MB({
       "id":"11111111-1111-1111-1111-111111111111",
       "title":"Album Edition", "date":"2001-06-15",
@@ -438,6 +462,32 @@ int main() {
           edition.tracks[2].disc_number==2 && edition.tracks[2].track_number==1,
           "release lookup preserves exact edition, recording, date/disc/track scope");
 
+
+    // The exact-edition parser previously accepted any nonempty DATE,
+    // unlike the search display. Both paths now share one calendar gate.
+    const auto lookup_with_date=[&](std::string_view date) {
+        auto json=edition_json;
+        const auto at=json.find("\"date\":\"2001-06-15\"");
+        check(at!=std::string::npos,"synthetic edition date fixture is stable");
+        json.replace(at,std::string("\"date\":\"2001-06-15\"").size(),
+                     "\"date\":\""+std::string(date)+"\"");
+        return parse_release_lookup(json,first);
+    };
+    for(const char* invalid:{"0000","2026-02-29","2026-04-31",
+                             "1900-02-29","2026-13","2026/02/20"}) {
+        const auto result=lookup_with_date(invalid);
+        check(result.fields.size()==2 && result.tracks.size()==3,
+              "invalid exact-edition DATE omitted without losing tracklist");
+    }
+    for(const char* valid:{"2026","2026-02","2024-02-29","2000-02-29"}) {
+        const auto result=lookup_with_date(valid);
+        check(result.fields.size()==3 &&
+              result.fields[2].field=="DATE" &&
+              result.fields[2].values==std::vector<std::string>{valid} &&
+              result.fields[2].scope==EvidenceScope::Edition &&
+              result.fields[2].date_meaning==DateMeaning::EditionRelease,
+              "valid exact-edition DATE remains typed and lossless");
+    }
     const auto enriched_release_json=std::string(R"MB({
       "id":"11111111-1111-1111-1111-111111111111",
       "title":"Album With More Than Two Tags",

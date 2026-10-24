@@ -254,6 +254,35 @@ inline bool valid_mbid(std::string_view id) {
     }
     return true;
 }
+// Official MusicBrainz edition dates have three supported precisions.
+// Validate known calendar components before presenting a provider value as
+// edition evidence. This is shared by search snippets and exact lookups.
+inline bool valid_partial_edition_date(std::string_view date) noexcept {
+    if (date.size()!=4 && date.size()!=7 && date.size()!=10) return false;
+    for (std::size_t i=0;i<date.size();++i) {
+        if (i==4 || i==7) {
+            if (date[i]!='-') return false;
+        } else if (date[i]<'0' || date[i]>'9') return false;
+    }
+    const auto digits=[&](std::size_t start,std::size_t count) {
+        unsigned value=0;
+        for(std::size_t i=0;i<count;++i)
+            value=value*10u+static_cast<unsigned>(date[start+i]-'0');
+        return value;
+    };
+    const unsigned year=digits(0,4);
+    if(year==0) return false;
+    if(date.size()==4) return true;
+    const unsigned month=digits(5,2);
+    if(month<1 || month>12) return false;
+    if(date.size()==7) return true;
+    constexpr unsigned days_in_month[]={0,31,28,31,30,31,30,31,31,30,31,30,31};
+    const bool leap=year%4==0 && (year%100!=0 || year%400==0);
+    const unsigned last=days_in_month[month]+(month==2 && leap?1u:0u);
+    const unsigned day=digits(8,2);
+    return day>=1 && day<=last;
+}
+
 inline std::string artist_credit(const Json& obj) {
     const auto* arr=obj.get("artist-credit");
     if (!arr || arr->type != Json::Type::Array) return {};
@@ -651,7 +680,11 @@ inline SearchResult parse_search(std::string_view json, SearchKind kind) {
         row.mbid=str(raw,"id");
         row.title=str(raw,"title");
         row.artist=artist_credit(raw);
-        row.release_date=str(raw,"date");
+        // Search snippets describe an edition only for release searches.
+        // Malformed/unknown calendar values remain absent, never tag evidence.
+        const auto date=str(raw,"date");
+        if (kind==SearchKind::Release && valid_partial_edition_date(date))
+            row.release_date=date;
         // Search results do not guarantee isrcs. If MusicBrainz explicitly
         // supplies them, keep distinct valid identifiers as read-only
         // recording evidence. An unsupported/oversized list stays absent;
@@ -706,7 +739,7 @@ inline ReleaseEdition parse_release_lookup(std::string_view json,
         edition.fields.push_back({"ALBUM ARTIST",{artist},"musicbrainz",edition.edition_id,
                                   EvidenceScope::Edition,DateMeaning::NotDate});
     const auto date=str(obj,"date");
-    if (!date.empty())
+    if (valid_partial_edition_date(date))
         edition.fields.push_back({"DATE",{date},"musicbrainz",edition.edition_id,
                                   EvidenceScope::Edition,DateMeaning::EditionRelease});
     // Labels are an official per-EDITION subquery, never inferred from a
