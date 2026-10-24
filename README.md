@@ -48,6 +48,9 @@ und offenen Issues #33, #46–#51. Neuer Code nennt die betroffenen IDs.
 ## Crates: ein sichtbarer Track, manuelle Quellübernahme (Draft PR #45)
 
 Crates ist neben Beatport/Discogs/Deezer eine priorisierte DJ-Quelle.
+Bei inhaltlich gleich gut belegten Treffern ist die voreingestellte
+Anzeigereihenfolge Beatport, Crates, Discogs, Deezer, MusicBrainz. Ein
+Mix-/Titelkonflikt wird niemals von dieser Reihenfolge überstimmt.
 Die öffentliche, ohne Login erreichbare Crates-Trackseite zeigt unter
 anderem Titel/Mix, Künstler, Remix-Credits, Label, Release, Genre, BPM,
 Tonart und Dauer. Der Browserhelfer
@@ -66,6 +69,22 @@ ihre exakte Bedeutung nicht separat qualifiziert ist. Beatport-Login,
 Cookies, private APIs, Navigation, Dateischreibaktionen und zusätzliche
 Software sind nicht erforderlich. Das endgültige installierte
 Windows/foobar UX-Verhalten ist noch nicht manuell abgenommen.
+
+
+## Crates: exakte Release-Trackliste mit Katalognummer (Draft PR #45)
+
+Die vom Nutzer bereits geöffnete öffentliche Release-Seite lässt sich mit
+[scripts/crates-copy-visible-release-facts.js](scripts/crates-copy-visible-release-facts.js)
+als Lesezeichen einmalig in die Zwischenablage übernehmen. Das Format
+`@crates-public-release` enthält zwei unabhängig sichtbare, gleichlautende
+Crates-/Beatport-Release-IDs, ALBUM, LABEL, optional CATALOGNUMBER und die
+vollständige sichtbare Trackliste mit Track-IDs, Tracknummern, Künstlern,
+Remixern, BPM, Tonart und Dauer. Der Offline-Parser verweigert wechselnde
+Release-IDs, Duplikate, falsche Tracknummern und unbekannte Felder. Die
+foobar-Vorschau zeigt Album/Track-Abgleich nur bei eindeutiger physischer
+Titel-/Künstler-/Mix-/Dauerzuordnung. Ungesicherte CUE-Zuordnungen, jedes
+automatische Schreiben und das unqualifizierte Crates-Datum bleiben gesperrt.
+Der Nutzer muss die öffentliche Seite selbst öffnen und den Helfer auslösen.
 
 ## Current qualification (23 October 2026)
 

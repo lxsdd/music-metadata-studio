@@ -16,14 +16,15 @@
 
 namespace djmeta::online {
 
-inline void validate_manual_beatport_edition(const ReleaseEdition& edition) {
-    if (edition.provider != "beatport" ||
+inline void validate_manual_beatport_edition(
+    const ReleaseEdition& edition,std::string_view provider="beatport") {
+    if (edition.provider != provider ||
         !valid_evidence_origin(edition.edition_id, 512) ||
         edition.fields.size() > 256 ||
         edition.tracks.empty() || edition.tracks.size() > 200)
         throw std::invalid_argument("Unqualified pasted Beatport release");
     for (const auto& field : edition.fields)
-        if (field.provider != "beatport" ||
+        if (field.provider != provider ||
             field.scope != EvidenceScope::Edition ||
             field.source_id != edition.edition_id)
             throw std::invalid_argument("Beatport edition provenance mismatch");
@@ -34,7 +35,7 @@ inline void validate_manual_beatport_edition(const ReleaseEdition& edition) {
         for (const auto& field : track.fields) {
             const auto expected = field.scope == EvidenceScope::Recording
                 ? track.source_track_id : edition.edition_id;
-            if (field.provider != "beatport" ||
+            if (field.provider != provider ||
                 field.source_id != expected ||
                 (field.scope != EvidenceScope::Recording &&
                  field.scope != EvidenceScope::Edition))
@@ -76,8 +77,9 @@ inline std::optional<LocalReleaseTrack> beatport_physical_identity(
 
 inline std::vector<FieldReviewRow> review_beatport_user_edition_physical(
     const MetadataDocument& originals, std::int64_t duration_ms,
-    const ReleaseEdition& edition) {
-    validate_manual_beatport_edition(edition);
+    const ReleaseEdition& edition,
+    std::string_view provider="beatport") {
+    validate_manual_beatport_edition(edition,provider);
     if (originals.fields.size() > 10000)
         throw std::invalid_argument("Unbounded physical tag inventory");
     const auto local = beatport_physical_identity(originals, duration_ms);
@@ -106,7 +108,7 @@ inline std::vector<FieldReviewRow> review_beatport_user_edition_physical(
         const auto prefix = "Release Track " + std::to_string(i + 1) + " / ";
         FieldReviewRow diagnostic;
         diagnostic.field = prefix + "MATCH";
-        diagnostic.candidate = {"MATCH_DIAGNOSTIC", {}, "beatport",
+        diagnostic.candidate = {"MATCH_DIAGNOSTIC", {}, std::string(provider),
             track.source_track_id, EvidenceScope::Recording,
             DateMeaning::NotDate};
         diagnostic.state = i == verified

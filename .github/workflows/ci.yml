@@ -77,7 +77,9 @@ jobs:
           node --check scripts/beatport-copy-public-jsonld.js
           node --check scripts/crates-copy-selected-beatport-link.js
           node --check scripts/crates-copy-visible-track-facts.js
+          node --check scripts/crates-copy-visible-release-facts.js
           node tests/crates_public_track_browser_helper_tests.js
+          node tests/crates_public_release_browser_helper_tests.js
           node tests/beatport_public_browser_helper_tests.js
           node tests/crates_browser_bridge_tests.js
 

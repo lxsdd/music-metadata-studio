@@ -285,6 +285,16 @@
   the visible `Date` is deliberately excluded pending source meaning.
   Native import remains preview-only, public binaries remain blocked. This
   is a CODE/CI qualification, not installed foobar HOST acceptance.
+- 2026-10-24: Crates visible *release* import extended (MMS-SRC-04 /
+  MMS-SRC-05 / MMS-SRC-07): verified an unauthenticated release detail page
+  with two complete tracks, matching public Beatport release ID, source
+  label and catalog number SNA146. Opt-in browser helper copies one visible
+  full tracklist with exact row IDs and no page navigation, credentials,
+  network calls or date inference. Strict offline source parser validates
+  both release URLs, identities, track sequence and credits. Native physical
+  reviewer only unlocks album/recording comparison for the exact matched mix;
+  mismatch and CUE remain blocked, and no source import enables a write.
+  CI and installed foobar visual acceptance remain distinct gates.
 - **Remaining decisions that can only be made by the owner:** one final
   installed Windows foobar acceptance; explicit merge/release/production
   write activation when qualified; any new provider legal terms or genuine

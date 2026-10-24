@@ -2,6 +2,7 @@
 #include "djmeta/beatport_public_page.h"
 #include "djmeta/beatport_public_html.h"
 #include "djmeta/crates_visible_intake.h"
+#include "djmeta/crates_visible_release.h"
 #include "djmeta/native_candidate_labels.h"
 
 #include <algorithm>
@@ -703,5 +704,101 @@ int main() {
         tampered_crates("@url=https://crates.co/track/stella/17136574",
             "@url=https://crates.co/track/stella/17136574?source=spoof"));},
         "Crates URL query cannot impersonate canonical public source");
+    // Crates release page: visible catalog number plus COMPLETE real table.
+    // No row Date is assigned any DATE or RELEASEDATE semantics.
+    const std::string crates_release=R"CRATES(@crates-public-release
+@url=https://crates.co/release/glow/3939820
+@beatport-url=https://www.beatport.com/release/glow/3939820
+@provider=crates
+@id=release:3939820
+@scope=edition
+ALBUM=Glow
+LABEL=Siona Records
+CATALOGNUMBER=SNA146
+@track
+@provider=crates
+@id=track:17136572
+@scope=recording
+RELEASE_ID=3939820
+TRACKNUMBER=1
+TITLE=Glow (Extended Mix)
+ARTIST=Key M
+ARTIST=Cherry (UA)
+ARTIST=Beat Inside
+DURATION=6:28
+BPM=123
+KEY=10B
+@track
+@provider=crates
+@id=track:17136574
+@scope=recording
+RELEASE_ID=3939820
+TRACKNUMBER=2
+TITLE=Stella (Extended Mix)
+ARTIST=Cherry (UA)
+DURATION=6:55
+BPM=124
+KEY=7B
+)CRATES";
+    check(is_crates_public_release_clipboard(crates_release),
+          "one user-visible Crates release marker accepted");
+    const auto crates_edition=parse_crates_public_release_clipboard(crates_release);
+    check(crates_edition.provider=="crates" &&
+          crates_edition.edition_id=="release:3939820" &&
+          crates_edition.tracks.size()==2 &&
+          crates_edition.tracks[1].source_track_id=="track:17136574" &&
+          crates_edition.tracks[1].recording.duration_ms==415000 &&
+          crates_edition.tracks[1].recording.mix==MixKind::Extended &&
+          crates_edition.tracks[0].fields.size()>=4 &&
+          std::none_of(crates_edition.fields.begin(),crates_edition.fields.end(),
+              [](const auto& f) {return ascii_upper_field(f.field)=="DATE";}),
+          "Crates exact release and mix retained without inventing date");
+    const auto crates_release_review=review_crates_public_release_physical(
+        crates_local,415000,crates_edition);
+    const auto* crates_catalog=find(crates_release_review,"Album / CATALOGNUMBER");
+    const auto* crates_match=find(crates_release_review,"Release Track 2 / MATCH");
+    const auto* crates_other=find(crates_release_review,"Release Track 1 / TITLE");
+    check(crates_catalog && crates_catalog->candidate.provider=="crates" &&
+          crates_catalog->candidate.source_id=="release:3939820" &&
+          crates_catalog->state==FieldReviewState::NeedsReview &&
+          crates_catalog->reason.starts_with("crates_public_release_") &&
+          crates_match && crates_match->state==FieldReviewState::Unchanged &&
+          crates_other && crates_other->state==FieldReviewState::Blocked,
+          "Crates album catalog only reviews when exact physical mix matches");
+    auto crates_bad_local=crates_local;
+    crates_bad_local.fields[0].values={"Stella (Radio Edit)"};
+    const auto mismatched_crates=review_crates_public_release_physical(
+        crates_bad_local,415000,crates_edition);
+    check(find(mismatched_crates,"Album / CATALOGNUMBER")->state==
+              FieldReviewState::Blocked,
+          "wrong Crates mix blocks album-global catalog proposals");
+    const auto tampered_release=[&](std::string from,std::string to) {
+        auto value=crates_release;
+        const auto at=value.find(from);
+        check(at!=std::string::npos,"Crates release tamper fixture exists");
+        value.replace(at,from.size(),to);
+        return value;
+    };
+    rejects([&]{(void)parse_crates_public_release_clipboard(
+        tampered_release("www.beatport.com/release/glow/3939820",
+            "www.beatport.com/release/glow/3939821"));},
+        "Crates release/outbound Beatport identities cannot conflict");
+    rejects([&]{(void)parse_crates_public_release_clipboard(
+        tampered_release("RELEASE_ID=3939820","RELEASE_ID=3939821"));},
+        "Crates track cannot belong to another release");
+    rejects([&]{(void)parse_crates_public_release_clipboard(
+        tampered_release("KEY=7B","KEY=7B\nDATE@edition=2022-12-09"));},
+        "Crates row Date never qualifies as edition DATE");
+    rejects([&]{(void)parse_crates_public_release_clipboard(
+        tampered_release("@id=track:17136574","@id=track:17136572"));},
+        "Crates release duplicate track identities refused");
+    rejects([&]{(void)parse_crates_public_release_clipboard(
+        tampered_release("TRACKNUMBER=2","TRACKNUMBER=1"));},
+        "Crates release nonsequential track ordinals refused");
+    const auto mismatch_duration_release=review_crates_public_release_physical(
+        crates_local,260000,crates_edition);
+    check(find(mismatch_duration_release,"Album / CATALOGNUMBER")->state==
+              FieldReviewState::Blocked,
+          "Crates release duration mismatch blocks album claims");
     std::cout<<"Beatport user clipboard read-only workflow PASS\n";
 }

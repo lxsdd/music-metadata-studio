@@ -41,6 +41,7 @@
 #include "djmeta/beatport_public_html.h"
 #include "djmeta/crates_browser_bridge.h"
 #include "djmeta/crates_visible_intake.h"
+#include "djmeta/crates_visible_release.h"
 #include "djmeta/beatport_release_review.h"
 #include "djmeta/discogs_release_review.h"
 #include "djmeta/native_candidate_labels.h"
@@ -3087,7 +3088,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_BATCH_GUIDE,L"Follow the steps from left to right. A MusicBrainz match is evidence, not an approved tag edit."},
         {IDC_METADATA_TRACK_LIST,L"Find tab: double-click/Enter searches MusicBrainz or Discogs. Other tabs: navigate to Find without searching. Beatport requires Find in Crates or an explicit URL."},
         {IDC_METADATA_MB_QUERY,L"MusicBrainz: TITLE/album. Discogs: title or exact release/master URL. Beatport: one canonical public track URL, or leave empty for the clipboard. No automatic requests."},
-        {IDC_METADATA_ONLINE_PROVIDER,L"MusicBrainz and Discogs use official APIs. Beatport + Crates supports single public Beatport URLs, lawful clipboard evidence and a hand-off to your existing Crates browser account; no logged-in API impersonation."},
+        {IDC_METADATA_ONLINE_PROVIDER,L"MusicBrainz and Discogs use official APIs. Beatport + Crates supports single public Beatport URLs, lawful clipboard evidence and a hand-off to the public Crates browser; no logged-in API impersonation."},
         {IDC_METADATA_DISCOGS_TOKEN_LABEL,L"Discogs token only lives in this password control."},
         {IDC_METADATA_DISCOGS_TOKEN,L"Personal Discogs API token. Not saved, logged, embedded or copied into URLs."},
         {IDC_METADATA_MB_SEARCH,native_search_action_tooltip(
@@ -3183,11 +3184,14 @@ void show_workspace_help(HWND dialog) {
         L"on the first line, followed by track JSON already lawfully supplied "
         L"to you. No Beatport login or network request is made. "
         L"Physical title, artist, version, ISRC and duration are compared. "
-        L"To import visible Crates metadata, open exactly one Crates track "
-        L"detail page and run scripts/crates-copy-visible-track-facts.js as a "
-        L"browser bookmarklet. Then choose Import Beatport to compare its "
-        L"@crates-public-track clipboard evidence. The source remains Crates, "
-        L"and its visible Date is not assumed to be an edition date. "
+        L"For a single Crates recording, open a track detail page and run "
+        L"scripts/crates-copy-visible-track-facts.js as a bookmarklet. "
+        L"For an entire release including its catalog number and tracklist, "
+        L"open the release page and run "
+        L"scripts/crates-copy-visible-release-facts.js. Select Import Beatport "
+        L"to review @crates-public-track or @crates-public-release evidence. "
+        L"The source remains Crates and its visible Date is NOT assumed to be "
+        L"a qualified edition or recording date. "
         L"Alternatively @beatport-track-facts accepts explicitly typed "
          L"TITLE/ARTIST/VERSION/DURATION=MM:SS and other visible factual "
          L"fields with @provider=beatport and @id=track:NNN. "
@@ -5936,25 +5940,33 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 djmeta::online::is_beatport_public_page_clipboard(text);
             const bool crates_visible_track =
                 djmeta::online::is_crates_public_track_clipboard(text);
+            const bool crates_visible_release =
+                djmeta::online::is_crates_public_release_clipboard(text);
             const bool beatport_user_track=
                 beatport_user_json || beatport_user_facts || beatport_public_page;
             if(state->beatport_offline_selected &&
                !beatport_user_release && !beatport_user_track &&
-               !crates_visible_track)
+               !crates_visible_track && !crates_visible_release)
                 throw std::invalid_argument(
                      "Beatport + Crates mode requires @beatport-track-json, "
                     "@beatport-track-facts, @beatport-public-jsonld, "
-                    "@crates-public-track, or both @beatport-release-json "
-                    "and @beatport-tracks-json. Plain webpage text "
+                    "@crates-public-track, @crates-public-release, or both "
+                    "@beatport-release-json and @beatport-tracks-json. Plain webpage text "
                     "cannot be treated as authorized API evidence.");
             std::optional<djmeta::online::ManualCandidate> user_candidate;
             std::optional<djmeta::online::ReleaseEdition> user_edition;
             if(beatport_user_release)
                 user_edition=djmeta::online::parse_beatport_user_release_clipboard(text);
+            else if(crates_visible_release)
+                user_edition=djmeta::online::parse_crates_public_release_clipboard(text);
             else if(!beatport_user_track && !crates_visible_track)
                 user_candidate=djmeta::online::parse_manual_candidate(text);
             std::vector<djmeta::online::FieldReviewRow> rows;
             if (compare_cue) {
+                if(crates_visible_release)
+                    throw std::invalid_argument(
+                        "Crates visible edition has no independently qualified "
+                        "CUE-to-release mapping. Compare selected physical tracks.");
                 if(beatport_user_track || crates_visible_track)
                     throw std::invalid_argument(
                         "Single-track source import has no qualified CUE ordinal. "
@@ -5985,14 +5997,17 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                         "@cue_track_ordinal applies only to CUE comparison.");
                 const auto ref = entry.handle->get_info_ref();
                 const auto original = metadata_from_file_info(ref->info());
-                if(beatport_user_release) {
+                if(beatport_user_release || crates_visible_release) {
                     const double seconds=ref->info().get_length();
                     const std::int64_t duration_ms=
                         seconds>0.0 && seconds<=36000.0
                         ? static_cast<std::int64_t>(seconds*1000.0+0.5)
                         : -1;
-                    rows=djmeta::online::review_beatport_user_edition_physical(
-                        original,duration_ms,*user_edition);
+                    rows=crates_visible_release
+                        ? djmeta::online::review_crates_public_release_physical(
+                            original,duration_ms,*user_edition)
+                        : djmeta::online::review_beatport_user_edition_physical(
+                            original,duration_ms,*user_edition);
                 } else if(crates_visible_track) {
                     const auto crates_track =
                         djmeta::online::parse_crates_public_track_clipboard(text);
@@ -6021,7 +6036,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             }
             verify_snapshot(entry);
             verify_rules_snapshot(state->captured_rules);
-            if(beatport_user_release || beatport_user_track || crates_visible_track) {
+            if(beatport_user_release || crates_visible_release ||
+               beatport_user_track || crates_visible_track) {
                 if(beatport_user_track || crates_visible_track) {
                     // One recording is ONE browser item; all its field
                     // comparisons belong to the independent details pane.
@@ -6045,15 +6061,21 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             state->cue_inspection_mode = false;
             state->cue_candidate_comparison_mode = compare_cue;
             state->musicbrainz_live_view =
-                beatport_user_release || beatport_user_track || crates_visible_track;
+                beatport_user_release || crates_visible_release ||
+                beatport_user_track || crates_visible_track;
             state->musicbrainz_release_loaded =
-                beatport_user_release || beatport_user_track || crates_visible_track;
+                beatport_user_release || crates_visible_release ||
+                beatport_user_track || crates_visible_track;
             state->musicbrainz_kind =
                 djmeta::online::musicbrainz::SearchKind::Release;
             state->search_attempt_notice = beatport_user_release
                 ? L"Beatport edition imported from user-provided JSON. "
                   L"Complete tracklist compared. Source is UNVERIFIED; "
                   L"no official API authentication or writes."
+                : crates_visible_release
+                ? L"Crates full visible release imported with catalog and "
+                  L"tracklist. Exact physical identity checked, source "
+                  L"UNVERIFIED, Date omitted. Preview only; no file writes."
                 : crates_visible_track
                 ? L"Crates visible track imported from a user-selected public page. "
                   L"Version/artist/duration checked, source UNVERIFIED. "
