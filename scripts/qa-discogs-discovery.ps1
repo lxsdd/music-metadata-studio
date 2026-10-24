@@ -48,16 +48,26 @@ function Test-LinkedMasterYear($Payload,[string]$ExpectedId) {
     return $year
 }
 
-function Get-OfficialSearchPaths([string]$Title,[string]$Artist,[string]$Core='') {
+function Get-OfficialSearchPaths([string]$Title,[string]$Artist,[string]$Core='',
+                                 [string]$Version='') {
     if ([string]::IsNullOrWhiteSpace($Core)) { $Core=$Title }
     $t=[uri]::EscapeDataString($Title)
     $c=[uri]::EscapeDataString($Core)
     $a=[uri]::EscapeDataString($Artist)
-    # Mirrors the native C++ track_search_plan on these qualified fixtures.
-    # The FIRST requests always contain the original complete ARTIST.
+    # This fixture has independent TITLE and VERSION physical tags. Follow
+    # the native C++ track_search_plan order, including its master-navigation
+    # final stage; a master hit never substitutes for an exact release.
     $paths=[System.Collections.Generic.List[string]]::new()
+    if (-not [string]::IsNullOrWhiteSpace($Version)) {
+        $versioned=[uri]::EscapeDataString("$Title ($Version)")
+        $paths.Add("/database/search?track=$versioned&type=release&artist=$a&page=1&per_page=20")
+        $paths.Add("/database/search?q=$versioned&type=release&artist=$a&page=1&per_page=20")
+    }
     $paths.Add("/database/search?q=$t&type=release&artist=$a&page=1&per_page=20")
     $paths.Add("/database/search?track=$t&type=release&artist=$a&page=1&per_page=20")
+    if ($Core -cne $Title) {
+        $paths.Add("/database/search?track=$c&type=release&artist=$a&page=1&per_page=20")
+    }
     # Only a deliberately joined X collaboration is broadened here;
     # the ampersand in "Kyau & Albert" is part of the same artist name.
     if ($Artist -cmatch '^(.+?) [xX] ([^\r\n]+)$') {
@@ -71,6 +81,7 @@ function Get-OfficialSearchPaths([string]$Title,[string]$Artist,[string]$Core=''
     }
     $paths.Add("/database/search?q=$c&type=release&page=1&per_page=20")
     $paths.Add("/database/search?artist=$a&type=release&page=1&per_page=20")
+    $paths.Add("/database/search?q=$c&type=master&page=1&per_page=20")
     Assert-QA ($paths.Count -gt 0 -and $paths.Count -le 16) 'unbounded Discogs stages'
     return @($paths.ToArray())
 }
@@ -115,25 +126,28 @@ if ($Mode -eq 'SelfTest') {
     $blocked=$false
     try { Assert-ExactEdition (ConvertFrom-Json '{"id":37332711,"title":"Empty","tracklist":[]}') '37332711' } catch { $blocked=$true }
     Assert-QA $blocked 'empty edition accepted'
-    $paths=Get-OfficialSearchPaths '1000 Years (DJ Version)' 'Kyau & Albert X Maywave' '1000 Years'
-    Assert-QA ($paths.Count -eq 8 -and
-        $paths[0] -eq '/database/search?q=1000%20Years%20%28DJ%20Version%29&type=release&artist=Kyau%20%26%20Albert%20X%20Maywave&page=1&per_page=20' -and
-        $paths[1].Contains('artist=Kyau%20%26%20Albert%20X%20Maywave') -and
-        $paths[2] -eq '/database/search?track=1000%20Years&type=release&artist=Maywave&page=1&per_page=20' -and
-        $paths[3] -eq '/database/search?q=1000%20Years&type=release&artist=Maywave&page=1&per_page=20' -and
-        $paths[4] -notmatch 'artist=' -and
-        $paths[7].Contains('artist=Kyau%20%26%20Albert%20X%20Maywave')) 'full original artist / collaborator discovery plan unqualified'
+    $paths=Get-OfficialSearchPaths '1000 Years' 'Kyau & Albert X Maywave' '1000 Years' 'DJ Version'
+    Assert-QA ($paths.Count -eq 10 -and
+        $paths[0] -eq '/database/search?track=1000%20Years%20%28DJ%20Version%29&type=release&artist=Kyau%20%26%20Albert%20X%20Maywave&page=1&per_page=20' -and
+        $paths[1] -eq '/database/search?q=1000%20Years%20%28DJ%20Version%29&type=release&artist=Kyau%20%26%20Albert%20X%20Maywave&page=1&per_page=20' -and
+        $paths[2].Contains('artist=Kyau%20%26%20Albert%20X%20Maywave') -and
+        $paths[4] -eq '/database/search?track=1000%20Years&type=release&artist=Maywave&page=1&per_page=20' -and
+        $paths[5] -eq '/database/search?q=1000%20Years&type=release&artist=Maywave&page=1&per_page=20' -and
+        $paths[6] -notmatch 'artist=' -and
+        $paths[8].Contains('artist=Kyau%20%26%20Albert%20X%20Maywave') -and
+        $paths[9] -eq '/database/search?q=1000%20Years&type=master&page=1&per_page=20') 'full original ARTIST/VERSION native search order unqualified'
     $simple=Get-OfficialSearchPaths 'Only You' 'Matt Fax'
-    Assert-QA ($simple.Count -eq 5 -and
+    Assert-QA ($simple.Count -eq 6 -and
         $simple[0].Contains('artist=Matt%20Fax') -and
-        $simple[2] -notmatch 'artist=') 'normal solo-artist discovery changed'
+        $simple[2] -notmatch 'artist=' -and
+        $simple[5].Contains('type=master')) 'normal solo-artist discovery changed'
     Write-Output 'PASS: protected Discogs search-to-edition contract (offline; no secrets)'
     return
 }
 
 $cases=@{
     '38012673'=@{Title='Via Balearia';Artist='Estiva'}
-    '37332711'=@{Title='1000 Years (DJ Version)';Core='1000 Years';Artist='Kyau & Albert X Maywave'}
+    '37332711'=@{Title='1000 Years';Version='DJ Version';Artist='Kyau & Albert X Maywave'}
     '36397609'=@{Title='Only You';Artist='Matt Fax'}
     '36819730'=@{Title='Till You Let Go';Artist='Matt Fax'}
 }
@@ -164,11 +178,13 @@ try {
     $found=$false
     $stage=0
     $core=if ($case.ContainsKey('Core')) { [string]$case.Core } else { [string]$case.Title }
-    $paths=@(Get-OfficialSearchPaths $case.Title $case.Artist $core)
+    $version=if ($case.ContainsKey('Version')) { [string]$case.Version } else { '' }
+    $paths=@(Get-OfficialSearchPaths $case.Title $case.Artist $core $version)
     if ($ReleaseId -eq '37332711') {
-        Assert-QA ($paths.Count -eq 8 -and
+        Assert-QA ($paths.Count -eq 10 -and
             $paths[0].Contains('artist=Kyau%20%26%20Albert%20X%20Maywave') -and
-            $paths[2].Contains('artist=Maywave')) 'original complete artist query was bypassed'
+            $paths[4].Contains('artist=Maywave') -and
+            $paths[9].Contains('type=master')) 'native original ARTIST/VERSION stages were bypassed'
     }
     foreach ($path in $paths) {
         Start-Sleep -Milliseconds 1700
