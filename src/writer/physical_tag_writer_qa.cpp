@@ -138,7 +138,18 @@ void run_cue_writer_qa(metadb_handle_ptr handle) {
         const auto source=read_cue_raw_on_demand(handle,path);
         if(source.carrier!=djmeta::CueCarrierKind::ExternalText)
             throw std::invalid_argument("QA_CUE_WRONG_CARRIER");
-        const auto edition=qa_cue_edition();
+        auto edition=qa_cue_edition();
+        // Synthetic QA fixture deliberately edits a track TITLE on the first
+        // pass. On a repeated action its committed title must be the current
+        // recording identity; otherwise strict alignment correctly rejects
+        // the stale pre-write title before reaching the no-op CUE gate.
+        // QA-only on the exact disposable fixture, with BOTH values already
+        // matching the committed postimage. Production matching is unchanged.
+        if(source.raw_text.find("TITLE \"Other album\"")!=std::string::npos &&
+           source.raw_text.find("TITLE \"Corrected Sunrise (Extended Mix)\"")
+               !=std::string::npos)
+            edition.tracks[0].recording.title=
+                "Corrected Sunrise (Extended Mix)";
         const auto snapshot=djmeta::online::capture_qualified_cue_edition_postimage(
             source.raw_text,source.carrier,edition);
         if(!snapshot.eligible || snapshot.rows.size()!=2)
