@@ -317,7 +317,7 @@ for forbidden in ("DialogBoxParamW(", "EndDialog("):
 # The compact FileOps status column may show only one finding, but the actual
 # native row tooltip must expose every issue, including secondary collisions.
 fileops_tip = batch_table_dialog.split(
-    "header->idFrom == IDC_BATCH_LIST &&\\n"
+    "header->idFrom == IDC_BATCH_LIST &&\n"
     "            header->code == LVN_GETINFOTIPW", 1)[1].split(
     "header->code == LVN_COLUMNCLICK", 1)[0]
 for token in ("state->table.rows[source_row].issues", "for (const auto& issue : issues)",
