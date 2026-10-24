@@ -10,6 +10,7 @@
 #include <iostream>
 #include <vector>
 #include <array>
+#include <tuple>
 #include <utility>
 #include <future>
 #include <atomic>
@@ -825,6 +826,13 @@ int main() {
     RECT alignment_client{};
     check(GetClientRect(dialog,&alignment_client)!=FALSE,
           "native client bounds for edit alignment");
+    for(const auto [dpi,pad,offset]:{
+            std::tuple{96,6,4},std::tuple{120,8,5},
+            std::tuple{144,9,6},std::tuple{192,12,8}}) {
+        check(djmeta_foobar::native_edit_padding_for_dpi(6,dpi)==pad &&
+              djmeta_foobar::native_edit_padding_for_dpi(4,dpi)==offset,
+              "search and scope optical insets scale at 100-200 percent DPI");
+    }
     djmeta_foobar::align_native_preview_form(dialog);
     const auto action_alignment = [&]() {
         for (auto pair : {
