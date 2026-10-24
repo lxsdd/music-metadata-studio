@@ -84,6 +84,7 @@ try {
  $baselineNoop=[IO.File]::ReadAllBytes($source)
  $timeNoop=(Get-Item -LiteralPath $source).LastWriteTimeUtc
  $noopCommand='/context_command:"Music Metadata Studio/QA verify physical no-op" "'+$source+'"'
+ $verifiedNoopCommand=$noopCommand
  $noopDispatch=Start-Process -FilePath $exe -WorkingDirectory $hostDir -ArgumentList $noopCommand -Wait -PassThru
  if($noopDispatch.ExitCode -ne 0) {throw 'No-op context command rejected'}
  $noopConfirmed=$false
@@ -97,6 +98,7 @@ try {
  }
  if(-not $noopConfirmed) {
    $noopLeaf='/context_command:"QA verify physical no-op" "'+$source+'"'
+   $verifiedNoopCommand=$noopLeaf
    $noopRetry=Start-Process -FilePath $exe -WorkingDirectory $hostDir -ArgumentList $noopLeaf -Wait -PassThru
    if($noopRetry.ExitCode -ne 0) {throw 'No-op leaf context command rejected'}
    for($i=0;$i -lt 20;$i++) {
@@ -193,6 +195,36 @@ try {
    Start-Sleep -Milliseconds 400
  }
  if(-not $callbackVerified) {throw "SDK write callback timed out: $physicalReport"}
+ # Re-run the identical QA action AFTER the first real SDK mutation. Both
+ # content and LastWriteTimeUtc must remain byte-for-byte unchanged. Count
+ # newly appended proof lines: an older pre-write PASS cannot certify this run.
+ $postwriteBytes=[IO.File]::ReadAllBytes($source)
+ $postwriteTime=(Get-Item -LiteralPath $source).LastWriteTimeUtc
+ $oldNoopLog=Get-Content -LiteralPath $env:MMS_QA_REPORT_PATH -Raw
+ $priorNoopCount=([regex]::Matches($oldNoopLog,'QA_NOOP_CONFIRMED')).Count
+ $postwriteNoop=Start-Process -FilePath $exe -WorkingDirectory $hostDir -ArgumentList $verifiedNoopCommand -Wait -PassThru
+ if($postwriteNoop.ExitCode -ne 0) {throw 'Post-write no-op command rejected'}
+ $postwriteNoopConfirmed=$false
+ for($i=0;$i -lt 30;$i++) {
+   $currentNoopLog=Get-Content -LiteralPath $env:MMS_QA_REPORT_PATH -Raw -ErrorAction SilentlyContinue
+   if($currentNoopLog.Length -gt $oldNoopLog.Length) {
+     $newNoopEvidence=$currentNoopLog.Substring($oldNoopLog.Length)
+     if($newNoopEvidence -match 'QA_NOOP_REFUSED|QA_NOOP_EXCEPTION|QA_NOOP_SOURCE_REJECTED') {
+       throw "Post-write physical no-op gate failed: $newNoopEvidence"
+     }
+     if(([regex]::Matches($currentNoopLog,'QA_NOOP_CONFIRMED')).Count -gt $priorNoopCount) {
+       $postwriteNoopConfirmed=$true
+       break
+     }
+   }
+   Start-Sleep -Milliseconds 200
+ }
+ if(-not $postwriteNoopConfirmed) {throw 'Post-write no-op has no fresh SDK gate proof'}
+ if(($postwriteBytes -join ',') -cne ([IO.File]::ReadAllBytes($source) -join ',') -or
+    (Get-Item -LiteralPath $source).LastWriteTimeUtc -ne $postwriteTime) {
+   throw 'Identical post-write approval rewrote the physical file'
+ }
+ Write-Host 'MMS_NATIVE_SDK_POSTWRITE_NOOP=PASS'
  # The external-CUE controller runs inside the same disposable foobar.
  $audioBeforeCue=[IO.File]::ReadAllBytes($source)
  $cueDispatch=Start-Process -FilePath $exe -WorkingDirectory $hostDir -ArgumentList @('/add','/immediate',$cueSource) -Wait -PassThru
