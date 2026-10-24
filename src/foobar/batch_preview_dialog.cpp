@@ -5411,7 +5411,16 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 capture_review_grid_controls(state->metadata_list,
                     state->detail_grid,state->active_dpi);
             }
+            if (state->online_detail_columns_applied)
+                capture_review_grid_controls(state->musicbrainz_details,
+                    state->online_detail_grid,state->active_dpi);
             state->active_dpi = new_dpi;
+            // WM_SIZE can run synchronously from SetWindowPos below.
+            // Scale the hidden/visible lower table before that re-layout so
+            // it cannot be captured at the new DPI with old pixel widths.
+            if (state->online_detail_columns_applied)
+                apply_review_grid_controls(state->musicbrainz_details,
+                    state->online_detail_grid,state->active_dpi);
         }
         const auto* dimensions = reinterpret_cast<const RECT*>(lp);
         if (dimensions) SetWindowPos(dialog, nullptr,
