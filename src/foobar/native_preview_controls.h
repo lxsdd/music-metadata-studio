@@ -775,6 +775,10 @@ inline const wchar_t* native_discogs_search_caption(
     return may_broaden ? L"Broaden Discogs" : L"Search Discogs";
 }
 
+inline int native_edit_padding_for_dpi(int logical_pixels, int dpi) noexcept {
+    return MulDiv(logical_pixels, (std::clamp)(dpi,96,384), 96);
+}
+
 // Native single-line EDIT fields put text near the TOP of a tall box;
 // moving that tall box cannot align its glyphs with a themed button.
 // Size the field to the actual UI font plus bounded padding first, and
@@ -797,10 +801,15 @@ inline bool align_native_edit_to_action(HWND dialog,
     ReleaseDC(edit,dc);
     if (!measured) return false;
     const int actionHeight=action.bottom-action.top;
+    const int dpi=static_cast<int>(GetDpiForWindow(dialog));
+    // The font already scales with DPI; scale only the optical pixel insets.
+    const int edit_padding=native_edit_padding_for_dpi(6,dpi);
+    const int baseline_offset=native_edit_padding_for_dpi(4,dpi);
     // Keep the native EDIT text's upper inset close to its actual text height.
     // At 100-200% Windows scaling avoid an unreasonably tall input frame.
-    const int height=(std::min)(actionHeight,(std::max)(static_cast<int>(metrics.tmHeight)+6,15));
-    const int targetY=(action.top+action.bottom+4-height)/2;
+    const int height=(std::min)(actionHeight,(std::max)(static_cast<int>(metrics.tmHeight)+edit_padding,
+        native_edit_padding_for_dpi(15,dpi)));
+    const int targetY=(action.top+action.bottom+baseline_offset-height)/2;
     MapWindowPoints(HWND_DESKTOP,dialog,reinterpret_cast<POINT*>(&field),2);
     POINT top{0,targetY};
     MapWindowPoints(HWND_DESKTOP,dialog,&top,1);
