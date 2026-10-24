@@ -487,3 +487,16 @@
   requires the production wiring. This is a native lifecycle guard, not a
   claim that tooltip timing/legibility has passed installed foobar visual QA.
 - No source, credentials, decisions, provider request or writer policy changed.
+
+### 2026-10-25 — Protected Discogs QA search-plan parity (MMS-SRC-01/08)
+
+- The protected API probe now models the same synthetic physical TITLE,
+  ARTIST and separate VERSION tags used by the native foobar full-artist QA.
+  Its ten bounded stages include version-specific, original-credit,
+  collaborator-review, title-only, artist-only and master-navigation queries
+  in native order. Solo-artist regression covers the six-stage path.
+- Exact release detail and tracklist verification remain distinct from a
+  search hit, and master results never substitute for an edition. Offline
+  SelfTest qualifies ordering without secrets; an actual protected run on the
+  exact final commit remains necessary for live evidence. No token, user
+  media, writer or protection setting changed.
