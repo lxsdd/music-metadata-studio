@@ -144,6 +144,20 @@ int main() {
     HWND dialog = CreateDialogParamW(GetModuleHandleW(nullptr),
         MAKEINTRESOURCEW(IDD_BATCH_PREVIEW), nullptr, test_dialog_proc, 0);
     check(dialog != nullptr, "actual production dialog template instantiation");
+    HWND workspace_prefs = CreateDialogParamW(GetModuleHandleW(nullptr),
+        MAKEINTRESOURCEW(IDD_WORKSPACE_PREFERENCES), dialog, test_dialog_proc, 0);
+    check(workspace_prefs != nullptr,
+          "native Workspace Preferences child page instantiates");
+    for (const int id : {IDC_DEFAULT_START_TAB, IDC_DEFAULT_ONLINE_PROVIDER,
+                         IDC_DEFAULT_ROUTE_PROFILE}) {
+        const HWND selector = GetDlgItem(workspace_prefs, id);
+        check(selector != nullptr &&
+              (GetWindowLongPtrW(selector, GWL_STYLE) & 0x3u) == CBS_DROPDOWNLIST,
+              "Workspace default selector is a real native drop-down");
+    }
+    check(GetDlgItem(workspace_prefs, IDC_DEFAULT_SHOW_WHITESPACE) != nullptr,
+          "Workspace Preferences include the initial whitespace switch");
+    DestroyWindow(workspace_prefs);
     // Test real RC-derived HWND styles, not a fabricated lookalike dialog.
     const DWORD workspace_style=static_cast<DWORD>(GetWindowLongPtrW(dialog,GWL_STYLE));
     const DWORD workspace_exstyle=static_cast<DWORD>(GetWindowLongPtrW(dialog,GWL_EXSTYLE));

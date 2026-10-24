@@ -4444,7 +4444,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             tab.pszText = const_cast<wchar_t*>(name);
             TabCtrl_InsertItem(state->tabs, TabCtrl_GetItemCount(state->tabs), &tab);
         }
-        TabCtrl_SetCurSel(state->tabs, 0);
+        const auto workspace_defaults = load_workspace_defaults();
+        TabCtrl_SetCurSel(state->tabs, workspace_defaults.opening_tab);
         ListView_SetExtendedListViewStyle(state->metadata_track_list,
             LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_INFOTIP |
             LVS_EX_HEADERDRAGDROP);
@@ -4513,11 +4514,18 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                                  L"Beatport + Crates"})
             SendDlgItemMessageW(dialog,IDC_METADATA_ONLINE_PROVIDER,CB_ADDSTRING,
                 0,reinterpret_cast<LPARAM>(name));
-        SendDlgItemMessageW(dialog,IDC_METADATA_ONLINE_PROVIDER,CB_SETCURSEL,0,0);
+        SendDlgItemMessageW(dialog,IDC_METADATA_ONLINE_PROVIDER,
+            CB_SETCURSEL,workspace_defaults.online_provider,0);
+        state->discogs_provider_selected = workspace_defaults.online_provider == 1;
+        state->beatport_offline_selected = workspace_defaults.online_provider == 2;
         SendDlgItemMessageW(dialog, IDC_METADATA_MB_QUERY, EM_SETCUEBANNER,
-            FALSE, reinterpret_cast<LPARAM>(L"Optional title / album"));
+            FALSE, reinterpret_cast<LPARAM>(
+                state->beatport_offline_selected
+                    ? L"Exact Beatport URL (or paste from clipboard)"
+                    : L"Title or album"));
+        state->show_whitespace = workspace_defaults.show_whitespace;
         SendDlgItemMessageW(dialog, IDC_METADATA_VISIBLE_WHITESPACE,
-                            BM_SETCHECK, BST_UNCHECKED, 0);
+            BM_SETCHECK, state->show_whitespace ? BST_CHECKED : BST_UNCHECKED, 0);
 
         ListView_SetExtendedListViewStyle(state->list,
             LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER |
@@ -4571,8 +4579,11 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         update_table(*state);
         update_master_table(*state);
         update_metadata_table(*state);
-        show_preview_page(dialog, *state, true, true);
-        prefill_musicbrainz_query(*state,true);
+        show_preview_page(dialog, *state,
+            workspace_defaults.opening_tab != 2,
+            workspace_defaults.opening_tab == 0);
+        if (workspace_defaults.opening_tab == 0)
+            prefill_musicbrainz_query(*state,true);
         align_native_preview_form(dialog);
         capture_resize_layout(*state);
         restore_batch_dialog_window_size(*state);

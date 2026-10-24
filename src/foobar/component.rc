@@ -22,6 +22,21 @@ BEGIN
     LTEXT           "Apply saves. Cancel discards. Reset restores defaults.", -1, 12, 179, 464, 12
 END
 
+IDD_WORKSPACE_PREFERENCES DIALOGEX 0, 0, 485, 194
+STYLE DS_SETFONT | DS_CONTROL | WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS
+FONT 9, "Segoe UI"
+BEGIN
+    LTEXT           "Opening view:", -1, 12, 18, 144, 12
+    COMBOBOX        IDC_DEFAULT_START_TAB, 167, 14, 304, 85, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Initial online provider:", -1, 12, 52, 144, 12
+    COMBOBOX        IDC_DEFAULT_ONLINE_PROVIDER, 167, 48, 304, 85, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Default file profile:", -1, 12, 86, 144, 12
+    COMBOBOX        IDC_DEFAULT_ROUTE_PROFILE, 167, 82, 304, 85, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    AUTOCHECKBOX    "Show whitespace in normalization review", IDC_DEFAULT_SHOW_WHITESPACE, 12, 119, 449, 16, WS_TABSTOP
+    LTEXT           "Defaults apply to newly opened Studio windows only.", -1, 12, 147, 459, 12
+    LTEXT           "No automatic search, tag writes or remembered approvals.", -1, 12, 165, 459, 12
+END
+
 IDD_BATCH_PREVIEW DIALOGEX 0, 0, 560, 396
 STYLE DS_SETFONT | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_CLIPCHILDREN | WS_CLIPSIBLINGS
 EXSTYLE WS_EX_APPWINDOW

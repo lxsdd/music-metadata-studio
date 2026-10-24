@@ -2,12 +2,15 @@
 
 #include <SDK/coreDarkMode.h>
 
+#include "batch_table_settings.h"
+
 #include "menu_settings.h"
 #include "resource.h"
 
 #include <SDK/preferences_page.h>
 
 #include <array>
+#include <initializer_list>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -194,6 +197,147 @@ public:
 };
 
 preferences_page_factory_t<MenuPreferencesPage> g_menu_preferences_factory;
+
+constexpr GUID kWorkspacePreferencesGuid =
+    {0xb7e9a4a0, 0x51d0, 0x4268, {0xa4, 0xf7, 0xec, 0x8f, 0x7c, 0x3d, 0xe6, 0xe1}};
+
+djmeta::WorkspaceDefaults read_workspace_controls(HWND window) {
+    djmeta::WorkspaceDefaults settings;
+    settings.opening_tab = static_cast<int>(SendDlgItemMessageW(
+        window, IDC_DEFAULT_START_TAB, CB_GETCURSEL, 0, 0));
+    settings.online_provider = static_cast<int>(SendDlgItemMessageW(
+        window, IDC_DEFAULT_ONLINE_PROVIDER, CB_GETCURSEL, 0, 0));
+    settings.routing_profile = static_cast<int>(SendDlgItemMessageW(
+        window, IDC_DEFAULT_ROUTE_PROFILE, CB_GETCURSEL, 0, 0));
+    settings.show_whitespace = SendDlgItemMessageW(
+        window, IDC_DEFAULT_SHOW_WHITESPACE, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    if (!djmeta::workspace_defaults_valid(settings))
+        throw std::invalid_argument("Invalid workspace choice.");
+    return settings;
+}
+
+class WorkspacePreferencesInstance : public preferences_page_instance {
+public:
+    WorkspacePreferencesInstance(fb2k::hwnd_t parent, preferences_page_callback::ptr callback)
+        : m_callback(std::move(callback)) {
+        m_window = CreateDialogParamW(core_api::get_my_instance(),
+            MAKEINTRESOURCEW(IDD_WORKSPACE_PREFERENCES), parent,
+            dialog_proc, reinterpret_cast<LPARAM>(this));
+        if (!m_window)
+            throw std::runtime_error("Failed to create workspace Preferences.");
+    }
+
+    ~WorkspacePreferencesInstance() {
+        if (m_window && IsWindow(m_window)) DestroyWindow(m_window);
+    }
+
+    fb2k::hwnd_t get_wnd() override { return m_window; }
+
+    t_uint32 get_state() override {
+        t_uint32 flags = preferences_state::resettable |
+                         preferences_state::dark_mode_supported;
+        try {
+            if (!(read_workspace_controls(m_window) == load_workspace_defaults()))
+                flags |= preferences_state::changed;
+        } catch (const std::exception&) {
+            flags |= preferences_state::changed;
+        }
+        return flags;
+    }
+
+    void apply() override {
+        try {
+            const auto edited = read_workspace_controls(m_window);
+            store_workspace_defaults(edited);
+            state_changed();
+        } catch (const std::exception&) {
+            MessageBoxW(m_window,
+                L"All workspace choices must be valid. No settings were changed.",
+                L"Music Metadata Studio", MB_OK | MB_ICONWARNING);
+        }
+    }
+
+    void reset() override {
+        show_settings(m_window, {});
+        state_changed(); // Stage only. foobar's Apply/OK performs the save.
+    }
+
+private:
+    static void add_items(HWND window, int control,
+                          std::initializer_list<const wchar_t*> names) {
+        for (const wchar_t* name : names) {
+            SendDlgItemMessageW(window, control, CB_ADDSTRING, 0,
+                reinterpret_cast<LPARAM>(name));
+        }
+    }
+
+    static void show_settings(HWND window, const djmeta::WorkspaceDefaults& settings) {
+        SendDlgItemMessageW(window, IDC_DEFAULT_START_TAB,
+            CB_SETCURSEL, settings.opening_tab, 0);
+        SendDlgItemMessageW(window, IDC_DEFAULT_ONLINE_PROVIDER,
+            CB_SETCURSEL, settings.online_provider, 0);
+        SendDlgItemMessageW(window, IDC_DEFAULT_ROUTE_PROFILE,
+            CB_SETCURSEL, settings.routing_profile, 0);
+        SendDlgItemMessageW(window, IDC_DEFAULT_SHOW_WHITESPACE,
+            BM_SETCHECK, settings.show_whitespace ? BST_CHECKED : BST_UNCHECKED, 0);
+    }
+
+    static INT_PTR CALLBACK dialog_proc(HWND window, UINT msg, WPARAM wp, LPARAM lp) {
+        if (msg == WM_INITDIALOG) {
+            auto* self = reinterpret_cast<WorkspacePreferencesInstance*>(lp);
+            self->m_window = window;
+            SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+            self->m_dark.AddDialogWithControls(window);
+            add_items(window, IDC_DEFAULT_START_TAB,
+                {L"Find and compare", L"Review proposals", L"Plan file locations"});
+            add_items(window, IDC_DEFAULT_ONLINE_PROVIDER,
+                {L"MusicBrainz", L"Discogs", L"Beatport + Crates"});
+            add_items(window, IDC_DEFAULT_ROUTE_PROFILE,
+                {L"Singles", L"Alben", L"Livesets"});
+            show_settings(window, load_workspace_defaults());
+            return TRUE;
+        }
+        auto* self = reinterpret_cast<WorkspacePreferencesInstance*>(
+            GetWindowLongPtrW(window, GWLP_USERDATA));
+        if (!self) return FALSE;
+        if (msg == WM_COMMAND) {
+            const unsigned notify = HIWORD(wp);
+            if (notify == CBN_SELCHANGE || notify == BN_CLICKED) {
+                self->state_changed();
+                return TRUE;
+            }
+        }
+        if (msg == WM_NCDESTROY) {
+            self->m_window = nullptr;
+            SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+        }
+        return FALSE;
+    }
+
+    void state_changed() {
+        if (m_callback.is_valid()) m_callback->on_state_changed();
+    }
+
+    preferences_page_callback::ptr m_callback;
+    fb2k::hwnd_t m_window = nullptr;
+    fb2k::CCoreDarkModeHooks m_dark;
+};
+
+class WorkspacePreferencesPage : public preferences_page_v3 {
+public:
+    const char* get_name() override { return "Workspace"; }
+    GUID get_guid() override { return kWorkspacePreferencesGuid; }
+    GUID get_parent_guid() override { return kPreferencesGuid; }
+    preferences_page_instance::ptr instantiate(
+        fb2k::hwnd_t parent,
+        preferences_page_callback::ptr callback) override {
+        return fb2k::service_new<WorkspacePreferencesInstance>(
+            parent, std::move(callback));
+    }
+};
+
+preferences_page_factory_t<WorkspacePreferencesPage> g_workspace_preferences_factory;
+
 
 } // namespace
 } // namespace djmeta_foobar

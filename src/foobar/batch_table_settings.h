@@ -3,6 +3,7 @@
 #include "djmeta/table_layout.h"
 #include "djmeta/review_grid_layout.h"
 #include "djmeta/preview_window_geometry.h"
+#include "djmeta/workspace_defaults.h"
 #include <optional>
 
 namespace djmeta_foobar {
@@ -14,6 +15,10 @@ std::optional<djmeta::PreviewWindowPlacement> load_batch_preview_window_placemen
 void store_batch_preview_window_placement(djmeta::PreviewWindowPlacement value);
 std::optional<djmeta::PreviewWindowSize> load_batch_preview_window_size();
 void store_batch_preview_window_size(djmeta::PreviewWindowSize size);
+
+// Only visual defaults for NEW studio windows; never search or write permission.
+djmeta::WorkspaceDefaults load_workspace_defaults();
+void store_workspace_defaults(const djmeta::WorkspaceDefaults& settings);
 
 // Remember only the user's preferred date target choice (0..7). No selected
 // provider values, per-track decisions or authorization is persisted.
