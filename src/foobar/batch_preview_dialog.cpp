@@ -2094,25 +2094,7 @@ constexpr unsigned kTrackColumnMenuBase = 41100u;
 constexpr unsigned kDetailColumnMenuBase = 41200u;
 
 int current_dpi(HWND window) {
-    // GetDpiForWindow reflects a per-monitor-aware host; LOGPIXELSX is
-    // system-wide and must only be a fallback.
-    // Resolve dynamically to support the foobar SDK's older _WIN32_WINNT
-    // compilation target. On older OS builds retain LOGPIXELSX fallback.
-    using DpiForWindowFn = UINT (WINAPI*)(HWND);
-    static const auto query_window_dpi = []() -> DpiForWindowFn {
-        const HMODULE user32 = GetModuleHandleW(L"user32.dll");
-        return user32 ? reinterpret_cast<DpiForWindowFn>(
-            GetProcAddress(user32, "GetDpiForWindow")) : nullptr;
-    }();
-    if (query_window_dpi) {
-        const UINT window_dpi = query_window_dpi(window);
-        if (window_dpi) return static_cast<int>(window_dpi);
-    }
-    HDC device = GetDC(window);
-    if (!device) return 96;
-    const int dpi = GetDeviceCaps(device, LOGPIXELSX);
-    ReleaseDC(window, device);
-    return dpi > 0 ? dpi : 96;
+    return native_window_dpi(window);
 }
 int to_pixels(HWND window, int logical) {
     return MulDiv(logical, current_dpi(window), 96);
