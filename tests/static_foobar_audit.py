@@ -840,6 +840,8 @@ for token in (
 for token in (
     "qualified_musicbrainz_cue_album_alignment(cue,edition,alignment)",
     "musicbrainz_cue_edition_full_alignment_required_",
+    "cue_media_barcode_conflict(cue,edition)",
+    "musicbrainz_cue_media_barcode_conflict_",
     "cue,*local_ordinal,{field},true",
     "link.decision==MatchDecision::Suggested",
     "musicbrainz::valid_mbid(remote.source_track_id)",
