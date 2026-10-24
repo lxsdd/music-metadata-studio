@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <cwchar>
 #include <iostream>
+#include <limits>
 #include <vector>
 #include <array>
 #include <tuple>
@@ -1225,6 +1226,18 @@ int main() {
     check(djmeta_foobar::selected_native_view_ids(detail, {4, 11, 2}) ==
           std::vector<std::size_t>({11}),
           "detail proposal selection resolves sorted proposal identity");
+    const auto header=(std::numeric_limits<std::size_t>::max)();
+    ListView_SetItemState(detail,0,LVIS_SELECTED,LVIS_SELECTED);
+    check(djmeta_foobar::selected_native_proposal_ids(
+              detail,{header,11,2},12)==std::vector<std::size_t>({11}),
+          "native group header cannot become a field action target");
+    ListView_SetItemState(detail,1,0,LVIS_SELECTED);
+    check(djmeta_foobar::selected_native_proposal_ids(
+              detail,{header,11,2},12).empty(),
+          "header-only native selection produces no action targets");
+    ListView_SetItemState(detail,0,0,LVIS_SELECTED);
+    ListView_SetItemState(detail,1,LVIS_SELECTED,LVIS_SELECTED);
+
     ListView_SetItemState(detail, 2,
         LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
     check(ListView_GetSelectedCount(detail)==2 &&
