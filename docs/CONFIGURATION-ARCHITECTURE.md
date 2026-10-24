@@ -1,5 +1,11 @@
 # Music Metadata Studio configuration contract (2026-10-24)
 
+All cross-workflow configuration, UX and rules requirements are indexed
+under the stable `MMS-CFG-*`/`MMS-NRM-*` IDs in
+[REQUIREMENTS-REGISTER.md](REQUIREMENTS-REGISTER.md). The index is kept in
+version control and checked in Core CI; this document remains the detailed
+configuration contract.
+
 ## Two deliberate levels
 
 1. **foobar2000 Preferences > Tools > Music Metadata Studio**

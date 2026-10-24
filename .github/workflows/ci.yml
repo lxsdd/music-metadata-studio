@@ -36,6 +36,8 @@ on:
       - 'scripts/crates-copy-selected-beatport-link.js'
       - 'rules/**'
       - 'CMakeLists.txt'
+      - 'docs/REQUIREMENTS-REGISTER.md'
+      - 'docs/REQUIREMENTS-IDS.lock'
       - '.github/workflows/ci.yml'
   pull_request:
     branches: [ main ]
@@ -64,6 +66,10 @@ jobs:
       - name: Validate persisted rules
         shell: bash
         run: python tests/validate_rules.py
+
+      - name: Verify stable user-approved requirements
+        shell: bash
+        run: python tests/requirements_register_tests.py
 
       - name: Check browser helpers without fetching or credentials
         shell: bash

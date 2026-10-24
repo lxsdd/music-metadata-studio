@@ -25,6 +25,16 @@ Analysis never writes metadata. Original values and proposed canonical values re
 
 The initial development phase implements only analysis/preview behavior. Real tag writing is intentionally out of scope until the rule engine, trace output, stale-input protection and deterministic tests are qualified.
 
+## Verbindliche Anforderungen und Entwicklungsstand
+
+Das [zentral geführte Anforderungsregister](docs/REQUIREMENTS-REGISTER.md)
+enthält alle bisher bestätigten Workflow-, UX-, Konfigurations-, Regel-,
+Quellen-, CUE-, Dateiorganisations- und Sicherheitswünsche mit stabilen IDs,
+Status und verknüpften Abnahmekriterien. Ein
+[maschinell geprüftes ID-Verzeichnis](docs/REQUIREMENTS-IDS.lock)
+verhindert unbemerkte Löschungen; Details bleiben in den thematischen Docs
+und offenen Issues #33, #46–#51. Neuer Code nennt die betroffenen IDs.
+
 ## Repository layout
 
 - `include/djmeta/` – public core API.
