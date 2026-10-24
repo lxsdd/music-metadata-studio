@@ -122,7 +122,7 @@ inline beatport::TrackEvidence parse_crates_public_track_clipboard(
         const std::string title=track.title;
         const std::string version=track.mix_name;
         bool matched=false;
-        for(const std::string pattern:{
+        for(const std::string& pattern:{
                 " ("+version+")", " ["+version+"]", " - "+version,
                 " \xE2\x80\x93 "+version, " \xE2\x80\x94 "+version}) {
             if(title.size()>pattern.size() && title.ends_with(pattern))

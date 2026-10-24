@@ -1,6 +1,6 @@
-// User-clicked bookmarklet on ONE already-open Crates track page.
-// Reads only currently visible DOM text and links. No fetch, cookies,
-// hidden application state, credentials, or automated navigation.
+/* User-clicked bookmarklet on ONE already-open Crates track page.
+   Reads only currently visible DOM text and links. No fetch, cookies,
+   hidden application state, credentials, or automated navigation. */
 (async () => {
   const report = message => alert('Crates visible track (read-only): ' + message);
   try {
