@@ -337,8 +337,10 @@
   Workspace-Fenster wird mit `SetWindowPlacement`, ein normalisiertes
   Fenster mit `SetWindowPos` wiederhergestellt. Die Bildschirmränder und
   die Workarea/Taskbar werden im jeweiligen Koordinatensystem geklemmt.
-- `WM_SIZE` bewahrt den letzten Nicht-Minimierungs-Maximierungszustand,
-  damit Minimieren/Schließen nicht den zuletzt maximierten Zustand vergisst;
+- `WM_SIZE` bewahrt den letzten Nicht-Minimierungs-Maximierungszustand;
+  `WM_WINDOWPOSCHANGED` hält die letzte echte `GetWindowRect`-
+  Bildschirmposition für das Schließen eines normal minimierten Fensters.
+  Damit führen beide Minimieren/Schließen-Fälle zu konsistenten Koordinaten.
   Position, Größe, Tab und Benutzeraktionen bleiben unabhängig.
 - Regression: `tests/preview_window_geometry_tests.cpp` (Taskbar oben/links,
   negativer Mehrmonitor-Ursprung, entferntes Display, zu kleine Workarea)

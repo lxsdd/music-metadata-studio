@@ -16,6 +16,20 @@
 
 namespace djmeta_foobar {
 
+// Only normal, unminimized windows yield genuine screen coordinates.
+// An iconic WINDOWPLACEMENT normal rectangle is always workspace-based;
+// retaining the last observed normal screen rectangle avoids switching
+// coordinate systems when the user closes a minimized normal window.
+inline bool native_capture_normal_screen_bounds(HWND dialog,RECT& screen) {
+    if(!IsWindow(dialog) || IsIconic(dialog) || IsZoomed(dialog)) return false;
+    RECT observed{};
+    if(!GetWindowRect(dialog,&observed) ||
+       observed.right<=observed.left || observed.bottom<=observed.top)
+        return false;
+    screen=observed;
+    return true;
+}
+
 // GetWindowPlacement flags cannot be relied on to describe a minimized
 // window's previous zoom state. WM_SIZE remembers the last non-iconic state.
 inline constexpr bool native_workspace_saved_maximized(

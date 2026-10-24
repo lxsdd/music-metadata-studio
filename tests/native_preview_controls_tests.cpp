@@ -444,6 +444,21 @@ int main() {
           !djmeta_foobar::native_workspace_saved_maximized(false,true,false) &&
           !djmeta_foobar::native_workspace_saved_maximized(false,false,true),
           "minimize-to-close remembers the last actual maximize state");
+    RECT remembered_normal{};
+    check(djmeta_foobar::native_capture_normal_screen_bounds(
+              dialog,remembered_normal),
+          "production capture records a real noniconic screen rectangle");
+    ShowWindow(dialog,SW_MINIMIZE);
+    RECT ignored_iconic{0,0,0,0};
+    check(!djmeta_foobar::native_capture_normal_screen_bounds(
+              dialog,ignored_iconic) &&
+          ignored_iconic.left==0 && ignored_iconic.top==0 &&
+          ignored_iconic.right==0 && ignored_iconic.bottom==0,
+          "minimized normal window cannot replace screen geometry with workspace values");
+    ShowWindow(dialog,SW_RESTORE);
+    check(djmeta_foobar::native_capture_normal_screen_bounds(
+              dialog,remembered_normal),
+          "normal window after minimize yields usable screen geometry again");
     // Exercise the exact restore helper called by the production WM_INITDIALOG.
     // GetWindowPlacement normal bounds are workspace coordinates for the
     // resource's WS_EX_APPWINDOW dialog. Repeated maximal restores must not

@@ -171,6 +171,8 @@ struct PreviewState {
     // WM_SIZE tracks maximization before minimize/hide. GetWindowPlacement
     // does not retain WPF_RESTORETOMAXIMIZED reliably in its flags member.
     bool last_nonminimized_maximized=false;
+    RECT last_normal_screen_bounds{};
+    bool has_last_normal_screen_bounds=false;
     std::vector<NativePreviewResizeChild> resize_controls;
     std::vector<PreviewEntry> entries;
     djmeta::BatchPreviewTable table;
@@ -2348,7 +2350,15 @@ void save_batch_dialog_window_size(const PreviewState& state) {
     const bool maximized=native_workspace_saved_maximized(
         IsZoomed(state.dialog)!=FALSE,iconic,
         state.last_nonminimized_maximized);
-    if (!maximized && !iconic && !GetWindowRect(state.dialog,&bounds)) return;
+    if(iconic && !maximized) {
+        // GetWindowPlacement returns workspace coordinates for an iconic
+        // window too. Keep the last real screen bounds captured on move/size.
+        if(!state.has_last_normal_screen_bounds) return;
+        bounds=state.last_normal_screen_bounds;
+    } else if(!maximized &&
+              !native_capture_normal_screen_bounds(state.dialog,bounds)) {
+        return;
+    }
     const int width=bounds.right-bounds.left;
     const int height=bounds.bottom-bounds.top;
     if (width<=0 || height<=0) return;
@@ -4696,6 +4706,11 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         align_native_preview_form(dialog);
         capture_resize_layout(*state);
         restore_batch_dialog_window_size(*state);
+        RECT initial_screen{};
+        if(native_capture_normal_screen_bounds(dialog,initial_screen)) {
+            state->last_normal_screen_bounds=initial_screen;
+            state->has_last_normal_screen_bounds=true;
+        }
         // Fit first-open headers to a bounded sample of real Unicode titles,
         // only while the profile still uses untouched factory widths.
         // Never recompute these during selection, sorting or tab navigation.
@@ -4772,6 +4787,14 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
     if (state->help_tooltips &&
         native_workspace_dismisses_tooltip(message,wp))
         SendMessageW(state->help_tooltips,TTM_POP,0,0);
+    if(message==WM_WINDOWPOSCHANGED) {
+        RECT normal_screen{};
+        if(native_capture_normal_screen_bounds(dialog,normal_screen)) {
+            state->last_normal_screen_bounds=normal_screen;
+            state->has_last_normal_screen_bounds=true;
+        }
+        return FALSE; // Let the real dialog procedure emit WM_SIZE/WM_MOVE.
+    }
     if (message == WM_CLOSE) {
         // Closing the modeless workspace must not freeze foobar while an
         // in-flight HTTPS request finishes. Hide, then destroy on completion.
