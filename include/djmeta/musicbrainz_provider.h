@@ -499,6 +499,43 @@ inline std::string lead_credit_search_artist(std::string_view credit) {
     return lead.size()>=3 ? lead : std::string{};
 }
 
+// The other uniquely delimited collaborator is a useful last-resort
+// SEARCH hint when catalogues index a recording under that artist alone.
+// Never split nested credits: the remaining text would be ambiguous.
+inline std::string partner_credit_search_artist(std::string_view credit) {
+    const auto first=credit.find_first_not_of(" \t");
+    if(first==std::string_view::npos) return {};
+    const auto last=credit.find_last_not_of(" \t");
+    const std::string trimmed(credit.substr(first,last-first+1));
+    std::string folded=trimmed;
+    for(char& c:folded)
+        if(c>='A' && c<='Z') c=static_cast<char>(c+('a'-'A'));
+    static constexpr std::string_view separators[]={
+        " x ", " vs. ", " vs ", " feat. ", " feat ",
+        " ft. ", " ft ", " featuring ", " w/ "
+    };
+    std::size_t cut=std::string::npos, delimiter_size=0;
+    for(const auto separator:separators) {
+        const auto pos=folded.find(separator);
+        if(pos!=std::string::npos && (cut==std::string::npos || pos<cut)) {
+            cut=pos;
+            delimiter_size=separator.size();
+        }
+    }
+    if(cut==std::string::npos) return {};
+    auto tail=trimmed.substr(cut+delimiter_size);
+    const auto begin=tail.find_first_not_of(" \t");
+    if(begin==std::string::npos) return {};
+    tail.erase(0,begin);
+    const auto end=tail.find_last_not_of(" \t");
+    tail.resize(end+1);
+    auto folded_tail=folded.substr(cut+delimiter_size);
+    for(const auto separator:separators)
+        if(folded_tail.find(separator)!=std::string::npos)
+            return {};
+    return tail.size()>=3 ? tail : std::string{};
+}
+
 // MusicBrainz's one-request-per-second boundary is enforced by the HTTP
 // worker. Staged manual discovery must wait rather than reject a valid
 // second click; the UI thread must never sleep.
@@ -565,19 +602,29 @@ inline RecordingSearchPlan recording_search_plan(
             add(std::move(full_label),
                 make_search_path(SearchKind::Recording,p.full_title,who));
     };
+    // Never derive a plausible-looking fragment from a malformed or
+    // overlong physical ARTIST. Fall back to the verified title/ISRC only.
     if(valid_search_term(p.artist)) {
         add_titles(p.artist,
             p.full_title==p.core_title ? "Original title + artist" :
                 "Main title + artist (version kept for review)",
             "Full title + artist");
-    }
-    // Collaboration fallbacks are strictly discovery-only, never approvals.
-    const auto lead=lead_credit_search_artist(p.artist);
-    if(!lead.empty() && lead!=p.artist && valid_search_term(lead)) {
-        add_titles(lead,
-            p.full_title==p.core_title ? "Original title + lead credited artist" :
-                "Main title + lead credited artist (identity review)",
-            "Full title + lead credited artist (identity review)");
+        // Credit fallbacks expand DISCOVERY ONLY. Neither the source tag nor
+        // the recording/mix identity comparison is relaxed in any way.
+        const auto lead=lead_credit_search_artist(p.artist);
+        if(!lead.empty() && lead!=p.artist && valid_search_term(lead)) {
+            add_titles(lead,
+                p.full_title==p.core_title ? "Original title + lead credited artist" :
+                    "Main title + lead credited artist (identity review)",
+                "Full title + lead credited artist (identity review)");
+        }
+        const auto partner=partner_credit_search_artist(p.artist);
+        // One partner CORE-title attempt keeps even the maximal ISRC + full
+        // versioned collaboration plan within eight official HTTP requests.
+        if(!partner.empty() && partner!=p.artist && core_ok &&
+           valid_search_term(partner))
+            add("Main title + other credited artist (identity review)",
+                make_search_path(SearchKind::Recording,p.core_title,partner));
     }
     add_titles("",
         p.full_title==p.core_title ? "Title only" :

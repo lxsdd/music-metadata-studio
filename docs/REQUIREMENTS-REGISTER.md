@@ -299,3 +299,13 @@
   installed Windows foobar acceptance; explicit merge/release/production
   write activation when qualified; any new provider legal terms or genuine
   account authorization. No repetitive intermediate confirmation required.
+
+- 2026-10-24: Bounded two-credit MusicBrainz discovery (MMS-SRC-01 /
+  MMS-SRC-08): a single, unambiguous collaborative ARTIST such as
+  `Kyau & Albert x Maywave` adds one read-only core-title request under
+  the second credited artist. The untouched full/lead/title-only and
+  optional exact-ISRC attempts remain; at most eight official searches
+  are possible, with no change to mix/artist confirmation or write gates.
+  Invalid/unbounded original ARTIST never generates truncated lead/partner
+  requests. Code + deterministic edge and source-allowlist tests accompany
+  the change; exact-SHA CI and installed host acceptance are distinct.

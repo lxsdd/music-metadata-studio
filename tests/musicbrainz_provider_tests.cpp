@@ -2,6 +2,7 @@
 #include "djmeta/musicbrainz_search_review.h"
 #include "djmeta/cue_online_bridge.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
@@ -245,12 +246,14 @@ int main() {
         "1000 Years (Dj Version)","Kyau & Albert X Maywave");
     check(collab.core_title=="1000 Years" &&
           collab.full_title=="1000 Years (Dj Version)" &&
-          collab.attempts.size()==6 &&
+          collab.attempts.size()==7 &&
           collab.attempts[0].path==make_search_path(
               SearchKind::Recording,"1000 Years","Kyau & Albert X Maywave") &&
           collab.attempts[2].path==make_search_path(
               SearchKind::Recording,"1000 Years","Kyau & Albert") &&
           collab.attempts[4].path==make_search_path(
+              SearchKind::Recording,"1000 Years","Maywave") &&
+          collab.attempts[5].path==make_search_path(
               SearchKind::Recording,"1000 Years","") &&
           recording_identity_label("1000 Years (Dj Version)",
               "Kyau & Albert X Maywave","1000 Years","Kyau & Albert")==
@@ -262,6 +265,29 @@ int main() {
           lead_credit_search_artist("Artist & Guest").empty() &&
           lead_credit_search_artist("A x B").empty(),
           "only explicit collaboration separators add a bounded leading-artist search");
+    check(partner_credit_search_artist("Kyau & Albert X Maywave")=="Maywave" &&
+          partner_credit_search_artist("Artist feat. Guest")=="Guest" &&
+          partner_credit_search_artist("Artist & Guest").empty() &&
+          partner_credit_search_artist("A x B").empty() &&
+          partner_credit_search_artist("Artist x Guest feat. Singer").empty(),
+          "second artist is an optional unique credit, never a nested or invented artist");
+    const auto bounded_collab=recording_search_plan(
+        "1000 Years (Dj Version)","Kyau & Albert X Maywave","USRC17607839");
+    check(bounded_collab.attempts.size()==8 &&
+          bounded_collab.attempts[0].label=="Exact ISRC identifier" &&
+          bounded_collab.attempts[5].path==make_search_path(
+              SearchKind::Recording,"1000 Years","Maywave") &&
+          std::all_of(bounded_collab.attempts.begin(),bounded_collab.attempts.end(),
+             [](const auto& attempt) {
+                 return qualified_musicbrainz_request_path(attempt.path);
+             }),
+          "ISRC, exact/full, lead/partner and title-only are capped at eight allowed requests");
+    const auto poisoned_artist=recording_search_plan(
+        "Known Track","Lead Artist x Guest\nPrivate");
+    check(poisoned_artist.attempts.size()==1 &&
+          poisoned_artist.attempts[0].path==make_search_path(
+              SearchKind::Recording,"Known Track",""),
+          "malformed original collaboration cannot leak a derived artist query");
     const auto safe_recording=recording_search_plan("Known Track",too_long_artist);
     check(safe_recording.artist==too_long_artist &&
           safe_recording.attempts.size()==1 &&
