@@ -100,6 +100,41 @@ inline PreviewCommand native_preview_command(UINT message, WPARAM wp) {
     return PreviewCommand::None;
 }
 
+// Read-only discovery/CUE inspection depends on one selected physical source.
+// A full 54k-source scan before each online search blocks the host UI.
+// Full batch validation still precedes every batch decision/Apply action;
+// selected-source physical writers separately freeze and verify exact evidence.
+enum class NativeWorkspaceCheckScope { None, SelectedSource, FullBatch };
+
+inline constexpr NativeWorkspaceCheckScope native_workspace_command_check_scope(
+    PreviewCommand command, UINT message, WPARAM wp) noexcept {
+    if (message != WM_COMMAND || HIWORD(wp) != BN_CLICKED)
+        return NativeWorkspaceCheckScope::None;
+    switch(command) {
+    case PreviewCommand::Accept:
+    case PreviewCommand::Reject:
+    case PreviewCommand::Reset:
+    case PreviewCommand::ManualValue:
+        return NativeWorkspaceCheckScope::FullBatch;
+    default:
+        break;
+    }
+    switch(LOWORD(wp)) {
+    case IDC_BATCH_APPLY_SELECTED:
+    case IDC_BATCH_APPLY_ALL:
+        return NativeWorkspaceCheckScope::FullBatch;
+    case IDC_METADATA_MB_SEARCH:
+    case IDC_METADATA_MB_LOAD_RELEASE:
+    case IDC_METADATA_DISCOGS_NEXT_PAGE:
+    case IDC_METADATA_INSPECT_CUE:
+    case IDC_METADATA_IMPORT_CANDIDATE:
+    case IDC_ONLINE_WRITE_SELECTED:
+        return NativeWorkspaceCheckScope::SelectedSource;
+    default:
+        return NativeWorkspaceCheckScope::None;
+    }
+}
+
 // Display-only escaping of invisible metadata characters. Never pass the
 // decorated output to the normalization engine or foobar tag/file adapters.
 // No escaping is performed when the mode is disabled.
@@ -222,10 +257,10 @@ inline void restore_native_view_selection(
     }
 }
 
-// Passive foobar window activation checks only the visible source. A source
-// selection invariant failure falls back to a full verification. A deliberate
-// Search, Review or File-plan action ALWAYS checks every captured source and
-// its physical guard. No preview approval is inferred from a focus check.
+// Passive activation and read-only online commands verify the visible source;
+// invalid selected indices fall back to full verification. Batch decisions
+// and batch Apply check every source and physical guard. No approval is
+// inferred from a selected-source lookup.
 // Indexes are stable source identities, independent of sorted ListView rows.
 inline constexpr bool native_workspace_should_validate_entry(
     std::size_t source_index, std::size_t selected_source_index,

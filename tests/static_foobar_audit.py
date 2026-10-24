@@ -256,6 +256,36 @@ for token in (
     if token not in batch_table_dialog:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: guided search, help or refresh text missing " + token)
 
+# The production WM_COMMAND path must use the tested per-command scope:
+# read-only online actions validate the selected source; batch decisions
+# and batch Apply continue to verify all captured sources before mutation.
+native_scope_start = batch_table_dialog.split(
+    "const auto check_scope=native_workspace_command_check_scope(",1)[1].split(
+    "if(id==IDC_METADATA_DISCOGS_NEXT_PAGE",1)[0]
+for token in (
+    "native_command,message,wp",
+    "check_scope!=NativeWorkspaceCheckScope::None",
+    "revalidate_workspace(*state,",
+    "check_scope==NativeWorkspaceCheckScope::FullBatch",
+    "if (state->stale) return TRUE",
+):
+    if token not in native_scope_start:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: per-command source guard missing: " + token)
+native_scope_header = (foobar / "native_preview_controls.h").read_text(encoding="utf-8")
+for token in ("NativeWorkspaceCheckScope::FullBatch",
+              "NativeWorkspaceCheckScope::SelectedSource",
+              "IDC_BATCH_APPLY_SELECTED", "IDC_BATCH_APPLY_ALL",
+              "IDC_METADATA_MB_SEARCH", "IDC_METADATA_MB_LOAD_RELEASE",
+              "IDC_METADATA_DISCOGS_NEXT_PAGE", "IDC_METADATA_INSPECT_CUE",
+              "IDC_METADATA_IMPORT_CANDIDATE", "IDC_ONLINE_WRITE_SELECTED"):
+    if token not in native_scope_header:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing native validation scope: " + token)
+for token in ("scope_for(IDC_METADATA_MB_SEARCH)",
+              "scope_for(IDC_BATCH_APPLY_SELECTED)",
+              "online_search_checks==1 && batch_apply_checks==kLargeBatch"):
+    if token not in (root / "tests" / "native_preview_controls_tests.cpp").read_text(encoding="utf-8"):
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing 54k lookup/apply scope test")
+
 # Modeless must be a genuine owned-lifetime foobar workspace. Reject a cosmetic
 # minimize flag on a blocking modal dialog, stranded state or unpaired manager.
 for token in ("CreateDialogParamW(", "modeless_dialog_manager::g_add(dialog)",

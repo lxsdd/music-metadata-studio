@@ -2869,9 +2869,9 @@ void revalidate_workspace(PreviewState& state, bool full_source_check = false) {
     try {
         verify_rules_snapshot(state.captured_rules);
         for (std::size_t i = 0; i < state.entries.size(); ++i) {
-            // Normal Alt-Tab/playback focus must not fetch file_info for
-            // 54k captured tracks. Every consequential action still checks
-            // ALL tag snapshots and physical guards before continuing.
+            // Focus and selected-source online actions avoid fetching
+            // file_info for all 54k sources. Batch decisions and Apply still
+            // check ALL captured tags and physical guards.
             if (!native_workspace_should_validate_entry(
                     i, state.selected_track_index, state.entries.size(),
                     full_source_check))
@@ -5574,17 +5574,13 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             SetDlgItemTextW(dialog,IDC_BATCH_HINT,cue_preview_notice.c_str());
             return TRUE;
         }
-        const bool consequential = native_command == PreviewCommand::Accept ||
-            native_command == PreviewCommand::Reject ||
-            native_command == PreviewCommand::Reset ||
-            native_command == PreviewCommand::ManualValue ||
-            (HIWORD(wp) == BN_CLICKED &&
-             (id == IDC_METADATA_MB_SEARCH || id == IDC_METADATA_MB_LOAD_RELEASE ||
-              id == IDC_METADATA_DISCOGS_NEXT_PAGE ||
-              id == IDC_METADATA_INSPECT_CUE || id == IDC_METADATA_IMPORT_CANDIDATE ||
-              id == IDC_BATCH_APPLY_SELECTED || id == IDC_BATCH_APPLY_ALL));
-        if (consequential) {
-            revalidate_workspace(*state, true);
+        const auto check_scope=native_workspace_command_check_scope(
+            native_command,message,wp);
+        if (check_scope!=NativeWorkspaceCheckScope::None) {
+            // Provider lookup, release load and CUE inspection check the
+            // selected source. Batch approval and Apply check every source.
+            revalidate_workspace(*state,
+                check_scope==NativeWorkspaceCheckScope::FullBatch);
             if (state->stale) return TRUE;
         }
         if(id==IDC_METADATA_DISCOGS_NEXT_PAGE && HIWORD(wp)==BN_CLICKED) {

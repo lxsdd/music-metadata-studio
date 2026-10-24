@@ -252,9 +252,9 @@ int main() {
           djmeta_foobar::native_workspace_should_relayout_on_size(
               SIZE_MAXIMIZED,900,700),
           "minimized or empty WM_SIZE cannot realign native controls");
-    // Regression for large foobar libraries: Alt-Tab only validates the
-    // selected original source, but every explicitly consequential action
-    // revalidates all 54,129 sources before acting on stale data.
+    // Regression for large foobar libraries: Alt-Tab and read-only online
+    // actions validate the selected source only. Batch decisions and Apply
+    // still revalidate all 54,129 sources before using old decisions.
     constexpr std::size_t kLargeBatch=54129;
     std::size_t activation_checks=0, consequential_checks=0;
     for(std::size_t i=0;i<kLargeBatch;++i) {
@@ -277,6 +277,52 @@ int main() {
           djmeta_foobar::native_workspace_should_validate_entry(
               3,3,10,false),
           "passive selection check uses stable source index, not display row");
+
+    // WM_COMMAND policy is shared with the real foobar dialog. Only the
+    // selected source is verified for online discovery/release/CUE read-only
+    // actions; full batch verification is mandatory before batch decisions
+    // and batch Apply. Notification type may not silently widen a check.
+    using djmeta_foobar::NativeWorkspaceCheckScope;
+    const auto scope_for=[](int id, WORD notice=BN_CLICKED) {
+        const auto command=MAKEWPARAM(id,notice);
+        return djmeta_foobar::native_workspace_command_check_scope(
+            djmeta_foobar::native_preview_command(WM_COMMAND,command),
+            WM_COMMAND,command);
+    };
+    for(const int id : {IDC_METADATA_MB_SEARCH,IDC_METADATA_MB_LOAD_RELEASE,
+                        IDC_METADATA_DISCOGS_NEXT_PAGE,IDC_METADATA_INSPECT_CUE,
+                        IDC_METADATA_IMPORT_CANDIDATE,IDC_ONLINE_WRITE_SELECTED}) {
+        check(scope_for(id)==NativeWorkspaceCheckScope::SelectedSource,
+              "selected-source online action avoids a full-library pre-scan");
+        check(scope_for(id,EN_CHANGE)==NativeWorkspaceCheckScope::None,
+              "text changes never cause a bulk source scan");
+    }
+    for(const int id : {IDC_METADATA_ACCEPT,IDC_METADATA_REJECT,
+                        IDC_METADATA_RESET,IDC_METADATA_USE_VALUE,
+                        IDC_BATCH_APPLY_SELECTED,IDC_BATCH_APPLY_ALL})
+        check(scope_for(id)==NativeWorkspaceCheckScope::FullBatch,
+              "batch approval and Apply require every captured source");
+    check(scope_for(IDC_METADATA_VISIBLE_WHITESPACE)==
+              NativeWorkspaceCheckScope::None &&
+          scope_for(IDC_BATCH_REFRESH)==NativeWorkspaceCheckScope::None &&
+          scope_for(IDC_METADATA_MB_QUERY,EN_CHANGE)==
+              NativeWorkspaceCheckScope::None &&
+          djmeta_foobar::native_workspace_command_check_scope(
+              djmeta_foobar::PreviewCommand::Accept,
+              WM_ACTIVATE,MAKEWPARAM(IDC_METADATA_ACCEPT,BN_CLICKED))==
+              NativeWorkspaceCheckScope::None,
+          "display commands, typing and non-command messages do not scan");
+    std::size_t online_search_checks=0, batch_apply_checks=0;
+    for(std::size_t i=0;i<kLargeBatch;++i) {
+        online_search_checks+=djmeta_foobar::native_workspace_should_validate_entry(
+            i,29017,kLargeBatch,
+            scope_for(IDC_METADATA_MB_SEARCH)==NativeWorkspaceCheckScope::FullBatch);
+        batch_apply_checks+=djmeta_foobar::native_workspace_should_validate_entry(
+            i,29017,kLargeBatch,
+            scope_for(IDC_BATCH_APPLY_SELECTED)==NativeWorkspaceCheckScope::FullBatch);
+    }
+    check(online_search_checks==1 && batch_apply_checks==kLargeBatch,
+          "54k-track online Search stays O(1) in source probes; Apply stays O(N)");
 
     // The actual shipping resource controls must stay disabled after a stale
     // source is detected, including when candidate/UI refresh code recomputes

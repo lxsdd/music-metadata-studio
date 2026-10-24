@@ -158,9 +158,18 @@
 - 2026-10-24: Studio-focus performance qualification (MMS-OPS-03):
   ordinary activation and switching to a different source revalidate
   only the selected stable source identity, with full-batch fallback if the
-  index is invalid; any consequential operation still verifies every source
-  and physical guard. Exact-SHA CI and installed-host responsiveness remain
-  separate gates.
+  index is invalid. Full batch verification remains mandatory for batch
+  review decisions and Apply; selected-source online operations use the
+  source-local evidence guard. Exact-SHA CI and installed-host responsiveness
+  remain separate gates.
+- 2026-10-24: Online selected-source validation scope (MMS-OPS-03 /
+  MMS-WF-08): Search, Load release, next Discogs page, Inspect CUE,
+  clipboard candidate comparison and single-source online write entry
+  revalidate the chosen source/rules only; an invalid selected index falls
+  back to the whole batch. Review Accept/Reject/Reset/manual decisions and
+  batch Apply still require full-batch tag and physical guard revalidation.
+  Native Win32 scope tests assert one versus 54,129 probes; actual installed
+  foobar UI latency and final physical-write consent remain separate gates.
 - 2026-10-24: STALE UI freeze invariant (MMS-WF-08 / MMS-UI-05):
   after an invalid source/rules/physical guard, candidate rerenders, tab
   switching and delayed Discogs/MusicBrainz completion must not re-enable
