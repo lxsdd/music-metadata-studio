@@ -1842,7 +1842,7 @@ void update_live_provider_controls(PreviewState& state) {
                      state.show_candidate && physical && !pending && !state.stale);
     }
     SetDlgItemTextW(state.dialog,IDC_METADATA_IMPORT_CANDIDATE,
-        state.beatport_offline_selected ? L"Import Beatport" : L"Import clipboard");
+        L"Import clipboard");
     const bool next_result=discogs && state.discogs_live_view &&
         !state.musicbrainz_release_loaded && !state.discogs_master_id &&
         state.candidate_source_index==state.selected_track_index &&
@@ -3100,7 +3100,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_ONLINE_RESET_FIELDS,L"Clear every included online field for this exact edition. Does not modify any file or saved metadata."},
         {IDC_ONLINE_WRITE_SELECTED,L"QA-only: submit the exact displayed physical tag differences for this one verified file after a separate final confirmation. No CUE or file move."},
         {IDC_METADATA_INSPECT_CUE,L"Read the source CUE and show its album/track fields. Embedded and external CUE are never written here."},
-        {IDC_METADATA_IMPORT_CANDIDATE,L"Beatport offline: user-supplied track JSON, facts, or @beatport-public-jsonld from a public track page; complete edition+tracks JSON for releases. No authentication claim or writers."},
+        {IDC_METADATA_IMPORT_CANDIDATE,L"Import a supported structured clipboard candidate (including Beatport/Crates public facts or manually declared @provider evidence). Every value remains read-only until reviewed. No authentication claim or write."},
         {IDC_METADATA_LIST,L"Select a candidate or proposed change to inspect its source and status."},
         {IDC_METADATA_MB_DETAILS,L"Field-by-field evidence for the selected online candidate. REVIEW is not a tag-write authorization."},
         {IDC_ONLINE_DATE_TARGET_LABEL,L"Do not infer an edition date from your current physical DATE."},
@@ -5951,14 +5951,21 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 djmeta::online::is_crates_public_release_clipboard(text);
             const bool beatport_user_track=
                 beatport_user_json || beatport_user_facts || beatport_public_page;
+            // Clipboard intake is explicitly user-triggered and self-describing.
+            // Selecting Beatport for SEARCH must not block a qualified manual
+            // @provider candidate already copied by the user. Parsing and all
+            // physical/CUE snapshot, provenance and REVIEW guards still apply.
+            const bool manual_declared_candidate=text.starts_with("@provider=");
             if(state->beatport_offline_selected &&
                !beatport_user_release && !beatport_user_track &&
-               !crates_visible_track && !crates_visible_release)
+               !crates_visible_track && !crates_visible_release &&
+               !manual_declared_candidate)
                 throw std::invalid_argument(
                      "Beatport + Crates mode requires @beatport-track-json, "
                     "@beatport-track-facts, @beatport-public-jsonld, "
                     "@crates-public-track, @crates-public-release, or both "
-                    "@beatport-release-json and @beatport-tracks-json. Plain webpage text "
+                    "@beatport-release-json and @beatport-tracks-json, or a "
+                    "structured @provider manual candidate. Plain webpage text "
                     "cannot be treated as authorized API evidence.");
             std::optional<djmeta::online::ManualCandidate> user_candidate;
             std::optional<djmeta::online::ReleaseEdition> user_edition;
