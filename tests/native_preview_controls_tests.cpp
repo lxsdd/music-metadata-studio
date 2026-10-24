@@ -826,6 +826,8 @@ int main() {
     RECT alignment_client{};
     check(GetClientRect(dialog,&alignment_client)!=FALSE,
           "native client bounds for edit alignment");
+    check(djmeta_foobar::native_window_dpi(dialog)>=96,
+          "native per-monitor DPI resolver returns usable window metrics");
     for(const auto [dpi,pad,offset]:{
             std::tuple{96,6,4},std::tuple{120,8,5},
             std::tuple{144,9,6},std::tuple{192,12,8}}) {
