@@ -324,6 +324,8 @@ for token in ("state->table.rows[source_row].issues", "for (const auto& issue : 
               "issue_status_text(issue)", "detail += issue;"):
     if token not in fileops_tip:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: FileOps tooltip hides safety finding " + token)
+if fileops_tip.index('"Safety findings:"') > fileops_tip.index('"Physical source: "'):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: long paths may truncate FileOps safety findings")
 
 layout_storage = (foobar / "batch_table_settings.cpp").read_text(encoding="utf-8")
 route_preview = (foobar / "routing_preview.cpp").read_text(encoding="utf-8")
