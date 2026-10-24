@@ -500,3 +500,8 @@
   SelfTest qualifies ordering without secrets; an actual protected run on the
   exact final commit remains necessary for live evidence. No token, user
   media, writer or protection setting changed.
+
+### 2026-10-24 — Raw FileOps preview rejects invisible path controls (MMS-FILE-03, MMS-UI-07)
+
+- The read-only Windows path check now marks raw Title Formatting names and editable destination roots containing C1 controls or Unicode bidirectional display overrides/isolates as unqualified. Valid RTL letters and other ordinary UTF-8 remain accepted; no metadata or filenames are rewritten.
+- Regression covers relative names, drive/UNC roots, the visible batch diagnostic and ordinary RTL text. This is only a preliminary raw-path warning, not foobar's final sanitized File Operations path or permission to write. Exact-SHA CI and installed visual acceptance remain separate.
