@@ -386,3 +386,14 @@
 - Tested both missing and pre-existing destination observations for all
   three actions, including blanket overwrite approval and the detached
   freeze boundary. Pure read-only core; no filesystem probe or writer added.
+
+### 2026-10-24 — Deezer/Spotify manual comparison discoverability (MMS-SRC-02/03, MMS-UI-04)
+
+- Studio help now documents the existing provider-independent Import clipboard
+  format for **manually verified** Deezer/Spotify fields, including typed
+  digital publication dates. This is not an authenticated Deezer/Spotify
+  live search, does not borrow a browser session, and never stages writes.
+- Original-tag tooltips are provider-neutral instead of misleadingly naming
+  only MusicBrainz. Core regressions preserve ordered physical collaborator
+  vectors and assert the exact "Pasted: spotify/deezer" unverified origin;
+  a missing date role and empty TITLE still fail closed.

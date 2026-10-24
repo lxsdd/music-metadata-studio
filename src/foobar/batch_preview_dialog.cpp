@@ -3209,6 +3209,13 @@ void show_workspace_help(HWND dialog) {
         L"@beatport-track-json on the first line, followed by track JSON. "
         L"Neither browser hand-off nor clipboard intake writes files. "
         L"Physical title, artist, version, ISRC and duration are compared. "
+        L"Deezer and Spotify currently have no authenticated live lookup in "
+        L"Studio. To compare facts you personally verified there, choose "
+        L"Import clipboard with a plain-text candidate: "
+        L"@provider=deezer (or spotify), then @id=track:NUMBER, then "
+        L"TITLE=... and ARTIST=... on separate lines. Explicit dates use "
+        L"DATE@digital=YYYY-MM-DD. These fields are labeled Pasted, never "
+        L"official API evidence, and cannot silently change physical tags. "
         L"For a single Crates recording, open a track detail page and run "
         L"scripts/crates-copy-visible-track-facts.js as a bookmarklet. "
         L"For an entire release including its catalog number and tracklist, "
@@ -5200,7 +5207,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                         const auto& original=state->existing_tag_rows[row];
                         const std::wstring label=original.first+L": "+
                             original.second+L"\nOriginal physical tag. "+
-                            L"MusicBrainz absence never deletes this field.";
+                            L"Missing online evidence never deletes this physical tag.";
                         lstrcpynW(tip->pszText,label.c_str(),tip->cchTextMax);
                     }
                     return TRUE; // never leak an unrelated proposal tooltip

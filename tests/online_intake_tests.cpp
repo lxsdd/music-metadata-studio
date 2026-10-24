@@ -66,6 +66,49 @@ int main() {
     check(digitally_published.fields[0].date_meaning == DateMeaning::DigitalPublication,
           "digital publication date remains distinguishable");
 
+    // Both still-missing live providers have a supported, explicitly
+    // unverified manual lane. Merely naming a provider cannot impersonate
+    // an authorized HTTPS response or authorize a physical tag write.
+    const MetadataDocument spotify_local{{{"ARTIST",{"Kyau & Albert"}},
+                                         {"TITLE",{"Original title"}},
+                                         {"GENRE",{"Trance"}}}};
+    const auto spotify_manual=parse_manual_candidate(
+        "@provider=spotify\n@id=track:912345\n@scope=recording\n"
+        "ARTIST=Kyau & Albert\nARTIST=Maywave\n"
+        "TITLE=1000 Years (DJ Version)\nGENRE=Trance\n");
+    const auto spotify_rows=review_online_fields(
+        spotify_local,spotify_manual.fields);
+    check(spotify_manual.provider=="spotify" &&
+          spotify_manual.scope==EvidenceScope::Recording &&
+          spotify_manual.fields.size()==3 &&
+          spotify_manual.fields[0].values==
+              std::vector<std::string>({"Kyau & Albert","Maywave"}) &&
+          spotify_rows.size()==3 &&
+          online_evidence_origin_label(spotify_rows[0])=="Pasted: spotify" &&
+          spotify_rows[0].state==FieldReviewState::NeedsReview &&
+          spotify_local.fields[0].values==
+              std::vector<std::string>({"Kyau & Albert"}),
+          "Spotify manual collaboration is unverified evidence, never an automatic tag edit");
+    const auto deezer_manual=parse_manual_candidate(
+        "@provider=deezer\n@id=track:4318295162\n@scope=recording\n"
+        "ARTIST=Kenneth Thomas\nTITLE=Emily (C-Sharp) (Extended Mix)\n"
+        "DATE@digital=2026-10-16\n");
+    const auto deezer_rows=review_online_fields(
+        spotify_local,deezer_manual.fields);
+    check(deezer_manual.provider=="deezer" &&
+          deezer_manual.fields.size()==3 &&
+          deezer_manual.fields[2].date_meaning==
+              DateMeaning::DigitalPublication &&
+          online_evidence_origin_label(deezer_rows[0])=="Pasted: deezer" &&
+          deezer_rows[2].candidate.date_meaning==
+              DateMeaning::DigitalPublication &&
+          spotify_local.fields.size()==3,
+          "Deezer manual digital date retains unverified origin and never rewrites originals");
+    fails("@provider=spotify\n@id=track:912345\nDATE=2026\n",
+          "Spotify manual date without typed date meaning is rejected");
+    fails("@provider=deezer\n@id=track:4318295162\nTITLE=\n",
+          "Deezer manual empty title cannot imply tag deletion");
+
     const auto cue_track = parse_manual_candidate(
         "@provider=discogs\n@id=track:12\n@scope=recording\n"
         "@cue_track_ordinal=2\nTITLE=Sunset\n");
