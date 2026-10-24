@@ -61,6 +61,45 @@ int main() {
           compare[3].state == FieldReviewState::NeedsReview &&
           compare[4].state == FieldReviewState::NeedsReview,
           "parsed candidate flows unchanged into existing read-only provenance/no-op review");
+    // A manual provider paste should not revert the Find browser to one
+    // top-level row per tag. Keep one pasted-candidate group and a separate
+    // full physical-source group, with every original field reachable in
+    // detail and unmodified provenance on the underlying row.
+    auto grouped_manual=compare;
+    append_pasted_physical_comparison_rows(grouped_manual,local,candidate.provider);
+    check(grouped_manual.size()==compare.size()+local.fields.size() &&
+          grouped_manual.front().field=="Pasted discogs / ARTIST" &&
+          grouped_manual.front().candidate.field=="ARTIST" &&
+          online_evidence_origin_label(grouped_manual.front())=="Pasted: discogs" &&
+          grouped_manual.front().original_values==std::vector<std::string>{"Example DJ"} &&
+          grouped_manual[compare.size()].field=="Physical / ARTIST" &&
+          is_local_physical_original(grouped_manual[compare.size()]) &&
+          grouped_manual[compare.size()+2].candidate.values==
+              std::vector<std::string>({"House","Deep House"}) &&
+          local.fields[2].values==std::vector<std::string>({"House","Deep House"}),
+          "structured pasted comparison preserves per-field evidence and complete physical inventory");
+    auto forged_manual=compare;
+    forged_manual.push_back(make_local_physical_original(
+        local.fields.front(),"local_physical_inventory_readonly"));
+    bool forged_blocked=false;
+    try {append_pasted_physical_comparison_rows(
+        forged_manual,local,candidate.provider);}
+    catch(const std::invalid_argument&) {forged_blocked=true;}
+    check(forged_blocked && forged_manual[0].field==compare[0].field,
+          "pasted grouping rejects forged local provenance before mutating display rows");
+    MetadataDocument many_originals;
+    for(int field=0;field<1200;++field)
+        many_originals.fields.push_back({"CUSTOM_"+std::to_string(field),{"unaltered"}});
+    auto bounded_manual=compare;
+    append_pasted_physical_comparison_rows(
+        bounded_manual,many_originals,candidate.provider);
+    check(bounded_manual.size()==1024 &&
+          bounded_manual.back().state==FieldReviewState::Blocked &&
+          bounded_manual.back().field==
+              "Physical / Additional physical tags not displayed" &&
+          many_originals.fields.size()==1200,
+          "large physical inventories use a bounded, explicit overflow notice");
+
     const auto digitally_published =
         parse_manual_candidate("@provider=deezer\n@id=track:7\nDATE@digital=2003-01-02\n");
     check(digitally_published.fields[0].date_meaning == DateMeaning::DigitalPublication,

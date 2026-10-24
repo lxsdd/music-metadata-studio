@@ -941,7 +941,9 @@ MusicBrainzBrowseRows group_musicbrainz_release_rows(
             summary.state=row.state;
             summary.reason=physical ? "local_physical_group" :
                 local_cue ? "local_cue_group" :
-                row.candidate.provider=="discogs"
+                row.field.starts_with("Pasted ")
+                    ? "manual_pasted_candidate_group"
+                    : row.candidate.provider=="discogs"
                     ? "discogs_live_release_group"
                     : row.candidate.provider=="beatport" &&
                       row.reason.starts_with("beatport_public_webpage_")
@@ -967,6 +969,13 @@ MusicBrainzBrowseRows group_musicbrainz_release_rows(
         out.detail.back().push_back(row);
     }
     return out;
+}
+
+// A pasted structured candidate is a comparison group, not an authenticated
+// online search hit. Keep this distinction in browser headers and hints.
+inline bool pasted_physical_group_view(const PreviewState& state) {
+    return state.musicbrainz_live_view && !state.candidate_rows.empty() &&
+           state.candidate_rows.front().reason=="manual_pasted_candidate_group";
 }
 
 std::wstring track_master_cell(PreviewState& state, std::size_t row, int col) {
@@ -1444,11 +1453,20 @@ void update_musicbrainz_browse_headers(PreviewState& state) {
         names[2]=L""; names[3]=L"Source"; names[4]=L"Write status";
     }
     if (browse) {
-        names[0]=state.musicbrainz_release_loaded?L"Album / Track":L"Recording / Release";
-        names[1]=state.musicbrainz_release_loaded?L"Current":L"Artist";
-        names[2]=state.musicbrainz_release_loaded?L"Suggested":L"Date";
-        names[3]=L"Source";
-        names[4]=state.musicbrainz_release_loaded?L"Match":L"Identity check";
+        if(pasted_physical_group_view(state)) {
+            names[0]=L"Comparison group";
+            names[1]=L"Physical";
+            names[2]=L"Pasted";
+            names[3]=L"Origin";
+            names[4]=L"Review";
+        } else {
+            names[0]=state.musicbrainz_release_loaded
+                ? L"Album / Track" : L"Recording / Release";
+            names[1]=state.musicbrainz_release_loaded?L"Current":L"Artist";
+            names[2]=state.musicbrainz_release_loaded?L"Suggested":L"Date";
+            names[3]=L"Source";
+            names[4]=state.musicbrainz_release_loaded?L"Match":L"Identity check";
+        }
     }
     for(int i=0;i<5;++i) {
         LVCOLUMNW column{};
@@ -1516,7 +1534,8 @@ void update_metadata_table(PreviewState& state) {
         // Candidate counts describe result identities, not field-change rows.
         // Update headers when entering live search, not just on tab switch.
         const wchar_t* candidate_headers[3]={
-            state.musicbrainz_live_view?L"Hits":L"Tags",
+            state.musicbrainz_live_view
+                ? (pasted_physical_group_view(state)?L"Groups":L"Hits") : L"Tags",
             state.musicbrainz_live_view?L"Blocked":L"Diffs",
             state.musicbrainz_live_view?L"":L"Block"
         };
@@ -1941,7 +1960,8 @@ void show_preview_page(HWND dialog, PreviewState& state,
         ListView_SetColumn(state.metadata_list, i + 3, &col);
     }
     const wchar_t* track_headers[3] = {
-        candidate ? (state.musicbrainz_live_view?L"Hits":L"Tags") :
+        candidate ? (state.musicbrainz_live_view
+                ? (pasted_physical_group_view(state)?L"Groups":L"Hits") : L"Tags") :
             state.existing_tags_view?L"Tags":L"Music",
         candidate ? (state.musicbrainz_live_view?L"Blocked":L"Diffs") :
             state.existing_tags_view?L"":L"Other",
@@ -6148,12 +6168,15 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 } else {
                     rows = djmeta::online::review_online_fields(
                         original, user_candidate->fields);
+                    djmeta::online::append_pasted_physical_comparison_rows(
+                        rows,original,user_candidate->provider);
                 }
             }
             verify_snapshot(entry);
             verify_rules_snapshot(state->captured_rules);
+            const bool pasted_physical=user_candidate.has_value() && !compare_cue;
             if(beatport_user_release || crates_visible_release ||
-               beatport_user_track || crates_visible_track) {
+               beatport_user_track || crates_visible_track || pasted_physical) {
                 if(beatport_user_track || crates_visible_track) {
                     // One recording is ONE browser item; all its field
                     // comparisons belong to the independent details pane.
@@ -6178,12 +6201,13 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             state->cue_candidate_comparison_mode = compare_cue;
             state->musicbrainz_live_view =
                 beatport_user_release || crates_visible_release ||
-                beatport_user_track || crates_visible_track;
+                beatport_user_track || crates_visible_track || pasted_physical;
             state->musicbrainz_release_loaded =
                 beatport_user_release || crates_visible_release ||
                 beatport_user_track || crates_visible_track;
-            state->musicbrainz_kind =
-                djmeta::online::musicbrainz::SearchKind::Release;
+            state->musicbrainz_kind = pasted_physical
+                ? djmeta::online::musicbrainz::SearchKind::Recording
+                : djmeta::online::musicbrainz::SearchKind::Release;
             state->search_attempt_notice = beatport_user_release
                 ? L"Beatport edition imported from user-provided JSON. "
                   L"Complete tracklist compared. Source is UNVERIFIED; "
@@ -6198,7 +6222,12 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                   L"Preview only; no file writes." : beatport_user_track
                 ? L"Beatport track imported from user-provided evidence. "
                   L"Mix/version, ISRC and duration checked. Source is "
-                  L"UNVERIFIED; preview only, no writes." : L"";
+                  L"UNVERIFIED; preview only, no writes."
+                : pasted_physical
+                ? L"Structured provider values pasted by the user are "
+                  L"UNVERIFIED. Select a group to compare every field "
+                  L"against all original physical tags; no file writes."
+                : L"";
             state->discogs_live_view = false;
             state->discogs_results.clear();
             state->discogs_master_id=0;

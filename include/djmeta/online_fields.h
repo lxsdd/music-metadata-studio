@@ -88,6 +88,29 @@ inline void append_local_physical_inventory(
     }
 }
 
+// Structured clipboard comparisons use the same compact two-level browser
+// as provider track evidence: one pasted candidate group, one complete local
+// physical source group. Underlying candidate vectors and provenance remain
+// unchanged; the grouped display never authorizes a metadata or CUE write.
+inline void append_pasted_physical_comparison_rows(
+    std::vector<FieldReviewRow>& rows, const MetadataDocument& originals,
+    std::string_view declared_provider) {
+    if(!valid_evidence_origin(declared_provider,128) || rows.empty() ||
+       rows.size()>96)
+        throw std::invalid_argument("Invalid pasted comparison group");
+    if(std::any_of(rows.begin(),rows.end(),[](const FieldReviewRow& row) {
+           return is_local_physical_original(row);
+       }))
+        throw std::invalid_argument("Pasted comparison must not forge local originals");
+    const std::string prefix="Pasted "+std::string(declared_provider)+" / ";
+    for(auto& row:rows)
+        row.field=prefix+row.field;
+    const auto source_start=rows.size();
+    append_local_physical_inventory(rows,originals);
+    for(std::size_t i=source_start;i<rows.size();++i)
+        rows[i].field="Physical / "+rows[i].field;
+}
+
 // The UI must not label pasted or unverified evidence as an official HTTPS
 // response merely because a user supplied the provider name. The origin is
 // determined by both the production-set reason and the provider identity.
