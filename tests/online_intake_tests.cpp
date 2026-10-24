@@ -78,6 +78,16 @@ int main() {
               std::vector<std::string>({"House","Deep House"}) &&
           local.fields[2].values==std::vector<std::string>({"House","Deep House"}),
           "structured pasted comparison preserves per-field evidence and complete physical inventory");
+    auto tagless_manual=compare;
+    append_pasted_physical_comparison_rows(
+        tagless_manual,MetadataDocument{},candidate.provider);
+    check(tagless_manual.size()==compare.size()+1 &&
+          tagless_manual.back().field=="Physical / (no physical tags)" &&
+          tagless_manual.back().original_values.empty() &&
+          is_local_physical_original(tagless_manual.back()) &&
+          tagless_manual.back().state==FieldReviewState::Unchanged,
+          "tagless source stays a visible local comparison group with no invented values");
+
     auto forged_manual=compare;
     forged_manual.push_back(make_local_physical_original(
         local.fields.front(),"local_physical_inventory_readonly"));

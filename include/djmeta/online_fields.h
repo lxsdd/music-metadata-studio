@@ -41,6 +41,7 @@ inline bool is_local_physical_original(const FieldReviewRow& row) {
            row.reason=="musicbrainz_local_only_no_provider_value" ||
            row.reason=="manual_beatport_local_only_no_provider_value" ||
            row.reason=="local_physical_inventory_readonly" ||
+           row.reason=="local_physical_inventory_empty" ||
            row.reason=="local_physical_inventory_overflow" ||
            row.reason=="local_physical_group";
 }
@@ -163,7 +164,15 @@ inline void append_pasted_physical_comparison_rows(
     for(auto& row:rows)
         row.field=prefix+row.field;
     const auto source_start=rows.size();
-    append_local_physical_inventory(rows,originals);
+    if(originals.fields.empty()) {
+        // A tagless file still has a physical source. Display the absence
+        // explicitly without inventing any physical metadata values.
+        const MetadataField no_tags{"(no physical tags)",{}};
+        rows.push_back(make_local_physical_original(
+            no_tags,"local_physical_inventory_empty"));
+    } else {
+        append_local_physical_inventory(rows,originals);
+    }
     for(std::size_t i=source_start;i<rows.size();++i)
         rows[i].field="Physical / "+rows[i].field;
 }
