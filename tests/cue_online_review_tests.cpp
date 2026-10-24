@@ -450,6 +450,53 @@ int main() {
           complete_review.album_fields[0].state==FieldReviewState::NeedsReview,
           "complete unique CUE alignment permits read-only album proposal");
 
+    // A disc-level CUE CATALOG and the loaded exact-edition BARCODE must not
+    // silently disagree merely because the titles, positions and ISRCs align.
+    auto barcode_cue=inspect_cue_metadata(
+        "CATALOG 4006381333931\\n"+matched_cue,
+        CueCarrierKind::ExternalText);
+    auto barcode_edition=complete_edition;
+    barcode_edition.provider="musicbrainz";
+    for(auto& field:barcode_edition.fields) field.provider="musicbrainz";
+    for(auto& track:barcode_edition.tracks)
+        for(auto& field:track.fields) field.provider="musicbrainz";
+    barcode_edition.fields.push_back(item(
+        "BARCODE",{"4006381333931"},EvidenceScope::Edition,
+        DateMeaning::NotDate,"881"));
+    const auto same_barcode=review_cue_release_edition(
+        barcode_cue,barcode_edition);
+    check(same_barcode.eligible && same_barcode.reasons.empty() &&
+          same_barcode.album_fields[0].state==FieldReviewState::NeedsReview &&
+          same_barcode.tracks[0].fields[1].state==FieldReviewState::NeedsReview,
+          "equal CUE and exact-edition barcodes preserve qualified read-only review");
+    barcode_edition.fields.back().values={"036000291452"};
+    const auto different_barcode=review_cue_release_edition(
+        barcode_cue,barcode_edition);
+    check(different_barcode.eligible &&
+          different_barcode.reasons==
+              std::vector<std::string>{"cue_media_barcode_conflict"} &&
+          different_barcode.album_fields[0].state==FieldReviewState::Blocked &&
+          different_barcode.album_fields[0].reason.starts_with(
+              "cue_media_barcode_conflict_") &&
+          different_barcode.tracks[0].fields[1].state==FieldReviewState::Blocked &&
+          different_barcode.tracks[0].fields[0].state==FieldReviewState::Unchanged,
+          "conflicting edition barcode blocks only proposed changes, not exact no-ops");
+    barcode_edition.fields.back().values={"0036000291452"};
+    const auto upc_cue=inspect_cue_metadata(
+        "CATALOG 036000291452\\n"+matched_cue,
+        CueCarrierKind::ExternalText);
+    const auto equivalent_barcode=review_cue_release_edition(
+        upc_cue,barcode_edition);
+    check(equivalent_barcode.reasons.empty() &&
+          equivalent_barcode.album_fields[0].state==FieldReviewState::NeedsReview,
+          "UPC-A and zero-prefixed EAN-13 are the same media identity");
+    barcode_edition.fields.pop_back();
+    const auto absent_barcode=review_cue_release_edition(
+        barcode_cue,barcode_edition);
+    check(absent_barcode.reasons.empty() &&
+          absent_barcode.album_fields[0].state==FieldReviewState::NeedsReview,
+          "missing provider barcode is unknown, not a fabricated contradiction");
+
     // Independent negative: without a named mix, a matching ISRC is not
     // enough to authorize an album-global proposal.
     auto unknown_mix=complete_edition;
