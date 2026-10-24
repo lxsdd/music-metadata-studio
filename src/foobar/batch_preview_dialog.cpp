@@ -66,6 +66,7 @@
 #include <shellapi.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <charconv>
@@ -284,6 +285,10 @@ struct PreviewState {
     std::vector<djmeta::MetadataDiffRow> metadata_rows;
     djmeta::TrackDiffIndex metadata_row_index; // built once per snapshot
     std::vector<std::size_t> metadata_view_order;
+    // Headers are display-only; they have no proposal identity.
+    std::vector<int> metadata_view_group;
+    std::array<bool,3> review_group_expanded{false,false,false};
+    std::array<std::size_t,3> review_group_counts{};
     std::vector<std::string> source_labels;
     std::vector<std::string> cached_track_sort_labels;
     std::vector<std::wstring> cached_track_names;
@@ -1095,6 +1100,23 @@ std::wstring candidate_cell_text(const djmeta::online::FieldReviewRow& item,
     }
 }
 
+int local_review_group(djmeta::SafetyClass safety) noexcept {
+    switch(safety) {
+    case djmeta::SafetyClass::Review: return 0;
+    case djmeta::SafetyClass::Confident: return 1;
+    case djmeta::SafetyClass::Safe: return 2;
+    }
+    return 0;
+}
+
+const wchar_t* local_review_group_name(int group) noexcept {
+    switch(group) {
+    case 0: return L"Needs review";
+    case 1: return L"Confident proposals";
+    default: return L"Safe proposals";
+    }
+}
+
 std::wstring metadata_cell_text(PreviewState& state,
                                 std::size_t row, int column) {
     if (state.show_candidate) {
@@ -1112,7 +1134,18 @@ std::wstring metadata_cell_text(PreviewState& state,
         if (column==4) return L"Read-only";
         return {};
     }
-    if (row >= state.metadata_view_order.size()) return {};
+    if (row >= state.metadata_view_order.size() ||
+        row >= state.metadata_view_group.size()) return {};
+    const int group=state.metadata_view_group[row];
+    if(group>=0) {
+        if(group>=3) return {};
+        if(column==0) return std::wstring(state.review_group_expanded[group]
+            ? L"\u25bc " : L"\u25b6 ")+local_review_group_name(group);
+        if(column==1) return std::to_wstring(state.review_group_counts[group])+
+            L" difference(s)";
+        if(column==4) return L"Double-click / Enter to expand";
+        return {};
+    }
     const auto index = state.metadata_view_order[row];
     if (index >= state.focused_metadata_rows.size()) return {};
     const auto& item = state.focused_metadata_rows[index];
@@ -1756,20 +1789,42 @@ void update_metadata_table(PreviewState& state) {
     state.focused_track_index = state.selected_track_index;
     const int logical_sort_column = state.detail_grid.sort_column == 4
         ? 99 : state.detail_grid.sort_column + 1;
-    state.metadata_view_order = djmeta::sort_metadata_diff_rows(
+    auto sorted_proposals = djmeta::sort_metadata_diff_rows(
         state.focused_metadata_rows, state.source_labels,
         logical_sort_column, state.detail_grid.sort_descending);
     if (state.detail_grid.sort_column == 4) {
-        std::stable_sort(state.metadata_view_order.begin(), state.metadata_view_order.end(),
+        std::stable_sort(sorted_proposals.begin(), sorted_proposals.end(),
             [&](std::size_t a, std::size_t b) {
                 const auto lhs = review_decision_caption(state, state.focused_metadata_rows[a]);
                 const auto rhs = review_decision_caption(state, state.focused_metadata_rows[b]);
                 return state.detail_grid.sort_descending ? lhs > rhs : lhs < rhs;
             });
     }
+    // Compact groups do not change immutable proposal identities or sort order
+    // within a class. Collapsed rows never become action targets.
+    state.metadata_view_order.clear();
+    state.metadata_view_group.clear();
+    state.review_group_counts={};
+    for(const auto index:sorted_proposals)
+        if(index<state.focused_metadata_rows.size())
+            ++state.review_group_counts[local_review_group(
+                state.focused_metadata_rows[index].safety)];
+    for(int group=0;group<3;++group) {
+        if(state.review_group_counts[group]==0) continue;
+        state.metadata_view_order.push_back((std::numeric_limits<std::size_t>::max)());
+        state.metadata_view_group.push_back(group);
+        if(!state.review_group_expanded[group]) continue;
+        for(const auto index:sorted_proposals) {
+            if(index>=state.focused_metadata_rows.size() ||
+               local_review_group(state.focused_metadata_rows[index].safety)!=group)
+                continue;
+            state.metadata_view_order.push_back(index);
+            state.metadata_view_group.push_back(-1);
+        }
+    }
     if (state.metadata_list) {
         ListView_SetItemCountEx(state.metadata_list,
-            static_cast<int>(state.focused_metadata_rows.size()),
+            static_cast<int>(state.metadata_view_order.size()),
             LVSICF_NOINVALIDATEALL | LVSICF_NOSCROLL);
         ListView_SetItemState(state.metadata_list, -1, 0, LVIS_SELECTED);
         for (std::size_t row = 0; row < state.metadata_view_order.size(); ++row)
@@ -3160,6 +3215,8 @@ void refresh_workspace_snapshot(PreviewState& state) {
         state.cached_name_order_ascending.clear();
         state.cached_name_order_descending.clear();
         state.metadata_view_order.clear();
+        state.metadata_view_group.clear();
+        state.review_group_counts={};
         state.view_order.clear();
         state.stale=false;
         prefill_musicbrainz_query(state);
@@ -5179,6 +5236,23 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             }
             return TRUE;
         }
+        if(header && header->idFrom==IDC_METADATA_LIST &&
+           !state->show_candidate && !state->existing_tags_view &&
+           (header->code==NM_DBLCLK ||
+            (header->code==LVN_KEYDOWN &&
+             reinterpret_cast<const NMLVKEYDOWN*>(lp)->wVKey==VK_RETURN))) {
+            const int row=header->code==NM_DBLCLK
+                ? reinterpret_cast<const NMITEMACTIVATE*>(lp)->iItem
+                : ListView_GetNextItem(state->metadata_list,-1,LVNI_FOCUSED);
+            if(row>=0 && static_cast<std::size_t>(row)<state->metadata_view_group.size()) {
+                const int group=state->metadata_view_group[static_cast<std::size_t>(row)];
+                if(group>=0 && group<3) {
+                    state->review_group_expanded[group]=!state->review_group_expanded[group];
+                    update_metadata_table(*state);
+                    return TRUE;
+                }
+            }
+        }
         const bool release_activation=header &&
             header->idFrom==IDC_METADATA_LIST &&
             (header->code==NM_DBLCLK ||
@@ -5373,6 +5447,14 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                         lstrcpynW(tip->pszText,label.c_str(),tip->cchTextMax);
                     }
                     return TRUE; // never leak an unrelated proposal tooltip
+                }
+                if (row < state->metadata_view_group.size() &&
+                    state->metadata_view_group[row]>=0) {
+                    lstrcpynW(tip->pszText,
+                        L"Display group only. Double-click or press Enter to show its "
+                        L"proposals. Select individual proposal rows for field actions; "
+                        L"the group itself never approves a change.",tip->cchTextMax);
+                    return TRUE;
                 }
                 if (row < state->metadata_view_order.size()) {
                     const auto index = state->metadata_view_order[row];
