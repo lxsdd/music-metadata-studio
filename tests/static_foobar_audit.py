@@ -985,6 +985,10 @@ for token in ('review_split_gap_hit(', 'WM_LBUTTONDOWN', 'SetCapture(dialog)',
               'load_review_split_offset()', 'store_review_split_offset('):
     if token not in batch_table_dialog:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: draggable review pane wiring missing " + token)
+if ('native_review_scope_hint(' not in batch_table_dialog or
+    'ListView_GetSelectedCount(state.metadata_track_list)' not in batch_table_dialog or
+    'native_review_scope_hint(' not in gui_test):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: current-track versus batch scope hint missing")
 if 'review_split_gap_hit(' not in gui_test:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: splitter HWND test missing")
 if 'apply_native_preview_resize(' not in gui_test or 'review_split_geometry(' not in gui_test:

@@ -292,6 +292,33 @@ inline std::vector<std::size_t> selected_native_view_ids(
     return ids;
 }
 
+// The detail grid always shows ONE current source even when the master grid
+// marks many sources for a later scoped review action. Keep that distinction
+// visible without scanning a 54k-row selection on each LVN_ITEMCHANGED.
+inline std::wstring native_review_scope_hint(
+    std::size_t selected_tracks, std::size_t music_changes,
+    std::size_t extended_changes, std::size_t review_required,
+    bool no_visible_proposals) {
+    if(selected_tracks==0)
+        return L"No tracks marked. Select a track to review; no tags were written.";
+    std::wstring hint;
+    if(selected_tracks==1) {
+        hint=L"Current track: ";
+    } else {
+        hint=std::to_wstring(selected_tracks)+
+            L" tracks marked. Right side shows current track: ";
+    }
+    hint+=std::to_wstring(music_changes)+L" music, "+
+          std::to_wstring(extended_changes)+L" other; "+
+          std::to_wstring(review_required)+L" need review. ";
+    hint+=selected_tracks>1
+        ? L"Action scope below controls the target. Preview only."
+        : L"Preview only; no tags were written.";
+    if(no_visible_proposals)
+        hint+=L" No proposals for this track in this view.";
+    return hint;
+}
+
 // Preserve multiselection and focus after sorting/filtering a virtual grid.
 // The caller must supply the new item count before restoring selections.
 inline void restore_native_view_selection(

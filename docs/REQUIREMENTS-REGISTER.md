@@ -410,3 +410,17 @@
   This is a partial layout improvement, not completion of MMS-UI-09:
   three-pane responsive composition and installed visual foobar acceptance
   remain separate gates.
+
+### 2026-10-24 — Multi-selection review scope caption (MMS-WF-03/05, MMS-UI-07)
+
+- The Review status now distinguishes one current detail source from the
+  number of marked master-grid tracks. With multiple marked tracks, it says
+  that the right-hand field comparison is for the current track only and that
+  the explicit action-scope selector decides the target. An empty selection
+  no longer pretends one track is marked.
+- The count comes from the native ListView selection counter in constant time,
+  not a 54k-row rescan per selection event. This is presentation only; existing
+  proposal identities, decisions, stale guards and disabled production writes
+  are unchanged. Native resource-backed and static regressions cover 0/1/500
+  selected tracks. Installed visual legibility and the broader expandable
+  grouped-review design remain separate gates.

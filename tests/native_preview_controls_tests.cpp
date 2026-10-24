@@ -1287,6 +1287,21 @@ int main() {
           !djmeta_foobar::native_browser_selection_requires_reset(true,0,0) &&
           !djmeta_foobar::native_browser_selection_requires_reset(true,3,3),
           "a reused owner-data list row can never stand in for a new release ID");
+    const auto no_tracks=djmeta_foobar::native_review_scope_hint(
+        0,2,1,1,false);
+    const auto one_track=djmeta_foobar::native_review_scope_hint(
+        1,2,1,1,false);
+    const auto many_tracks=djmeta_foobar::native_review_scope_hint(
+        500,2,1,1,true);
+    check(no_tracks.find(L"No tracks marked")!=std::wstring::npos &&
+          one_track.find(L"Current track:")!=std::wstring::npos &&
+          one_track.find(L"500 tracks")==std::wstring::npos &&
+          many_tracks.find(L"500 tracks marked")!=std::wstring::npos &&
+          many_tracks.find(L"Right side shows current track")!=std::wstring::npos &&
+          many_tracks.find(L"Action scope below")!=std::wstring::npos &&
+          many_tracks.find(L"No proposals for this track in this view")!=
+              std::wstring::npos,
+          "multi-selection hint separates current detail from batch action scope");
     // The real production search button must advertise explicit, bounded
     // progression; native rendering uses this pure caption contract.
     const auto mb_caption=djmeta_foobar::native_discogs_search_caption(

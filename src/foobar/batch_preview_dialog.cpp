@@ -1763,13 +1763,13 @@ void update_metadata_table(PreviewState& state) {
     if (state.dialog && state.show_metadata &&
         state.selected_track_index < state.track_summaries.size()) {
         const auto& summary = state.track_summaries[state.selected_track_index];
-        std::wstring notice =
-            L"Selected track: " + std::to_wstring(summary.music_changes) +
-            L" music, " + std::to_wstring(summary.extended_changes) +
-            L" extended; " + std::to_wstring(summary.review_required) +
-            L" need review. Preview only; no tags were written.";
-        if (state.focused_metadata_rows.empty())
-            notice += L" No proposed changes in this view.";
+        // The right grid is source-local, while the master may mark many
+        // tracks. Never describe a multi-track action as a single-track view.
+        const auto marked=static_cast<std::size_t>(
+            ListView_GetSelectedCount(state.metadata_track_list));
+        const auto notice=native_review_scope_hint(
+            marked,summary.music_changes,summary.extended_changes,
+            summary.review_required,state.focused_metadata_rows.empty());
         SetDlgItemTextW(state.dialog, IDC_BATCH_HINT,
             native_workspace_display_hint(state.stale,notice.c_str()));
     } else if (state.dialog && state.show_metadata) {
