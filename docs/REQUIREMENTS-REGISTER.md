@@ -511,5 +511,5 @@
 ### 2026-10-24 — CUE media barcode discovery (MMS-CUE-01, MMS-SRC-01/08)
 
 - A global textual CUE `CATALOG` remains an exact, read-only original source field; it is not inherited as a virtual-track tag. Track-scoped `CATALOG` is marked for review rather than promoted to an album identifier.
-- An unambiguous, check-digit-valid UPC-A/EAN-13 from the inspected CUE can add one bounded official MusicBrainz `barcode:` release-search stage before title fallbacks. Invalid or ambiguous identifiers are omitted, and a manually edited title never silently reuses the source barcode. This is a disc media code, not the label catalog number.
+- An unambiguous, check-digit-valid UPC-A/EAN-13 from the inspected CUE can add one bounded official MusicBrainz `barcode:` release-search stage before title fallbacks. With no album TITLE, only that exact identifier is queried; there is no artist-only fallback. Invalid or ambiguous identifiers are omitted, and a manually edited title never silently reuses the source barcode. This is a disc media code, not the label catalog number.
 - Provider hits still require explicit exact-edition/tracklist review. No CUE, tag, FileOps or source-media write is enabled. Core/native audit and exact-HEAD CI remain the qualification gates; protected Discogs QA and installed foobar acceptance remain separate.
