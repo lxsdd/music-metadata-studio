@@ -6006,7 +6006,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                   (state->musicbrainz_live_view &&
                    state->musicbrainz_kind==
                      djmeta::online::musicbrainz::SearchKind::Release)));
-            std::string local_title, local_artist, local_isrc, cue_before;
+            std::string local_title, local_artist, local_isrc, local_barcode, cue_before;
             djmeta::MetadataDocument original_tags;
             const auto kind=cue_mode
                 ? djmeta::online::musicbrainz::SearchKind::Release
@@ -6021,6 +6021,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                         "This CUE must have a qualified track inventory to search.");
                 local_title=unique_cue_album_value(inventory,"TITLE");
                 local_artist=unique_cue_album_value(inventory,"PERFORMER");
+                try { local_barcode=unique_cue_album_value(inventory,"CATALOG"); }
+                catch (const std::invalid_argument&) {} // ambiguous barcode is excluded
                 cue_before=raw.raw_text;
             } else {
                 if (!entry.input.physical_source_qualified)
@@ -6079,11 +6081,13 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 strategy_count=plan.attempts.size();
             } else {
                 const auto release_attempts=release_search_plan(
-                    term,suggested_query?local_artist:std::string{});
+                    term,suggested_query?local_artist:std::string{},
+                    suggested_query?local_barcode:std::string{});
                 const auto identity=std::string("release|")+
                     entry.input.source_path+"|"+
                     std::to_string(state->selected_track_index)+"|"+
-                    term+"|"+(suggested_query?local_artist:"");
+                    term+"|"+(suggested_query?local_artist:"")+"|"+
+                    (suggested_query?local_barcode:"");
                 if(identity!=state->search_plan_identity) {
                     state->search_attempt_index=0;
                     state->search_plan_identity=identity;
