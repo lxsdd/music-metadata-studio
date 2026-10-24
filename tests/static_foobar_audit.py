@@ -850,6 +850,19 @@ for token in (
     if token not in batch_table_dialog:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: MB/CUE release full alignment gate missing: "+token)
 
+# The loaded MusicBrainz edition must keep the complete real CUE carrier
+# visible as a separate source group, just like the Discogs edition view.
+mb_cue_rows = batch_table_dialog.split(
+    "musicbrainz_cue_release_rows(", 1)[-1].split(
+    "// The core matcher is the only authority", 1)[0]
+for token in (
+    'cue_original_inventory_rows(cue,"CUE Original / ")',
+    'output.insert(output.end(),original.begin(),original.end())',
+    'output.size()>10000-original.size()',
+):
+    if token not in mb_cue_rows:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: MB CUE original inventory missing: "+token)
+
 # Read-only selected CUE detail action is only available from verified
 # release snapshots. The original CUE must be freshly inspected, identical,
 # and sent solely to the pure postimage function (no SDK metadata writer).
