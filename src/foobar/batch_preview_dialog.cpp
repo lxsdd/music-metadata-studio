@@ -3086,7 +3086,7 @@ void install_workspace_tooltips(PreviewState& state) {
     const HelpText texts[] = { // static-lifetime literal text, dynamic provider ID
         {IDC_BATCH_TABS,L"1. Search online and compare. 2. Review local rule-based suggestions. 3. Preview file locations. These previews do not write files."},
         {IDC_BATCH_GUIDE,L"Follow the steps from left to right. A MusicBrainz match is evidence, not an approved tag edit."},
-        {IDC_METADATA_TRACK_LIST,L"Find tab: double-click/Enter searches MusicBrainz or Discogs. Other tabs: navigate to Find without searching. Beatport requires Find in Crates or an explicit URL."},
+        {IDC_METADATA_TRACK_LIST,L"Find tab: double-click/Enter searches MusicBrainz or Discogs, or opens Crates in Beatport mode with copied ARTIST + TITLE. Other tabs only navigate to Find without launching an online action."},
         {IDC_METADATA_MB_QUERY,L"MusicBrainz: TITLE/album. Discogs: title or exact release/master URL. Beatport: one canonical public track URL, or leave empty for the clipboard. No automatic requests."},
         {IDC_METADATA_ONLINE_PROVIDER,L"MusicBrainz and Discogs use official APIs. Beatport + Crates supports single public Beatport URLs, lawful clipboard evidence and a hand-off to the public Crates browser; no logged-in API impersonation."},
         {IDC_METADATA_DISCOGS_TOKEN_LABEL,L"Discogs token only lives in this password control."},
@@ -4853,15 +4853,18 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             }
             prefill_musicbrainz_query(*state,true);
             if(state->beatport_offline_selected) {
-                // This mode intentionally has NO unauthorized API transport.
-                // Track activation selects the local source for a pasted
-                // Beatport evidence comparison; it never dispatches a faux
-                // MusicBrainz or Discogs request.
-                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
-                    native_workspace_display_hint(state->stale,
-                        L"Beatport offline: this track is selected. "
-                        L"Copy lawfully sourced Beatport JSON or explicit facts "
-                        L"and click Import Beatport. No HTTP request was sent."));
+                // A Find-tab activation explicitly asks for discovery. Use
+                // the existing guarded Crates browser hand-off, which copies
+                // ARTIST + full TITLE for the user's own browser search. Never
+                // call a gated Beatport catalog API or read arbitrary clipboard
+                // content. Other tabs only navigate here without side effects.
+                if(native_track_activation_starts_crates_handoff(
+                       originating_tab,state->beatport_offline_selected)) {
+                    SendMessageW(dialog,WM_COMMAND,
+                        MAKEWPARAM(IDC_METADATA_DISCOGS_NEXT_PAGE,BN_CLICKED),
+                        reinterpret_cast<LPARAM>(GetDlgItem(
+                            dialog,IDC_METADATA_DISCOGS_NEXT_PAGE)));
+                }
                 return TRUE;
             }
             // Only a Find-tab track gesture may authorize a single provider
@@ -5486,7 +5489,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                         L"authorized track-detail JSON "
                         L"(@beatport-track-json), complete edition+tracks JSON "
                         L"or explicit @beatport-track-facts, or use the "
-                        L"@crates-public-track public-page helper, then Import Beatport. "
+                        L"@crates-public-track public-page helper, then Import clipboard. "
                         L"Alternatively enter ONE public track URL and click "
                         L"Load Beatport URL. Catalog API access remains separate."));
             return TRUE;
