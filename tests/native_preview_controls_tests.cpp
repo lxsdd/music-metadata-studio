@@ -992,6 +992,32 @@ int main() {
     djmeta_foobar::apply_review_grid_controls(track_list,online_grid,96);
     check(ListView_GetColumnWidth(track_list,0)==342,
           "reopening search restores the previously customized online width");
+    // Same real HWND with candidate menu routing, user widths and 150% DPI.
+    auto& chosen_online=djmeta_foobar::active_review_grid_layout(
+        track_layout,online_grid,true);
+    auto& chosen_review=djmeta_foobar::active_review_grid_layout(
+        track_layout,online_grid,false);
+    check(&chosen_online==&online_grid && &chosen_review==&track_layout,
+          "context menu routes candidate and review columns independently");
+    const int original_block_width=online_grid.widths[3];
+    djmeta_foobar::apply_review_grid_controls(track_list,chosen_online,144,3);
+    check(ListView_GetColumnWidth(track_list,0)==MulDiv(342,144,96) &&
+          ListView_GetColumnWidth(track_list,3)==0,
+          "DPI rescale retains transient online browse suppression");
+    djmeta_foobar::capture_review_grid_controls(track_list,online_grid,144);
+    check(online_grid.widths[0]==342 &&
+          online_grid.widths[3]==original_block_width,
+          "DPI capture retains logical widths instead of browse-only zero");
+    djmeta_foobar::apply_review_grid_controls(track_list,online_grid,96);
+    check(ListView_GetColumnWidth(track_list,3)==original_block_width,
+          "return from online browse restores remembered fourth width");
+    check(djmeta::set_review_column_visible(online_grid,3,false),
+          "explicit candidate fourth-column visibility is separately editable");
+    djmeta_foobar::apply_review_grid_controls(track_list,online_grid,96);
+    check(ListView_GetColumnWidth(track_list,3)==0 &&
+          (online_grid.visible_mask & (1u<<3))==0 &&
+          track_layout.widths[0]==190,
+          "candidate visibility settings cannot reset review widths");
     auto detail_layout = djmeta::default_review_grid_layout<5>({80, 105, 105, 60, 75});
     detail_layout.order = {4, 0, 1, 3, 2};
     HWND detail_list = GetDlgItem(dialog, IDC_METADATA_LIST);
@@ -1003,6 +1029,13 @@ int main() {
     djmeta_foobar::capture_review_grid_controls(detail_list, detail_layout, 96);
     check(detail_layout.order == actual_detail_order,
           "detail header order roundtrips via production adapter");
+    auto candidate_detail=djmeta::default_review_grid_layout<5>(
+        {260,165,130,95,160});
+    check(&djmeta_foobar::active_review_grid_layout(
+              detail_layout,candidate_detail,true)==&candidate_detail &&
+          &djmeta_foobar::active_review_grid_layout(
+              detail_layout,candidate_detail,false)==&detail_layout,
+          "candidate detail context menu has its own five-column layout");
     check(djmeta::parse_review_grid_layout(
               djmeta::serialize_review_grid_layout(detail_layout),
               djmeta::default_review_grid_layout<5>({80, 105, 105, 60, 75})).order ==

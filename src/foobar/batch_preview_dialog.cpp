@@ -1537,8 +1537,10 @@ void update_metadata_table(PreviewState& state) {
             state.candidate_online_track_columns_active=true;
         } else if (!browse_track && state.candidate_online_track_columns_active) {
             // The fourth column is only meaningless during online browsing.
+            const bool visible=(state.candidate_track_grid.visible_mask & (1u<<3))!=0;
             ListView_SetColumnWidth(state.metadata_track_list,3,
-                MulDiv(state.candidate_track_grid.widths[3],state.active_dpi,96));
+                visible ? MulDiv(state.candidate_track_grid.widths[3],
+                                 state.active_dpi,96) : 0);
             state.candidate_online_track_columns_active=false;
         }
         const bool selected_valid = state.selected_track_index < state.entries.size();
@@ -2018,6 +2020,12 @@ constexpr std::array<const wchar_t*, 4> kTrackGridColumnNames{
 constexpr std::array<const wchar_t*, 5> kDetailGridColumnNames{
     L"Field", L"Original", L"Proposed", L"Safety", L"Decision"
 };
+constexpr std::array<const wchar_t*, 4> kCandidateTrackGridColumnNames{
+    L"Track", L"Hits / Tags", L"Blocked / Diffs", L"Block"
+};
+constexpr std::array<const wchar_t*, 5> kCandidateDetailGridColumnNames{
+    L"Field", L"Original / Artist", L"Candidate / Date", L"Source", L"Status"
+};
 constexpr unsigned kTrackColumnMenuBase = 41100u;
 constexpr unsigned kDetailColumnMenuBase = 41200u;
 
@@ -2149,7 +2157,7 @@ bool show_review_grid_column_menu(
     HWND dialog, HWND list, djmeta::ReviewGridLayout<N>& layout,
     const djmeta::ReviewGridLayout<N>& defaults,
     const std::array<const wchar_t*, N>& names, unsigned menu_base,
-    LPARAM pointer) {
+    LPARAM pointer, int temporarily_hidden_column = -1) {
     if (!list) return false;
     capture_review_grid_controls(list, layout, current_dpi(list));
     HMENU menu = CreatePopupMenu();
@@ -2180,11 +2188,42 @@ bool show_review_grid_column_menu(
             return false;
     } else if (selected == menu_base + N) {
         layout = defaults;
-        apply_review_grid_controls(list, layout, current_dpi(list));
+        apply_review_grid_controls(list, layout, current_dpi(list),
+                                   temporarily_hidden_column);
         return true; // sort key may also have changed: refresh source mapping
     } else return false;
-    apply_review_grid_controls(list, layout, current_dpi(list));
+    apply_review_grid_controls(list, layout, current_dpi(list),
+                               temporarily_hidden_column);
     return false;
+}
+
+bool show_active_track_grid_column_menu(HWND dialog, PreviewState& state,
+                                        LPARAM pointer) {
+    const bool candidate=state.native_grid_candidate_mode;
+    auto& layout=active_review_grid_layout(
+        state.track_grid,state.candidate_track_grid,candidate);
+    const auto defaults=candidate
+        ? djmeta::default_review_grid_layout<4>({280,75,90,85})
+        : default_track_grid_layout();
+    return show_review_grid_column_menu(dialog,state.metadata_track_list,
+        layout,defaults,
+        candidate?kCandidateTrackGridColumnNames:kTrackGridColumnNames,
+        kTrackColumnMenuBase,pointer,
+        candidate && state.candidate_online_track_columns_active ? 3 : -1);
+}
+
+bool show_active_detail_grid_column_menu(HWND dialog, PreviewState& state,
+                                         LPARAM pointer) {
+    const bool candidate=state.native_grid_candidate_mode;
+    auto& layout=active_review_grid_layout(
+        state.detail_grid,state.candidate_detail_grid,candidate);
+    const auto defaults=candidate
+        ? djmeta::default_review_grid_layout<5>({260,165,130,95,160})
+        : default_detail_grid_layout();
+    return show_review_grid_column_menu(dialog,state.metadata_list,
+        layout,defaults,
+        candidate?kCandidateDetailGridColumnNames:kDetailGridColumnNames,
+        kDetailColumnMenuBase,pointer);
 }
 
 // The header is a child of the ListView, not the dialog. Subclassing it
@@ -2198,16 +2237,12 @@ LRESULT CALLBACK batch_header_proc(
         if (header == ListView_GetHeader(state->list)) {
             show_column_menu(dialog, *state, lp);
         } else if (header == ListView_GetHeader(state->metadata_track_list)) {
-            if (show_review_grid_column_menu(dialog, state->metadata_track_list,
-                    state->track_grid, default_track_grid_layout(),
-                    kTrackGridColumnNames, kTrackColumnMenuBase, lp)) {
+            if (show_active_track_grid_column_menu(dialog,*state,lp)) {
                 update_master_table(*state);
                 update_metadata_table(*state);
             }
         } else if (header == ListView_GetHeader(state->metadata_list)) {
-            if (show_review_grid_column_menu(dialog, state->metadata_list,
-                    state->detail_grid, default_detail_grid_layout(),
-                    kDetailGridColumnNames, kDetailColumnMenuBase, lp))
+            if (show_active_detail_grid_column_menu(dialog,*state,lp))
                 update_metadata_table(*state);
         } else {
             return DefSubclassProc(header, message, wp, lp);
@@ -5390,18 +5425,14 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             return TRUE;
         }
         if (requested == ListView_GetHeader(state->metadata_track_list)) {
-            if (show_review_grid_column_menu(dialog, state->metadata_track_list,
-                    state->track_grid, default_track_grid_layout(),
-                    kTrackGridColumnNames, kTrackColumnMenuBase, lp)) {
+            if (show_active_track_grid_column_menu(dialog,*state,lp)) {
                 update_master_table(*state);
                 update_metadata_table(*state);
             }
             return TRUE;
         }
         if (requested == ListView_GetHeader(state->metadata_list)) {
-            if (show_review_grid_column_menu(dialog, state->metadata_list,
-                    state->detail_grid, default_detail_grid_layout(),
-                    kDetailGridColumnNames, kDetailColumnMenuBase, lp))
+            if (show_active_detail_grid_column_menu(dialog,*state,lp))
                 update_metadata_table(*state);
             return TRUE;
         }
@@ -5480,7 +5511,9 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             SWP_NOZORDER | SWP_NOACTIVATE);
         apply_review_grid_controls(state->metadata_track_list,
             state->native_grid_candidate_mode?state->candidate_track_grid:state->track_grid,
-            state->active_dpi);
+            state->active_dpi,
+            state->native_grid_candidate_mode &&
+            state->candidate_online_track_columns_active ? 3 : -1);
         apply_review_grid_controls(state->metadata_list,
             state->native_grid_candidate_mode?state->candidate_detail_grid:state->detail_grid,
             state->active_dpi);
