@@ -1,7 +1,9 @@
 #include "djmeta/review_decisions.h"
 #include "djmeta/review_display.h"
 
+#include <array>
 #include <cstdlib>
+#include <limits>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -26,6 +28,37 @@ template<typename F> void should_reject(F action, const char* msg) {
 
 int main() {
     using namespace djmeta;
+    // Collapsed headers are not proposal rows. Expansion preserves the
+    // original sorted identities within each safety class.
+    std::vector<MetadataDiffRow> grouped_rows(4);
+    grouped_rows[0].safety=SafetyClass::Safe;
+    grouped_rows[1].safety=SafetyClass::Confident;
+    grouped_rows[2].safety=SafetyClass::Review;
+    grouped_rows[3].safety=SafetyClass::Safe;
+    const std::vector<std::size_t> sorted_rows{3,0,2,1};
+    const auto compact=group_review_rows(
+        grouped_rows,sorted_rows,{false,false,false});
+    const auto header=(std::numeric_limits<std::size_t>::max)();
+    check(compact.counts==std::array<std::size_t,3>{1,1,2} &&
+          compact.row_order==std::vector<std::size_t>{header,header,header} &&
+          compact.group_at_row==std::vector<int>{0,1,2},
+          "collapsed review has three non-actionable summary rows");
+    const auto expanded=group_review_rows(
+        grouped_rows,sorted_rows,{true,false,true});
+    check(expanded.row_order==
+              std::vector<std::size_t>{header,2,header,header,3,0} &&
+          expanded.group_at_row==std::vector<int>{0,-1,1,2,-1,-1},
+          "expanded review retains exact proposal indices and sorted ties");
+    should_reject([&]{ (void)group_review_rows(
+        grouped_rows,{3,0,2,2},{true,true,true}); },
+        "duplicate proposal index must not enter native review");
+    should_reject([&]{ (void)group_review_rows(
+        grouped_rows,{3,0,2,4},{true,true,true}); },
+        "out-of-range proposal index must not enter native review");
+    should_reject([&]{ (void)group_review_rows(
+        grouped_rows,{3,0,2},{true,true,true}); },
+        "stale proposal count must not enter native review");
+
     const MetadataDocument original {{
         {"TITLE", {" Old Title "}},
         {"ARTIST", {"Original Artist"}},
