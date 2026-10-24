@@ -476,3 +476,14 @@
   not writer permissions, credentials, rules or source metadata.
 - Commits `0702676c`–`00044da1`; exact-head CI is required before
   assigning CI qualification.
+
+### 2026-10-25 — Both native tooltip classes close with the workspace (MMS-UI-03/08)
+
+- The workspace help tooltip and each ListView-owned row infotip are now
+  dismissed together before page changes, activation loss or an in-flight
+  close hides the modeless dialog. A row provenance popup cannot remain over
+  another view merely because its ListView retains an independent tooltip HWND.
+- Resource-backed Windows tests exercise both HWND classes. Static audit
+  requires the production wiring. This is a native lifecycle guard, not a
+  claim that tooltip timing/legibility has passed installed foobar visual QA.
+- No source, credentials, decisions, provider request or writer policy changed.
