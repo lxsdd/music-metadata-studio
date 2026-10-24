@@ -1019,21 +1019,31 @@ std::wstring review_decision_caption(
     return L"Unavailable";
 }
 
+void update_pending_review_summaries(
+    PreviewState& state, const std::set<std::size_t>& affected_tracks) {
+    if(state.track_summaries.size()!=state.entries.size() ||
+       state.analyses.size()!=state.entries.size() ||
+       state.review_decisions.size()!=state.entries.size())
+        throw std::invalid_argument("Track review summary snapshot is stale.");
+    for(const auto track:affected_tracks) {
+        if(track>=state.entries.size())
+            throw std::invalid_argument("Changed track is outside captured review.");
+        state.track_summaries[track].review_required=
+            djmeta::count_pending_review_proposals(
+                state.analyses[track],state.review_decisions[track]);
+    }
+}
+
 void refresh_review_summaries(PreviewState& state) {
     state.track_summaries = djmeta::summarize_track_changes(
         state.entries.size(), state.metadata_rows);
-    for (std::size_t i = 0; i < state.analyses.size() &&
-                          i < state.track_summaries.size(); ++i) {
-        std::size_t pending_review = 0;
-        for (std::size_t j = 0; j < state.analyses[i].proposals.size(); ++j) {
-            if (state.analyses[i].proposals[j].safety == djmeta::SafetyClass::Review &&
-                i < state.review_decisions.size() &&
-                j < state.review_decisions[i].size() &&
-                state.review_decisions[i][j].action == djmeta::ReviewAction::Pending)
-                ++pending_review;
-        }
-        state.track_summaries[i].review_required = pending_review;
-    }
+    if(state.analyses.size()!=state.entries.size() ||
+       state.review_decisions.size()!=state.entries.size())
+        throw std::invalid_argument("Track review summary snapshot is stale.");
+    for(std::size_t track=0;track<state.entries.size();++track)
+        state.track_summaries[track].review_required=
+            djmeta::count_pending_review_proposals(
+                state.analyses[track],state.review_decisions[track]);
 }
 
 std::wstring show_field_values(const std::vector<std::string>& values) {
@@ -2432,7 +2442,9 @@ void apply_review_action(HWND dialog, PreviewState& state,
 
     state.entries = std::move(next_entries);
     state.review_decisions = std::move(next_decisions);
-    refresh_review_summaries(state);
+    // Source metadata, proposal types and field counts are snapshot-immutable.
+    // A single decision changes only these tracks' Pending/Review counters.
+    update_pending_review_summaries(state,affected_tracks);
     update_table(state);
     update_master_table(state);
     update_metadata_table(state);

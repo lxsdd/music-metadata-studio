@@ -382,6 +382,25 @@ for label, source, token in [
     if token not in source:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing " + label)
 
+# A single Accept/Reject/Reset must refresh only affected track counters.
+# Full snapshot summaries are rebuilt only at initial capture/Refresh; all
+# source guards and transactional action validation stay unchanged.
+for token in (
+    "void update_pending_review_summaries(",
+    "state.track_summaries[track].review_required=",
+    "djmeta::count_pending_review_proposals(",
+    "update_pending_review_summaries(state,affected_tracks);",
+    "refresh_review_summaries(next);",
+    "refresh_review_summaries(*state);",
+):
+    if token not in batch_table_dialog:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing scoped review recount: " + token)
+review_action_body=batch_table_dialog.split(
+    "void apply_review_action(HWND dialog, PreviewState& state,",1)[1].split(
+    "void apply_to_rows(HWND dialog, PreviewState& state,",1)[0]
+if "refresh_review_summaries(state);" in review_action_body:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: full review recount after local decision")
+
 # Original source filenames are immutable within the captured workspace.
 # Reuse their already-parsed UTF-8 sort labels on every review decision,
 # column sort and filter. Refresh swaps them with its complete new snapshot.

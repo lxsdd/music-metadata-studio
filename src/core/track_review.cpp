@@ -65,6 +65,19 @@ std::vector<TrackReviewSummary> summarize_track_changes(
     }
     return result;
 }
+std::size_t count_pending_review_proposals(
+    const AnalysisResult& analysis,
+    const std::vector<ReviewDecision>& decisions) {
+    if (analysis.proposals.size()!=decisions.size())
+        throw std::invalid_argument(
+            "Review decision count does not match captured proposals.");
+    std::size_t pending=0;
+    for(std::size_t i=0;i<analysis.proposals.size();++i)
+        if(analysis.proposals[i].safety==SafetyClass::Review &&
+           decisions[i].action==ReviewAction::Pending)
+            ++pending;
+    return pending;
+}
 TrackDiffIndex index_track_diffs(
     const std::vector<MetadataDiffRow>& proposals, std::size_t track_count) {
     if(track_count==(std::numeric_limits<std::size_t>::max)())

@@ -124,6 +124,34 @@ int main(){
     } catch(const std::length_error&) { overflow_rejected=true; }
     check(overflow_rejected,"overflow-sized review index refuses allocation");
 
+    // Decision changes alter Pending/Review only for an affected source.
+    // Immutable music/extended/SAFE counts and other sources remain intact.
+    AnalysisResult analysis;
+    analysis.proposals.resize(4);
+    analysis.proposals[0].safety=SafetyClass::Review;
+    analysis.proposals[1].safety=SafetyClass::Confident;
+    analysis.proposals[2].safety=SafetyClass::Review;
+    analysis.proposals[3].safety=SafetyClass::Review;
+    std::vector<ReviewDecision> decisions(4);
+    check(count_pending_review_proposals(analysis,decisions)==3,
+          "initial Pending/Review count uses captured proposal classes");
+    decisions[0].action=ReviewAction::Accept;
+    decisions[3].action=ReviewAction::Reject;
+    check(count_pending_review_proposals(analysis,decisions)==1,
+          "Accept and Reject remove only their own Pending/Review counters");
+    decisions[2].action=ReviewAction::ManualValue;
+    check(count_pending_review_proposals(analysis,decisions)==0,
+          "manual replacement removes final pending semantic review");
+    decisions[0].action=ReviewAction::Pending;
+    check(count_pending_review_proposals(analysis,decisions)==1,
+          "Reset restores pending review on the correct proposal");
+    bool invalid_count_rejected=false;
+    decisions.pop_back();
+    try {
+        (void)count_pending_review_proposals(analysis,decisions);
+    } catch(const std::invalid_argument&) { invalid_count_rejected=true; }
+    check(invalid_count_rejected,
+          "decision count mismatch cannot silently falsify track status");
     const std::vector<std::string> names={"Z-track","A-track","B-track"};
     const auto by_name=sort_track_summaries(all,names,0,false);
     const auto by_review=sort_track_summaries(all,names,3,true);

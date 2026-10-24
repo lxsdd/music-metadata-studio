@@ -1,6 +1,7 @@
 #pragma once
 
 #include "djmeta/metadata_diff.h"
+#include "djmeta/review_decisions.h"
 
 #include <cstddef>
 #include <string>
@@ -40,6 +41,13 @@ bool is_music_metadata_field(std::string_view name);
 std::vector<TrackReviewSummary> summarize_track_changes(
     std::size_t track_count,
     const std::vector<MetadataDiffRow>& proposals);
+
+// Decision-only review counter: source/field/change summaries remain fixed
+// for a captured snapshot. Recount only the tracks touched by an approval.
+// Reject mismatched proposal identities rather than showing a false count.
+std::size_t count_pending_review_proposals(
+    const AnalysisResult& analysis,
+    const std::vector<ReviewDecision>& decisions);
 
 std::vector<MetadataDiffRow> selected_track_diffs(
     const std::vector<MetadataDiffRow>& proposals,
