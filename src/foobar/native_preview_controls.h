@@ -6,6 +6,7 @@
 #include <windows.h>
 #include <commctrl.h>
 #include <algorithm>
+#include <initializer_list>
 #include <cstddef>
 #include <numeric>
 #include <optional>
@@ -397,6 +398,19 @@ inline constexpr bool native_workspace_should_relayout_on_size(
     WPARAM size_kind, unsigned client_width, unsigned client_height) noexcept {
     return size_kind != SIZE_MINIMIZED &&
            client_width > 0 && client_height > 0;
+}
+
+// ListView infotips belong to the ListView, not to the workspace help
+// tooltip HWND. Dismiss both kinds when a page is hidden or the workspace
+// loses activation, otherwise a row-specific popup can outlive its row.
+inline void native_workspace_pop_tooltips(
+    HWND help, std::initializer_list<HWND> lists) {
+    if(help && IsWindow(help)) SendMessageW(help,TTM_POP,0,0);
+    for(HWND list:lists) {
+        if(!list || !IsWindow(list)) continue;
+        const HWND tip=ListView_GetToolTips(list);
+        if(tip && tip!=help && IsWindow(tip)) SendMessageW(tip,TTM_POP,0,0);
+    }
 }
 
 // Native tooltips are popup HWNDs. Hiding a modeless workspace while a
