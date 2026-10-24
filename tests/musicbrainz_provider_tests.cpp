@@ -209,6 +209,38 @@ int main() {
           search_title_core("Title (Unknown Remixer Club Dub)")==
               "Title (Unknown Remixer Club Dub)",
           "known bracket/version suffix is discovery-only; unknown qualifiers survive");
+    // DJ file TITLEs commonly use a hyphen/en dash/em dash instead of
+    // parenthetical qualifiers. Search both core and full title; retain
+    // unresolved version identity and exact original tags for review.
+    for(const std::string& full : {
+            std::string("Via Balearia - Extended Mix"),
+            std::string("Via Balearia \xE2\x80\x93 Radio Edit"),
+            std::string("Via Balearia \xE2\x80\x94 Original Version"),
+            std::string("Via Balearia - Dub Mix"),
+            std::string("Via Balearia - Club Edit")}) {
+        const auto plan=recording_search_plan(full,"Estiva");
+        check(plan.full_title==full && plan.core_title=="Via Balearia" &&
+              plan.attempts.size()==4 &&
+              plan.attempts[0].path==make_search_path(
+                  SearchKind::Recording,"Via Balearia","Estiva") &&
+              plan.attempts[1].path==make_search_path(
+                  SearchKind::Recording,full,"Estiva") &&
+              qualified_musicbrainz_request_path(plan.attempts[0].path) &&
+              qualified_musicbrainz_request_path(plan.attempts[1].path) &&
+              recording_identity_label(full,"Estiva",
+                  "Via Balearia","Estiva")=="Version review",
+              "dash-delimited DJ version expands read-only discovery, not identity");
+    }
+    check(search_title_core("Title - Live at the Arena")==
+              "Title - Live at the Arena" &&
+          search_title_core("Title - John Smith Remix")==
+              "Title - John Smith Remix" &&
+          search_title_core("Title - 20th Anniversary Edition")==
+              "Title - 20th Anniversary Edition" &&
+          search_title_core("Title - ")=="Title -" &&
+          search_title_core("Title - Extended Mix (Live)")==
+              "Title - Extended Mix (Live)",
+          "unknown hyphenated segments remain complete exact titles");
     const auto collab=recording_search_plan(
         "1000 Years (Dj Version)","Kyau & Albert X Maywave");
     check(collab.core_title=="1000 Years" &&

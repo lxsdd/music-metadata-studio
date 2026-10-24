@@ -392,18 +392,10 @@ inline constexpr std::size_t next_clicked_search_attempt(
 // Exact recording/mix identity and search recall are separate questions.
 // Remove a *known trailing* parenthetical version ONLY for discovery, never
 // for metadata replacement or match approval. Unknown parentheticals stay.
-inline std::string search_title_core(std::string_view full) {
-    std::string trimmed(full);
-    const auto end=trimmed.find_last_not_of(" \t");
-    if(end==std::string::npos) return {};
-    trimmed.resize(end+1);
-    if(trimmed.size()<4 || (trimmed.back()!=')' && trimmed.back()!=']'))
-        return trimmed;
-    const char opening=trimmed.back()==')' ? '(' : '[';
-    const auto pos=trimmed.find_last_of(opening);
-    if(pos==std::string::npos || pos==0) return trimmed;
-    std::string qualifier=trimmed.substr(pos+1,trimmed.size()-pos-2);
-    for(char& c:qualifier) if(c>='A'&&c<='Z') c=static_cast<char>(c+('a'-'A'));
+inline bool known_search_version_label(std::string_view text) {
+    std::string qualifier(text);
+    for(char& c:qualifier)
+        if(c>='A'&&c<='Z') c=static_cast<char>(c+('a'-'A'));
     static constexpr std::string_view generic[]={
         "original version","original mix","original","album version",
         "album mix","radio edit","radio version","radio mix",
@@ -411,37 +403,71 @@ inline std::string search_title_core(std::string_view full) {
         "single version","single mix","instrumental","edit",
         "remastered","remaster","remastered version",
         "dj version","dj mix","dj edit",
-        // Common DJ release qualifiers are discovery hints only. The exact
-        // mix identity remains available in full-title search and review.
+        // Generic DJ versions are only search hints, never a match or write.
         "vocal mix","dub mix","instrumental mix","main mix",
         "club edit","extended edit","original club mix",
         "original extended mix","extended club mix"
     };
-    bool known=false;
-    for(auto key:generic) if(qualifier==key) {known=true;break;}
-    // DJs frequently have source TITLE="Song (Remixer Remix)" while the
-    // MusicBrainz recording is indexed as "Song". Broaden DISCOVERY ONLY,
-    // never alter the original full title or grant an identity match.
-    // Do not strip unknown parentheticals such as "(Live at the Arena)".
-    if(!known) {
-        for(const std::string_view suffix : {" remix", " rework"}) {
-            if(qualifier.size() > suffix.size() &&
-               qualifier.ends_with(suffix)) {
-                const auto remixer=std::string_view(qualifier).substr(
-                    0,qualifier.size()-suffix.size());
-                if(remixer.find_first_not_of(" \t")!=std::string_view::npos) {
+    for(const auto key:generic) if(qualifier==key) return true;
+    return false;
+}
+
+// Exact recording/mix identity and search recall are separate questions.
+// Strip only a recognized trailing version for DISCOVERY, keeping the full
+// title available to a separate query and every original metadata field
+// untouched. Named-remixer suffixes require explicit brackets: an arbitrary
+// hyphenated title segment must never be mistaken for a version.
+inline std::string search_title_core(std::string_view full) {
+    std::string trimmed(full);
+    const auto end=trimmed.find_last_not_of(" \t");
+    if(end==std::string::npos) return {};
+    trimmed.resize(end+1);
+    if(trimmed.size()<4) return trimmed;
+    const auto prefix=[&](std::size_t pos) {
+        std::string core=trimmed.substr(0,pos);
+        const auto last=core.find_last_not_of(" \t");
+        if(last==std::string::npos) return trimmed;
+        core.resize(last+1);
+        return core;
+    };
+    if(trimmed.back()==')' || trimmed.back()==']') {
+        const char opening=trimmed.back()==')' ? '(' : '[';
+        const auto pos=trimmed.find_last_of(opening);
+        if(pos==std::string::npos || pos==0) return trimmed;
+        const auto qualifier=trimmed.substr(pos+1,trimmed.size()-pos-2);
+        bool known=known_search_version_label(qualifier);
+        // A named remix/rework in parentheses is a safe recall hint only.
+        if(!known) {
+            std::string folded=qualifier;
+            for(char& c:folded)
+                if(c>='A'&&c<='Z') c=static_cast<char>(c+('a'-'A'));
+            for(const std::string_view suffix : {" remix", " rework"}) {
+                if(folded.size() > suffix.size() &&
+                   folded.ends_with(suffix) &&
+                   std::string_view(folded).substr(0,folded.size()-suffix.size())
+                       .find_first_not_of(" \t")!=std::string_view::npos) {
                     known=true;
                     break;
                 }
             }
         }
+        return known ? prefix(pos) : trimmed;
     }
-    if(!known) return trimmed;
-    std::string core=trimmed.substr(0,pos);
-    const auto last=core.find_last_not_of(" \t");
-    if(last==std::string::npos) return trimmed;
-    core.resize(last+1);
-    return core;
+    // Common DJ TITLE layouts use a dash rather than "(Extended Mix)".
+    // Require whitespace on both sides and an EXACT known generic suffix;
+    // "Song - Live at the Arena" and "Song - Remixer Remix" stay intact.
+    for(const std::string_view separator : {
+            std::string_view(" - "),
+            std::string_view(" \xE2\x80\x93 "), // en dash, UTF-8
+            std::string_view(" \xE2\x80\x94 ")  // em dash, UTF-8
+        }) {
+        const auto pos=trimmed.rfind(separator);
+        if(pos!=std::string::npos && pos>0 &&
+           known_search_version_label(std::string_view(trimmed).substr(
+               pos+separator.size())))
+            return prefix(pos);
+    }
+    return trimmed;
 }
 
 // Extract a leading artist for OPTIONAL search recall when the recording
