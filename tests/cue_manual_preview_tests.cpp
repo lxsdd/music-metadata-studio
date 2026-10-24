@@ -60,6 +60,38 @@ int main() {
           album_rows[2].field == "Unsupported / LABEL",
           "unrepresentable provider field never creates arbitrary REM");
 
+    // The native two-level browser must present compact album/track proposal
+    // groups and the complete parsed CUE metadata/FILE inventory. Never
+    // conflate user-pasted Discogs values with an authenticated Discogs API.
+    const auto cue_source=cue_original_inventory_rows(cue,"CUE Original / ");
+    auto grouped_album=album_rows;
+    append_manual_cue_comparison_source(grouped_album,cue,album.provider);
+    check(grouped_album.size()==album_rows.size()+cue_source.size() &&
+          grouped_album[0].field=="Pasted discogs / Album / TITLE" &&
+          grouped_album[0].candidate.field=="ALBUM" &&
+          grouped_album[1].original_values==std::vector<std::string>{"House"} &&
+          grouped_album[album_rows.size()].field=="CUE Original / Album / TITLE" &&
+          grouped_album[album_rows.size()].original_values==
+              std::vector<std::string>{"Album One"} &&
+          is_local_cue_inventory(grouped_album[album_rows.size()]) &&
+          grouped_album.back().candidate.source_id==cue_source.back().candidate.source_id &&
+          grouped_album.back().candidate.provider=="External CUE / structure",
+          "manual CUE groups preserve all original metadata/FILE facts and provenance");
+    auto forged=album_rows;
+    forged.push_back(cue_source.front());
+    bool source_spoof_refused=false;
+    try { append_manual_cue_comparison_source(forged,cue,album.provider); }
+    catch(const std::invalid_argument&) {source_spoof_refused=true;}
+    check(source_spoof_refused && forged[0].field==album_rows[0].field,
+          "forged local CUE source is rejected before any display mutation");
+    auto mismatched=album_rows;
+    mismatched[0].candidate.provider="spotify";
+    bool mismatch_refused=false;
+    try { append_manual_cue_comparison_source(mismatched,cue,album.provider); }
+    catch(const std::invalid_argument&) {mismatch_refused=true;}
+    check(mismatch_refused && mismatched[0].field==album_rows[0].field,
+          "declared provider must match every scoped CUE proposal before grouping");
+
     const auto second = parse_manual_candidate(
         "@provider=beatport\n@id=track:178\n@scope=recording\n"
         "@cue_track_ordinal=2\nTITLE=Sunset (Original Mix)\n"

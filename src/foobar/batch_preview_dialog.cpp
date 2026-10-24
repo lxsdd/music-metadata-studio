@@ -973,7 +973,7 @@ MusicBrainzBrowseRows group_musicbrainz_release_rows(
 
 // A pasted structured candidate is a comparison group, not an authenticated
 // online search hit. Keep this distinction in browser headers and hints.
-inline bool pasted_physical_group_view(const PreviewState& state) {
+inline bool pasted_comparison_group_view(const PreviewState& state) {
     return state.musicbrainz_live_view && !state.candidate_rows.empty() &&
            state.candidate_rows.front().reason=="manual_pasted_candidate_group";
 }
@@ -1453,9 +1453,10 @@ void update_musicbrainz_browse_headers(PreviewState& state) {
         names[2]=L""; names[3]=L"Source"; names[4]=L"Write status";
     }
     if (browse) {
-        if(pasted_physical_group_view(state)) {
+        if(pasted_comparison_group_view(state)) {
             names[0]=L"Comparison group";
-            names[1]=L"Physical";
+            names[1]=state.cue_candidate_comparison_mode
+                ? L"CUE original" : L"Physical";
             names[2]=L"Pasted";
             names[3]=L"Origin";
             names[4]=L"Review";
@@ -1535,7 +1536,7 @@ void update_metadata_table(PreviewState& state) {
         // Update headers when entering live search, not just on tab switch.
         const wchar_t* candidate_headers[3]={
             state.musicbrainz_live_view
-                ? (pasted_physical_group_view(state)?L"Groups":L"Hits") : L"Tags",
+                ? (pasted_comparison_group_view(state)?L"Groups":L"Hits") : L"Tags",
             state.musicbrainz_live_view?L"Blocked":L"Diffs",
             state.musicbrainz_live_view?L"":L"Block"
         };
@@ -1961,7 +1962,7 @@ void show_preview_page(HWND dialog, PreviewState& state,
     }
     const wchar_t* track_headers[3] = {
         candidate ? (state.musicbrainz_live_view
-                ? (pasted_physical_group_view(state)?L"Groups":L"Hits") : L"Tags") :
+                ? (pasted_comparison_group_view(state)?L"Groups":L"Hits") : L"Tags") :
             state.existing_tags_view?L"Tags":L"Music",
         candidate ? (state.musicbrainz_live_view?L"Blocked":L"Diffs") :
             state.existing_tags_view?L"":L"Other",
@@ -6116,9 +6117,12 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 if(beatport_user_release)
                     rows=djmeta::online::review_beatport_user_edition_cue(
                         cue,*user_edition);
-                else
+                else {
                     rows = djmeta::online::review_manual_cue_candidate(
                         cue, *user_candidate);
+                    djmeta::online::append_manual_cue_comparison_source(
+                        rows,cue,user_candidate->provider);
+                }
                 if(read_cue_raw_on_demand(
                     entry.handle,entry.input.source_path).raw_text!=raw.raw_text)
                     throw std::runtime_error("CUE changed during clipboard comparison.");
@@ -6175,6 +6179,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             verify_snapshot(entry);
             verify_rules_snapshot(state->captured_rules);
             const bool pasted_physical=user_candidate.has_value() && !compare_cue;
+            const bool pasted_cue=user_candidate.has_value() && compare_cue;
             if(beatport_user_release || crates_visible_release ||
                beatport_user_track || crates_visible_track) {
                 if(beatport_user_track || crates_visible_track) {
@@ -6192,7 +6197,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 auto grouped=group_musicbrainz_release_rows(rows);
                 state->candidate_rows=std::move(grouped.summary);
                 state->musicbrainz_detail_groups=std::move(grouped.detail);
-            } else if(pasted_physical) {
+            } else if(pasted_physical || pasted_cue) {
                 // The online static audit requires the existing Beatport
                 // branch to stay explicit. Pasted values still use the same
                 // two-level review, with independent unverified provenance.
@@ -6209,7 +6214,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             state->musicbrainz_live_view =
                 beatport_user_release || crates_visible_release ||
                 beatport_user_track || crates_visible_track;
-            if(pasted_physical) state->musicbrainz_live_view = true;
+            if(pasted_physical || pasted_cue) state->musicbrainz_live_view = true;
             state->musicbrainz_release_loaded =
                 beatport_user_release || crates_visible_release ||
                 beatport_user_track || crates_visible_track;
@@ -6235,6 +6240,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 ? L"Structured provider values pasted by the user are "
                   L"UNVERIFIED. Select a group to compare every field "
                   L"against all original physical tags; no file writes."
+                : pasted_cue
+                ? L"Structured CUE values pasted by the user are UNVERIFIED. "
+                  L"Select Album, Track or CUE Original groups to inspect "
+                  L"all parsed original CUE tags and FILE references. No writes."
                 : L"";
             state->discogs_live_view = false;
             state->discogs_results.clear();
