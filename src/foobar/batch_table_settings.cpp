@@ -21,7 +21,7 @@ cfg_string g_online_date_target_preference(kOnlineDateTargetGuid,"0");
 
 constexpr GUID kWorkspaceDefaultsGuid =
     {0x251a5bf0,0x691e,0x4ab9,{0x85,0x93,0x37,0xcb,0x50,0xb2,0x5a,0x08}};
-cfg_string g_workspace_defaults(kWorkspaceDefaultsGuid, "v1|0|0|0|0");
+cfg_string g_workspace_defaults(kWorkspaceDefaultsGuid, "v1|0|3|0|0");
 
 constexpr GUID kOnlineProviderPriorityGuid =
     {0xc589a0c4, 0x9e6b, 0x4ca7, {0xb2, 0x14, 0x7a, 0x66, 0xa3, 0xfa, 0xa4, 0x18}};
