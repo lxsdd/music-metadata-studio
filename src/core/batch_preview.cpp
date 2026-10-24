@@ -158,8 +158,10 @@ BatchPreviewTable describe_batch_preview(
     // Deliberately raw, case-sensitive counts only. Windows canonicalization
     // remains a responsibility of the future foobar host filesystem planner.
     for (const auto& item : items) {
-        if (item.physical_source_qualified &&
-            !item.destination_root.empty() && !item.raw_relative_path.empty()) {
+        // Report raw target conflicts for every displayed candidate, even
+        // when one source is independently unqualified. That row remains
+        // blocked, but its target must not hide a collision from another row.
+        if (!item.destination_root.empty() && !item.raw_relative_path.empty()) {
             const std::string candidate = item.destination_root + "\\" +
                 item.raw_relative_path;
             ++counts[candidate];
@@ -186,7 +188,6 @@ BatchPreviewTable describe_batch_preview(
             row.issues.emplace_back("DUPLICATE_RAW_TARGET");
             ++out.raw_collision_items;
         } else if (!row.raw_destination.empty() &&
-                   item.physical_source_qualified &&
                    raw_windows_spelling_counts[
                        preliminary_windows_spelling_key(row.raw_destination)] > 1) {
             row.has_raw_target_collision = true;
