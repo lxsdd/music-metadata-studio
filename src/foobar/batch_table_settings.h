@@ -10,8 +10,9 @@
 namespace djmeta_foobar {
 
 // foobar-native profile configuration, not external JSON/registry.
-// Profile-local foobar settings. Persist only changed window size (not
-// position, music metadata or session state); 96-DPI logical units.
+// Profile-local foobar settings. Persist window restore geometry (position,
+// normal size and maximize state), never music metadata or batch approvals;
+// logical 96-DPI units.
 std::optional<djmeta::PreviewWindowPlacement> load_batch_preview_window_placement();
 void store_batch_preview_window_placement(djmeta::PreviewWindowPlacement value);
 std::optional<djmeta::PreviewWindowSize> load_batch_preview_window_size();

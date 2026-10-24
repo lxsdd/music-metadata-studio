@@ -168,6 +168,9 @@ struct PreviewState {
     int initial_window_height = 0;
     int initial_window_left = 0;
     int initial_window_top = 0;
+    // WM_SIZE tracks maximization before minimize/hide. GetWindowPlacement
+    // does not retain WPF_RESTORETOMAXIMIZED reliably in its flags member.
+    bool last_nonminimized_maximized=false;
     std::vector<NativePreviewResizeChild> resize_controls;
     std::vector<PreviewEntry> entries;
     djmeta::BatchPreviewTable table;
@@ -2309,20 +2312,26 @@ void restore_batch_dialog_window_size(PreviewState& state) {
     MONITORINFO screen{};
     screen.cbSize=sizeof(screen);
     if (!monitor || !GetMonitorInfoW(monitor,&screen)) return;
-    const int available_w=screen.rcWork.right-screen.rcWork.left;
-    const int available_h=screen.rcWork.bottom-screen.rcWork.top;
-    if (available_w<state.initial_window_width ||
-        available_h<state.initial_window_height) return;
-    const int width=(std::clamp)(target_width,state.initial_window_width,available_w);
-    const int height=(std::clamp)(target_height,state.initial_window_height,available_h);
-    left=(std::clamp<int>)(left,screen.rcWork.left,screen.rcWork.right-width);
-    top=(std::clamp<int>)(top,screen.rcWork.top,screen.rcWork.bottom-height);
-    // Saved position is the user's last normal (restored) window location.
-    // Clamp after monitor/DPI changes to ensure the caption always stays visible.
-    SetWindowPos(state.dialog,nullptr,left,top,width,height,
-                 SWP_NOZORDER|SWP_NOACTIVATE);
-    if (saved_placement && saved_placement->maximized)
-        ShowWindow(state.dialog,SW_MAXIMIZE);
+    const bool workspace_coordinates=
+        saved_placement && saved_placement->maximized;
+    const auto clamped=djmeta::clamp_preview_restore_pixels(
+        {left,top,target_width,target_height},
+        state.initial_window_width,state.initial_window_height,
+        {screen.rcMonitor.left,screen.rcMonitor.top,
+         screen.rcWork.left,screen.rcWork.top,
+         screen.rcWork.right-screen.rcWork.left,
+         screen.rcWork.bottom-screen.rcWork.top},
+        workspace_coordinates);
+    if(!clamped) return;
+    const RECT target{clamped->left,clamped->top,
+                      clamped->left+clamped->width,
+                      clamped->top+clamped->height};
+    // This is the exact production HWND path tested by the Windows harness.
+    // A maximized top-level dialog has workspace rcNormalPosition; normal
+    // windows use actual screen rectangles. Do not interchange Win32 APIs.
+    if(native_restore_saved_workspace_bounds(
+           state.dialog,target,workspace_coordinates))
+        state.last_nonminimized_maximized=workspace_coordinates;
 }
 
 void save_batch_dialog_window_size(const PreviewState& state) {
@@ -2336,8 +2345,9 @@ void save_batch_dialog_window_size(const PreviewState& state) {
     // A normal window uses its actual desktop rect for correct screen position.
     RECT bounds=placement.rcNormalPosition;
     const bool iconic=IsIconic(state.dialog)!=FALSE;
-    const bool maximized=IsZoomed(state.dialog)!=FALSE ||
-        (iconic && (placement.flags & WPF_RESTORETOMAXIMIZED) != 0);
+    const bool maximized=native_workspace_saved_maximized(
+        IsZoomed(state.dialog)!=FALSE,iconic,
+        state.last_nonminimized_maximized);
     if (!maximized && !iconic && !GetWindowRect(state.dialog,&bounds)) return;
     const int width=bounds.right-bounds.left;
     const int height=bounds.bottom-bounds.top;
@@ -4798,6 +4808,9 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         return TRUE;
     }
     if (message == WM_SIZE && state->initial_client_width > 0) {
+        if(wp==SIZE_MAXIMIZED) state->last_nonminimized_maximized=true;
+        else if(wp==SIZE_RESTORED)
+            state->last_nonminimized_maximized=false;
         const auto width=static_cast<unsigned>(LOWORD(lp));
         const auto height=static_cast<unsigned>(HIWORD(lp));
         if (!native_workspace_should_relayout_on_size(wp,width,height))

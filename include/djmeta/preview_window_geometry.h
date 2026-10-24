@@ -2,6 +2,7 @@
 
 // Pure/portable window size persistence schema. Physical Win32 pixels and
 // monitor geometry remain a host-layer responsibility. No disk/network/audio.
+#include <algorithm>
 #include <charconv>
 #include <optional>
 #include <string>
@@ -51,8 +52,10 @@ inline std::string serialize_preview_window_size(PreviewWindowSize size) {
 
 
 // Full normal-window placement, separate from the legacy size-only v1 data.
-// Coordinates are monitor/desktop independent *logical* Win32 workspace units;
-// negative x/y support monitors to the left or above the primary screen.
+// Coordinates are stored at 96 DPI. With maximized=true they are Win32
+// WINDOWPLACEMENT *workspace* coordinates; in the ordinary/normal case they
+// are GetWindowRect *screen* coordinates. Their restorers must stay paired.
+// Negative x/y support monitors left/above the primary screen.
 // Maximized windows remember their normal (restored) position and size.
 struct PreviewWindowPlacement {
     int left_at_96_dpi = 0;
@@ -96,6 +99,54 @@ inline std::optional<PreviewWindowPlacement> parse_preview_window_placement(
         fields[0],fields[1],fields[2],fields[3],input=="1"};
     if (!valid_preview_window_placement(p)) return std::nullopt;
     return p;
+}
+
+
+    
+// The saved normal RECT for a maximized Win32 top-level dialog comes from
+// WINDOWPLACEMENT and is in *workspace* coordinates. The restored/unmaximized
+// RECT instead comes from GetWindowRect and is in *screen* coordinates.
+// The work-area origin and monitor origin can differ (top/left taskbars).
+// Clamp each coordinate space against its OWN origin; never feed a workspace
+// rectangle to SetWindowPos or shift it by a taskbar offset each reopening.
+struct PreviewRestorePixels {
+    int left=0;
+    int top=0;
+    int width=0;
+    int height=0;
+    bool operator==(const PreviewRestorePixels&) const = default;
+};
+struct PreviewMonitorWorkPixels {
+    int monitor_left=0;
+    int monitor_top=0;
+    int work_left=0;
+    int work_top=0;
+    int work_width=0;
+    int work_height=0;
+};
+inline std::optional<PreviewRestorePixels> clamp_preview_restore_pixels(
+    PreviewRestorePixels requested,
+    int minimum_width, int minimum_height,
+    PreviewMonitorWorkPixels monitor, bool workspace_coordinates) {
+    if(minimum_width<=0 || minimum_height<=0 ||
+       monitor.work_width<minimum_width ||
+       monitor.work_height<minimum_height ||
+       requested.width<=0 || requested.height<=0)
+        return std::nullopt;
+    const int width=std::clamp(
+        requested.width,minimum_width,monitor.work_width);
+    const int height=std::clamp(
+        requested.height,minimum_height,monitor.work_height);
+    const int area_left=workspace_coordinates
+        ? monitor.monitor_left:monitor.work_left;
+    const int area_top=workspace_coordinates
+        ? monitor.monitor_top:monitor.work_top;
+    return PreviewRestorePixels{
+        std::clamp(requested.left,area_left,
+                   area_left+monitor.work_width-width),
+        std::clamp(requested.top,area_top,
+                   area_top+monitor.work_height-height),
+        width,height};
 }
 
 } // namespace djmeta

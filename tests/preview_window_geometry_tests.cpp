@@ -54,6 +54,33 @@ int main() {
     })
         check(!parse_preview_window_placement(malformed),
               "invalid/offscreen/unknown geometry cfg is rejected");
+    const PreviewMonitorWorkPixels top_taskbar{
+        0,0,0,40,1920,1040};
+    check(clamp_preview_restore_pixels(
+              {120,20,900,600},560,390,top_taskbar,false)==
+              PreviewRestorePixels{120,40,900,600} &&
+          clamp_preview_restore_pixels(
+              {120,20,900,600},560,390,top_taskbar,true)==
+              PreviewRestorePixels{120,20,900,600},
+          "screen restores respect top taskbar, workspace placements do not creep");
+    const PreviewMonitorWorkPixels left_taskbar{
+        -1920,0,-1860,0,1860,1080};
+    check(clamp_preview_restore_pixels(
+              {-1900,80,1000,650},560,390,left_taskbar,false)==
+              PreviewRestorePixels{-1860,80,1000,650} &&
+          clamp_preview_restore_pixels(
+              {-1900,80,1000,650},560,390,left_taskbar,true)==
+              PreviewRestorePixels{-1900,80,1000,650},
+          "negative desktop monitor and left taskbar use separate origins");
+    check(clamp_preview_restore_pixels(
+              {-2500,-500,5000,4000},560,390,left_taskbar,true)==
+              PreviewRestorePixels{-1920,0,1860,1080},
+          "a removed monitor or oversized restored window is clamped into view");
+    check(!clamp_preview_restore_pixels(
+              {0,0,800,600},560,390,{0,0,0,0,500,300},false) &&
+          !clamp_preview_restore_pixels(
+              {0,0,0,600},560,390,top_taskbar,false),
+          "impossible or malformed restore geometry fails closed");
     std::cout << "PASS: foobar preview normal position/size/maximize + migration schema\n";
 
 }

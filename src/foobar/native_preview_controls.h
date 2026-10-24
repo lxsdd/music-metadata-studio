@@ -16,6 +16,36 @@
 
 namespace djmeta_foobar {
 
+// GetWindowPlacement flags cannot be relied on to describe a minimized
+// window's previous zoom state. WM_SIZE remembers the last non-iconic state.
+inline constexpr bool native_workspace_saved_maximized(
+    bool zoomed_now,bool iconic_now,bool last_nonminimized_maximized) noexcept {
+    return zoomed_now || (iconic_now && last_nonminimized_maximized);
+}
+
+// The resource-backed Win32 production dialog and the Windows smoke test
+// use the SAME restore adapter. A maximized dialog's normal rectangle came
+// from GetWindowPlacement (workspace coordinates). Only SetWindowPlacement
+// may consume those values; SetWindowPos expects screen coordinates.
+inline bool native_restore_saved_workspace_bounds(
+    HWND dialog,const RECT& restore_rect,bool maximized) {
+    if(!IsWindow(dialog) || restore_rect.right<=restore_rect.left ||
+       restore_rect.bottom<=restore_rect.top)
+        return false;
+    if(maximized) {
+        WINDOWPLACEMENT placement{};
+        placement.length=sizeof(placement);
+        if(!GetWindowPlacement(dialog,&placement)) return false;
+        placement.flags=0;
+        placement.rcNormalPosition=restore_rect;
+        placement.showCmd=SW_SHOWMAXIMIZED;
+        return SetWindowPlacement(dialog,&placement)!=FALSE;
+    }
+    return SetWindowPos(dialog,nullptr,restore_rect.left,restore_rect.top,
+                        restore_rect.right-restore_rect.left,
+                        restore_rect.bottom-restore_rect.top,
+                        SWP_NOZORDER|SWP_NOACTIVATE)!=FALSE;
+}
 
 /*
  * This small Win32 event/identity adapter is called by the production

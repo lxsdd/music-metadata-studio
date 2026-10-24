@@ -329,3 +329,19 @@
   von DATE_RAW und Multiwerten. Die native Date-Target-Combobox und der
   Preview-Status benennen die YYYY-Abbildung explizit. Installed foobar-Abnahme
   steht separat aus.
+
+### 2026-10-24 — Modeless workspace: positionsstabile Maximierung (MMS-WF-01, MMS-UI-04/05)
+
+- Windows unterscheidet den `WINDOWPLACEMENT.rcNormalPosition`-
+  Arbeitsbereich vom Bildschirmbereich von `GetWindowRect`. Ein maximiertes
+  Workspace-Fenster wird mit `SetWindowPlacement`, ein normalisiertes
+  Fenster mit `SetWindowPos` wiederhergestellt. Die Bildschirmränder und
+  die Workarea/Taskbar werden im jeweiligen Koordinatensystem geklemmt.
+- `WM_SIZE` bewahrt den letzten Nicht-Minimierungs-Maximierungszustand,
+  damit Minimieren/Schließen nicht den zuletzt maximierten Zustand vergisst;
+  Position, Größe, Tab und Benutzeraktionen bleiben unabhängig.
+- Regression: `tests/preview_window_geometry_tests.cpp` (Taskbar oben/links,
+  negativer Mehrmonitor-Ursprung, entferntes Display, zu kleine Workarea)
+  sowie die echte Windows-`HWND`-Strecke `tests/native_preview_controls_tests.cpp`
+  (Maximiert-/Normal-Koordinaten mit gemeinsamen Produktionshelfern).
+  Live-foobar-Multimonitor-/DPI-Abnahme weiterhin separat ausstehend.

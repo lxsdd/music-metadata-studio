@@ -439,6 +439,43 @@ int main() {
     check(IsZoomed(dialog)!=FALSE,"native workspace maximizes");
     ShowWindow(dialog,SW_RESTORE);
     check(IsZoomed(dialog)==FALSE,"native workspace restores maximized state");
+    check(djmeta_foobar::native_workspace_saved_maximized(true,false,false) &&
+          djmeta_foobar::native_workspace_saved_maximized(false,true,true) &&
+          !djmeta_foobar::native_workspace_saved_maximized(false,true,false) &&
+          !djmeta_foobar::native_workspace_saved_maximized(false,false,true),
+          "minimize-to-close remembers the last actual maximize state");
+    // Exercise the exact restore helper called by the production WM_INITDIALOG.
+    // GetWindowPlacement normal bounds are workspace coordinates for the
+    // resource's WS_EX_APPWINDOW dialog. Repeated maximal restores must not
+    // reinterpret those as desktop screen coordinates.
+    WINDOWPLACEMENT initial_workspace{};
+    initial_workspace.length=sizeof(initial_workspace);
+    check(GetWindowPlacement(dialog,&initial_workspace)!=FALSE,
+          "native dialog provides WINDOWPLACEMENT coordinates");
+    const RECT saved_workspace=initial_workspace.rcNormalPosition;
+    check(djmeta_foobar::native_restore_saved_workspace_bounds(
+              dialog,saved_workspace,true) &&
+          IsZoomed(dialog)!=FALSE,
+          "production native HWND maximized restore uses SetWindowPlacement");
+    WINDOWPLACEMENT after_max{};
+    after_max.length=sizeof(after_max);
+    check(GetWindowPlacement(dialog,&after_max)!=FALSE &&
+          EqualRect(&saved_workspace,&after_max.rcNormalPosition)!=FALSE,
+          "restored native maximized normal position roundtrips unchanged");
+    ShowWindow(dialog,SW_RESTORE);
+    RECT normal_screen{};
+    check(GetWindowRect(dialog,&normal_screen)!=FALSE &&
+          djmeta_foobar::native_restore_saved_workspace_bounds(
+              dialog,normal_screen,false),
+          "production native restored window path accepts a screen rectangle");
+    RECT after_normal{};
+    check(GetWindowRect(dialog,&after_normal)!=FALSE &&
+          EqualRect(&normal_screen,&after_normal)!=FALSE &&
+          IsZoomed(dialog)==FALSE,
+          "native normal window restore retains exact screen position and size");
+    check(!djmeta_foobar::native_restore_saved_workspace_bounds(
+              dialog,RECT{5,5,5,7},true),
+          "malformed native saved placement must not activate or resize window");
     SetFocus(GetDlgItem(dialog,IDC_METADATA_MB_QUERY));
     MSG navigation{};
     navigation.hwnd=GetDlgItem(dialog,IDC_METADATA_MB_QUERY);
