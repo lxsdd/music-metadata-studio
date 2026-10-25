@@ -434,7 +434,7 @@ for label, source, token in [
     ("group route override", batch_table_dialog, "apply_to_rows(dialog, *state, true)"),
     ("selected route override", batch_table_dialog, "apply_to_rows(dialog, *state, false)"),
     ("selection stale guard", batch_table_dialog, "verify_snapshot(entry)"),
-    ("per-batch atomic UI edits", batch_table_dialog, "state.entries = std::move(candidate)"),
+    ("sparse transactional route edits", batch_table_dialog, "swap(state.entries[index],changed)"),
     ("unverified CUE gate", batch_table_dialog, "entry.input.cue_dependencies_checked = false"),
     ("unverified destination gate", batch_table_dialog, "entry.input.filesystem_target_checked = false"),
     ("unapproved SAFE not used in routes", route_preview, "djmeta::project_explicit_review_decisions"),
@@ -1622,3 +1622,29 @@ if ('djmeta::stage_safe_only(' in route_preview or
     'info, staged.document,' not in route_preview or
     'Unapproved SAFE suggestions (NOT routed)' not in route_preview):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: legacy filename route auto-accepted SAFE")
+
+
+# MMS-WF-09 / MMS-OPS-03: keep 50k+ source batches interactive.
+# A single native metadata Accept or a selected route override must stage
+# only touched source rows; global full-batch source/rules revalidation stays.
+review_action=workspace_dialog.split(
+    "void apply_review_action(HWND dialog, PreviewState& state,",1)[1].split(
+    "void apply_to_rows(HWND dialog, PreviewState& state,",1)[0]
+route_action=workspace_dialog.split(
+    "void apply_to_rows(HWND dialog, PreviewState& state,",1)[1].split(
+    "// User-initiated inspection of RAW, unsanitized candidate paths",1)[0]
+for name, body in (("review",review_action),("FileOps routing",route_action)):
+    if ("std::map<std::size_t,PreviewEntry>" not in body or
+        "try_emplace(" not in body or
+        "for (const auto& entry : state.entries) verify_snapshot(entry);" not in body or
+        "verify_rules_snapshot(state.captured_rules);" not in body):
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: sparse "+name+
+                         " editing lost atomic revalidation")
+    if ("auto next_entries = state.entries;" in body or
+        "auto candidate = state.entries;" in body or
+        "state.entries = std::move(" in body):
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: "+name+
+                         " deep-copies full music library")
+if ("std::map<std::size_t,std::vector<djmeta::ReviewDecision>> next_decisions;" not in review_action or
+    "swap(state.review_decisions[track],next_decisions.at(track));" not in review_action):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: native review decisions not sparse")
