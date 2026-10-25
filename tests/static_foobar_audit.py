@@ -1983,3 +1983,24 @@ for marker in (
 if ("test_joint_audio_online_normalizer_and_cue_fileplan();" not in
     (root / "tests" / "unified_review_batch_tests.cpp").read_text(encoding="utf-8")):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: combined CUE and online regression not run")
+
+
+# The detached integrator's independent second-pass source, selection,
+# provenance and future destination checks must not grant write access.
+unified_cue_core=(root / "include" / "djmeta" / "unified_cue_file_plan_preview.h").read_text(encoding="utf-8")
+for marker in (
+    "recheck_unified_cue_file_plan(",
+    "unified_cue_review_selection_fingerprint(",
+    "UNIFIED_CUE_SECOND_PASS_SELECTION_OR_PROVENANCE_CHANGED",
+    "UNIFIED_CUE_SECOND_PASS_FILE_SOURCE_CHANGED",
+    "UNIFIED_CUE_SECOND_PASS_REFERENCE_OR_TARGET_CHANGED",
+    "UNIFIED_CUE_SECOND_PASS_POSTIMAGE_OR_PLAN_CHANGED",
+    "fresh.cue.proposed_cue_fingerprint",
+    "fresh.audio_postimages[i].physical.planned",
+    "row.status==PlanStatus::Unchanged",
+):
+    if marker not in unified_cue_core:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: detached joint CUE second-pass check missing "+marker)
+if "unselected_swapped.file_sources[2].source_guard" not in (
+    root / "tests" / "unified_review_batch_tests.cpp").read_text(encoding="utf-8"):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: unselected CUE source replacement regression missing")

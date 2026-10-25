@@ -127,6 +127,65 @@ static void test_joint_audio_online_normalizer_and_cue_fileplan() {
     const std::vector<UnifiedReviewBatchReprobe> audio{a,b};
     const auto joined=preview_unified_cue_file_plan(
         original,1,audio,bytes,host);
+    const auto checked=recheck_unified_cue_file_plan(
+        joined,original,1,audio,bytes,host);
+    check(checked.eligible && !checked.exact_noop &&
+          checked.changed_audio_sources==1 && checked.cue_bytes_change,
+          "real second-pass evidence reproduces identical detached joint plan");
+    auto changed_consent=audio;
+    changed_consent[1].normalizer.decisions[0].action=ReviewAction::Reject;
+    check(!recheck_unified_cue_file_plan(
+        joined,original,1,changed_consent,bytes,host).eligible,
+          "local Pending becoming Reject cannot reuse prior review despite byte-identical postimage");
+    auto changed_provenance=audio;
+    changed_provenance[0].online_capture->evidence[0].source_id="new-release";
+    check(!recheck_unified_cue_file_plan(
+        joined,original,1,changed_provenance,bytes,host).eligible,
+          "same resulting tags do not justify stale official provider provenance");
+    auto changed_date=audio;
+    changed_date[0].explicit_date_targets[1]="DATE";
+    check(!recheck_unified_cue_file_plan(
+        joined,original,1,changed_date,bytes,host).eligible,
+          "same source with another explicit DATE target loses its exact review");
+    auto stale_cue=bytes;
+    stale_cue+="REM TEMP extra bytes\n";
+    check(!recheck_unified_cue_file_plan(
+        joined,original,1,audio,stale_cue,host).eligible,
+          "changed CUE raw source bytes refuse previously reviewed joint plan");
+    auto changed_ref=host;
+    changed_ref.file_destinations[1].proposed_filename="B-newer.flac";
+    check(!recheck_unified_cue_file_plan(
+        joined,original,1,audio,bytes,changed_ref).eligible,
+          "a newly re-resolved future FILE filename cannot reuse old plan");
+    changed_ref=host;
+    changed_ref.file_sources[1].source_guard="new-version";
+    check(!recheck_unified_cue_file_plan(
+        joined,original,1,audio,bytes,changed_ref).eligible,
+          "second-pass CUE FILE physical guard drift fails atomically");
+    const std::string extended_bytes=bytes+"FILE \"Unselected.flac\" WAVE\n";
+    auto extended_host=host;
+    extended_host.file_sources.push_back({
+        2,"disk:unselected","guard:unselected",true});
+    extended_host.file_destinations.push_back({
+        2,"Unselected.flac","z:/library/unselected.flac",
+        "Unselected.flac",true,true,"z:/library/unselected.flac"});
+    const auto extended=preview_unified_cue_file_plan(
+        original,1,audio,extended_bytes,extended_host);
+    check(extended.eligible &&
+          recheck_unified_cue_file_plan(
+              extended,original,1,audio,extended_bytes,extended_host).eligible,
+          "unselected physical CUE FILE participant is tracked by the same joint plan");
+    auto unselected_swapped=extended_host;
+    unselected_swapped.file_sources[2].source_guard="guard:replaced";
+    check(!recheck_unified_cue_file_plan(
+        extended,original,1,audio,extended_bytes,unselected_swapped).eligible,
+          "unselected file replaced during confirmation invalidates the complete batch");
+    unselected_swapped=extended_host;
+    unselected_swapped.file_destinations[2].verified_destination_key=
+        "z:/library/a-different-unselected.flac";
+    check(!recheck_unified_cue_file_plan(
+        extended,original,1,audio,extended_bytes,unselected_swapped).eligible,
+          "post-move unselected CUE target substitution blocks full second pass");
     check(joined.eligible && joined.review.ready_to_apply &&
           joined.items.size()==3 && joined.audio_postimages.size()==2 &&
           joined.changed_audio_sources==1 && joined.cue_bytes_change &&
@@ -224,6 +283,13 @@ static void test_joint_audio_online_normalizer_and_cue_fileplan() {
         {nop.normalizer.live.observed_item,nopcue,
          nop2.normalizer.live.observed_item},
         1,{nop,nop2},bytes,nop_host);
+    const auto double_noop=recheck_unified_cue_file_plan(
+        noop,{nop.normalizer.live.observed_item,nopcue,
+              nop2.normalizer.live.observed_item},
+        1,{nop,nop2},bytes,nop_host);
+    check(double_noop.eligible && double_noop.exact_noop &&
+          double_noop.changed_audio_sources==0 && !double_noop.cue_bytes_change,
+          "second-pass exact zero-mutation recheck is not a write authorization");
     check(noop.eligible && noop.changed_audio_sources==0 &&
           !noop.cue_bytes_change && !noop.cue.changes_references &&
           noop.items[1].cue_source_fingerprint==

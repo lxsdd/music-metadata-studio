@@ -6,6 +6,9 @@
 #include "djmeta/cue_file_batch_preview.h"
 #include "djmeta/cue_physical_selection_audit.h"
 #include <cstddef>
+#include <algorithm>
+#include <map>
+#include <utility>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -33,6 +36,58 @@ struct UnifiedCueFilePlanPreview {
     std::vector<UnifiedReviewPostimage> audio_postimages;
     CueAssociationPlan cue;
     BatchPlanReview review;
+    std::size_t changed_audio_sources=0;
+    bool cue_bytes_change=false;
+    // Unapproved source-selection evidence retained solely for detached
+    // second-pass comparison; no SDK write handle, token or consent.
+    std::vector<std::string> exact_selection_fingerprints;
+    std::vector<CueObservedFileSource> observed_file_sources;
+    std::vector<CueHostReference> observed_file_references;
+};
+
+// Include choices and provider provenance, not merely the resulting
+// metadata postimage: Accept and Reject can produce identical bytes, but
+// a changed user decision must invalidate a previous exact review.
+inline std::string unified_cue_review_selection_fingerprint(
+    const UnifiedReviewBatchReprobe& row) {
+    MetadataDocument proof;
+    const auto add=[&](std::string name,std::vector<std::string> values) {
+        proof.fields.push_back({std::move(name),std::move(values)});
+    };
+    add("SOURCE",{row.normalizer.live.physical_id,
+        row.normalizer.live.live_physical_key,
+        row.normalizer.live.live_source_guard});
+    add("RULESET",{row.normalizer.active_ruleset_revision});
+    add("CAPTURE",{row.normalizer.captured_analysis.input_fingerprint});
+    for(std::size_t i=0;i<row.normalizer.decisions.size();++i) {
+        const auto& decision=row.normalizer.decisions[i];
+        add("LOCAL_DECISION",{std::to_string(i),
+            std::to_string(static_cast<int>(decision.action)),
+            decision.manual_value});
+    }
+    if(row.online_capture) {
+        add("ONLINE_PRESENT",{"1",
+            fingerprint(row.online_capture->physical_before)});
+        for(std::size_t i=0;i<row.online_capture->evidence.size();++i) {
+            const auto& ev=row.online_capture->evidence[i];
+            add("ONLINE_PROVENANCE",{std::to_string(i),ev.field,
+                ev.provider,ev.source_id,
+                std::to_string(static_cast<int>(ev.scope)),
+                std::to_string(static_cast<int>(ev.date_meaning))});
+            add("ONLINE_VALUES",ev.values);
+        }
+    } else add("ONLINE_PRESENT",{"0"});
+    for(const auto i:row.selected_online_indices)
+        add("ONLINE_SELECTED",{std::to_string(i)});
+    for(const auto& [i,target]:row.explicit_date_targets)
+        add("ONLINE_DATE_TARGET",{std::to_string(i),target});
+    return fingerprint(proof);
+}
+
+struct UnifiedCueSecondPassCheck {
+    bool eligible=false; // advisory recheck only, NEVER write permission
+    std::string rejection;
+    bool exact_noop=false;
     std::size_t changed_audio_sources=0;
     bool cue_bytes_change=false;
 };
@@ -106,6 +161,9 @@ inline UnifiedCueFilePlanPreview preview_unified_cue_file_plan(
         selected_audio.push_back({row.physical_id,row.source_key,row.target_key});
         physical_selected.push_back({
             i,live.live_physical_key,live.live_source_guard,true});
+        out.exact_selection_fingerprints.push_back(
+            unified_cue_review_selection_fingerprint(
+                audio_reprobes[audio_index-1]));
     }
     if(review_batch_plan(captured).plan_fingerprint!=
        review_batch_plan(out.items).plan_fingerprint)
@@ -155,7 +213,95 @@ inline UnifiedCueFilePlanPreview preview_unified_cue_file_plan(
     out.cue=cue.association;
     out.review=cue.review;
     out.cue_bytes_change=out.review.decisions[cue_index].cue_bytes_write_needed;
+    out.observed_file_sources=host.file_sources;
+    out.observed_file_references=host.file_destinations;
     out.eligible=true;
     return out;
+}
+
+// Reconstruct the whole preview from independently RE-READ sources, rather
+// than reusing stored booleans or postimages as future authority. A stable
+// output plan is NOT enough: selected-field provenance and every selected or
+// unselected physical FILE source identity/version must match byte-for-byte.
+// There is deliberately no BatchApproval, freeze or executor here.
+inline UnifiedCueSecondPassCheck recheck_unified_cue_file_plan(
+    const UnifiedCueFilePlanPreview& previous,
+    const std::vector<FilePlanItem>& captured,
+    std::size_t cue_index,
+    const std::vector<UnifiedReviewBatchReprobe>& refreshed_audio,
+    std::string_view reread_cue_bytes,
+    const UnifiedCueHostObservation& refreshed_host) {
+    const auto refuse=[](const char* reason) {
+        UnifiedCueSecondPassCheck out;
+        out.rejection=reason;
+        return out;
+    };
+    if(!previous.eligible || previous.review.plan_fingerprint.empty() ||
+       previous.review.blocked!=0 ||
+       previous.audio_postimages.size()!=refreshed_audio.size() ||
+       previous.items.size()!=captured.size() ||
+       previous.exact_selection_fingerprints.size()!=refreshed_audio.size() ||
+       previous.observed_file_sources.size()!=refreshed_host.file_sources.size() ||
+       previous.observed_file_references.size()!=refreshed_host.file_destinations.size())
+        return refuse("UNIFIED_CUE_SECOND_PASS_SHAPE_OR_ORIGINAL_UNQUALIFIED");
+    for(std::size_t i=0;i<refreshed_audio.size();++i)
+        if(previous.exact_selection_fingerprints[i]!=
+           unified_cue_review_selection_fingerprint(refreshed_audio[i]))
+            return refuse("UNIFIED_CUE_SECOND_PASS_SELECTION_OR_PROVENANCE_CHANGED");
+    for(std::size_t i=0;i<refreshed_host.file_sources.size();++i) {
+        const auto& before=previous.observed_file_sources[i];
+        const auto& now=refreshed_host.file_sources[i];
+        if(before.file_index!=now.file_index ||
+           before.host_physical_key!=now.host_physical_key ||
+           before.source_guard!=now.source_guard ||
+           before.observed!=now.observed)
+            return refuse("UNIFIED_CUE_SECOND_PASS_FILE_SOURCE_CHANGED");
+        const auto& ref_before=previous.observed_file_references[i];
+        const auto& ref_now=refreshed_host.file_destinations[i];
+        if(ref_before.reference_index!=ref_now.reference_index ||
+           ref_before.expected_filename!=ref_now.expected_filename ||
+           ref_before.resolved_source_key!=ref_now.resolved_source_key ||
+           ref_before.proposed_filename!=ref_now.proposed_filename ||
+           ref_before.uniquely_resolved!=ref_now.uniquely_resolved ||
+           ref_before.destination_reference_verified!=
+               ref_now.destination_reference_verified ||
+           ref_before.verified_destination_key!=
+               ref_now.verified_destination_key)
+            return refuse("UNIFIED_CUE_SECOND_PASS_REFERENCE_OR_TARGET_CHANGED");
+    }
+    const auto fresh=preview_unified_cue_file_plan(
+        captured,cue_index,refreshed_audio,reread_cue_bytes,refreshed_host);
+    if(!fresh.eligible)
+        return refuse("UNIFIED_CUE_SECOND_PASS_FRESH_PLAN_UNQUALIFIED");
+    if(previous.review.plan_fingerprint!=fresh.review.plan_fingerprint ||
+       previous.cue.original_cue_fingerprint!=
+           fresh.cue.original_cue_fingerprint ||
+       previous.cue.proposed_cue_fingerprint!=
+           fresh.cue.proposed_cue_fingerprint ||
+       previous.cue.proposed_cue_bytes!=fresh.cue.proposed_cue_bytes ||
+       previous.cue.related_selected_audio_ids!=
+           fresh.cue.related_selected_audio_ids ||
+       previous.cue.changes_references!=fresh.cue.changes_references ||
+       previous.changed_audio_sources!=fresh.changed_audio_sources ||
+       previous.cue_bytes_change!=fresh.cue_bytes_change ||
+       previous.audio_postimages.size()!=fresh.audio_postimages.size())
+        return refuse("UNIFIED_CUE_SECOND_PASS_POSTIMAGE_OR_PLAN_CHANGED");
+    for(std::size_t i=0;i<fresh.audio_postimages.size();++i)
+        if(previous.audio_postimages[i].physical.planned!=
+               fresh.audio_postimages[i].physical.planned ||
+           previous.audio_postimages[i].physical.changed!=
+               fresh.audio_postimages[i].physical.changed)
+            return refuse("UNIFIED_CUE_SECOND_PASS_AUDIO_TAGS_CHANGED");
+
+    UnifiedCueSecondPassCheck result;
+    result.eligible=true;
+    result.exact_noop=std::all_of(fresh.review.decisions.begin(),
+         fresh.review.decisions.end(),[](const ItemDecision& row) {
+             return !row.metadata_write_needed && !row.cue_bytes_write_needed &&
+                    !row.file_operation_needed && row.status==PlanStatus::Unchanged;
+         });
+    result.changed_audio_sources=fresh.changed_audio_sources;
+    result.cue_bytes_change=fresh.cue_bytes_change;
+    return result;
 }
 } // namespace djmeta

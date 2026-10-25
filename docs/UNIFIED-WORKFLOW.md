@@ -732,3 +732,30 @@ All data are synthetic. No native writer, FileOps executor, CUE mutator or
 persistent approval is added; **the native SDK must still obtain genuinely
 qualified FINAL foobar destination identities and CUE rewrite observations**
 before this pure integrator may be used as an actual user-workflow gate.
+
+
+### 2026-10-25 — Read-only *second-pass* unified CUE/metadata/FilePlan revalidation (MMS-WF-09, MMS-CUE-06, MMS-FILE-03/06)
+
+The combined local+Discogs+external-CUE+FilePlan core now also supports a
+separately called, **detached, read-only** second-pass check. The original
+advisory preview captures compact fingerprints of each exact local review
+action and manual replacement, official edition provenance/values, chosen
+online indices, explicit DATE targets, the source/guard and ruleset; it
+retains every CUE FILE source's physical ID/version, including **unselected**
+audio, and independently supplied future FILE name/destination identity.
+The second pass must independently reconstruct the current full plan from
+re-probed host sources, reread CUE bytes and those same decisions. A
+byte-identical final tag/CUE postimage **alone is not sufficient** to claim
+unchanged consent: a changed Pending→Reject decision or a different
+Discogs edition origin is rejected. Replaced unselected FILEs, changed
+relative FILE destinations, stale source guards, changed CUE bytes, new
+metadata/online choices, and any whole-batch plan/postimage difference
+invalidate the entire preview.
+
+Synthetic tests cover the exact positive case, same-bytes different
+decision/provenance, source/target races, protected unselected CUE
+participants and a full **zero-write** second-pass no-op. This is not
+a frozen BatchApproval, a qualified foobar File Operations filename,
+SDK physical writer, CUE/file executor or permission to mutate audio.
+The native final host destination and installed foobar acceptance are still
+separately required before a real user action can be approved.
