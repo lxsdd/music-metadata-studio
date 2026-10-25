@@ -2096,8 +2096,8 @@ void show_preview_page(HWND dialog, PreviewState& state,
     SetDlgItemTextW(dialog, IDC_BATCH_GUIDE, candidate
         ? L"1. Select a track. Double-click it to search, or edit the title and click Search. Compare hits on the right."
         : metadata
-        ? L"2. Review normalization proposals. Accept/Reject only changes the preview, never the music files."
-        : L"3. Preview file names and folders. Paths remain unverified; no files are moved or renamed.");
+        ? L"2. Review normalization proposals. Only Accept/Manual affects the proposed filenames; nothing is written."
+        : L"3. Preview file names and folders from accepted values only. Paths remain unverified; nothing is moved.");
     if (candidate) prefill_musicbrainz_query(state);
     update_live_provider_controls(state);
     ShowWindow(GetDlgItem(dialog, IDC_METADATA_IMPORT_CANDIDATE),
@@ -2671,7 +2671,7 @@ void apply_review_action(HWND dialog, PreviewState& state,
         verify_snapshot(entry);
         const auto current = entry.handle->get_info_ref();
         const auto original = metadata_from_file_info(current->info());
-        auto staged = djmeta::project_review_decisions(
+        auto staged = djmeta::project_explicit_review_decisions(
             original, state.analyses[track], next_decisions[track]);
         // Unlike the visible SAFE-inclusive normalization preview, a
         // *potential physical write* must contain ONLY explicitly Accept or
@@ -3057,7 +3057,9 @@ std::vector<PreviewEntry> capture_preview(
         const auto original = metadata_from_file_info(info);
         auto result = djmeta::Engine{}.analyze(
             original, rules.rules, rules.revision);
-        auto staged = djmeta::stage_safe_only(original, result);
+        // FileOps always uses only explicitly accepted/manual values. SAFE
+        // remains visible as a suggestion in Review, not an implicit rename.
+        auto staged = djmeta::project_explicit_review_decisions(original,result);
 
         PreviewEntry entry;
         entry.handle = handle;
@@ -3068,7 +3070,7 @@ std::vector<PreviewEntry> capture_preview(
         entry.input.profile = choice.display_name;
         entry.input.destination_root = choice.destination_root;
         entry.route_expression = choice.titleformat_expression;
-        entry.input.semantic_proposals_pending = staged.unresolved_proposals > 0;
+        entry.input.semantic_proposals_pending = staged.unresolved_semantic > 0;
         // Top-level subsong and raw-path uniqueness are only preliminary.
         // A real read-only OS+foobar probe supplies physical identity. This
         // prevents hardlinked files at different paths from being treated as
