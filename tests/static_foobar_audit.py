@@ -1648,3 +1648,47 @@ for name, body in (("review",review_action),("FileOps routing",route_action)):
 if ("std::map<std::size_t,std::vector<djmeta::ReviewDecision>> next_decisions;" not in review_action or
     "swap(state.review_decisions[track],next_decisions.at(track));" not in review_action):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: native review decisions not sparse")
+
+
+# MMS-WF-05 / MMS-WF-07 / MMS-UI-05: native, transient one-step Undo.
+# Only previously staged in-memory preview rows/decisions are restored;
+# the command does not save approvals, touch files, or bypass fresh checks.
+if ('#define IDC_BATCH_UNDO 310' not in
+    (foobar / 'resource.h').read_text(encoding='utf-8') or
+    '"Undo preview", IDC_BATCH_UNDO' not in resources):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: native Undo control missing")
+undo_start='void undo_last_preview_action(HWND dialog, PreviewState& state) {'
+undo_end='// User-initiated inspection of RAW, unsanitized candidate paths only.'
+if undo_start not in batch_table_dialog or undo_end not in batch_table_dialog:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: undo handler missing")
+undo_action=batch_table_dialog.split(undo_start,1)[1].split(undo_end,1)[0]
+for marker in (
+    'if(!state.last_preview_undo || state.show_candidate)',
+    'for(const auto& entry:state.entries) verify_snapshot(entry);',
+    'verify_rules_snapshot(state.captured_rules);',
+    'before.input_fingerprint!=state.entries[index].input_fingerprint',
+    'state.last_preview_undo.reset();',
+    'swap(state.entries[index],previous);',
+    'swap(state.review_decisions[index],',
+    'update_pending_review_summaries(state,affected);',
+    'update_table(state);',
+):
+    if marker not in undo_action:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: Undo missing "+marker)
+if any(token in undo_action for token in
+       ('metadb_io','commit_preflighted','physical_tag_writer')):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: preview Undo entered writer")
+if ('case IDC_BATCH_UNDO:' not in native_controls or
+    'if (id == IDC_BATCH_UNDO && HIWORD(wp) == BN_CLICKED)' not in batch_table_dialog):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: Undo command not protected")
+refresh_action=batch_table_dialog.split(
+    'void refresh_workspace_snapshot(PreviewState& state) {',1)[1].split(
+    'void show_workspace_help(',1)[0]
+if 'state.last_preview_undo.reset();' not in refresh_action:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: Refresh retains previous Undo")
+if ('kMaxPreviewUndoSources=4096' not in batch_table_dialog or
+    'std::optional<PreviewUndoFrame> last_preview_undo' not in batch_table_dialog):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: Undo not bounded and transient")
+if ('frame.previous_entries=std::move(next_entries);' not in batch_table_dialog or
+    'frame.previous_entries=std::move(candidate);' not in batch_table_dialog):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: Undo not connected to both native actions")
