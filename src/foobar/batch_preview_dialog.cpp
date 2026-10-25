@@ -499,11 +499,13 @@ void update_workflow_audit_hint(PreviewState& state) {
         L": local explicit changes "+std::to_wstring(audit.explicit_changed_values)+
         L" in "+std::to_wstring(audit.normalizer_changed_tracks)+
         L" tracks; "+std::to_wstring(audit.normalizer_unchanged_tracks)+
-        L" unchanged; pending SAFE "+std::to_wstring(audit.pending_safe_values)+
+        L" without staged changes; pending tracks "+
+        std::to_wstring(audit.tracks_with_pending)+
+        L" (SAFE "+std::to_wstring(audit.pending_safe_values)+
         L", semantic "+std::to_wstring(audit.pending_semantic_values)+
-        L"; raw collisions "+std::to_wstring(audit.raw_collision_tracks)+
+        L"); raw collisions "+std::to_wstring(audit.raw_collision_tracks)+
         L", FileOps unqualified "+std::to_wstring(audit.file_plan_blocked_tracks)+
-        L". Audit batch for details; no writes.";
+        L". Audit or Copy audit for all rows; no writes.";
     SetDlgItemTextW(state.dialog,IDC_BATCH_HINT,
         native_workspace_display_hint(state.stale,hint.c_str()));
 }
@@ -616,13 +618,20 @@ const char* issue_status_text(std::string_view issue) {
     return "Other safety finding";
 }
 
-void show_workflow_audit(HWND dialog,const PreviewState& state) {
+std::wstring workflow_audit_summary(const PreviewState& state) {
     const auto audit=djmeta::audit_workflow_preview(
         state.table,state.analyses,state.review_decisions);
     std::wstring report=L"Captured tracks: "+std::to_wstring(audit.tracks)+
         L"\nLocal normalizer: "+std::to_wstring(audit.normalizer_changed_tracks)+
         L" changed / "+std::to_wstring(audit.normalizer_unchanged_tracks)+
-        L" unchanged tracks\nExplicit changed values: "+
+        L" with no staged changes (may still be pending)\nPending tracks: "+
+        std::to_wstring(audit.tracks_with_pending)+
+        L"; changed and pending: "+
+        std::to_wstring(audit.tracks_with_changed_and_pending)+
+        L"\nNo proposals: "+std::to_wstring(audit.tracks_without_proposals)+
+        L"; resolved no-op/rejected-only: "+
+        std::to_wstring(audit.tracks_with_only_noops_or_rejections)+
+        L"\nExplicit changed values: "+
         std::to_wstring(audit.explicit_changed_values)+
         L"\nExplicit no-ops: "+std::to_wstring(audit.explicit_noop_values)+
         L"; rejected: "+std::to_wstring(audit.rejected_values)+
@@ -715,6 +724,11 @@ void show_workflow_audit(HWND dialog,const PreviewState& state) {
             L"Raw paths are not sanitized foobar FileOps destinations. "
             L"Source/target/CUE preflight and one final batch confirmation "
             L"are still required. No tags, CUE, audio or files were changed.";
+    return report;
+}
+
+void show_workflow_audit(HWND dialog,const PreviewState& state) {
+    const auto report=workflow_audit_summary(state);
     MessageBoxW(dialog,report.c_str(),L"Music Metadata Studio - Batch audit",
                 MB_OK|MB_ICONINFORMATION);
 }
@@ -2336,6 +2350,8 @@ void show_preview_page(HWND dialog, PreviewState& state,
     ShowWindow(state.list, metadata ? SW_HIDE : SW_SHOW);
     ShowWindow(GetDlgItem(dialog,IDC_BATCH_AUDIT),
         metadata ? SW_HIDE : SW_SHOW);
+    ShowWindow(GetDlgItem(dialog,IDC_BATCH_COPY_AUDIT),
+        metadata ? SW_HIDE : SW_SHOW);
     for (int id : {IDC_BATCH_ROUTE_LABEL,
                    IDC_BATCH_DEST_LABEL, IDC_BATCH_PATTERN_LABEL,
                    IDC_BATCH_PROFILE_PICKER,
@@ -3594,7 +3610,7 @@ void mark_stale_workspace(PreviewState& state) {
     for (int id : {IDC_METADATA_ACCEPT, IDC_METADATA_REJECT,
                    IDC_METADATA_RESET, IDC_METADATA_USE_VALUE,
                    IDC_BATCH_APPLY_SELECTED, IDC_BATCH_APPLY_ALL,
-                   IDC_BATCH_UNDO,
+                   IDC_BATCH_UNDO, IDC_BATCH_COPY_AUDIT,
                    IDC_METADATA_MB_SEARCH, IDC_METADATA_MB_LOAD_RELEASE,
                    IDC_METADATA_DISCOGS_NEXT_PAGE,
                    IDC_ONLINE_INCLUDE_FIELDS,IDC_ONLINE_IGNORE_FIELDS,
@@ -3862,7 +3878,8 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_BATCH_APPLY_ALL,L"Recalculate proposed locations for every row in memory. Nothing is written."},
         {IDC_BATCH_REFRESH,L"Reload the original selection after a confirmation. Discards pending decisions, search hits and routing previews. Does not import a different selection."},
         {IDC_BATCH_HELP,L"Open the three-stage walkthrough and explain what each tab can and cannot do."},
-        {IDC_BATCH_AUDIT,L"Recheck every selected source, then show all local explicit/no-op/pending normalization decisions and raw FileOps blockers. Read-only; no execution or approval."},
+        {IDC_BATCH_AUDIT,L"Recheck every selected source, then show local explicit/no-op/pending decisions and raw FileOps blockers. Read-only; no approval."},
+        {IDC_BATCH_COPY_AUDIT,L"Recheck the full captured selection and copy a complete source-order TSV audit (including all 500+ rows) to your clipboard. No file paths, tag values, credentials, or write authorization."},
         {IDC_BATCH_UNDO,L"Undo the last local Accept/Reject/Manual or file route preview in memory. Up to 4096 affected tracks; no file writes or persisted approvals."},
         {IDCANCEL,L"Close the workspace without writing tags, CUE data or music files."}
     };
@@ -4028,6 +4045,20 @@ void copy_crates_search_text(HWND dialog,std::wstring_view query) {
     }
     // System owns handle only after SetClipboardData succeeds.
 }
+// Explicit, read-only clipboard action. Verify the online/local source
+// postimage exactly as Audit batch does before copying the entire source-order
+// report. No disk, tags, CUE, or FileOps writer is reachable here.
+void copy_workflow_audit(HWND dialog,const PreviewState& state) {
+    const auto verified_summary=workflow_audit_summary(state);
+    const auto audit=djmeta::audit_workflow_preview(
+        state.table,state.analyses,state.review_decisions);
+    const auto tsv=djmeta::format_workflow_audit_tsv(state.table,audit);
+    const auto report=verified_summary+L"\r\n\r\n"+from_utf8(tsv);
+    native_copy_audit_text_to_clipboard(dialog,report);
+    SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+        L"Full read-only batch audit copied (source order, all rows). No music paths or tag values exported; no files changed.");
+}
+
 void open_crates_for_selected_physical_track(
     HWND dialog,PreviewState& state) {
     if(!state.show_candidate || !state.beatport_offline_selected ||
@@ -7383,6 +7414,11 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             // The generic command gate has already re-probed the FULL batch.
             // A stale source aborts without presenting an outdated audit.
             show_workflow_audit(dialog,*state);
+            return TRUE;
+        }
+        if (id == IDC_BATCH_COPY_AUDIT && HIWORD(wp) == BN_CLICKED) {
+            // Same full-batch guard as Audit. No implicit clipboard access.
+            copy_workflow_audit(dialog,*state);
             return TRUE;
         }
         if (id == IDC_BATCH_APPLY_SELECTED && HIWORD(wp) == BN_CLICKED) {

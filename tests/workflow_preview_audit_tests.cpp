@@ -46,8 +46,31 @@ int main() {
           summary.rejected_values==1 && summary.pending_safe_values==1 &&
           summary.pending_semantic_values==1 &&
           summary.tracks_with_pending_semantic==1 &&
-          summary.raw_collision_tracks==1 && summary.file_plan_blocked_tracks==2,
+          summary.raw_collision_tracks==1 && summary.file_plan_blocked_tracks==2 &&
+          summary.rows.size()==4 && summary.tracks_without_proposals==0 &&
+          summary.tracks_with_pending==2 &&
+          summary.tracks_with_changed_and_pending==1 &&
+          summary.tracks_with_only_noops_or_rejections==2 &&
+          summary.rows[0].explicit_changes==1 &&
+          summary.rows[0].pending_safe==1 &&
+          summary.rows[1].exact_noops==2 &&
+          summary.rows[2].rejected==1 &&
+          summary.rows[2].raw_collision && summary.rows[2].file_plan_blocked,
           "local explicit decisions and raw FileOps blockers remain independent");
+    const auto export_tsv=format_workflow_audit_tsv(table,summary);
+    check(export_tsv.find("READ-ONLY batch audit; no write approval")!=std::string::npos &&
+          export_tsv.find("#1\t1\t0\t0\t1\t0\tNO\tNO")!=std::string::npos &&
+          export_tsv.find("#3\t0\t0\t1\t0\t0\tYES\tYES\tDUPLICATE_RAW_TARGET")!=std::string::npos &&
+          export_tsv.find("source")==std::string::npos,
+          "complete TSV includes every row and issue code, no source fingerprint");
+    auto injected=table;
+    injected.rows[1].issues={"BAD\tFORMULA"};
+    rejects([&]{(void)format_workflow_audit_tsv(injected,summary);},
+            "export refuses unsafe control/injection in issue code");
+    injected=table;
+    injected.rows[0].issues={"FILESYSTEM_TARGET_UNCHECKED"};
+    rejects([&]{(void)format_workflow_audit_tsv(injected,summary);},
+            "export refuses a stale row status instead of forging a report");
     decisions[0][0].action=ReviewAction::Accept;
     check(audit_workflow_preview(table,analyses,decisions).explicit_changed_values==2,
           "pending SAFE must not be counted until explicit Accept");
@@ -93,7 +116,16 @@ int main() {
     }
     const auto stress=audit_workflow_preview(large,many,choices);
     check(stress.tracks==500 && stress.pending_safe_values==500 &&
-          stress.explicit_changed_values==0 && stress.normalizer_unchanged_tracks==500,
+          stress.explicit_changed_values==0 && stress.normalizer_unchanged_tracks==500 &&
+          stress.tracks_with_pending==500 && stress.tracks_without_proposals==0,
           "500 pending SAFE rows are not implicit physical writes");
+    const auto large_export=format_workflow_audit_tsv(large,stress);
+    check(large_export.find("#500\t0\t0\t0\t1\t0\tNO\tNO")!=std::string::npos &&
+          large_export.find("#1\t")!=std::string::npos &&
+          large_export.find("music.mp3")==std::string::npos,
+          "all 500 source-order audit rows exported without truncation or paths");
+    auto too_many=stress;too_many.tracks=5001;
+    rejects([&]{(void)format_workflow_audit_tsv(large,too_many);},
+            "oversized export fails explicitly, never silently truncates");
     std::cout<<"PASS: read-only workflow audit 500 rows and negative guards\n";
 }

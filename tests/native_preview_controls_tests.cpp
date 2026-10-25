@@ -235,23 +235,37 @@ int main() {
     HWND help=GetDlgItem(dialog,IDC_BATCH_HELP);
     HWND audit=GetDlgItem(dialog,IDC_BATCH_AUDIT);
     HWND undo=GetDlgItem(dialog,IDC_BATCH_UNDO);
+    HWND copy_audit=GetDlgItem(dialog,IDC_BATCH_COPY_AUDIT);
     HWND guide=GetDlgItem(dialog,IDC_BATCH_GUIDE);
-    check(refresh!=nullptr && IsWindowEnabled(refresh) && help && audit && undo && guide,
+    check(refresh!=nullptr && IsWindowEnabled(refresh) && help && audit && undo &&
+          copy_audit && guide,
           "production resource offers Refresh, Help and stage guidance");
-    RECT help_box{},audit_box{},undo_box{},hint_box{};
+    RECT help_box{},audit_box{},undo_box{},copy_box{},hint_box{};
     check(GetWindowRect(help,&help_box) &&
           GetWindowRect(audit,&audit_box) &&
           GetWindowRect(undo,&undo_box) &&
+          GetWindowRect(copy_audit,&copy_box) &&
           GetWindowRect(GetDlgItem(dialog,IDC_BATCH_HINT),&hint_box) &&
           help_box.right<audit_box.left &&
           audit_box.right<undo_box.left &&
+          undo_box.right<copy_box.left &&
           audit_box.bottom<=hint_box.top &&
-          undo_box.bottom<=hint_box.top,
+          undo_box.bottom<=hint_box.top &&
+          copy_box.bottom<=hint_box.top,
           "native undo and batch audit do not overlap toolbar or footer");
     wchar_t caption[96]{};
     GetWindowTextW(audit,caption,96);
     check(std::wcscmp(caption,L"Audit batch")==0,
           "audit action names its read-only scope");
+    GetWindowTextW(copy_audit,caption,96);
+    check(std::wcscmp(caption,L"Copy audit")==0 &&
+          djmeta_foobar::native_audit_clipboard_text_is_safe(L"#1\t0\t0") &&
+          !djmeta_foobar::native_audit_clipboard_text_is_safe(L"") &&
+          !djmeta_foobar::native_audit_clipboard_text_is_safe(
+              std::wstring_view(L"A\0B",3)) &&
+          !djmeta_foobar::native_audit_clipboard_text_is_safe(
+              std::wstring(512u*1024u+1u,L'A')),
+          "native complete-audit copy has a visible action and bounded payload");
     GetWindowTextW(undo,caption,96);
     check(std::wcscmp(caption,L"Undo preview")==0,
           "undo labels an in-memory view operation rather than a file write");
@@ -392,7 +406,7 @@ int main() {
     for(const int id : {IDC_METADATA_ACCEPT,IDC_METADATA_REJECT,
                         IDC_METADATA_RESET,IDC_METADATA_USE_VALUE,
                         IDC_BATCH_APPLY_SELECTED,IDC_BATCH_APPLY_ALL,
-                        IDC_BATCH_AUDIT,IDC_BATCH_UNDO})
+                        IDC_BATCH_AUDIT,IDC_BATCH_COPY_AUDIT,IDC_BATCH_UNDO})
         check(scope_for(id)==NativeWorkspaceCheckScope::FullBatch,
               "batch approval and Apply require every captured source");
     check(scope_for(IDC_METADATA_VISIBLE_WHITESPACE)==

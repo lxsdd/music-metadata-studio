@@ -1884,3 +1884,28 @@ if ('native_joint_raw_observation_matches(' not in native_update_table or
         "INT_PTR CALLBACK batch_dialog_proc",1)[0] or
     'native_joint_raw_observation_matches(' not in gui_test):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: joined target snapshot may be stale")
+
+# Full-batch, user-clicked source-order audit export. No media paths, tags,
+# tokens or writer approval may leave the native read-only preview.
+audit_header=(root / "include" / "djmeta" / "workflow_preview_audit.h").read_text(encoding="utf-8")
+for marker in (
+    "struct WorkflowAuditRow",
+    "format_workflow_audit_tsv(",
+    "WORKFLOW_AUDIT_EXPORT_UNSAFE_CODE",
+    "audit.tracks>5000",
+    'out+="#"+std::to_string(i+1)',
+):
+    if marker not in audit_header:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: full batch audit missing "+marker)
+for marker in (
+    "IDC_BATCH_COPY_AUDIT",
+    "native_copy_audit_text_to_clipboard(dialog,report);",
+    "const auto verified_summary=workflow_audit_summary(state);",
+    "djmeta::format_workflow_audit_tsv(state.table,audit)",
+    "if (id == IDC_BATCH_COPY_AUDIT && HIWORD(wp) == BN_CLICKED)",
+):
+    if marker not in workspace_dialog:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: native audit copy missing "+marker)
+if "IDC_BATCH_COPY_AUDIT" not in native_controls or (
+    '"Copy audit", IDC_BATCH_COPY_AUDIT' not in resources):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: audit export lacks visible full-batch gate")

@@ -14,6 +14,7 @@
 #include <vector>
 #include <string>
 #include <string_view>
+#include <stdexcept>
 
 namespace djmeta_foobar {
 
@@ -217,6 +218,7 @@ inline constexpr NativeWorkspaceCheckScope native_workspace_command_check_scope(
     case IDC_BATCH_APPLY_SELECTED:
     case IDC_BATCH_APPLY_ALL:
     case IDC_BATCH_AUDIT:
+    case IDC_BATCH_COPY_AUDIT:
     case IDC_BATCH_UNDO:
         return NativeWorkspaceCheckScope::FullBatch;
     case IDC_METADATA_MB_SEARCH:
@@ -229,6 +231,35 @@ inline constexpr NativeWorkspaceCheckScope native_workspace_command_check_scope(
     default:
         return NativeWorkspaceCheckScope::None;
     }
+}
+
+// The local audit export contains no music paths, tags or credentials.
+inline bool native_audit_clipboard_text_is_safe(std::wstring_view text) noexcept {
+    return !text.empty() && text.size()<=512u*1024u &&
+           text.find(L'\0')==std::wstring_view::npos;
+}
+inline void native_copy_audit_text_to_clipboard(HWND owner,
+                                                std::wstring_view text) {
+    if(!native_audit_clipboard_text_is_safe(text))
+        throw std::invalid_argument("Audit clipboard payload invalid or too large");
+    if(!OpenClipboard(owner))
+        throw std::runtime_error("Cannot open clipboard for batch audit");
+    struct Close { ~Close(){CloseClipboard();} } closer;
+    HGLOBAL handle=GlobalAlloc(GMEM_MOVEABLE,(text.size()+1)*sizeof(wchar_t));
+    if(!handle) throw std::bad_alloc();
+    auto* memory=static_cast<wchar_t*>(GlobalLock(handle));
+    if(!memory) {
+        GlobalFree(handle);
+        throw std::runtime_error("Cannot allocate audit clipboard payload");
+    }
+    std::copy(text.begin(),text.end(),memory);
+    memory[text.size()]=L'\0';
+    GlobalUnlock(handle);
+    if(!EmptyClipboard() || !SetClipboardData(CF_UNICODETEXT,handle)) {
+        GlobalFree(handle);
+        throw std::runtime_error("Cannot copy batch audit");
+    }
+    // Windows owns the handle after successful SetClipboardData.
 }
 
 // Display-only escaping of invisible metadata characters. Never pass the
