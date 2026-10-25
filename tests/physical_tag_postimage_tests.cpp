@@ -157,10 +157,9 @@ int main(){
         const std::vector<ReviewDecision>& selection,
         const std::string& key="volume:physical-id",
         const std::string& guard="source:v1",
-        const std::string& rules="rules:v1",
-        const MetadataDocument& observed=original){
+        const std::string& rules="rules:v1"){
         const auto result=preview_explicit_normalizer_physical_tags(
-            snap,observed,key,guard,captured,rules,selection);
+            snap,original,key,guard,captured,rules,selection);
         return !result.eligible && !result.changed && !result.rejection.empty();
     };
     check(normalizer_rejected(analysis,explicit_decisions,
@@ -179,7 +178,7 @@ int main(){
     check(normalizer_rejected(wrong_analysis,explicit_decisions),
           "forged rule-proposal original cannot authorize physical write");
     auto invalid_decisions=explicit_decisions;
-    invalid_decisions[2].manual_value="unsafe\\nCUE line";
+    invalid_decisions[2].manual_value="unsafe\nCUE line";
     check(normalizer_rejected(analysis,invalid_decisions),
           "unsafe manual normalizer value cannot cross physical guard");
     auto protected_analysis=analysis;
@@ -199,7 +198,6 @@ int main(){
         "rules:v1",{ReviewDecision{ReviewAction::Accept,""}});
     check(equal_approval.eligible && equal_approval.changed,
           "original whitespace differs from explicit normalizer target");
-    equal_analysis.proposals[0].proposed_value="Old Title";
     auto true_noop_source=original;
     true_noop_source.fields[0].values={"Old Title"};
     PhysicalTagSourceSnapshot true_noop_snap=snap;
