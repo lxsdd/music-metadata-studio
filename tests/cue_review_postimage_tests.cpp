@@ -287,7 +287,9 @@ int main(){
     discogs_edition.edition_id="123";
     discogs_edition.fields[0].provider="discogs";
     discogs_edition.fields[0].source_id="123";
-    discogs_edition.tracks[0].source_track_id="123/track/1";
+    // Discogs exposes a positional source label, distinct from the
+    // edition-scoped synthetic track occurrence used by field evidence.
+    discogs_edition.tracks[0].source_track_id="1";
     discogs_edition.tracks[0].fields[0].provider="discogs";
     discogs_edition.tracks[0].fields[0].source_id="123/track/1";
     const auto discogs_snap=capture_qualified_cue_edition_postimage(
@@ -296,18 +298,8 @@ int main(){
           preview_selected_cue_review_postimage(
               discogs_snap,release_raw,{0,1}).bytes==mb_expected,
           "Discogs exact edition uses same byte-exact external/embedded core");
-    auto discogs_wrong_track=discogs_edition;
-    discogs_wrong_track.tracks[0].source_track_id="123/track/9";
-    const auto discogs_identity_review=review_cue_release_edition(
-        inspect_cue_metadata(release_raw,CueCarrierKind::EmbeddedText),
-        discogs_wrong_track);
-    check(!qualified_cue_edition_track_provenance(discogs_wrong_track,0) &&
-          discogs_identity_review.tracks.size()==1 &&
-          discogs_identity_review.tracks[0].fields.empty() &&
-          !capture_qualified_cue_edition_postimage(
-              release_raw,CueCarrierKind::EmbeddedText,
-              discogs_wrong_track).eligible,
-          "foreign Discogs occurrence cannot inherit valid field provenance");
+    check(qualified_cue_edition_track_provenance(discogs_edition,0),
+          "Discogs position and exact edition-track ordinal are distinct identities");
     discogs_edition.tracks[0].fields[0].source_id="999/track/1";
     const auto forged=capture_qualified_cue_edition_postimage(
         release_raw,CueCarrierKind::EmbeddedText,discogs_edition);
