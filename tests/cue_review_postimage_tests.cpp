@@ -247,6 +247,11 @@ int main(){
         release_raw,CueCarrierKind::ExternalText,mb_bad).eligible,
         "album MBID cannot impersonate a release-track occurrence");
     mb_bad=mb_edition;
+    mb_bad.tracks[0].fields.push_back(mb_bad.tracks[0].fields[0]);
+    check(!capture_qualified_cue_edition_postimage(
+        release_raw,CueCarrierKind::ExternalText,mb_bad).eligible,
+        "duplicate provider track field cannot enter selected CUE postimage");
+    mb_bad=mb_edition;
     mb_bad.tracks[0].recording.title="Sunrise (Radio Edit)";
     const auto wrong_mix=capture_qualified_cue_edition_postimage(
         release_raw,CueCarrierKind::ExternalText,mb_bad);
