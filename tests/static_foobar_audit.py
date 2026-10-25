@@ -1105,8 +1105,9 @@ if 'cached_track_names.push_back' not in batch_table_dialog:
 for token in ('NMLVFINDITEMW', 'find_native_track_prefix(', 'LVFI_WRAP'):
     if token not in gui_test:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: actual resource-backed incremental search test missing " + token)
-if 'project_review_decisions(' not in batch_table_dialog or 'verify_snapshot(entry)' not in batch_table_dialog:
-    raise SystemExit("STATIC FOOBAR AUDIT FAIL: actual review projection lacks analysis/stale gate")
+if ('project_explicit_review_decisions(' not in batch_table_dialog or
+    'verify_snapshot(entry)' not in batch_table_dialog):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: explicit review projection lacks analysis/stale gate")
 if 'formatter.evaluate(' not in batch_table_dialog or 'entry.route_expression' not in batch_table_dialog:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: reviewed stage does not reevaluate its own route expression")
 if 'LVNI_SELECTED' not in batch_table_dialog or 'diff.proposal_index' not in batch_table_dialog:
