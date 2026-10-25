@@ -25,6 +25,10 @@ int main(){
                      "GBABC2600001",-1};
     track.track_number=1;
     track.disc_number=1;
+    track.fields.push_back({"TITLE",{"Sunrise (Extended Mix)"},
+        "musicbrainz",track_id,EvidenceScope::Edition});
+    track.fields.push_back({"ARTIST",{"DJ"},
+        "musicbrainz",track_id,EvidenceScope::Edition});
     edition.tracks.push_back(track);
     const auto local=prepare_cue_release_lookup(cue);
     check(local.eligible && local.tracks.size()==1,"source cue qualifies");
@@ -34,6 +38,21 @@ int main(){
           "known named mix and ISRC are independently suggested");
     check(qualified_musicbrainz_cue_album_alignment(cue,edition,alignment),
           "complete exact edition qualifies source-only album comparison");
+    auto recording_only=edition;
+    recording_only.tracks[0].fields.clear();
+    check(!qualified_musicbrainz_cue_album_alignment(
+        cue,recording_only,alignment),
+        "recording facts and valid track ID without exact track fields cannot qualify album");
+    auto artist_only=edition;
+    artist_only.tracks[0].fields.erase(artist_only.tracks[0].fields.begin());
+    check(!qualified_musicbrainz_cue_album_alignment(
+        cue,artist_only,alignment),
+        "missing exact release-track TITLE defeats otherwise plausible album match");
+    auto foreign_title=edition;
+    foreign_title.tracks[0].fields[0].source_id=edition_id;
+    check(!qualified_musicbrainz_cue_album_alignment(
+        cue,foreign_title,alignment),
+        "release MBID cannot impersonate track-title occurrence evidence");
     // The native album gate must honor the same media-identity conflict.
     const auto coded_cue=inspect_cue_metadata(
         "CATALOG 4006381333931\nTITLE \"Local album\"\n"
