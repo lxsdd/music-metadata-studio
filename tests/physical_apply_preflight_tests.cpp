@@ -1,4 +1,4 @@
-#include "djmeta/physical_apply_preflight.h"
+#include "djmeta/normalizer_batch_preflight.h"
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -123,5 +123,172 @@ int main(){
     const auto frozen_move=freeze_reviewed_batch_preview(move_plan,move_approval);
     check(refused(frozen_move,move_approval,{move}),
           "even approved FileOps cannot enter the physical-only writer gate");
+
+    // Fully detached end-to-end batch: explicit normalizer decisions are
+    // re-projected and rebound to the same frozen whole-plan fingerprint.
+    auto norm_a=sample("NA",false);
+    auto norm_b=sample("NB",false);
+    norm_a.observed_item.ruleset_revision="rules:norm1";
+    norm_b.observed_item.ruleset_revision="rules:norm1";
+    const auto make_analysis=[](const PhysicalApplyReprobe& live){
+        AnalysisResult a;
+        a.input_fingerprint=fingerprint(live.captured.original);
+        a.ruleset_revision="rules:norm1";
+        Proposal safe;
+        safe.field_index=0;
+        safe.field=live.captured.original.fields[0].name;
+        safe.original_value=live.captured.original.fields[0].values[0];
+        safe.proposed_value="Updated "+live.physical_id.substr(7);
+        safe.safety=SafetyClass::Safe;
+        safe.rule_ids={"test.safe-title"};
+        a.proposals.push_back(safe);
+        return a;
+    };
+    NormalizerBatchReprobe decision_a;
+    decision_a.live=norm_a;
+    decision_a.captured_analysis=make_analysis(norm_a);
+    decision_a.active_ruleset_revision="rules:norm1";
+    decision_a.decisions={ReviewDecision{ReviewAction::Accept,""}};
+    Proposal genre;
+    genre.field_index=1;
+    genre.field=norm_a.captured.original.fields[1].name;
+    genre.value_index=1;
+    genre.original_value="Trance";
+    genre.proposed_value="Recommended Genre";
+    genre.safety=SafetyClass::Review;
+    genre.rule_ids={"test.review-genre"};
+    decision_a.captured_analysis.proposals.push_back(genre);
+    decision_a.decisions.push_back(
+        ReviewDecision{ReviewAction::ManualValue,"Melodic Trance"});
+    NormalizerBatchReprobe decision_b;
+    decision_b.live=norm_b;
+    decision_b.captured_analysis=make_analysis(norm_b);
+    decision_b.active_ruleset_revision="rules:norm1";
+    decision_b.decisions={ReviewDecision{ReviewAction::Pending,""}};
+    auto normalizer_rows=std::vector<NormalizerBatchReprobe>{
+        decision_a,decision_b};
+    for(auto& row:normalizer_rows){
+        const auto projected=preview_explicit_normalizer_physical_tags(
+            row.live.captured,row.live.fresh_tags,
+            row.live.live_physical_key,row.live.live_source_guard,
+            row.captured_analysis,row.active_ruleset_revision,row.decisions);
+        check(projected.eligible,"normalizer batch fixture qualifies exact choices");
+        row.live.observed_item.planned_metadata_fingerprint=
+            fingerprint(projected.planned);
+    }
+    const std::vector<FilePlanItem> norm_plan{
+        normalizer_rows[0].live.observed_item,
+        normalizer_rows[1].live.observed_item};
+    const BatchApproval norm_approval{
+        review_batch_plan(norm_plan).plan_fingerprint,false,{}};
+    const auto norm_frozen=freeze_reviewed_batch_preview(
+        norm_plan,norm_approval);
+    const auto norm_post=preflight_explicit_normalizer_physical_batch(
+        norm_frozen,norm_approval,normalizer_rows);
+    check(norm_post.readiness==PhysicalApplyReadiness::DetachedCandidate &&
+          norm_post.changed_sources==1 &&
+          norm_post.postimages.size()==2 &&
+          norm_post.postimages[0].eligible &&
+          norm_post.postimages[0].planned.fields[0].values==
+              std::vector<std::string>{"Updated NA"} &&
+          norm_post.postimages[0].planned.fields[1].values==
+              std::vector<std::string>({"House","Melodic Trance"}) &&
+          norm_post.postimages[0].planned.fields[2]==
+              norm_a.captured.original.fields[2] &&
+          norm_post.postimages[0].planned.fields[3]==
+              norm_a.captured.original.fields[3] &&
+          norm_post.postimages[0].planned.fields[4]==
+              norm_a.captured.original.fields[4] &&
+          !norm_post.postimages[1].changed,
+          "accepted SAFE + manual multivalue, pending B, CUE/ReplayGain unchanged");
+    const auto normalizer_refuses=[&](
+        const std::vector<NormalizerBatchReprobe>& attempt,
+        const BatchApproval& consent=norm_approval){
+        const auto candidate=preflight_explicit_normalizer_physical_batch(
+            norm_frozen,consent,attempt);
+        return candidate.readiness==PhysicalApplyReadiness::Blocked &&
+               !candidate.rejection.empty() &&
+               candidate.postimages.empty() &&
+               candidate.changed_sources==0;
+    };
+    auto altered_normalizer=normalizer_rows;
+    altered_normalizer[0].decisions[0].action=ReviewAction::Pending;
+    check(normalizer_refuses(altered_normalizer),
+          "pending SAFE cannot reuse frozen selected-write consent");
+    altered_normalizer=normalizer_rows;
+    altered_normalizer[1].decisions[0].action=ReviewAction::Accept;
+    check(normalizer_refuses(altered_normalizer),
+          "new selection for B invalidates entire previously reviewed batch");
+    altered_normalizer=normalizer_rows;
+    altered_normalizer[0].decisions[1].manual_value="Different Genre";
+    check(normalizer_refuses(altered_normalizer),
+          "replaced manual value cannot inherit unchanged batch approval");
+    altered_normalizer=normalizer_rows;
+    altered_normalizer[0].decisions.pop_back();
+    check(normalizer_refuses(altered_normalizer),
+          "partial normalizer decision vector invalidates all sources");
+    altered_normalizer=normalizer_rows;
+    altered_normalizer[0].active_ruleset_revision="rules:norm2";
+    check(normalizer_refuses(altered_normalizer),
+          "changed active rule revision invalidates normalizer batch");
+    altered_normalizer=normalizer_rows;
+    altered_normalizer[0].captured_analysis.proposals[0].original_value=
+        "forged source";
+    check(normalizer_refuses(altered_normalizer),
+          "forged original proposal value cannot inherit whole-plan consent");
+    altered_normalizer=normalizer_rows;
+    altered_normalizer[0].live.approvals.push_back(
+        {"TITLE",{"Initial NA"},{"unreviewed injection"}});
+    check(normalizer_refuses(altered_normalizer),
+          "second field-approval source cannot bypass normalizer selections");
+    altered_normalizer=normalizer_rows;
+    altered_normalizer[0].live.fresh_tags.fields[2].values={
+        "modified in parallel"};
+    check(normalizer_refuses(altered_normalizer),
+          "external custom-field edit invalidates whole batch atomically");
+    altered_normalizer=normalizer_rows;
+    altered_normalizer[1].live.tags_reread=false;
+    check(normalizer_refuses(altered_normalizer),
+          "every selected source needs fresh metadata even if it is a no-op");
+    altered_normalizer=normalizer_rows;
+    altered_normalizer[0].live.captured.virtual_subsong=true;
+    check(normalizer_refuses(altered_normalizer),
+          "virtual CUE source cannot use physical normalizer batch path");
+    altered_normalizer=normalizer_rows;
+    altered_normalizer[0].captured_analysis.proposals[1].field_index=3;
+    altered_normalizer[0].captured_analysis.proposals[1].field="CUESHEET";
+    altered_normalizer[0].captured_analysis.proposals[1].value_index=0;
+    altered_normalizer[0].captured_analysis.proposals[1].original_value=
+        norm_a.captured.original.fields[3].values[0];
+    check(normalizer_refuses(altered_normalizer),
+          "protected CUESHEET cannot become normalizer write via batch");
+    auto stale_consent=norm_approval;
+    stale_consent.reviewed_plan_fingerprint="old reviewed plan";
+    check(normalizer_refuses(normalizer_rows,stale_consent),
+          "old whole-plan approval cannot authorize new normalizer batch");
+
+    // Two untouched sources still yield no physical or timestamp writes.
+    auto only_pending=normalizer_rows;
+    for(auto& row:only_pending){
+        for(auto& decision:row.decisions)
+            decision={ReviewAction::Pending,""};
+        row.live.observed_item.planned_metadata_fingerprint=
+            fingerprint(row.live.captured.original);
+    }
+    const std::vector<FilePlanItem> pending_plan{
+        only_pending[0].live.observed_item,
+        only_pending[1].live.observed_item};
+    const BatchApproval pending_approval{
+        review_batch_plan(pending_plan).plan_fingerprint,false,{}};
+    const auto pending_frozen=freeze_reviewed_batch_preview(
+        pending_plan,pending_approval);
+    const auto pending_post=preflight_explicit_normalizer_physical_batch(
+        pending_frozen,pending_approval,only_pending);
+    check(pending_post.readiness==PhysicalApplyReadiness::ExactNoop &&
+          pending_post.changed_sources==0 &&
+          pending_post.postimages.size()==2 &&
+          !pending_post.postimages[0].changed &&
+          !pending_post.postimages[1].changed,
+          "pending SAFE/REVIEW across all sources is a zero-write batch");
     std::cout<<"PASS: atomic physical batch reprobe and exact no-op guards\n";
 }
