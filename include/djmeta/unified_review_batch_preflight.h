@@ -6,6 +6,7 @@
 #include "djmeta/online_physical_postimage.h"
 #include <cstddef>
 #include <map>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -14,7 +15,9 @@ namespace djmeta {
 
 struct UnifiedReviewBatchReprobe {
     NormalizerBatchReprobe normalizer;
-    online::OnlineFieldReviewSnapshot online_capture;
+    // No fake provider approval is needed for a local-only physical track.
+    // A missing snapshot with nonempty selections/targets is ALWAYS invalid.
+    std::optional<online::OnlineFieldReviewSnapshot> online_capture;
     std::vector<std::size_t> selected_online_indices;
     std::map<std::size_t,std::string> explicit_date_targets;
 };
@@ -29,8 +32,10 @@ struct UnifiedReviewPostimage {
     std::string rejection;
 };
 
-// Each side independently re-derives its proposal from immutable evidence
-// against the SAME original physical tags and live identity/rules guards.
+// Each available side independently re-derives its proposal from immutable
+// evidence against the SAME original physical tags and live identity/rules
+// guards. A local-only row is valid without inventing a provider snapshot;
+// provider selections are forbidden unless real evidence exists.
 // We merge only complete-field, byte-exact accepted postimages; a normalizer
 // multivalue edit and an online vector replacement are NOT merged per value.
 inline UnifiedReviewPostimage preview_unified_review_physical_tags(
@@ -42,8 +47,14 @@ inline UnifiedReviewPostimage preview_unified_review_physical_tags(
     };
     const auto& n=row.normalizer;
     const auto& live=n.live;
-    if(!live.approvals.empty() ||
-       row.online_capture.physical_before!=live.captured.original)
+    if(!live.approvals.empty())
+        return refuse("UNIFIED_EXTERNAL_APPROVAL_OR_ORIGINAL_MISMATCH");
+    if(!row.online_capture &&
+       (!row.selected_online_indices.empty() ||
+        !row.explicit_date_targets.empty()))
+        return refuse("UNIFIED_ONLINE_SELECTION_WITHOUT_EVIDENCE");
+    if(row.online_capture &&
+       row.online_capture->physical_before!=live.captured.original)
         return refuse("UNIFIED_EXTERNAL_APPROVAL_OR_ORIGINAL_MISMATCH");
     const auto local=preview_explicit_normalizer_physical_tags(
         live.captured,live.fresh_tags,live.live_physical_key,
@@ -51,17 +62,23 @@ inline UnifiedReviewPostimage preview_unified_review_physical_tags(
         n.active_ruleset_revision,n.decisions);
     if(!local.eligible)
         return refuse("UNIFIED_NORMALIZER_EVIDENCE_INVALID");
+    if(!row.online_capture) {
+        UnifiedReviewPostimage out;
+        out.physical=local;
+        out.normalizer_changed_fields=local.explicitly_changed;
+        return out;
+    }
     online::OnlineFieldStagedPreview selected;
     try {
         selected=online::stage_selected_online_fields(
-            row.online_capture,live.fresh_tags,
+            *row.online_capture,live.fresh_tags,
             row.selected_online_indices,row.explicit_date_targets);
     } catch(const std::invalid_argument&) {
         return refuse("UNIFIED_ONLINE_SELECTION_INVALID");
     }
     const auto remote=online::verify_online_physical_tag_postimage(
         live.captured,live.fresh_tags,live.live_physical_key,
-        live.live_source_guard,row.online_capture,
+        live.live_source_guard,*row.online_capture,
         row.selected_online_indices,row.explicit_date_targets,selected);
     if(!remote.eligible)
         return refuse("UNIFIED_ONLINE_PHYSICAL_EVIDENCE_INVALID");

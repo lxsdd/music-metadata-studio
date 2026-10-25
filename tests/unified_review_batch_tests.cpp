@@ -80,6 +80,7 @@ static bool rejected(const FrozenBatchPreview& frozen,
 int main() {
     auto a=fixture("A",true,true);
     auto b=fixture("B",false,false);
+    b.online_capture.reset(); // normalizer-only row, no fabricated Discogs evidence
     const auto combined=preview_unified_review_physical_tags(a);
     check(combined.physical.eligible && combined.physical.changed &&
           combined.normalizer_changed_fields==1 &&
@@ -101,8 +102,37 @@ int main() {
           "single postimage retains original multivalues, year, CUE and ReplayGain");
     const auto untouched=preview_unified_review_physical_tags(b);
     check(untouched.physical.eligible && !untouched.physical.changed &&
-          untouched.physical.planned==b.normalizer.live.fresh_tags,
-          "pending SAFE and unselected provider candidate remain no-ops");
+          untouched.physical.planned==b.normalizer.live.fresh_tags &&
+          untouched.normalizer_changed_fields==0 &&
+          untouched.online_changed_fields==0,
+          "pending SAFE and absent online source remain exact no-ops");
+    auto only_local=fixture("local",true,false);
+    only_local.online_capture.reset();
+    const auto local_only_post=preview_unified_review_physical_tags(only_local);
+    check(local_only_post.physical.eligible &&
+          local_only_post.normalizer_changed_fields==1 &&
+          local_only_post.online_changed_fields==0 &&
+          local_only_post.physical.explicitly_changed==1 &&
+          local_only_post.physical.planned.fields.size()==6,
+          "local Accept requires no synthetic provider evidence");
+    auto forged_selection=only_local;
+    forged_selection.selected_online_indices={0};
+    check(!preview_unified_review_physical_tags(forged_selection).physical.eligible &&
+          preview_unified_review_physical_tags(forged_selection).rejection==
+              "UNIFIED_ONLINE_SELECTION_WITHOUT_EVIDENCE",
+          "online index without verified snapshot fails closed");
+    forged_selection=only_local;
+    forged_selection.explicit_date_targets={{1,"DATE"}};
+    check(!preview_unified_review_physical_tags(forged_selection).physical.eligible,
+          "orphan provider date targets cannot bypass absent snapshot");
+    forged_selection=only_local;
+    forged_selection.normalizer.live.fresh_tags.fields[2].values={"raced"};
+    check(!preview_unified_review_physical_tags(forged_selection).physical.eligible,
+          "local-only row still rejects changed unrelated physical tags");
+    const auto local_batch=preview_unified_review_batch_plan({only_local});
+    check(local_batch.eligible && local_batch.items.size()==1 &&
+          local_batch.postimages[0].physical.explicitly_changed==1,
+          "read-only batch accepts local-only explicit edits without Discogs");
 
     std::vector<UnifiedReviewBatchReprobe> batch{a,b};
     const auto preview=preview_unified_review_batch_plan(batch);
@@ -131,13 +161,22 @@ int main() {
     changed[1].normalizer.live.source_reprobed=false;
     check(rejected(frozen,approval,changed),"second no-op source still needs fresh observation");
     changed=batch;
+    changed[1].selected_online_indices={0};
+    check(rejected(frozen,approval,changed),
+          "local-only frozen row cannot acquire a provider selection");
+    changed=batch;
+    changed[1].online_capture=fixture("B",false,false).online_capture;
+    changed[1].selected_online_indices={0};
+    check(rejected(frozen,approval,changed),
+          "adding provider evidence AND choice cannot reuse original approval");
+    changed=batch;
     changed[0].normalizer.active_ruleset_revision="rules:v2";
     check(rejected(frozen,approval,changed),"changed ruleset invalidates whole frozen batch");
     changed=batch;
     changed[0].explicit_date_targets[1]="DATE";
     check(rejected(frozen,approval,changed),"different date target cannot reuse approved plan");
     changed=batch;
-    changed[0].online_capture.evidence[0].values={"Forged online genre"};
+    changed[0].online_capture->evidence[0].values={"Forged online genre"};
     check(rejected(frozen,approval,changed),"tampered online provenance rejected");
     changed=batch;
     changed[0].normalizer.decisions[0]={ReviewAction::Pending,""};
@@ -166,10 +205,10 @@ int main() {
           "opposing accepted local versus online TITLE is an explicit field conflict");
     check(!preview_unified_review_batch_plan({conflicting}).eligible,
           "one field conflict fails the whole batch, never picks a provider by order");
-    conflicting.online_capture.evidence[2].values={"Old C"};
-    conflicting.online_capture.comparisons=review_online_fields(
-        conflicting.online_capture.physical_before,
-        conflicting.online_capture.evidence);
+    conflicting.online_capture->evidence[2].values={"Old C"};
+    conflicting.online_capture->comparisons=review_online_fields(
+        conflicting.online_capture->physical_before,
+        conflicting.online_capture->evidence);
     const auto agreeing=preview_unified_review_physical_tags(conflicting);
     check(agreeing.physical.eligible &&
           agreeing.normalizer_changed_fields==1 &&
@@ -179,7 +218,7 @@ int main() {
           "byte-identical local/provider TITLE choices coalesce to one write intent");
 
     auto absent=fixture("D",false,false);
-    absent.online_capture.physical_before.fields[2].values={"forged"};
+    absent.online_capture->physical_before.fields[2].values={"forged"};
     check(!preview_unified_review_physical_tags(absent).physical.eligible,
           "online snapshot must be bound to same immutable original tags");
     absent=fixture("D",false,false);
