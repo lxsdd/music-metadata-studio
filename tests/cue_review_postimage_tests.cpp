@@ -294,5 +294,60 @@ int main(){
         release_raw,CueCarrierKind::EmbeddedText,discogs_edition).eligible,
         "unverified provider cannot claim edition qualification");
 
+    // A fully verified large edition must never yield a silently truncated
+    // eligible snapshot once its reviewable rows exceed the 512-field cap.
+    std::string large_raw=
+        "TITLE \"Large album\"\nPERFORMER \"DJ\"\nFILE \"large.flac\" WAVE\n";
+    ReleaseEdition large;
+    large.provider="musicbrainz";
+    large.edition_id=mb;
+    large.fields.push_back({"ALBUM",{"Large album"},
+        "musicbrainz",mb,EvidenceScope::Edition});
+    for(int n=1;n<=129;++n) {
+        const auto title="Track "+std::to_string(n)+" (Extended Mix)";
+        const auto suffix=std::to_string(n);
+        const auto isrc="GBABC26"+std::string(5-suffix.size(),'0')+suffix;
+        large_raw+="TRACK "+std::to_string(n)+" AUDIO\n"
+            "TITLE \""+title+"\"\nPERFORMER \"DJ\"\n"
+            "SONGWRITER \"Writer\"\nREM COMMENT \"Note\"\n"
+            "ISRC "+isrc+"\nINDEX 01 00:00:00\n";
+        EditionTrack item;
+        item.source_track_id="00000000-0000-0000-0000-"+
+            std::string(12-suffix.size(),'0')+suffix;
+        item.recording={title,"DJ","",MixKind::Extended,isrc,-1};
+        item.disc_number=1;
+        item.track_number=n;
+        for(const auto& [field,value]:
+            std::vector<std::pair<std::string,std::string>>{
+                {"TITLE",title},{"ARTIST","DJ"},
+                {"SONGWRITER","Writer"},{"COMMENT","Note"}})
+            item.fields.push_back({field,{value},"musicbrainz",
+                item.source_track_id,EvidenceScope::Edition});
+        large.tracks.push_back(std::move(item));
+    }
+    const auto large_cue=inspect_cue_metadata(
+        large_raw,CueCarrierKind::ExternalText);
+    const auto large_local=prepare_cue_release_lookup(large_cue);
+    check(large_local.eligible && large_local.tracks.size()==129,
+          "oversized CUE fixture parses and supplies exact track inventory");
+    const auto large_alignment=align_release(large_local.tracks,large);
+    check(qualified_musicbrainz_cue_album_alignment(
+        large_cue,large,large_alignment),
+          "oversized CUE fixture independently qualifies full edition identity");
+    const auto large_review=review_cue_release_edition(large_cue,large);
+    std::size_t reviewable=0;
+    for(const auto& field:large_review.album_fields)
+        if(field.state==FieldReviewState::NeedsReview ||
+           field.state==FieldReviewState::Unchanged) ++reviewable;
+    for(const auto& track:large_review.tracks)
+        for(const auto& field:track.fields)
+            if(field.state==FieldReviewState::NeedsReview ||
+               field.state==FieldReviewState::Unchanged) ++reviewable;
+    check(reviewable>512,"oversized CUE fixture has more than 512 reviewable fields");
+    const auto large_snapshot=capture_qualified_cue_edition_postimage(
+        large_raw,CueCarrierKind::ExternalText,large);
+    check(!large_snapshot.eligible && large_snapshot.rows.empty(),
+          "over-limit qualified CUE review fails closed instead of truncating");
+
     std::cout<<"PASS: explicit CUE field selection, source recheck, safe byte postimage\n";
 }
