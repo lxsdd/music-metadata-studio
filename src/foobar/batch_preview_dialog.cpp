@@ -846,8 +846,22 @@ std::vector<djmeta::online::FieldReviewRow> musicbrainz_cue_release_rows(
             }
         }
         for (const std::string name:{"TITLE","ARTIST"}) {
-            const auto& value=name=="TITLE"
-                ? remote.recording.title : remote.recording.primary_artist;
+            const auto evidence_it=std::find_if(
+                remote.fields.begin(),remote.fields.end(),
+                [&](const FieldEvidence& evidence) {
+                    return evidence.field==name;
+                });
+            const bool verified_value=verified_occurrence &&
+                std::count_if(remote.fields.begin(),remote.fields.end(),
+                    [&](const FieldEvidence& evidence) {
+                        return evidence.field==name;
+                    })==1 && evidence_it!=remote.fields.end() &&
+                evidence_it->values.size()==1 &&
+                !evidence_it->values.front().empty();
+            const std::string value=verified_value
+                ? evidence_it->values.front()
+                : (name=="TITLE" ? remote.recording.title
+                                 : remote.recording.primary_artist);
             // This is the exact release's track occurrence, NOT a recording
             // MBID. Never impersonate a missing occurrence ID by substituting
             // the enclosing release MBID or recording-level provenance.
@@ -859,17 +873,6 @@ std::vector<djmeta::online::FieldReviewRow> musicbrainz_cue_release_rows(
                 " / Track "+std::to_string(remote.track_number)+
                 " / "+name;
             row.candidate=field;
-            const bool verified_value=verified_occurrence &&
-                std::count_if(remote.fields.begin(),remote.fields.end(),
-                    [&](const FieldEvidence& evidence) {
-                        return evidence.field==name;
-                    })==1 &&
-                std::any_of(remote.fields.begin(),remote.fields.end(),
-                    [&](const FieldEvidence& evidence) {
-                        return evidence.field==name &&
-                            evidence.values.size()==1 &&
-                            evidence.values.front()==value && !value.empty();
-                    });
             if (local_ordinal && verified_value) {
                 const auto review=review_cue_candidate_fields(
                     cue,*local_ordinal,{field},true);
