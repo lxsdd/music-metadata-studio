@@ -193,6 +193,7 @@ inline constexpr NativeWorkspaceCheckScope native_workspace_command_check_scope(
     switch(LOWORD(wp)) {
     case IDC_BATCH_APPLY_SELECTED:
     case IDC_BATCH_APPLY_ALL:
+    case IDC_BATCH_AUDIT:
         return NativeWorkspaceCheckScope::FullBatch;
     case IDC_METADATA_MB_SEARCH:
     case IDC_METADATA_MB_LOAD_RELEASE:

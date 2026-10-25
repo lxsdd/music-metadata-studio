@@ -56,6 +56,7 @@
 #include "djmeta/physical_write_confirmation.h"
 #endif
 #include "djmeta/review_decisions.h"
+#include "djmeta/workflow_preview_audit.h"
 #include "djmeta/review_physical_postimage.h"
 #include "djmeta/review_display.h"
 #include "djmeta/track_review.h"
@@ -463,6 +464,25 @@ void reset_raw_target_observation(PreviewEntry& entry) {
     entry.input.filesystem_target_checked = false;
 }
 
+// A live overview of the entire captured selection, not just the focused
+// proposal or the currently sorted FileOps row. No SDK writer is reachable.
+void update_workflow_audit_hint(PreviewState& state) {
+    if(!state.dialog || state.show_metadata) return;
+    const auto audit=djmeta::audit_workflow_preview(
+        state.table,state.analyses,state.review_decisions);
+    const std::wstring hint=L"Batch "+std::to_wstring(audit.tracks)+
+        L": local explicit changes "+std::to_wstring(audit.explicit_changed_values)+
+        L" in "+std::to_wstring(audit.normalizer_changed_tracks)+
+        L" tracks; "+std::to_wstring(audit.normalizer_unchanged_tracks)+
+        L" unchanged; pending SAFE "+std::to_wstring(audit.pending_safe_values)+
+        L", semantic "+std::to_wstring(audit.pending_semantic_values)+
+        L"; raw collisions "+std::to_wstring(audit.raw_collision_tracks)+
+        L", FileOps unqualified "+std::to_wstring(audit.file_plan_blocked_tracks)+
+        L". Audit batch for details; no writes.";
+    SetDlgItemTextW(state.dialog,IDC_BATCH_HINT,
+        native_workspace_display_hint(state.stale,hint.c_str()));
+}
+
 void update_table(PreviewState& state) {
     // Preserve underlying identities, NOT virtual screen positions, when
     // a sort or user override causes displayed rows to change order.
@@ -495,6 +515,7 @@ void update_table(PreviewState& state) {
         }
         InvalidateRect(state.list, nullptr, FALSE);
     }
+    update_workflow_audit_hint(state);
 }
 
 const char* issue_status_text(std::string_view issue) {
@@ -520,6 +541,51 @@ const char* issue_status_text(std::string_view issue) {
     if (issue == "CUE_DEPENDENCIES_UNCHECKED") return "Final CUE links: not checked";
     if (issue == "FILESYSTEM_TARGET_UNCHECKED") return "Final target: not checked";
     return "Other safety finding";
+}
+
+void show_workflow_audit(HWND dialog,const PreviewState& state) {
+    const auto audit=djmeta::audit_workflow_preview(
+        state.table,state.analyses,state.review_decisions);
+    std::wstring report=L"Captured tracks: "+std::to_wstring(audit.tracks)+
+        L"\nLocal normalizer: "+std::to_wstring(audit.normalizer_changed_tracks)+
+        L" changed / "+std::to_wstring(audit.normalizer_unchanged_tracks)+
+        L" unchanged tracks\nExplicit changed values: "+
+        std::to_wstring(audit.explicit_changed_values)+
+        L"\nExplicit no-ops: "+std::to_wstring(audit.explicit_noop_values)+
+        L"; rejected: "+std::to_wstring(audit.rejected_values)+
+        L"\nStill pending: SAFE "+std::to_wstring(audit.pending_safe_values)+
+        L", semantic "+std::to_wstring(audit.pending_semantic_values)+
+        L" in "+std::to_wstring(audit.tracks_with_pending_semantic)+
+        L" tracks\nRaw target collision rows: "+
+        std::to_wstring(audit.raw_collision_tracks)+
+        L"\nUnqualified FileOps rows: "+
+        std::to_wstring(audit.file_plan_blocked_tracks);
+    if(state.online_field_preview)
+        report+=L"\nOnline edition: "+
+            std::to_wstring(state.online_field_preview->explicitly_changed)+
+            L" field changes in a SEPARATE single-track preview; not merged into batch.";
+    if(state.cue_value_preview)
+        report+=L"\nCUE: independent read-only postimage; not a batch write.";
+    std::size_t listed=0;
+    for(std::size_t i=0;i<state.table.rows.size() && listed<8;++i) {
+        const auto& row=state.table.rows[i];
+        if(row.issues.empty()) continue;
+        const std::string* reason=&row.issues.front();
+        for(const auto& issue:row.issues)
+            if(issue!="CUE_DEPENDENCIES_UNCHECKED" &&
+               issue!="FILESYSTEM_TARGET_UNCHECKED") {
+                reason=&issue;break;
+            }
+        if(listed++==0) report+=L"\n\nFirst unqualified rows (source order):";
+        report+=L"\n#"+std::to_wstring(i+1)+L": "+
+            from_utf8(issue_status_text(*reason));
+    }
+    report+=L"\n\nREAD-ONLY AUDIT. SAFE is not implicit approval. "
+            L"Raw paths are not sanitized foobar FileOps destinations. "
+            L"Source/target/CUE preflight and one final batch confirmation "
+            L"are still required. No tags, CUE, audio or files were changed.";
+    MessageBoxW(dialog,report.c_str(),L"Music Metadata Studio - Batch audit",
+                MB_OK|MB_ICONINFORMATION);
 }
 
 std::string status_text(const djmeta::BatchPreviewRow& row) {
@@ -2099,6 +2165,8 @@ void show_preview_page(HWND dialog, PreviewState& state,
     ShowWindow(GetDlgItem(dialog, IDC_METADATA_FILTER_LABEL),
         metadata && !candidate ? SW_SHOW : SW_HIDE);
     ShowWindow(state.list, metadata ? SW_HIDE : SW_SHOW);
+    ShowWindow(GetDlgItem(dialog,IDC_BATCH_AUDIT),
+        metadata ? SW_HIDE : SW_SHOW);
     for (int id : {IDC_BATCH_ROUTE_LABEL,
                    IDC_BATCH_DEST_LABEL, IDC_BATCH_PATTERN_LABEL,
                    IDC_BATCH_PROFILE_PICKER,
@@ -2109,10 +2177,7 @@ void show_preview_page(HWND dialog, PreviewState& state,
     if (metadata) {
         update_metadata_table(state);
     } else {
-        SetDlgItemTextW(dialog, IDC_BATCH_HINT,
-            native_workspace_display_hint(state.stale,
-                L"Right-click selected rows to inspect raw candidate targets (read-only). "
-                L"Final foobar destinations and CUE dependencies are NOT verified."));
+        update_workflow_audit_hint(state);
     }
 }
 
@@ -3341,6 +3406,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_BATCH_APPLY_ALL,L"Recalculate proposed locations for every row in memory. Nothing is written."},
         {IDC_BATCH_REFRESH,L"Reload the original selection after a confirmation. Discards pending decisions, search hits and routing previews. Does not import a different selection."},
         {IDC_BATCH_HELP,L"Open the three-stage walkthrough and explain what each tab can and cannot do."},
+        {IDC_BATCH_AUDIT,L"Recheck every selected source, then show all local explicit/no-op/pending normalization decisions and raw FileOps blockers. Read-only; no execution or approval."},
         {IDCANCEL,L"Close the workspace without writing tags, CUE data or music files."}
     };
     for (const auto& item : texts) {
@@ -6804,6 +6870,12 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             return TRUE;
         }
 #endif
+        if (id == IDC_BATCH_AUDIT && HIWORD(wp) == BN_CLICKED) {
+            // The generic command gate has already re-probed the FULL batch.
+            // A stale source aborts without presenting an outdated audit.
+            show_workflow_audit(dialog,*state);
+            return TRUE;
+        }
         if (id == IDC_BATCH_APPLY_SELECTED && HIWORD(wp) == BN_CLICKED) {
             apply_to_rows(dialog, *state, false);
             return TRUE;

@@ -197,6 +197,19 @@ else()
     target_compile_options(djmeta_routing_overrides_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+# Complete captured-snapshot audit of normalizer decisions and raw FileOps
+# candidates; deliberately never grants a writer approval.
+add_executable(djmeta_workflow_preview_audit_tests
+    tests/workflow_preview_audit_tests.cpp)
+target_link_libraries(djmeta_workflow_preview_audit_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_workflow_preview_audit_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_workflow_preview_audit_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_workflow_preview_audit_tests PRIVATE
+        -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 add_executable(djmeta_batch_preview_tests
     tests/batch_preview_tests.cpp
 )
@@ -607,6 +620,7 @@ endif()
 add_test(NAME djmeta_track_review_tests COMMAND djmeta_track_review_tests)
 add_test(NAME djmeta_metadata_diff_tests COMMAND djmeta_metadata_diff_tests)
 add_test(NAME djmeta_table_layout_tests COMMAND djmeta_table_layout_tests)
+add_test(NAME djmeta_workflow_preview_audit_tests COMMAND djmeta_workflow_preview_audit_tests)
 add_test(NAME djmeta_batch_preview_tests COMMAND djmeta_batch_preview_tests)
 add_test(NAME djmeta_routing_overrides_tests COMMAND djmeta_routing_overrides_tests)
 add_test(NAME djmeta_route_profiles_tests COMMAND djmeta_route_profiles_tests)
