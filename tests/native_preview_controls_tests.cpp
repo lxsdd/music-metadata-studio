@@ -111,6 +111,29 @@ int main() {
           !native_recheck_preserved_online_selection(true,5,6,2) &&
           !native_recheck_preserved_online_selection(true,5,5,0),
           "absent snapshot, changed source and no selection avoid unrelated crosschecks");
+    using djmeta_foobar::native_joint_raw_observation_matches;
+    check(native_joint_raw_observation_matches(
+              5,5,"raw/house/a","raw/house/a",
+              "physical:a","physical:a","guard:v1","guard:v1"),
+          "exact joint raw target source, route and version are stable");
+    check(!native_joint_raw_observation_matches(
+              5,6,"raw/house/a","raw/house/a",
+              "physical:a","physical:a","guard:v1","guard:v1") &&
+          !native_joint_raw_observation_matches(
+              5,5,"raw/house/a","raw/house/b",
+              "physical:a","physical:a","guard:v1","guard:v1") &&
+          !native_joint_raw_observation_matches(
+              5,5,"raw/house/a","raw/house/a",
+              "physical:a","physical:b","guard:v1","guard:v1") &&
+          !native_joint_raw_observation_matches(
+              5,5,"raw/house/a","raw/house/a",
+              "physical:a","physical:a","guard:v1","guard:v2") &&
+          !native_joint_raw_observation_matches(
+              5,5,"","", "physical:a","physical:a","guard:v1","guard:v1") &&
+          !native_joint_raw_observation_matches(
+              5,5,"raw/house/a","raw/house/a",
+              "physical:a","physical:a","",""),
+          "changed source, raw route, physical ID, guard and empty evidence fail closed");
     // Pure read-only target-state stability contract. No filesystem access
     // or real user audio required by these negative tests.
     using djmeta_foobar::HostFileObservation;

@@ -595,3 +595,25 @@ this milestone is not an installed-host release candidate.
   All-or-nothing refusal is intentional until a genuine joint host target
   and CUE/FileOps preflight exists. This overlay is NOT a frozen batch plan,
   File Operations destination, consent, or write authorization.
+
+
+### 2026-10-25 — Joined raw destination host-inspection gate (MMS-WF-05/09, MMS-FILE-01/03)
+
+- Selected exact Discogs + locally accepted normalization now uses a
+  bounded **read-only native host raw target inspection** in the same batch
+  action as local-only tracks. Before and after the two-pass physical and
+  literal target observation, the native adapter independently reconstructs
+  the actual joint full-tag postimage from source-verified evidence and
+  exact local decisions and recomputes foobar Title Formatting. Only an
+  identical before/after raw route with matching current physical source,
+  profile, rules, and source guard can be inspected.
+- The literal joint raw observation is separate from local-only routing
+  state. Replacing a source, changing route, field selections, provider,
+  undoing local decisions or refreshing invalidates this evidence. The
+  existing collision, physical hardlink and source alias checks see the
+  same literal raw target that the user actually sees.
+- The read-only target may be present/missing/unqualified, but its result
+  is **not** foobar's final sanitized File Operations destination, CUE
+  coordination, frozen batch, final consent or write authority.
+  Positive and negative native identity fixtures and production static
+  assertions enforce the distinction. No audio, tag, CUE or DB writing.

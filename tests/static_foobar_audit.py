@@ -1848,9 +1848,38 @@ for marker in (
 if ('return L"Joint raw route: unqualified";' not in native_fileops_cell or
     'return L"Joint raw preview; not probed";' not in native_fileops_cell):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: joint route lacks visible status")
-if ('Its combined host destination and CUE preflight are not' not in
-    native_target_inspect or
-    'native_recheck_preserved_online_selection(' not in native_target_inspect):
-    raise SystemExit("STATIC FOOBAR AUDIT FAIL: joint route probed as local-only")
+for marker in (
+    'recheck_joint_raw_target_candidate(state,index,typed)',
+    'recheck_joint_raw_target_candidate(state,result.index,typed)',
+    'state.online_raw_target_observation=JointRawTargetObservation{',
+    'if(result.joint) {',
+):
+    if marker not in native_target_inspect:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: joint raw inspection missing "+marker)
 if 'update_table(state);\n    refresh_musicbrainz_detail_rows(state);' not in native_online_change:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: online change did not rebuild batch collisions")
+
+
+# Joint raw target inspection must rebuild the source-bound physical postimage
+# rather than treating an old online-only/local-only path as authority.
+joint_recheck=workspace_dialog.split(
+    "std::string recheck_joint_raw_target_candidate(",1)[1].split(
+    "void inspect_selected_raw_targets(",1)[0]
+for marker in (
+    'verify_snapshot(entry);',
+    'probe_host_file_readonly(entry.input.source_path)',
+    'djmeta::preview_unified_review_physical_tags(unified)',
+    'unified.normalizer.decisions=state.review_decisions[index]',
+    'unified.selected_online_indices=state.online_included_fields',
+    'before!=state.online_raw_route_before',
+    'after!=state.online_raw_route_after',
+    'return choice.destination_root+',
+):
+    if marker not in joint_recheck:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: joined source reread lacks "+marker)
+if ('native_joint_raw_observation_matches(' not in native_update_table or
+    'state.online_raw_target_observation.reset();' not in
+    workspace_dialog.split("void change_online_field_preview(PreviewState& state,int action)",1)[1].split(
+        "INT_PTR CALLBACK batch_dialog_proc",1)[0] or
+    'native_joint_raw_observation_matches(' not in gui_test):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: joined target snapshot may be stale")

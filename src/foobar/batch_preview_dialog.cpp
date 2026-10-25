@@ -157,6 +157,15 @@ struct PendingBeatportPageContext {
     djmeta::MetadataDocument originals;
     std::int64_t duration_ms=-1;
 };
+// Single exact Discogs source's read-only raw target evidence, NEVER a
+// foobar-sanitized final path, frozen approval, or writer authorization.
+struct JointRawTargetObservation {
+    std::size_t source_index=0;
+    std::string raw_candidate;
+    std::string source_physical_key;
+    std::string source_guard;
+    HostFileObservation target;
+};
 struct PreviewState {
     HWND dialog = nullptr;
     HWND help_tooltips = nullptr; // Native tooltip HWND lives/dies with dialog.
@@ -259,6 +268,7 @@ struct PreviewState {
     // selected online tags. Advisory raw paths only, never FileOps authority.
     bool online_raw_route_valid=false;
     std::string online_raw_route_before, online_raw_route_after;
+    std::optional<JointRawTargetObservation> online_raw_target_observation;
     std::vector<std::size_t> online_included_fields;
     std::map<std::size_t,std::string> online_date_targets;
     std::size_t online_edition_source=(std::numeric_limits<std::size_t>::max)();
@@ -328,6 +338,7 @@ void invalidate_online_request(PreviewState& state) {
     state.online_raw_route_valid=false;
     state.online_raw_route_before.clear();
     state.online_raw_route_after.clear();
+    state.online_raw_target_observation.reset();
     state.cue_postimage_source=(std::numeric_limits<std::size_t>::max)();
     // Any provider/track/query change discards prior edition evidence.
 
@@ -530,6 +541,34 @@ void update_table(PreviewState& state) {
             input.raw_target_host_canonical.clear();
             input.filesystem_target_checked=false;
             input.cue_dependencies_checked=false;
+            if(state.online_raw_route_valid &&
+               state.online_raw_target_observation) {
+                const auto& probe=*state.online_raw_target_observation;
+                const auto candidate=input.destination_root+"\\"+
+                    input.raw_relative_path;
+                if(native_joint_raw_observation_matches(
+                       probe.source_index,index,probe.raw_candidate,candidate,
+                       probe.source_physical_key,
+                       state.entries[index].observed_physical_key,
+                       probe.source_guard,
+                       state.entries[index].observed_source_guard)) {
+                    switch(probe.target.state) {
+                    case HostFileState::Missing:
+                        input.raw_target_presence=djmeta::RawTargetPresence::Missing;
+                        input.raw_target_host_canonical=probe.target.canonical_path;
+                        break;
+                    case HostFileState::ExistingFile:
+                        input.raw_target_presence=djmeta::RawTargetPresence::Existing;
+                        input.raw_target_host_canonical=probe.target.canonical_path;
+                        input.raw_target_physical_key=probe.target.host_physical_key;
+                        input.raw_target_guard=probe.target.source_guard;
+                        break;
+                    case HostFileState::Unqualified:
+                        input.raw_target_presence=djmeta::RawTargetPresence::Unqualified;
+                        break;
+                    }
+                }
+            }
         }
         inputs.push_back(std::move(input));
     }
@@ -735,7 +774,10 @@ std::wstring cell_text(PreviewState& state, std::size_t row, int column) {
             const auto issue=status_text(summary);
             if(!issue.empty() && issue!="Qualified inputs (not approved)")
                 return from_utf8(issue);
-            return L"Joint raw preview; not probed";
+            return state.online_raw_target_observation &&
+                summary.raw_target_presence!=djmeta::RawTargetPresence::NotInspected
+                ? L"Joint raw inspected; not final"
+                : L"Joint raw preview; not probed";
         }
         return from_utf8(status_text(summary));
     default: return {};
@@ -2950,6 +2992,7 @@ void apply_review_action(HWND dialog, PreviewState& state,
     EnableWindow(GetDlgItem(dialog,IDC_BATCH_UNDO),
                  state.last_preview_undo ? TRUE : FALSE);
     if(reviewed_online_route) {
+        state.online_raw_target_observation.reset();
         // Every affected source was validated before the local batch was
         // committed. A stale or per-track overridden route is never shown.
         state.online_raw_route_valid=refreshed_online_route.has_value();
@@ -3033,6 +3076,7 @@ void apply_to_rows(HWND dialog, PreviewState& state, bool all) {
     state.online_raw_route_valid=false;
     state.online_raw_route_before.clear();
     state.online_raw_route_after.clear();
+    state.online_raw_target_observation.reset();
     EnableWindow(GetDlgItem(dialog,IDC_BATCH_UNDO),
                  state.last_preview_undo ? TRUE : FALSE);
     update_table(state);
@@ -3095,6 +3139,7 @@ void undo_last_preview_action(HWND dialog, PreviewState& state) {
     state.online_raw_route_valid=false;
     state.online_raw_route_before.clear();
     state.online_raw_route_after.clear();
+    state.online_raw_target_observation.reset();
     EnableWindow(GetDlgItem(dialog,IDC_BATCH_UNDO),FALSE);
     update_table(state);
     if(review) {
@@ -3199,6 +3244,71 @@ void append_external_cue_file_reference_evidence(
             "External CUE changed during FILE-reference inspection.");
 }
 
+// Always independently derive the literal joint target from the current
+// physical source, explicit local decisions, official online edition and
+// actual foobar Title Formatting. No prior raw string is a source of truth.
+std::string recheck_joint_raw_target_candidate(
+    PreviewState& state,std::size_t index,const RoutePreviewChoice& choice) {
+    if(!native_recheck_preserved_online_selection(
+           state.online_field_snapshot.has_value(),
+           state.online_edition_source,index,
+           state.online_included_fields.size()) ||
+       index>=state.entries.size() || index>=state.analyses.size() ||
+       index>=state.review_decisions.size() || !state.online_raw_route_valid)
+        throw std::invalid_argument(
+            "Joint raw route missing or expired; reselect online fields.");
+    const auto& entry=state.entries[index];
+    if(!entry.input.physical_source_qualified ||
+       entry.handle->get_subsong_index()!=0 ||
+       is_external_cue_locator(entry.input.source_path) ||
+       choice.display_name!=entry.input.profile ||
+       choice.destination_root!=entry.input.destination_root ||
+       choice.titleformat_expression!=entry.route_expression ||
+       !djmeta::raw_destination_root_lexically_safe(choice.destination_root))
+        throw std::invalid_argument(
+            "Joint target has an unqualified physical source or per-row route.");
+    verify_snapshot(entry);
+    const auto host=probe_host_file_readonly(entry.input.source_path);
+    if(host.state!=HostFileState::ExistingFile ||
+       host.host_physical_key!=entry.observed_physical_key ||
+       host.source_guard!=entry.observed_source_guard)
+        throw std::runtime_error("Joint raw target physical source changed.");
+    const auto info=entry.handle->get_info_ref();
+    const auto current=metadata_from_file_info(info->info());
+    djmeta::UnifiedReviewBatchReprobe unified;
+    unified.normalizer.live.captured={
+        true,false,entry.observed_physical_key,
+        entry.observed_source_guard,current};
+    unified.normalizer.live.fresh_tags=current;
+    unified.normalizer.live.live_physical_key=host.host_physical_key;
+    unified.normalizer.live.live_source_guard=host.source_guard;
+    unified.normalizer.captured_analysis=state.analyses[index];
+    unified.normalizer.active_ruleset_revision=
+        state.analyses[index].ruleset_revision;
+    unified.normalizer.decisions=state.review_decisions[index];
+    unified.online_capture=*state.online_field_snapshot;
+    unified.selected_online_indices=state.online_included_fields;
+    unified.explicit_date_targets=state.online_date_targets;
+    const auto post=djmeta::preview_unified_review_physical_tags(unified);
+    if(!post.physical.eligible)
+        throw std::invalid_argument(
+            "Joint raw target conflicts with selected fields: "+post.rejection);
+    const auto before=evaluate_titleformat_against_canonical(
+        entry.handle->get_location(),info->info(),current,
+        choice.titleformat_expression);
+    const auto after=evaluate_titleformat_against_canonical(
+        entry.handle->get_location(),info->info(),post.physical.planned,
+        choice.titleformat_expression);
+    if(before!=state.online_raw_route_before ||
+       after!=state.online_raw_route_after ||
+       before.size()>2048 || after.size()>2048 ||
+       !djmeta::raw_relative_path_lexically_safe(before) ||
+       !djmeta::raw_relative_path_lexically_safe(after))
+        throw std::invalid_argument(
+            "Joint raw Title Formatting changed. Reselect online fields.");
+    return choice.destination_root+"\\"+after;
+}
+
 void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
     const RoutePreviewChoice typed = read_choice(dialog);
     if (typed.display_name != state.current_choice.display_name ||
@@ -3216,19 +3326,8 @@ void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
     }
     if (selected.empty())
         throw std::invalid_argument("Select raw destination rows before inspection.");
-    // Host target probes below still read entry.input (local-only). The joint
-    // online File Locations row is an overlay, NOT an observed target. Refuse
-    // the WHOLE inspection rather than probing a different hidden location.
-    for(const auto index:selected) {
-        if(native_recheck_preserved_online_selection(
-               state.online_field_snapshot.has_value(),
-               state.online_edition_source,index,
-               state.online_included_fields.size()))
-            throw std::invalid_argument(
-                "Selected online + local route is only a read-only raw preview. "
-                "Its combined host destination and CUE preflight are not "
-                "qualified for filesystem target inspection.");
-    }
+    // Local and joint raw names can be inspected in one bounded read-only
+    // pass, with the actual joint postimage re-derived instead of guessed.
     // Until the SDK-backed async/batch target probe is qualified, keep
     // explicit GUI-thread filesystem reads bounded on slow network drives.
     if (selected.size() > 128)
@@ -3241,6 +3340,7 @@ void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
         std::size_t index;
         std::string raw_candidate;
         HostFileObservation observed;
+        bool joint=false;
     };
     std::vector<RawObservation> observations;
     observations.reserve(selected.size());
@@ -3252,8 +3352,13 @@ void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
             entry.observed_source_guard.empty())
             throw std::invalid_argument(
                 "An unqualified physical source cannot be inspected as a file move.");
+        const bool joint=native_recheck_preserved_online_selection(
+            state.online_field_snapshot.has_value(),
+            state.online_edition_source,index,
+            state.online_included_fields.size());
         if (!djmeta::raw_destination_root_lexically_safe(entry.input.destination_root) ||
-            !djmeta::raw_relative_path_lexically_safe(entry.input.raw_relative_path))
+            (!joint &&
+             !djmeta::raw_relative_path_lexically_safe(entry.input.raw_relative_path)))
             throw std::invalid_argument(
                 "Destination root or raw filename is unsafe; adjust routing before inspection.");
 
@@ -3267,10 +3372,11 @@ void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
 
         // Reading the literal route does not mimic foobar's filename
         // sanitization or automatic source-extension handling.
-        const std::string raw_candidate = entry.input.destination_root +
-            "\\" + entry.input.raw_relative_path;
-        observations.push_back({index, raw_candidate,
-            probe_host_file_readonly(raw_candidate)});
+        const std::string raw_candidate=joint
+            ? recheck_joint_raw_target_candidate(state,index,typed)
+            : entry.input.destination_root+"\\"+entry.input.raw_relative_path;
+        observations.push_back({index,raw_candidate,
+            probe_host_file_readonly(raw_candidate),joint});
     }
     // All-or-nothing UI update: revalidate the entire captured metadata and
     // ruleset snapshot after the slowest selected filesystem observation.
@@ -3297,6 +3403,11 @@ void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
     // raw target observations must remain identical on a second bounded
     // read-only pass immediately before the atomic table update.
     for (const auto& result : observations) {
+        if(result.joint &&
+           recheck_joint_raw_target_candidate(state,result.index,typed)!=
+               result.raw_candidate)
+            throw std::runtime_error(
+                "Joint raw route changed while inspecting destinations.");
         const HostFileObservation current =
             probe_host_file_readonly(result.raw_candidate);
         if (!stable_raw_target_observation(result.observed, current))
@@ -3305,6 +3416,13 @@ void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
     }
     for (auto& result : observations) {
         PreviewEntry& entry = state.entries[result.index];
+        if(result.joint) {
+            state.online_raw_target_observation=JointRawTargetObservation{
+                result.index,result.raw_candidate,
+                entry.observed_physical_key,entry.observed_source_guard,
+                std::move(result.observed)};
+            continue; // local-only routing input must remain untouched
+        }
         auto& input = entry.input;
         input.raw_target_physical_key.clear();
         input.raw_target_guard.clear();
@@ -3339,7 +3457,9 @@ void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
                 ++physical_source_aliases;
                 break;
             }
-        switch (result.observed.state) {
+        switch (result.joint
+                    ? state.online_raw_target_observation->target.state
+                    : result.observed.state) {
         case HostFileState::ExistingFile: ++present; break;
         case HostFileState::Missing: ++missing; break;
         case HostFileState::Unqualified: default: ++unqualified; break;
@@ -4052,6 +4172,7 @@ void consume_beatport_public_network(HWND dialog,PreviewState& state) {
         state.musicbrainz_kind=djmeta::online::musicbrainz::SearchKind::Recording;
         state.discogs_live_view=false;
         state.online_physical_edition.reset(); // NOT authenticated API data
+        state.online_raw_target_observation.reset();
         state.online_field_snapshot.reset();
         state.online_field_preview.reset();
         state.online_included_fields.clear();
@@ -4603,6 +4724,7 @@ void publish_discogs_release(HWND dialog, PreviewState& state,
     state.online_raw_route_valid=false;
     state.online_raw_route_before.clear();
     state.online_raw_route_after.clear();
+    state.online_raw_target_observation.reset();
     state.online_edition_source=state.online_physical_edition
         ? request.source_index:(std::numeric_limits<std::size_t>::max)();
     state.candidate_rows=std::move(grouped.summary);
@@ -5147,6 +5269,7 @@ void change_online_field_preview(PreviewState& state,int action) {
     state.online_included_fields=proposed;
     state.online_date_targets=std::move(date_targets);
     state.online_field_preview=std::move(projected);
+    state.online_raw_target_observation.reset();
     // The File Locations table consumes the SAME verified joint raw candidate.
     // This rebuild also checks collisions against every other batch source;
     // no target filesystem observation is trusted or performed here.
@@ -5688,6 +5811,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                     state->online_field_preview.reset();
                     state->online_physical_edition.reset();
                     state->online_field_snapshot.reset();
+                    state->online_raw_target_observation.reset();
                     state->online_edition_source=(std::numeric_limits<std::size_t>::max)();
                 }
                 state->selected_track_index = *track;
@@ -6301,6 +6425,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             state->online_field_preview.reset();
             state->online_included_fields.clear();
             state->online_date_targets.clear();
+            state->online_raw_target_observation.reset();
             state->online_edition_source=(std::numeric_limits<std::size_t>::max)();
             state->musicbrainz_results.clear();
             state->musicbrainz_detail_groups.clear();

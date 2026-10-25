@@ -27,6 +27,19 @@ inline constexpr bool native_recheck_preserved_online_selection(
            selected_count!=0;
 }
 
+// A raw destination observation belongs to one exact source and route. No
+// host-independent comparison may promote it to a final FileOps approval.
+inline constexpr bool native_joint_raw_observation_matches(
+    std::size_t saved_source,std::size_t current_source,
+    std::string_view saved_candidate,std::string_view current_candidate,
+    std::string_view saved_key,std::string_view current_key,
+    std::string_view saved_guard,std::string_view current_guard) noexcept {
+    return saved_source==current_source &&
+           !saved_candidate.empty() && saved_candidate==current_candidate &&
+           !saved_key.empty() && saved_key==current_key &&
+           !saved_guard.empty() && saved_guard==current_guard;
+}
+
 // A keyboard WM_CONTEXTMENU carries (-1,-1), not a pointer location.
 // Place the column picker at its header so Shift+F10 remains usable when
 // the mouse is on another monitor. Mouse right-click keeps its exact point.
