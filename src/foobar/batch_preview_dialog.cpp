@@ -578,7 +578,10 @@ void show_workflow_audit(HWND dialog,const PreviewState& state) {
         report+=L"\nOnline edition: "+
             std::to_wstring(state.online_field_preview->explicitly_changed)+
             L" selected online field changes; combined local + online naming what-if "
-            L"is read-only and not frozen into the full batch.";
+            L"is read-only and not frozen into the full batch."+
+            std::wstring(state.online_raw_route_valid
+                ? L" Current raw what-if qualified."
+                : L" Raw what-if expired or unqualified; reselect fields to recalculate.");
     if(state.cue_value_preview)
         report+=L"\nCUE: independent read-only postimage; not a batch write.";
     std::size_t listed=0;
@@ -1486,7 +1489,18 @@ void update_online_field_preview_controls(PreviewState& state) {
     // Only the isolated acceptance variant contains a real SDK write action.
     // Shipping preview builds keep the same control completely invisible.
 #if defined(MMS_ENABLE_PHYSICAL_WRITES)
-    const bool physical_writer_ready=ready && state.online_field_preview &&
+    const bool local_decisions_present=
+        state.selected_track_index<state.review_decisions.size() &&
+        std::any_of(state.review_decisions[state.selected_track_index].begin(),
+                    state.review_decisions[state.selected_track_index].end(),
+                    [](const djmeta::ReviewDecision& value) {
+                        return value.action==djmeta::ReviewAction::Accept ||
+                               value.action==djmeta::ReviewAction::ManualValue;
+                    });
+    // The restricted QA one-file writer is online-only. It must never apply
+    // a partial postimage while a different local decision is accepted.
+    const bool physical_writer_ready=ready && !local_decisions_present &&
+        state.online_field_preview &&
         state.online_field_preview->explicitly_changed>0 &&
         !state.online_included_fields.empty() &&
         !state.physical_write_pending->load();
@@ -2676,6 +2690,11 @@ void apply_review_action(HWND dialog, PreviewState& state,
     std::map<std::size_t,std::vector<djmeta::ReviewDecision>> next_decisions;
     std::map<std::size_t,PreviewEntry> next_entries;
     std::set<std::size_t> affected_tracks;
+    // Recalculate the currently selected online source's advisory raw path
+    // together with a local decision. Never publish a route computed from
+    // yesterday's accepted values or a half-applied batch.
+    bool reviewed_online_route=false;
+    std::optional<std::pair<std::string,std::string>> refreshed_online_route;
     for (const auto& target : targets) {
         const auto track = target.first;
         const auto proposal = target.second;
@@ -2714,6 +2733,7 @@ void apply_review_action(HWND dialog, PreviewState& state,
         // No SDK tag writer is called here; virtual/CUE selections remain
         // independently read-only.
         if(entry.input.physical_source_qualified) {
+            bool selected_postimage_changed=false;
             djmeta::PhysicalTagSourceSnapshot physical;
             physical.qualified_physical=true;
             physical.host_physical_key=entry.observed_physical_key;
@@ -2727,6 +2747,7 @@ void apply_review_action(HWND dialog, PreviewState& state,
             if(!verified.eligible)
                 throw std::invalid_argument(
                     "Physical tag decisions rejected: "+verified.rejection);
+            selected_postimage_changed=verified.changed;
             // An online selection already visible for THIS physical source
             // must remain compatible with the new local Accept/Manual choice.
             // Re-stage both independent immutable evidence streams before
@@ -2755,11 +2776,42 @@ void apply_review_action(HWND dialog, PreviewState& state,
                     throw std::invalid_argument(
                         "Local change conflicts with selected online fields. "
                         "Review/ignore one source first: "+joint.rejection);
+                reviewed_online_route=true;
+                selected_postimage_changed=joint.physical.changed;
+                // The current route belongs to this exact source only if its
+                // per-track override agrees with the global native controls.
+                // Otherwise clear the old raw preview; never claim it applies.
+                try {
+                    const auto choice=read_choice(dialog);
+                    if(choice.display_name==state.current_choice.display_name &&
+                       choice.destination_root==state.current_choice.destination_root &&
+                       choice.titleformat_expression==
+                           state.current_choice.titleformat_expression &&
+                       entry.input.profile==choice.display_name &&
+                       entry.input.destination_root==choice.destination_root &&
+                       entry.route_expression==choice.titleformat_expression &&
+                       djmeta::raw_destination_root_lexically_safe(
+                           choice.destination_root)) {
+                        const auto before=evaluate_titleformat_against_canonical(
+                            entry.handle->get_location(),current->info(),
+                            original,choice.titleformat_expression);
+                        const auto after=evaluate_titleformat_against_canonical(
+                            entry.handle->get_location(),current->info(),
+                            joint.physical.planned,choice.titleformat_expression);
+                        if(before.size()<=2048 && after.size()<=2048 &&
+                           djmeta::raw_relative_path_lexically_safe(before) &&
+                           djmeta::raw_relative_path_lexically_safe(after))
+                            refreshed_online_route=std::make_pair(before,after);
+                    }
+                } catch(const std::exception&) {
+                    // Only the advisory filename is unqualified; the
+                    // independently verified tag selection stays available.
+                }
             }
             // Reset/Reject/Pending and accepted exact no-ops MUST NOT issue
             // thousands of OS probes in a 54k-track library. There is no
             // candidate physical mutation for these decisions.
-            if(verified.changed) {
+            if(selected_postimage_changed) {
                 const auto live=probe_host_file_readonly(entry.input.source_path);
                 if(live.state!=HostFileState::ExistingFile ||
                    live.host_physical_key!=entry.observed_physical_key ||
@@ -2803,6 +2855,15 @@ void apply_review_action(HWND dialog, PreviewState& state,
     } else state.last_preview_undo.reset();
     EnableWindow(GetDlgItem(dialog,IDC_BATCH_UNDO),
                  state.last_preview_undo ? TRUE : FALSE);
+    if(reviewed_online_route) {
+        // Every affected source was validated before the local batch was
+        // committed. A stale or per-track overridden route is never shown.
+        state.online_raw_route_valid=refreshed_online_route.has_value();
+        state.online_raw_route_before=refreshed_online_route
+            ? std::move(refreshed_online_route->first):std::string{};
+        state.online_raw_route_after=refreshed_online_route
+            ? std::move(refreshed_online_route->second):std::string{};
+    }
     // Source metadata, proposal types and field counts are snapshot-immutable.
     // A single decision changes only these tracks' Pending/Review counters.
     update_pending_review_summaries(state,affected_tracks);
@@ -2873,6 +2934,11 @@ void apply_to_rows(HWND dialog, PreviewState& state, bool all) {
         state.last_preview_undo=std::move(frame);
     } else state.last_preview_undo.reset();
     state.current_choice = choice;
+    // A route override can change the naming expression and the selected
+    // online source's per-track profile. Old what-if paths are not reusable.
+    state.online_raw_route_valid=false;
+    state.online_raw_route_before.clear();
+    state.online_raw_route_after.clear();
     EnableWindow(GetDlgItem(dialog,IDC_BATCH_UNDO),
                  state.last_preview_undo ? TRUE : FALSE);
     update_table(state);
@@ -2930,6 +2996,11 @@ void undo_last_preview_action(HWND dialog, PreviewState& state) {
     } else {
         update_pending_review_summaries(state,affected);
     }
+    // Undo can restore a different local TITLE, GENRE, DATE or route.
+    // Keep the verified online fields, but never retain a previous filename.
+    state.online_raw_route_valid=false;
+    state.online_raw_route_before.clear();
+    state.online_raw_route_after.clear();
     EnableWindow(GetDlgItem(dialog,IDC_BATCH_UNDO),FALSE);
     update_table(state);
     if(review) {
@@ -4943,6 +5014,9 @@ void change_online_field_preview(PreviewState& state,int action) {
         if(typed_route.display_name==state.current_choice.display_name &&
            typed_route.destination_root==state.current_choice.destination_root &&
            typed_route.titleformat_expression==state.current_choice.titleformat_expression &&
+           entry.input.profile==typed_route.display_name &&
+           entry.input.destination_root==typed_route.destination_root &&
+           entry.route_expression==typed_route.titleformat_expression &&
            djmeta::raw_destination_root_lexically_safe(
                 typed_route.destination_root)) {
             raw_before=evaluate_titleformat_against_canonical(
@@ -6934,6 +7008,16 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                state->online_field_preview->explicitly_changed==0 ||
                state->online_included_fields.empty())
                 throw std::invalid_argument("No reviewed physical tag changes to write.");
+            const auto& local_decisions=
+                state->review_decisions.at(state->selected_track_index);
+            if(std::any_of(local_decisions.begin(),local_decisions.end(),
+                   [](const djmeta::ReviewDecision& decision) {
+                       return decision.action==djmeta::ReviewAction::Accept ||
+                              decision.action==djmeta::ReviewAction::ManualValue;
+                   }))
+                throw std::invalid_argument(
+                    "QA online-only writer cannot ignore accepted local normalization. "
+                    "Reset those decisions or use a future unified writer.");
             const auto& entry=state->entries[state->selected_track_index];
             verify_snapshot(entry);
             verify_rules_snapshot(state->captured_rules);

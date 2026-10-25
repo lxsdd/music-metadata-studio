@@ -537,3 +537,24 @@ preview and gated writer are not yet one approved transaction. The combined
 filename remains an advisory what-if, not a qualified File Operations path.
 No mutating foobar writer, CUE serializer or FileOps adapter is enabled;
 this milestone is not an installed-host release candidate.
+
+
+### 2026-10-25 — Live combined raw filename cache and QA boundary
+
+- A changed local Accept/Reset/Manual decision now re-derives the selected
+  exact Discogs edition's *advisory* raw filename from the freshly revalidated
+  combined physical postimage, never from an obsolete online-only snapshot.
+  Per-track route overrides prevent a misleading global-route filename. If
+  Title Formatting or source qualification fails, the old display cache is
+  cleared rather than reused; the UI decision transaction is otherwise atomic.
+- Local Undo and explicit route re-planning invalidate cached online raw path
+  comparisons. The online field snapshot remains intact and is not silently
+  accepted or written; reselecting an online field triggers a fresh preview.
+- The separately compiled, restricted QA-only physical writer continues to
+  use an online-only selection. It is now blocked outright whenever that same
+  track has *any* accepted local normalizer decision, both in the button
+  eligibility check and again in the final write entry. It cannot quietly
+  write an incomplete subset of an otherwise combined preview.
+- Native source/static regressions check the source wiring and fail-closed
+  boundaries. Final foobar installed visual qualification, protected live
+  Discogs search and all productive writers remain separate acceptance gates.

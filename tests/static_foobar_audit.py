@@ -1749,3 +1749,45 @@ if ('metadb_io::' in online_bridge or 'commit_preflighted_' in online_bridge or
 
 if 'if(qualified_online_field_preview(state) &&' in review_bridge:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: hidden online tab bypasses local conflict check")
+
+
+# Native read-only combined what-if is recomputed atomically with a local
+# decision, including the independent physical guard for online-only edits.
+# Undo and routing overrides invalidate old advisory filenames. Regression
+# ensures no partial QA physical postimage can ignore accepted local edits.
+local_audit=workspace_dialog.split(
+    "void apply_review_action(HWND dialog, PreviewState& state,",1)[1].split(
+    "void apply_to_rows(HWND dialog, PreviewState& state,",1)[0]
+native_route=workspace_dialog.split(
+    "void apply_to_rows(HWND dialog, PreviewState& state,",1)[1].split(
+    "void undo_last_preview_action(HWND dialog, PreviewState& state)",1)[0]
+native_undo=workspace_dialog.split(
+    "void undo_last_preview_action(HWND dialog, PreviewState& state)",1)[1].split(
+    "// User-initiated inspection of RAW",1)[0]
+for marker in (
+    'bool reviewed_online_route=false;',
+    'const auto joint=djmeta::preview_unified_review_physical_tags(',
+    'selected_postimage_changed=joint.physical.changed;',
+    'joint.physical.planned,choice.titleformat_expression)',
+    'if(selected_postimage_changed) {',
+    'if(reviewed_online_route) {',
+    'state.online_raw_route_valid=refreshed_online_route.has_value();',
+):
+    if marker not in local_audit:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: combined raw route stale: "+marker)
+for name,fragment in (("route",native_route),("undo",native_undo)):
+    if not all(x in fragment for x in (
+        'state.online_raw_route_valid=false;',
+        'state.online_raw_route_before.clear();',
+        'state.online_raw_route_after.clear();')):
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: stale online raw route after "+name)
+if ("entry.route_expression==typed_route.titleformat_expression" not in
+    workspace_dialog.split(
+        "void change_online_field_preview(PreviewState& state,int action) {",1)[1].split(
+        "INT_PTR CALLBACK batch_dialog_proc",1)[0]):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: online what-if used wrong route")
+if ("const bool physical_writer_ready=ready && !local_decisions_present" not in
+    workspace_dialog or
+    '"QA online-only writer cannot ignore accepted local normalization.' not in
+    workspace_dialog):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: QA-only writer may apply partial postimage")
