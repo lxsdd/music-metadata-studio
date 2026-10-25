@@ -1669,6 +1669,8 @@ for marker in (
     'before.input_fingerprint!=state.entries[index].input_fingerprint',
     'state.last_preview_undo.reset();',
     'swap(state.entries[index],previous);',
+    'reset_raw_target_observation(state.entries[index]);',
+    'state.entries[index].input.cue_dependencies_checked=false;',
     'swap(state.review_decisions[index],',
     'update_pending_review_summaries(state,affected);',
     'update_table(state);',
