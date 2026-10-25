@@ -1962,3 +1962,24 @@ if ('std::optional<djmeta::WorkflowOnlineSourceCounts> verified_online;' not in 
 if ("WORKFLOW_AUDIT_ONLINE_SOURCE_EVIDENCE_INVALID" not in audit_header or
     "SOURCE_VERIFIED_POSTIMAGE_ONLY" not in audit_header):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: joint TSV evidence guard missing")
+
+
+# One pure detached all-source metadata+external-CUE FILE+FilePlan adapter
+# must preserve exact host target/probe and independent source->destination
+# identity checks; no second writer or raw-filename sanitizer is introduced.
+unified_cue_header=(root / "include" / "djmeta" / "unified_cue_file_plan_preview.h").read_text(encoding="utf-8")
+for marker in (
+    "preview_unified_cue_file_plan(",
+    "review_batch_plan(captured).plan_fingerprint",
+    "audit_cue_physical_selection(",
+    "reference.resolved_source_key!=captured[selected].source_key",
+    "preview_unified_review_physical_tags(reprobe)",
+    "preview_cue_bound_file_batch(",
+    "cue_bytes_change=out.review.decisions[cue_index].cue_bytes_write_needed",
+    "UNIFIED_CUE_WHOLE_HOST_PLAN_CHANGED",
+):
+    if marker not in unified_cue_header:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: detached combined CUE metadata/FileOps preflight missing "+marker)
+if ("test_joint_audio_online_normalizer_and_cue_fileplan();" not in
+    (root / "tests" / "unified_review_batch_tests.cpp").read_text(encoding="utf-8")):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: combined CUE and online regression not run")

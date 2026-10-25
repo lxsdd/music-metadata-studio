@@ -1,4 +1,5 @@
 #include "djmeta/unified_review_batch_preflight.h"
+#include "djmeta/unified_cue_file_plan_preview.h"
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -77,7 +78,163 @@ static bool rejected(const FrozenBatchPreview& frozen,
            result.changed_sources==0;
 }
 
+
+static void test_joint_audio_online_normalizer_and_cue_fileplan() {
+    auto a=fixture("A",true,true);
+    auto b=fixture("B",false,false);
+    b.online_capture.reset(); // second source is genuinely local-only
+    for(auto* row:{&a,&b}) {
+        auto& item=row->normalizer.live.observed_item;
+        item.cue_links=CueLinkState::Verified;
+        item.action=FileAction::Move;
+        item.target_path="Z:/target/"+item.physical_id+".flac";
+        item.target_key="z:/target/"+item.physical_id+".flac";
+        item.target_presence=TargetPresence::Missing;
+    }
+    FilePlanItem cue;
+    cue.physical_id="disk:cue";
+    cue.source_path="Z:/library/album.cue";
+    cue.source_key="z:/library/album.cue";
+    cue.source_guard="guard:cue";
+    cue.target_path="Z:/target/album.cue";
+    cue.target_key="z:/target/album.cue";
+    cue.action=FileAction::Move;
+    cue.role=FileRole::ExternalCue;
+    cue.cue_links=CueLinkState::Verified;
+    cue.target_presence=TargetPresence::Missing;
+    cue.ruleset_revision="rules:unified-v1";
+    const std::string bytes=
+        "REM GENRE House\nFILE \"A.flac\" WAVE\nTRACK 01 AUDIO\n"
+        "FILE \"B.flac\" WAVE\nTRACK 02 AUDIO\n";
+    UnifiedCueHostObservation host;
+    host.cue_carrier_physical_key=cue.physical_id;
+    host.cue_carrier_source_guard=cue.source_guard;
+    host.cue_carrier_reprobed=host.cue_bytes_reread=
+        host.cue_target_reprobed=true;
+    host.file_sources={
+        {0,a.normalizer.live.live_physical_key,
+           a.normalizer.live.live_source_guard,true},
+        {1,b.normalizer.live.live_physical_key,
+           b.normalizer.live.live_source_guard,true}
+    };
+    const auto& left=a.normalizer.live.observed_item;
+    const auto& right=b.normalizer.live.observed_item;
+    host.file_destinations={
+        {0,"A.flac",left.source_key,"A-edited.flac",true,true,left.target_key},
+        {1,"B.flac",right.source_key,"B-edited.flac",true,true,right.target_key}
+    };
+    const std::vector<FilePlanItem> original{left,cue,right};
+    const std::vector<UnifiedReviewBatchReprobe> audio{a,b};
+    const auto joined=preview_unified_cue_file_plan(
+        original,1,audio,bytes,host);
+    check(joined.eligible && joined.review.ready_to_apply &&
+          joined.items.size()==3 && joined.audio_postimages.size()==2 &&
+          joined.changed_audio_sources==1 && joined.cue_bytes_change &&
+          joined.items[0].planned_metadata_fingerprint==
+              fingerprint(joined.audio_postimages[0].physical.planned) &&
+          joined.items[2].planned_metadata_fingerprint==
+              joined.items[2].metadata_fingerprint &&
+          joined.items[1].associated_audio_ids==
+              std::vector<std::string>({"source:A","source:B"}) &&
+          joined.cue.changes.size()==2 &&
+          original[1].cue_source_fingerprint.empty() &&
+          original[0].planned_metadata_fingerprint==
+              original[0].metadata_fingerprint,
+          "one detached source-order FilePlan stages joint Discogs+local tags and Multi-FILE CUE");
+    auto changed=audio;
+    changed[0].normalizer.live.fresh_tags.fields[2].values={"tampered"};
+    check(!preview_unified_cue_file_plan(original,1,changed,bytes,host).eligible,
+          "racing unrelated physical metadata blocks entire joint plan");
+    changed=audio;
+    changed[1].normalizer.live.observed_item.target_key="new-route";
+    check(!preview_unified_cue_file_plan(original,1,changed,bytes,host).eligible,
+          "substituting second local-only target during host probe blocks whole batch");
+    changed=audio;
+    changed[1].normalizer.live.target_reprobed=false;
+    check(!preview_unified_cue_file_plan(original,1,changed,bytes,host).eligible,
+          "uninspected second physical target fails entire joint CUE batch");
+    changed=audio;
+    changed[1].selected_online_indices={0};
+    check(!preview_unified_cue_file_plan(original,1,changed,bytes,host).eligible,
+          "local-only audio source cannot invent remote edition approval");
+    changed=audio;
+    changed[0].normalizer.active_ruleset_revision="rules:new";
+    check(!preview_unified_cue_file_plan(original,1,changed,bytes,host).eligible,
+          "changed normalization rules invalidate joint CUE FilePlan");
+    changed=audio;
+    changed[0].online_capture->evidence[0].values={"tampered genre"};
+    check(!preview_unified_cue_file_plan(original,1,changed,bytes,host).eligible,
+          "altered Discogs field evidence invalidates joint postimage");
+    auto bad_host=host;
+    bad_host.file_sources[1].source_guard="raced:guard";
+    check(!preview_unified_cue_file_plan(original,1,audio,bytes,bad_host).eligible,
+          "CUE FILE participant physical source guard race blocks");
+    bad_host=host;
+    bad_host.file_destinations[1].resolved_source_key=left.source_key;
+    check(!preview_unified_cue_file_plan(original,1,audio,bytes,bad_host).eligible,
+          "matching FILE physical ID cannot hide substituted canonical source");
+    bad_host=host;
+    bad_host.file_destinations[1].verified_destination_key=left.target_key;
+    check(!preview_unified_cue_file_plan(original,1,audio,bytes,bad_host).eligible,
+          "matching CUE filename cannot hide substituted final audio target");
+    bad_host=host;
+    bad_host.cue_bytes_reread=false;
+    check(!preview_unified_cue_file_plan(original,1,audio,bytes,bad_host).eligible,
+          "CUE carrier bytes must be independently read again");
+    bad_host=host;
+    bad_host.file_sources[1].host_physical_key=left.source_guard;
+    check(!preview_unified_cue_file_plan(original,1,audio,bytes,bad_host).eligible,
+          "crossed physical ID and guard never certify FILE mapping");
+    auto swapped=original;
+    swapped[1].source_guard="different-cue-version";
+    check(!preview_unified_cue_file_plan(swapped,1,audio,bytes,host).eligible,
+          "a replaced CUE carrier cannot reuse its earlier physical observation");
+    swapped=original;
+    swapped[1].target_presence=TargetPresence::Unchecked;
+    check(!preview_unified_cue_file_plan(swapped,1,audio,bytes,host).eligible,
+          "uninspected CUE target blocks whole plan");
+    swapped=original;
+    swapped[0].planned_metadata_fingerprint="unrelated prior proposal";
+    check(!preview_unified_cue_file_plan(swapped,1,audio,bytes,host).eligible,
+          "a prior staged normalizer/online change must not be replaced silently");
+
+    auto nop=fixture("A",false,false);
+    nop.online_capture.reset();
+    auto nop2=fixture("B",false,false);
+    nop2.online_capture.reset();
+    for(auto* row:{&nop,&nop2}) {
+        auto& item=row->normalizer.live.observed_item;
+        item.cue_links=CueLinkState::Verified;
+        item.target_key=item.source_key;
+        item.target_path=item.source_path;
+    }
+    auto nopcue=cue;
+    nopcue.action=FileAction::None;
+    nopcue.target_key=nopcue.source_key;
+    nopcue.target_path=nopcue.source_path;
+    nopcue.target_presence=TargetPresence::Unchecked;
+    auto nop_host=host;
+    nop_host.file_destinations={
+        {0,"A.flac",nop.normalizer.live.observed_item.source_key,
+           "A.flac",true,true,nop.normalizer.live.observed_item.source_key},
+        {1,"B.flac",nop2.normalizer.live.observed_item.source_key,
+           "B.flac",true,true,nop2.normalizer.live.observed_item.source_key}
+    };
+    const auto noop=preview_unified_cue_file_plan(
+        {nop.normalizer.live.observed_item,nopcue,
+         nop2.normalizer.live.observed_item},
+        1,{nop,nop2},bytes,nop_host);
+    check(noop.eligible && noop.changed_audio_sources==0 &&
+          !noop.cue_bytes_change && !noop.cue.changes_references &&
+          noop.items[1].cue_source_fingerprint==
+             noop.items[1].cue_postimage_fingerprint &&
+          !noop.review.decisions[0].metadata_write_needed &&
+          !noop.review.decisions[2].metadata_write_needed,
+          "full unchanged normalizer, online and external CUE has exactly zero write intents");
+}
+
 int main() {
+    test_joint_audio_online_normalizer_and_cue_fileplan();
     auto a=fixture("A",true,true);
     auto b=fixture("B",false,false);
     b.online_capture.reset(); // normalizer-only row, no fabricated Discogs evidence

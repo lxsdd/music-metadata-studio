@@ -701,3 +701,34 @@ an out-of-range source, missing source guard, zero field selection, impossible
 remote-change counts and invented overlap; the native static audit enforces
 full summary/TSV parity. The export remains a read-only review, never a
 qualified final File Operations target or write approval.
+
+
+### 2026-10-25 — Unified audio metadata + exact CUE FILE + one whole FilePlan (MMS-WF-09, MMS-CUE-06, MMS-FILE-03/05/06)
+
+A new SDK-independent `unified_cue_file_plan_preview.h` integrates the
+existing **source-verified local normalizer/Discogs postimage**, **host-observed
+CUE FILE physical identity coverage**, **host-qualified final destination
+identity for every selected FILE** and the unchanged **whole-batch collision,
+overwrite and CUE-dependent FilePlan** into one atomic, detached,
+**unapproved** preview. It requires exactly one external CUE and all
+selected physical audio rows, all current source/target observations,
+same-ruleset and full captured host plan fingerprints *before* projecting
+any accepted metadata. Each FILE's independently observed physical source
+must match the same selected audio as its canonical source and verified
+destination. It refuses duplicate identities, stale guards/rules/provider
+evidence, conflicting metadata, substituted target paths, or a CUE reference
+whose host destination does not match the selected audio route. The final
+output reports distinct changed audio postimages, the CUE byte change intent,
+and one exact review fingerprint. It never infers final foobar FileOps paths
+from Title Formatting or turns advisory `ready_to_apply` into permission to
+write.
+
+Cross-source tests cover mixed online+local acceptance, unaffected
+local-only audio, nonadjacent CUE source selection, source/target and rules
+drift, forged Discogs choices, host FILE physical/canonical identity
+substitutions, CUE carrier race, conflicting prior staging and an entirely
+unchanged metadata/audio/CUE transaction with zero write intents.
+All data are synthetic. No native writer, FileOps executor, CUE mutator or
+persistent approval is added; **the native SDK must still obtain genuinely
+qualified FINAL foobar destination identities and CUE rewrite observations**
+before this pure integrator may be used as an actual user-workflow gate.
