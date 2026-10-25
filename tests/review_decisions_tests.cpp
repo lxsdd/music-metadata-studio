@@ -129,6 +129,17 @@ int main() {
         original,forged_route);},
         "unmatched proposal index cannot pass explicit routing guard");
 
+    forged_route=analysis;
+    forged_route.proposals[0].proposed_value.clear();
+    should_reject([&]{(void)project_explicit_review_decisions(
+        original,forged_route);},
+        "pending forged SAFE deletion remains blocked even without routing changes");
+    forged_route=analysis;
+    forged_route.proposals[0].proposed_value=std::string("Bad \\xC0\\xAF",6);
+    should_reject([&]{(void)project_explicit_review_decisions(
+        original,forged_route);},
+        "pending malformed SAFE remains blocked by original preview validation");
+
     std::vector<ReviewDecision> decisions(analysis.proposals.size());
     decisions[0].action = ReviewAction::Reject;
     decisions[1].action = ReviewAction::Accept;
