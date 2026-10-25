@@ -135,7 +135,7 @@ int main() {
         original,forged_route);},
         "pending forged SAFE deletion remains blocked even without routing changes");
     forged_route=analysis;
-    forged_route.proposals[0].proposed_value=std::string("Bad \\xC0\\xAF",6);
+    forged_route.proposals[0].proposed_value=std::string("Bad \xC0\xAF",6);
     should_reject([&]{(void)project_explicit_review_decisions(
         original,forged_route);},
         "pending malformed SAFE remains blocked by original preview validation");
