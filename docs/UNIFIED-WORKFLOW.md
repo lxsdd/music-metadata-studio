@@ -513,3 +513,27 @@ and exact provider URLs. Explicit source activation may reset the edit
 field to that source's suggestion. A cross-platform pure UI-state regression
 prevents inadvertent lookup of the previous track. This does not execute
 network requests by itself and does not change the zero-write boundary.
+
+
+### Explicit local + Discogs combination (2026-10-25, read-only)
+
+The detached physical postimage can now be recomputed from **both** explicit
+local normalizer review decisions and exactly verified, individually selected
+Discogs edition fields. Both inputs are independently validated against the
+same original physical source/rules identity. A field chosen differently in
+the two panels is a blocking, visible conflict, **not** a source-priority
+shortcut. Identical complete-value vectors coalesce into one change; untouched
+custom tags, ReplayGain, CUE and ordered multivalues remain unchanged.
+DATE requires an explicit field target; Pending SAFE does not become accepted.
+
+The native online comparison re-evaluates its *what-if* Title Formatting
+filename and SDK detached postimage from this combined view, and the normalizer
+Review action refuses conflicts with already selected online evidence.
+A frozen, all-source in-memory physical-only preflight also exists for the
+same combined decisions and plan fingerprints, with regression coverage.
+
+**Boundary:** the existing local batch table, online selection state, CUE
+preview and gated writer are not yet one approved transaction. The combined
+filename remains an advisory what-if, not a qualified File Operations path.
+No mutating foobar writer, CUE serializer or FileOps adapter is enabled;
+this milestone is not an installed-host release candidate.

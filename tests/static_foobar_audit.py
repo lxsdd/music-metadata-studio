@@ -1709,3 +1709,38 @@ for marker in (
 ):
     if marker not in review_action:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: no-op action clobbers Undo: "+marker)
+
+
+# Source-aware native bridge: accepted local fields and independently selected
+# Discogs edition fields must be jointly projected BEFORE a preview UI update.
+# No write calls, global approval or silent provider precedence is added.
+review_bridge=workspace_dialog.split(
+    "void apply_review_action(HWND dialog, PreviewState& state,",1)[1].split(
+    "void apply_to_rows(HWND dialog, PreviewState& state,",1)[0]
+online_bridge=workspace_dialog.split(
+    "void change_online_field_preview(PreviewState& state,int action) {",1)[1].split(
+    "INT_PTR CALLBACK batch_dialog_proc(",1)[0]
+for marker in (
+    'djmeta::UnifiedReviewBatchReprobe unified;',
+    'unified.normalizer.decisions=next_decisions[track];',
+    'unified.selected_online_indices=state.online_included_fields;',
+    'djmeta::preview_unified_review_physical_tags(',
+    'if(!joint.physical.eligible)',
+):
+    if marker not in review_bridge:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: unified local guard missing "+marker)
+for marker in (
+    'unified.normalizer.decisions=',
+    'state.review_decisions[state.selected_track_index];',
+    'unified.selected_online_indices=proposed;',
+    'unified.explicit_date_targets=date_targets;',
+    'if(!combined.physical.eligible)',
+    'current,combined.physical.planned',
+    'latest.source_guard,approved_sdk_fields,combined.physical,',
+    'entry.handle->get_location(),info->info(),combined.physical.planned,',
+):
+    if marker not in online_bridge:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: unified online preview missing "+marker)
+if ('metadb_io' in online_bridge or 'commit_preflighted_' in online_bridge or
+    'MMS_ENABLE_PHYSICAL_WRITES' in review_bridge):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: unified read-only bridge entered writer")

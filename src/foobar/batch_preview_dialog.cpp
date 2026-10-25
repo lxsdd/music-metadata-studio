@@ -58,6 +58,7 @@
 #include "djmeta/review_decisions.h"
 #include "djmeta/workflow_preview_audit.h"
 #include "djmeta/review_physical_postimage.h"
+#include "djmeta/unified_review_batch_preflight.h"
 #include "djmeta/review_display.h"
 #include "djmeta/track_review.h"
 #include "djmeta/table_layout.h"
@@ -576,7 +577,8 @@ void show_workflow_audit(HWND dialog,const PreviewState& state) {
     if(state.online_field_preview)
         report+=L"\nOnline edition: "+
             std::to_wstring(state.online_field_preview->explicitly_changed)+
-            L" field changes in a SEPARATE single-track preview; not merged into batch.";
+            L" selected online field changes; combined local + online naming what-if "
+            L"is read-only and not frozen into the full batch.";
     if(state.cue_value_preview)
         report+=L"\nCUE: independent read-only postimage; not a batch write.";
     std::size_t listed=0;
@@ -2725,6 +2727,34 @@ void apply_review_action(HWND dialog, PreviewState& state,
             if(!verified.eligible)
                 throw std::invalid_argument(
                     "Physical tag decisions rejected: "+verified.rejection);
+            // An online selection already visible for THIS physical source
+            // must remain compatible with the new local Accept/Manual choice.
+            // Re-stage both independent immutable evidence streams before
+            // publishing any new local decision; never prefer one silently.
+            if(qualified_online_field_preview(state) &&
+               state.online_edition_source==track &&
+               !state.online_included_fields.empty()) {
+                djmeta::UnifiedReviewBatchReprobe unified;
+                unified.normalizer.live.captured=physical;
+                unified.normalizer.live.fresh_tags=original;
+                unified.normalizer.live.live_physical_key=
+                    entry.observed_physical_key;
+                unified.normalizer.live.live_source_guard=
+                    entry.observed_source_guard;
+                unified.normalizer.captured_analysis=state.analyses[track];
+                unified.normalizer.active_ruleset_revision=
+                    state.analyses[track].ruleset_revision;
+                unified.normalizer.decisions=next_decisions[track];
+                unified.online_capture=*state.online_field_snapshot;
+                unified.selected_online_indices=state.online_included_fields;
+                unified.explicit_date_targets=state.online_date_targets;
+                const auto joint=djmeta::preview_unified_review_physical_tags(
+                    unified);
+                if(!joint.physical.eligible)
+                    throw std::invalid_argument(
+                        "Local change conflicts with selected online fields. "
+                        "Review/ignore one source first: "+joint.rejection);
+            }
             // Reset/Reject/Pending and accepted exact no-ops MUST NOT issue
             // thousands of OS probes in a 54k-track library. There is no
             // candidate physical mutation for these decisions.
@@ -4859,22 +4889,46 @@ void change_online_field_preview(PreviewState& state,int action) {
     if(!qualified.eligible)
         throw std::invalid_argument(
             "Online physical tag postimage refused: "+qualified.rejection);
+    // The exact same original tags underpin the already accepted local
+    // normalizer decisions and this verified Discogs edition selection.
+    // Produce ONE detached what-if postimage. Conflict blocks the selection
+    // before the native UI commits it; no batch approval is granted here.
+    djmeta::UnifiedReviewBatchReprobe unified;
+    unified.normalizer.live.captured=physical;
+    unified.normalizer.live.fresh_tags=current;
+    unified.normalizer.live.live_physical_key=latest.host_physical_key;
+    unified.normalizer.live.live_source_guard=latest.source_guard;
+    unified.normalizer.captured_analysis=
+        state.analyses[state.selected_track_index];
+    unified.normalizer.active_ruleset_revision=
+        state.analyses[state.selected_track_index].ruleset_revision;
+    unified.normalizer.decisions=
+        state.review_decisions[state.selected_track_index];
+    unified.online_capture=*state.online_field_snapshot;
+    unified.selected_online_indices=proposed;
+    unified.explicit_date_targets=date_targets;
+    const auto combined=djmeta::preview_unified_review_physical_tags(unified);
+    if(!combined.physical.eligible)
+        throw std::invalid_argument(
+            "Selected online fields conflict with accepted local changes. "
+            "Resolve conflicting tag before including it: "+
+            combined.rejection);
     // Construct the actual detached foobar SDK file_info postimage using ONLY
     // verified edits. This is a copy/roundtrip integrity gate; no metadb_io,
     // input writer, filesystem or playlist metadata mutation is invoked.
     const auto approved_sdk_fields=djmeta::physical_sdk_changed_field_approvals(
-        current,qualified.planned);
+        current,combined.physical.planned);
     file_info_impl sdk_postimage;
     const auto sdk_projection=djmeta::project_explicit_physical_sdk_postimage(
         info->info(),sdk_postimage,physical,latest.host_physical_key,
-        latest.source_guard,approved_sdk_fields,qualified,
+        latest.source_guard,approved_sdk_fields,combined.physical,
         [](const file_info& source) { return metadata_from_file_info(source); });
     if(sdk_projection.status==djmeta::PhysicalSdkPostimageStatus::Blocked ||
        (sdk_projection.status==djmeta::PhysicalSdkPostimageStatus::Detached)!=
-           qualified.changed)
+           combined.physical.changed)
         throw std::runtime_error(
             "Native physical SDK postimage refused: "+sdk_projection.rejection);
-    if(qualified.changed && !file_info::g_is_info_equal(
+    if(combined.physical.changed && !file_info::g_is_info_equal(
             info->info(),sdk_postimage))
         throw std::runtime_error(
             "SDK projection unexpectedly altered technical file information.");
@@ -4894,7 +4948,7 @@ void change_online_field_preview(PreviewState& state,int action) {
                 entry.handle->get_location(),info->info(),current,
                 typed_route.titleformat_expression);
             raw_after=evaluate_titleformat_against_canonical(
-                entry.handle->get_location(),info->info(),projected.planned,
+                entry.handle->get_location(),info->info(),combined.physical.planned,
                 typed_route.titleformat_expression);
             raw_route_valid=raw_before.size()<=2048 && raw_after.size()<=2048 &&
                 djmeta::raw_relative_path_lexically_safe(raw_before) &&
@@ -4920,7 +4974,9 @@ void change_online_field_preview(PreviewState& state,int action) {
         std::to_wstring(state.online_included_fields.size())+
         L" selected, "+std::to_wstring(result.explicitly_changed)+
         L" proposed changes, "+std::to_wstring(result.exact_noops)+
-        L" no-ops (memory only). No writes."+
+        L" no-ops (memory only). Combined local + online postimage: "+
+        std::to_wstring(combined.physical.explicitly_changed)+
+        L" changed physical fields. No writes."+
         (year_only_date_target
             ? std::wstring(L" DATE uses YYYY; complete provider date preserved.")
             : std::wstring{})+
