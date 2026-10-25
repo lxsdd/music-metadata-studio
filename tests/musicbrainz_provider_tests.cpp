@@ -872,6 +872,19 @@ int main() {
           compilation.tracks[1].fields.empty() &&
           enriched.tracks[0].fields.empty(),
           "missing release-track IDs do not synthesize edition-scoped track fields");
+    const auto recording_fallback=parse_release_lookup(R"MB({
+      "id":"11111111-1111-1111-1111-111111111111",
+      "media":[{"tracks":[{
+        "id":"33333333-3333-3333-3333-333333333333",
+        "recording":{"title":"Recording-only title",
+          "artist-credit":[{"name":"Recording-only artist"}]}
+      }]}]
+    })MB",first);
+    check(recording_fallback.tracks.size()==1 &&
+          recording_fallback.tracks[0].recording.title=="Recording-only title" &&
+          recording_fallback.tracks[0].recording.primary_artist=="Recording-only artist" &&
+          recording_fallback.tracks[0].fields.empty(),
+          "recording fallback assists matching but never impersonates edition-track fields");
     std::vector<LocalReleaseTrack> repeated_recording(2);
     repeated_recording[0].source_index=0;
     repeated_recording[0].recording.title="One";
