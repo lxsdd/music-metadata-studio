@@ -545,10 +545,30 @@ void test_multifile_cue_planned_audio_dependencies() {
         "FILE \"second.wav\" WAVE\nTRACK 02 AUDIO\n";
     const auto cue_link=djmeta::qualify_external_cue_association(
         source_cue,
-        {{0,"first.wav",a.source_key,"first-new.wav",true,true},
-         {1,"second.wav",b.source_key,"second-new.wav",true,true}},
+        {{0,"first.wav",a.source_key,"first-new.wav",true,true,a.target_key},
+         {1,"second.wav",b.source_key,"second-new.wav",true,true,b.target_key}},
         {{a.physical_id,a.source_key,a.target_key},
          {b.physical_id,b.source_key,b.target_key}});
+    const auto wrong_destination=djmeta::qualify_external_cue_association(
+        source_cue,
+        {{0,"first.wav",a.source_key,"first-new.wav",true,true,a.target_key},
+         {1,"second.wav",b.source_key,"second-new.wav",true,true,a.target_key}},
+        {{a.physical_id,a.source_key,a.target_key},
+         {b.physical_id,b.source_key,b.target_key}});
+    require(!wrong_destination.qualified &&
+            wrong_destination.diagnostics==
+                std::vector<std::string>{"CUE_MULTIPLE_SOURCES_SHARE_DESTINATION"},
+            "actual Multi-FILE destination collision blocks the joint file plan");
+    const auto wrong_selected_target=djmeta::qualify_external_cue_association(
+        source_cue,
+        {{0,"first.wav",a.source_key,"first-new.wav",true,true,a.target_key},
+         {1,"second.wav",b.source_key,"second-new.wav",true,true,"forged-final-target"}},
+        {{a.physical_id,a.source_key,a.target_key},
+         {b.physical_id,b.source_key,b.target_key}});
+    require(!wrong_selected_target.qualified &&
+            wrong_selected_target.diagnostics==
+                std::vector<std::string>{"CUE_TARGET_DIFFERS_FROM_SELECTED_AUDIO_PLAN"},
+            "a source-verified FILE reference cannot substitute an audio target");
     require(cue_link.qualified && cue_link.changes_references &&
             cue_link.related_selected_audio_ids==
                 std::vector<std::string>({a.physical_id,b.physical_id}) &&
