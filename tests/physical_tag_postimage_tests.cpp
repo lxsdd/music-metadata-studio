@@ -170,6 +170,18 @@ int main(){
           staged_normalizer.planned.fields[3]==original.fields[3] &&
           staged_normalizer.planned.fields[4]==original.fields[4],
           "explicit semantic Accept and manual override create exact physical postimage");
+    const auto filename_postimage=project_explicit_review_decisions(
+        original,analysis,explicit_decisions);
+    check(filename_postimage.document==staged_normalizer.planned &&
+          filename_postimage.automatic_safe==0 &&
+          filename_postimage.unresolved_semantic==0,
+          "native FileOps route and guarded physical tags share identical accepted postimage");
+    const auto filename_unapproved=project_explicit_review_decisions(
+        original,analysis,pending);
+    check(filename_unapproved.document==original &&
+          pending_tags.planned==filename_unapproved.document &&
+          filename_unapproved.unresolved_semantic==2,
+          "pending SAFE/REVIEW cannot silently change routing or physical tag planning");
     explicit_decisions[0].action=ReviewAction::Accept;
     const auto with_equal_safe_accept=preview_explicit_normalizer_physical_tags(
         snap,original,"volume:physical-id","source:v1",
