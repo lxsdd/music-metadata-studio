@@ -1532,3 +1532,32 @@ for token in (
 ):
     if token not in workspace_dialog:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: cross-provider manual clipboard: " + token)
+
+# Native Accept/Reject/Manual must cross the exact protected physical-tag
+# postimage review without granting any write authority. The UI's generic
+# SAFE-inclusive routing preview is deliberately NOT a physical approval.
+native_review = workspace_dialog.split(
+    "void apply_review_action(HWND dialog, PreviewState& state,",1)[1].split(
+    "void apply_to_rows(HWND dialog, PreviewState& state,",1)[0]
+if '#include "djmeta/review_physical_postimage.h"' not in workspace_dialog:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: native normalizer physical bridge not included")
+for marker in (
+    "if(entry.input.physical_source_qualified) {",
+    "probe_host_file_readonly(entry.input.source_path)",
+    "live.host_physical_key!=entry.observed_physical_key",
+    "live.source_guard!=entry.observed_source_guard",
+    "djmeta::PhysicalTagSourceSnapshot physical;",
+    "physical.original=original;",
+    "djmeta::preview_explicit_normalizer_physical_tags(",
+    "state.analyses[track],state.analyses[track].ruleset_revision,",
+    "next_decisions[track]",
+    "if(!verified.eligible)",
+    "entry.staged = std::move(staged.document);",
+):
+    if marker not in native_review:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: native physical decision review missing: "+marker)
+if native_review.index("if(!verified.eligible)") > native_review.index(
+        "entry.staged = std::move(staged.document);"):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: native physical gate is after visible commit")
+if "commit_preflighted_" in native_review or "metadb_io" in native_review:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: read-only review entered physical writer")
