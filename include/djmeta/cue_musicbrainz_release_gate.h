@@ -3,6 +3,7 @@
 #include "djmeta/cue_online_bridge.h"
 #include "djmeta/cue_release_review.h"
 #include "djmeta/musicbrainz_provider.h"
+#include <algorithm>
 #include <set>
 #include <string>
 #include <vector>
@@ -34,6 +35,16 @@ inline bool qualified_musicbrainz_cue_album_alignment(
     for(const auto& remote:edition.tracks){
         if(!musicbrainz::valid_mbid(remote.source_track_id) ||
            !remote_ids.insert(remote.source_track_id).second)
+            return false;
+        // A recording fallback can support matching but cannot establish the
+        // exact release-track title required for an album-wide CUE proposal.
+        if(remote.fields.empty() ||
+           !std::any_of(remote.fields.begin(),remote.fields.end(),
+               [&](const FieldEvidence& field) {
+                   return field.field=="TITLE" && field.values.size()==1 &&
+                       !field.values.front().empty() &&
+                       field.values.front()==remote.recording.title;
+               }))
             return false;
         for(const auto& field:remote.fields)
             if(field.provider!="musicbrainz" ||
