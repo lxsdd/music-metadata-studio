@@ -56,6 +56,7 @@
 #include "djmeta/physical_write_confirmation.h"
 #endif
 #include "djmeta/review_decisions.h"
+#include "djmeta/review_physical_postimage.h"
 #include "djmeta/review_display.h"
 #include "djmeta/track_review.h"
 #include "djmeta/table_layout.h"
@@ -2607,6 +2608,34 @@ void apply_review_action(HWND dialog, PreviewState& state,
         const auto original = metadata_from_file_info(current->info());
         auto staged = djmeta::project_review_decisions(
             original, state.analyses[track], next_decisions[track]);
+        // Unlike the visible SAFE-inclusive normalization preview, a
+        // *potential physical write* must contain ONLY explicitly Accept or
+        // ManualValue decisions. Recheck it against the actual physical
+        // carrier and fresh source guard before displaying the new decision.
+        // No SDK tag writer is called here; virtual/CUE selections remain
+        // independently read-only.
+        if(entry.input.physical_source_qualified) {
+            const auto live=probe_host_file_readonly(entry.input.source_path);
+            if(live.state!=HostFileState::ExistingFile ||
+               live.host_physical_key!=entry.observed_physical_key ||
+               live.source_guard!=entry.observed_source_guard)
+                throw std::runtime_error(
+                    "Physical file changed during metadata review. Refresh snapshot.");
+            djmeta::PhysicalTagSourceSnapshot physical;
+            physical.qualified_physical=true;
+            physical.host_physical_key=entry.observed_physical_key;
+            physical.source_guard=entry.observed_source_guard;
+            physical.original=original;
+            const auto verified=djmeta::preview_explicit_normalizer_physical_tags(
+                physical,original,live.host_physical_key,live.source_guard,
+                state.analyses[track],state.analyses[track].ruleset_revision,
+                next_decisions[track]);
+            if(!verified.eligible)
+                throw std::invalid_argument(
+                    "Physical tag decisions rejected: "+verified.rejection);
+            // An exact no-op is still an eligible read-only review. Never
+            // interpret verified.changed as permission to invoke a writer.
+        }
         entry.staged = std::move(staged.document);
         entry.input.semantic_proposals_pending = staged.unresolved_semantic > 0;
         entry.input.raw_relative_path.clear();
