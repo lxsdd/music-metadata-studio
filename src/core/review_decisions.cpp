@@ -106,4 +106,28 @@ ReviewProjection project_review_decisions(
     return projected;
 }
 
+ReviewProjection project_explicit_review_decisions(
+    const MetadataDocument& original,
+    const AnalysisResult& analysis,
+    const std::vector<ReviewDecision>& decisions) {
+    // One common proposal validator and projector for the UI and the
+    // physical-tag safety layer. Only the disposition of Pending changes.
+    if(!decisions.empty() && decisions.size()!=analysis.proposals.size())
+        throw std::invalid_argument("explicit review decision count does not match proposals");
+    std::vector<ReviewDecision> selected=decisions;
+    if(selected.empty()) selected.resize(analysis.proposals.size());
+    std::size_t pending=0,semantic=0;
+    for(std::size_t i=0;i<selected.size();++i) {
+        if(selected[i].action!=ReviewAction::Pending) continue;
+        ++pending;
+        if(analysis.proposals[i].safety!=SafetyClass::Safe) ++semantic;
+        selected[i].action=ReviewAction::Reject;
+    }
+    auto result=project_review_decisions(original,analysis,selected);
+    // Synthetic Reject operations are not actual explicit rejections.
+    result.explicitly_rejected-=pending;
+    result.unresolved_semantic=semantic;
+    return result;
+}
+
 } // namespace djmeta
