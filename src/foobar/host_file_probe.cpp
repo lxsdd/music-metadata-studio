@@ -175,9 +175,15 @@ HostDestinationParentChain probe_raw_destination_parent_chain_readonly(
             throw std::invalid_argument("Host cannot resolve destination root");
         const std::filesystem::path target(
             std::filesystem::path(out.native_target).lexically_normal());
-        const std::filesystem::path root(
+        std::filesystem::path root(
             std::filesystem::path(utf8_to_native(root_native.get_ptr()))
                 .lexically_normal());
+        // Windows treats C:\\Library and C:\\Library\\ as the same
+        // selected directory. path::lexically_normal() may preserve the
+        // latter's trailing separator, whereas target.parent_path() does
+        // not. Normalize that harmless difference before comparing.
+        if(root!=root.root_path() && !root.has_filename())
+            root=root.parent_path();
         if(!target.is_absolute() || !target.has_parent_path() ||
            !root.is_absolute() || root.empty())
             throw std::invalid_argument("Nonabsolute native destination or root");
@@ -256,6 +262,10 @@ HostDestinationParentChain probe_raw_destination_parent_chain_readonly(
                     return out;
                 }
                 found_selected_root=true;
+                // Keep the actually observed target-ancestor spelling,
+                // which may differ in case from the separately canonicalized
+                // requested root, but still points to the same native path.
+                out.native_destination_root=part.native_path;
                 out.destination_root_physical_key=part.physical_key;
                 out.destination_root_guard=part.guard;
             }

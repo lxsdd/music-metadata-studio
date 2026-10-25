@@ -3532,10 +3532,13 @@ void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
                 "changed during inspection. Refresh the entire preview.");
     }
     std::size_t unqualified_parents=0;
+    std::string first_parent_rejection;
     for (auto& result : observations) {
         PreviewEntry& entry = state.entries[result.index];
         if(!result.parents.qualified) {
             ++unqualified_parents;
+            if(first_parent_rejection.empty())
+                first_parent_rejection=result.parents.rejection;
             // An observed raw file is never enough when its ancestor
             // chain contains a junction, changed directory or unsupported
             // physical identity. Never copy raw presence or source guard as
@@ -3605,7 +3608,10 @@ void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
         L", physical source aliases " + std::to_wstring(physical_source_aliases) +
         L". Final foobar destinations/CUE dependencies UNVERIFIED; no writes."
         L" Raw target ancestry only; unqualified parent chains: " +
-        std::to_wstring(unqualified_parents) + L".";
+        std::to_wstring(unqualified_parents) + L"." +
+        (first_parent_rejection.empty()
+            ? std::wstring{}
+            : L" First cause: "+from_utf8(first_parent_rejection)+L".");
     SetDlgItemTextW(dialog, IDC_BATCH_HINT, hint.c_str());
 }
 

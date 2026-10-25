@@ -840,3 +840,17 @@ below a real selected root, switched/missing root identity or guard, missing
 subfolder masquerading as root, drive-root choice and out-of-tree root.
 Actual final foobar filename sanitation, CUE future destination, approved
 file writes and directory creation remain unqualified/disabled.
+
+
+### 2026-10-25 — Win32 root spelling equivalence and actionable native failure code
+
+The selected-root witness strips a Windows trailing-directory separator
+before comparing `root` with `target.parent_path()`; a valid path with
+different letter case is recorded using its independently observed actual
+target-ancestor spelling. This avoids marking a genuine existing root
+as missing merely because of spelling differences, without accepting
+out-of-tree raw targets or unsupported aliases. When an actual native
+parent chain fails, the read-only hint now includes only its stable
+sanitized diagnostic code (no private music paths or source tags).
+The original full `Final foobar destinations/CUE dependencies UNVERIFIED`
+warning and raw-preview count format stay intact.
