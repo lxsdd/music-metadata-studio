@@ -2105,7 +2105,7 @@ for marker in ("raw_relative_path_lexically_safe(relative)",
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: nested CUE lexical source qualification missing: "+marker)
 cue_native=workspace_dialog.split(
     "void append_external_cue_file_reference_evidence(",1)[1].split(
-    "// User-initiated inspection of RAW",1)[0]
+    "std::string recheck_joint_raw_target_candidate(",1)[0]
 for marker in ("candidate.source_parent", "parent_probes",
                "probe_raw_destination_parent_chain_readonly(",
                "std::all_of(parents.ancestors.begin()",
