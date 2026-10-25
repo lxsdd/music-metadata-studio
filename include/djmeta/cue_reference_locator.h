@@ -22,10 +22,10 @@ inline CueSiblingLocator preview_cue_sibling_locator(
     if (cue_locator.empty() || raw_filename.empty() ||
         raw_filename.size() > 1024 ||
         raw_filename == "." || raw_filename == "..")
-        return {{}, "CUE_FILE_PATH_UNQUALIFIED", false};
+        return {{}, "CUE_FILE_PATH_UNQUALIFIED", false, {}, false};
     if (!valid_utf8_metadata_text(cue_locator) ||
         !valid_utf8_metadata_text(raw_filename))
-        return {{}, "CUE_FILE_ENCODING_UNQUALIFIED", false};
+        return {{}, "CUE_FILE_ENCODING_UNQUALIFIED", false, {}, false};
     // A FILE entry may be in a relative subfolder of its actual CUE carrier
     // (e.g. FILE "CD1/01.wav"). Keep this lexical step read-only: never
     // resolve "..", drive/UNC paths, ADS, URI escapes, reserved devices,
@@ -34,7 +34,7 @@ inline CueSiblingLocator preview_cue_sibling_locator(
     // component rules; a second OS-level native parent-chain inspection
     // below the selected CUE directory is mandatory before showing PRESENT.
     if(raw_filename.find('%')!=std::string_view::npos)
-        return {{}, "CUE_FILE_UNSAFE_OR_NESTED_PATH", false};
+        return {{}, "CUE_FILE_UNSAFE_OR_NESTED_PATH", false, {}, false};
     std::string relative(raw_filename);
     for(char& c:relative) if(c=='\\') c='/';
     std::size_t first=0;
@@ -43,9 +43,9 @@ inline CueSiblingLocator preview_cue_sibling_locator(
         const auto last=sep==std::string::npos?relative.size():sep;
         const auto part=std::string_view(relative).substr(first,last-first);
         if(part.empty() || part=="." || part=="..")
-            return {{}, "CUE_FILE_UNSAFE_OR_NESTED_PATH", false};
+            return {{}, "CUE_FILE_UNSAFE_OR_NESTED_PATH", false, {}, false};
         if(part.back()=='.' || part.back()==' ')
-            return {{}, "CUE_FILE_AMBIGUOUS_WINDOWS_NAME", false};
+            return {{}, "CUE_FILE_AMBIGUOUS_WINDOWS_NAME", false, {}, false};
         std::string stem;
         for(const char c:part) {
             if(c=='.') break;
@@ -62,15 +62,15 @@ inline CueSiblingLocator preview_cue_sibling_locator(
             suffix=="\xC2\xB2" || suffix=="\xC2\xB3";
         if(stem=="CON" || stem=="PRN" || stem=="AUX" || stem=="NUL" ||
            (com_lpt && (digit || superscript)))
-            return {{}, "CUE_FILE_RESERVED_DEVICE", false};
+            return {{}, "CUE_FILE_RESERVED_DEVICE", false, {}, false};
         if(sep==std::string::npos) break;
         first=sep+1;
     }
     if(!raw_relative_path_lexically_safe(relative))
-        return {{}, "CUE_FILE_UNSAFE_OR_NESTED_PATH", false};
+        return {{}, "CUE_FILE_UNSAFE_OR_NESTED_PATH", false, {}, false};
     const auto split=cue_locator.find_last_of("/\\");
     if(split==std::string_view::npos || split+1>=cue_locator.size())
-        return {{}, "CUE_PARENT_LOCATOR_UNQUALIFIED", false};
+        return {{}, "CUE_PARENT_LOCATOR_UNQUALIFIED", false, {}, false};
     const auto parent=std::string(cue_locator.substr(0,split+1));
     // file:// locators use '/', whereas native Windows paths use '\\'.
     // Never normalize the CUE parent itself or infer an alternative root.
