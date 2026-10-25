@@ -1562,3 +1562,24 @@ if native_review.index("if(!verified.eligible)") > native_review.index(
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: native physical gate is after visible commit")
 if "commit_preflighted_" in native_review or "metadb_io" in native_review:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: read-only review entered physical writer")
+
+
+# MMS-WF-02 / MMS-WF-05 / MMS-FILE-01: the native route must be
+# computed from the identical explicit-only projection used by physical
+# postimage preflight. SAFE-in-Pending is a review suggestion, never a
+# hidden renamed filename or physical write. The ordinary display projector
+# remains available for comparing proposals but must not feed FileOps.
+if 'project_explicit_review_decisions(original,result)' not in workspace_dialog:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: initial route auto-applies SAFE")
+review_for_route = workspace_dialog.split(
+    "void apply_review_action(HWND dialog, PreviewState& state,",1)[1].split(
+    "void apply_to_rows(HWND dialog, PreviewState& state,",1)[0]
+if ('djmeta::project_explicit_review_decisions(' not in review_for_route or
+    'original, state.analyses[track], next_decisions[track]' not in review_for_route or
+    'entry.staged = std::move(staged.document)' not in review_for_route):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: accepted choices do not own route")
+if ('djmeta::project_review_decisions(' in review_for_route or
+    'djmeta::stage_safe_only(' in workspace_dialog):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: unapproved SAFE feeds FileOps")
+if ('staged.unresolved_semantic > 0' not in workspace_dialog):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: pending semantic route status stale")
