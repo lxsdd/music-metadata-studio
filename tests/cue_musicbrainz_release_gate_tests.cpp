@@ -53,6 +53,12 @@ int main(){
     check(!qualified_musicbrainz_cue_album_alignment(
         cue,foreign_title,alignment),
         "release MBID cannot impersonate track-title occurrence evidence");
+    auto duplicate_title=edition;
+    duplicate_title.tracks[0].fields.push_back({"TITLE",{"Other song"},
+        "musicbrainz",track_id,EvidenceScope::Edition});
+    check(!qualified_musicbrainz_cue_album_alignment(
+        cue,duplicate_title,alignment),
+        "two conflicting edition-track TITLE occurrences cannot qualify album");
     // The native album gate must honor the same media-identity conflict.
     const auto coded_cue=inspect_cue_metadata(
         "CATALOG 4006381333931\nTITLE \"Local album\"\n"
