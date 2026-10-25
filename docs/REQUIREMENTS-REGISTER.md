@@ -530,3 +530,9 @@
 - The official exact-release parser now attaches TITLE and, where explicitly present on the release track, ARTIST evidence to a valid release-track occurrence MBID. A recording-title/artist fallback can aid identity matching but never impersonates an exact release-track field. Missing occurrence IDs or credits remain unknown rather than acquiring a release/recording substitute.
 - The native CUE comparison now requires this same edition-scoped field provenance and exact value before a matched track difference is marked reviewable. Foreign, missing or mismatched fields remain blocked diagnostics; a plausible title/ISRC match alone is insufficient.
 - Regression follows a parsed official response through the source-verified in-memory CUE postimage adapter, not just synthetic hand-built editions. No CUE/tag/FileOps writer was enabled; exact-HEAD CI and installed foobar visual QA remain separate gates.
+
+### 2026-10-25 — MusicBrainz CUE album gate requires direct track titles (MMS-CUE-01)
+
+- Album-wide differences now require one exact release-track TITLE value for every verified MusicBrainz track occurrence, consistent with its recording identity. An occurrence MBID and a plausible recording fallback alone no longer qualify the whole album.
+- Missing or foreign TITLE evidence blocks only the album-wide change gate; original source facts and individually reviewable, independently proven track evidence remain visible. Core regressions cover missing, artist-only and foreign-title cases.
+- This is a read-only qualification rule. No provider hit, CUE source, physical tag or file is automatically modified.
