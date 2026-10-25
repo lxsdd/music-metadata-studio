@@ -1582,7 +1582,7 @@ for marker in (
     "state.analyses[track],state.analyses[track].ruleset_revision,",
     "next_decisions[track]",
     "if(!verified.eligible)",
-    "if(verified.changed) {",
+    "if(selected_postimage_changed) {",
     "entry.staged = std::move(staged.document);",
 ):
     if marker not in native_review:
