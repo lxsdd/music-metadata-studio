@@ -144,14 +144,39 @@ int main(){
           staged_normalizer.planned.fields[4]==original.fields[4],
           "explicit semantic Accept and manual override create exact physical postimage");
     explicit_decisions[0].action=ReviewAction::Accept;
-    const auto with_safe_accept=preview_explicit_normalizer_physical_tags(
+    const auto with_equal_safe_accept=preview_explicit_normalizer_physical_tags(
         snap,original,"volume:physical-id","source:v1",
         analysis,"rules:v1",explicit_decisions);
-    check(with_safe_accept.eligible && with_safe_accept.changed &&
-          with_safe_accept.explicitly_changed==3 &&
-          with_safe_accept.planned.fields[0].values==
-              std::vector<std::string>{"Old Title"},
-          "even SAFE normalization reaches physical tags only after explicit Accept");
+    check(with_equal_safe_accept.eligible && with_equal_safe_accept.changed &&
+          with_equal_safe_accept.explicitly_changed==2 &&
+          with_equal_safe_accept.planned.fields[0]==original.fields[0],
+          "equal SAFE acceptance does not create a phantom physical tag write");
+    auto whitespace_source=original;
+    whitespace_source.fields[0].values={" Old Title "};
+    auto whitespace_snap=snap;
+    whitespace_snap.original=whitespace_source;
+    auto whitespace_analysis=analysis;
+    whitespace_analysis.input_fingerprint=fingerprint(whitespace_source);
+    whitespace_analysis.proposals[0].original_value=" Old Title ";
+    const auto unapproved_safe=preview_explicit_normalizer_physical_tags(
+        whitespace_snap,whitespace_source,
+        "volume:physical-id","source:v1",
+        whitespace_analysis,"rules:v1",pending);
+    check(unapproved_safe.eligible && !unapproved_safe.changed &&
+          unapproved_safe.planned==whitespace_source,
+          "real whitespace SAFE still does not become a physical write without Accept");
+    const auto explicitly_safe=preview_explicit_normalizer_physical_tags(
+        whitespace_snap,whitespace_source,
+        "volume:physical-id","source:v1",
+        whitespace_analysis,"rules:v1",
+        {ReviewDecision{ReviewAction::Accept,""},
+         ReviewDecision{},ReviewDecision{}});
+    check(explicitly_safe.eligible && explicitly_safe.changed &&
+          explicitly_safe.explicitly_changed==1 &&
+          explicitly_safe.planned.fields[0].values==
+              std::vector<std::string>{"Old Title"} &&
+          explicitly_safe.planned.fields[1]==whitespace_source.fields[1],
+          "explicit SAFE Accept alone stages the exact changed TITLE");
     const auto normalizer_rejected=[&](
         const AnalysisResult& captured,
         const std::vector<ReviewDecision>& selection,
@@ -192,24 +217,12 @@ int main(){
     equal_analysis.proposals={
         proposed(0,0,"Old Title",SafetyClass::Safe)
     };
-    equal_analysis.proposals[0].proposed_value="Old Title";
-    const auto equal_approval=preview_explicit_normalizer_physical_tags(
-        snap,original,"volume:physical-id","source:v1",equal_analysis,
-        "rules:v1",{ReviewDecision{ReviewAction::Accept,""}});
-    check(equal_approval.eligible && equal_approval.changed,
-          "original whitespace differs from explicit normalizer target");
-    auto true_noop_source=original;
-    true_noop_source.fields[0].values={"Old Title"};
-    PhysicalTagSourceSnapshot true_noop_snap=snap;
-    true_noop_snap.original=true_noop_source;
-    equal_analysis.input_fingerprint=fingerprint(true_noop_source);
-    equal_analysis.proposals[0].original_value="Old Title";
     const auto equal_noop=preview_explicit_normalizer_physical_tags(
-        true_noop_snap,true_noop_source,"volume:physical-id","source:v1",
+        snap,original,"volume:physical-id","source:v1",
         equal_analysis,"rules:v1",
         {ReviewDecision{ReviewAction::Accept,""}});
     check(equal_noop.eligible && !equal_noop.changed &&
-          equal_noop.planned==true_noop_source,
+          equal_noop.planned==original,
           "explicit acceptance of an already equal normalizer value is zero-write");
     std::cout<<"PASS: selected physical multivalue/tag postimage and protected CUE guards\n";
 }
