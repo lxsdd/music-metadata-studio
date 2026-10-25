@@ -17,8 +17,28 @@ int main() {
              std::string("Äther.wav")}) {
         const auto result = djmeta::preview_cue_sibling_locator(cue, basename);
         require(result.eligible && result.source_candidate ==
-            "file:///Z:/Music/" + basename, "safe UTF-8 sibling cue FILE");
+            "file:///Z:/Music/" + basename &&
+            result.source_parent=="file:///Z:/Music/" && !result.nested,
+            "safe UTF-8 sibling cue FILE");
     }
+    for(const std::string& filename:{
+            std::string("CD1/01 - Intro.wav"),
+            std::string("CD2\\02 - Outro.flac"),
+            std::string("CD3/Live/Äther.wav")}) {
+        std::string normalized=filename;
+        for(char& c:normalized) if(c=='\\') c='/';
+        const auto candidate=djmeta::preview_cue_sibling_locator(cue,filename);
+        require(candidate.eligible && candidate.nested &&
+            candidate.source_parent=="file:///Z:/Music/" &&
+            candidate.source_candidate=="file:///Z:/Music/"+normalized,
+            "nested relative CUE FILE preserves the CUE parent and UTF-8");
+    }
+    const auto native_nested=djmeta::preview_cue_sibling_locator(
+        "C:\\Music\\Album.cue","Disc 1/Track.flac");
+    require(native_nested.eligible && native_nested.nested &&
+            native_nested.source_parent=="C:\\Music\\" &&
+            native_nested.source_candidate=="C:\\Music\\Disc 1\\Track.flac",
+            "native Windows CUE nested path uses the original parent separator");
     for (const auto& [basename, expected] : {
              std::pair{"CON.wav", "CUE_FILE_RESERVED_DEVICE"},
              {"CON .wav", "CUE_FILE_RESERVED_DEVICE"},
@@ -28,7 +48,15 @@ int main() {
              {"com².flac", "CUE_FILE_RESERVED_DEVICE"},
              {"lpt³.wav", "CUE_FILE_RESERVED_DEVICE"},
              {"../escaped.wav", "CUE_FILE_UNSAFE_OR_NESTED_PATH"},
-             {"sub/part.wav", "CUE_FILE_UNSAFE_OR_NESTED_PATH"},
+             {"sub/../escaped.wav", "CUE_FILE_UNSAFE_OR_NESTED_PATH"},
+             {"sub/./escaped.wav", "CUE_FILE_UNSAFE_OR_NESTED_PATH"},
+             {"sub//escaped.wav", "CUE_FILE_UNSAFE_OR_NESTED_PATH"},
+             {"sub\\\\escaped.wav", "CUE_FILE_UNSAFE_OR_NESTED_PATH"},
+             {"sub/CON.wav", "CUE_FILE_RESERVED_DEVICE"},
+             {"sub/COM².wav", "CUE_FILE_RESERVED_DEVICE"},
+             {"sub/name:ads.wav", "CUE_FILE_UNSAFE_OR_NESTED_PATH"},
+             {"sub/track%2e.wav", "CUE_FILE_UNSAFE_OR_NESTED_PATH"},
+             {"sub/track\xE2\x80\xAE.wav", "CUE_FILE_UNSAFE_OR_NESTED_PATH"},
              {"C:evil.wav", "CUE_FILE_UNSAFE_OR_NESTED_PATH"},
              {"name:ads.wav", "CUE_FILE_UNSAFE_OR_NESTED_PATH"},
              {"track?.wav", "CUE_FILE_UNSAFE_OR_NESTED_PATH"},

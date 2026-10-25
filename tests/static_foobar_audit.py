@@ -2091,3 +2091,25 @@ for marker in (
 if ("raw_candidate,entry.input.destination_root" not in raw_inspect_native or
     "state.entries.at(result.index).input.destination_root" not in raw_inspect_native):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: native raw destination not bound to selected root on both probes")
+
+
+// Nested external CUE FILE sources are read-only relative paths anchored to
+// the actual CUE carrier directory; every OS ancestor must exist and remain
+// stable on a SECOND native probe. This must never set the final CUE/FileOps
+// write-qualification gates.
+cue_locator=(root/"include/djmeta/cue_reference_locator.h").read_text(encoding="utf-8")
+for marker in ("raw_relative_path_lexically_safe(relative)",
+               "CUE_FILE_HOST_PROBE_REQUIRED", "source_parent",
+               "relative.find('/')", "CUE_FILE_RESERVED_DEVICE"):
+    if marker not in cue_locator:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: nested CUE lexical source qualification missing: "+marker)
+cue_native=workspace_dialog.split(
+    "void append_external_cue_file_reference_evidence(",1)[1].split(
+    "// User-initiated inspection of RAW",1)[0]
+for marker in ("candidate.source_parent", "parent_probes",
+               "probe_raw_destination_parent_chain_readonly(",
+               "std::all_of(parents.ancestors.begin()",
+               "stable_raw_destination_parent_chain(earlier,latest)",
+               "file_sources.push_back({i,{}, {},false})"):
+    if marker not in cue_native:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: nested CUE parent witness missing: "+marker)

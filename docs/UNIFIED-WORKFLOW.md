@@ -854,3 +854,16 @@ parent chain fails, the read-only hint now includes only its stable
 sanitized diagnostic code (no private music paths or source tags).
 The original full `Final foobar destinations/CUE dependencies UNVERIFIED`
 warning and raw-preview count format stay intact.
+
+
+// 2026-10-25 — Nested external CUE FILE source inventory (MMS-CUE-01/06)
+//
+// An explicit Inspect CUE gesture can now resolve safe FILE "Disc 1/01.wav"
+// and FILE "Disc 2\\02.wav" relative to the original external CUE directory.
+// Each candidate is checked through foobar's native filesystem mapper and
+// read-only physical file ID; all existing parent directories including the
+// exact CUE parent are independently checked for reparse/junctions and
+// twice observed for stable identities. Missing directories, traversal,
+// Windows device aliases, unsafe Unicode/URI syntax and unsupported aliases
+// remain unqualified. A complete source-only view still cannot authorize
+// any destination, coordinated rename, CUE rewrite or write.

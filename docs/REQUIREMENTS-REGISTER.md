@@ -541,3 +541,15 @@
 
 - The source-verified in-memory CUE review no longer returns an eligible partial snapshot when more than 512 changed/no-op edition fields qualify. Overflow now fails closed rather than silently dropping later album or track facts.
 - A large, fully aligned synthetic MusicBrainz/CUE fixture establishes that the source and edition themselves qualify and that the review really exceeds the bound before checking rejection. No CUE, tag or FileOps writer is enabled or invoked.
+
+
+// 2026-10-25 (MMS-CUE-01/06, MMS-FILE-03): External CUE FILE source
+// inventory now accepts lexically safe nested relative paths (CD1/Track.wav,
+// CD2\\Track.wav), using the shared Windows raw-relative component validator.
+// Native foobar resolves these under the actual CUE directory, not the
+// destination profile; checks the full existing physical parent hierarchy
+// for junctions/aliases and re-probes each observed ancestor and audio
+// identity before presenting read-only source evidence. Unsafe traversal,
+// device aliases, Unicode directional overrides, missing/junction parents
+// remain BLOCKED. This is source inventory only, not coordinated FileOps
+// rename, CUE rewrite, future target approval or permission to write.

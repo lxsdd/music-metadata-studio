@@ -3197,6 +3197,7 @@ void append_external_cue_file_reference_evidence(
             "External CUE physical source changed before FILE-reference inspection.");
     constexpr std::size_t maximum_probes=128;
     std::map<std::string, HostFileObservation> probes;
+    std::map<std::string, HostDestinationParentChain> parent_probes;
     std::set<std::string> observed_ids;
     std::vector<djmeta::CueObservedFileSource> file_sources;
     std::vector<std::size_t> appended_file_rows;
@@ -3238,6 +3239,25 @@ void append_external_cue_file_reference_evidence(
             append(i,item.filename,"NOT QUALIFIED: "+candidate.reason);
             continue;
         }
+        const auto [parent_it,parent_inserted]=parent_probes.try_emplace(
+            candidate.source_candidate);
+        if(parent_inserted)
+            parent_it->second=probe_raw_destination_parent_chain_readonly(
+                candidate.source_candidate,candidate.source_parent);
+        const auto& parents=parent_it->second;
+        // Existing CUE directory must be the EXACT physically observed root
+        // of the FILE reference. A nested junction, absent directory or
+        // out-of-tree alias cannot become a qualified audio dependency.
+        const bool parent_qualified=parents.qualified &&
+            std::all_of(parents.ancestors.begin(),parents.ancestors.end(),
+                [](const HostDestinationAncestor& a) {return a.existing;});
+        if(!parent_qualified) {
+            file_sources.push_back({i,{}, {},false});
+            append(i,item.filename,"NOT QUALIFIED: "+
+                (parents.qualified?std::string("CUE_FILE_PARENT_MISSING"):
+                                   parents.rejection));
+            continue;
+        }
         const auto [it, inserted] = probes.try_emplace(
             candidate.source_candidate);
         if (inserted)
@@ -3277,6 +3297,17 @@ void append_external_cue_file_reference_evidence(
         if (!stable_raw_target_observation(earlier, latest))
             throw std::runtime_error(
                 "External CUE FILE dependency changed during read-only inspection. Refresh snapshot.");
+    }
+    for(const auto& [candidate_path,earlier]:parent_probes) {
+        const auto latest=probe_raw_destination_parent_chain_readonly(
+            candidate_path,
+            // The exact CUE parent is derived from the inspected carrier,
+            // never from a destination FileOps profile.
+            entry.input.source_path.substr(
+                0,entry.input.source_path.find_last_of("/\\")+1));
+        if(!stable_raw_destination_parent_chain(earlier,latest))
+            throw std::runtime_error(
+                "External CUE FILE parent directory or junction changed during inspection.");
     }
     const auto current = probe_host_file_readonly(entry.input.source_path);
     if (current.state != HostFileState::ExistingFile ||

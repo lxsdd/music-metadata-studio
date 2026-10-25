@@ -144,6 +144,7 @@ endif()
 
 # Read-only existing CUE FILE same-directory locator; no generator or writer.
 add_executable(djmeta_cue_reference_locator_tests tests/cue_reference_locator_tests.cpp)
+target_link_libraries(djmeta_cue_reference_locator_tests PRIVATE djmeta_core)
 target_include_directories(djmeta_cue_reference_locator_tests PRIVATE include)
 target_compile_features(djmeta_cue_reference_locator_tests PRIVATE cxx_std_20)
 if(MSVC)
