@@ -457,11 +457,23 @@ int main() {
         CueCarrierKind::ExternalText);
     auto barcode_edition=complete_edition;
     barcode_edition.provider="musicbrainz";
-    for(auto& field:barcode_edition.fields) field.provider="musicbrainz";
-    for(auto& track:barcode_edition.tracks)
-        for(auto& field:track.fields) field.provider="musicbrainz";
+    barcode_edition.edition_id="00000000-0000-0000-0000-000000000881";
+    for(auto& field:barcode_edition.fields) {
+        field.provider="musicbrainz";
+        field.source_id=barcode_edition.edition_id;
+    }
+    for(std::size_t index=0;index<barcode_edition.tracks.size();++index) {
+        auto& remote=barcode_edition.tracks[index];
+        remote.source_track_id="00000000-0000-0000-0000-"+
+            std::string(11,'0')+std::to_string(index+1);
+        for(auto& field:remote.fields) {
+            field.provider="musicbrainz";
+            field.source_id=remote.source_track_id;
+        }
+    }
     barcode_edition.fields.push_back({
-        "BARCODE",{"4006381333931"},"musicbrainz","881",
+        "BARCODE",{"4006381333931"},"musicbrainz",
+        barcode_edition.edition_id,
         EvidenceScope::Edition,DateMeaning::NotDate});
     const auto same_barcode=review_cue_release_edition(
         barcode_cue,barcode_edition);
