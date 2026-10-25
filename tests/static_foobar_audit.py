@@ -2054,8 +2054,9 @@ raw_inspect_native=workspace_dialog.split(
     "void inspect_selected_raw_targets(",1)[1].split(
     "std::vector<PreviewEntry> capture_preview(",1)[0]
 for marker in (
-    "probe_raw_destination_parent_chain_readonly(raw_candidate)",
-    "probe_raw_destination_parent_chain_readonly(result.raw_candidate)",
+    "probe_raw_destination_parent_chain_readonly(",
+    "raw_candidate,entry.input.destination_root",
+    "state.entries.at(result.index).input.destination_root",
     "stable_raw_destination_parent_chain(result.parents,current_parents)",
     "if(!result.parents.qualified)",
     "result.observed.state=HostFileState::Unqualified",
