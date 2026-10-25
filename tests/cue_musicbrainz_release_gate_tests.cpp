@@ -38,6 +38,12 @@ int main(){
           "known named mix and ISRC are independently suggested");
     check(qualified_musicbrainz_cue_album_alignment(cue,edition,alignment),
           "complete exact edition qualifies source-only album comparison");
+    auto distinct_track_title=edition;
+    distinct_track_title.tracks[0].fields[0].values={
+        "Corrected Sunrise (Extended Mix)"};
+    check(qualified_musicbrainz_cue_album_alignment(
+        cue,distinct_track_title,alignment),
+        "direct release-track title may differ from recording match identity");
     auto recording_only=edition;
     recording_only.tracks[0].fields.clear();
     check(!qualified_musicbrainz_cue_album_alignment(
