@@ -62,3 +62,21 @@ Core Windows/Linux must qualify `musicbrainz_provider_tests.cpp` (offline synthe
 ## Future release gate
 
 The official online source is an **optional feature** of a standalone foobar plugin. It must never introduce a dependency on `foo_dj_library_bridge` or local DJ Library personal catalog. Discogs, Beatport, Deezer and Spotify remain separate provider research/gates; this adapter must not claim they are implemented. Merge, production tag writes and physical/CUE file operations remain prohibited until separate explicit host gates.
+
+
+### 2026-10-25 — CUE release discovery for joined album-artist credits
+
+A user-initiated native MusicBrainz **release** search now uses the same
+bounded collaboration parser already used for recording searches. When an
+original CUE album artist contains a uniquely recognized `x`, `feat.`,
+`vs.`, etc., the native search presents explicit, separately labeled
+stages: complete credit first; leading credited artist; other credited
+artist; title-only last. A valid CUE CATALOG barcode still takes priority.
+This improves recall when MusicBrainz indexes a release under one credited
+artist rather than the complete collaboration. For example, `Kyau & Albert
+X Maywave` preserves the ampersand within `Kyau & Albert`; the individual
+`Maywave` query is a separate, review-only attempt. Invalid, overlong,
+control-bearing or ambiguous credits cannot be sent as partial searches.
+Each stage is a single user-triggered fixed-host HTTPS request; it does
+not silently match, select, import or rewrite any source metadata.
+No physical/virtual/CUE/FileOps writer is enabled.

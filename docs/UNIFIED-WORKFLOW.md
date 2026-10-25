@@ -867,3 +867,18 @@ warning and raw-preview count format stay intact.
 // Windows device aliases, unsafe Unicode/URI syntax and unsupported aliases
 // remain unqualified. A complete source-only view still cannot authorize
 // any destination, coordinated rename, CUE rewrite or write.
+
+
+### 2026-10-25 — User-visible CUE release collaboration discovery
+
+MusicBrainz release discovery from inspected CUE album metadata now
+exposes up to five **sequential**, read-only strategies when a validated
+media barcode and a two-artist collaboration are present: exact barcode,
+full album artist, lead credited artist, partner credited artist, and
+title-only. The existing native Find view displays the strategy label
+and stage number and requires an explicit Search gesture for each
+nonempty-result broadening step. The original album artist and all
+release/recording identities are retained; a result under one partner is
+only an edition-review candidate, never an approved tag or CUE change.
+MMS-ONL-01/02 and MMS-CUE-01 remain partial until native installed-host
+and protected provider end-to-end acceptance.

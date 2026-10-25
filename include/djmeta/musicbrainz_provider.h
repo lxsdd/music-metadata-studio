@@ -681,9 +681,30 @@ inline std::vector<RecordingSearchAttempt> release_search_plan(
             encode_url_query("barcode:"+std::string(cue_barcode))+
             std::string(search_request_suffix)});
     if(valid_search_term(album)) {
-        if(valid_search_term(artist))
-            attempts.push_back({"Release title + album artist",
-                make_search_path(SearchKind::Release,album,artist)});
+        // A joined CUE ALBUM ARTIST is not necessarily how MusicBrainz
+        // indexes the edition. Offer bounded additional official discovery
+        // stages under EACH uniquely delimited credited artist. These are
+        // read-only SEARCH hints; the original full credit, exact release
+        // MBID and explicit user choice remain authoritative for comparison.
+        // Never split ambiguous "&" artist names (e.g. "Kyau & Albert").
+        // Full-credit search is always first; title-only is last.
+        const auto add_artist=[&](std::string_view who,
+                                  std::string label) {
+            if(!valid_search_term(who)) return;
+            const auto path=make_search_path(SearchKind::Release,album,who);
+            for(const auto& prior:attempts)
+                if(prior.path==path) return;
+            attempts.push_back({std::move(label),std::move(path)});
+        };
+        if(valid_search_term(artist)) {
+            add_artist(artist,"Release title + full album artist");
+            const auto lead=lead_credit_search_artist(artist);
+            if(lead!=artist)
+                add_artist(lead,"Release title + lead credited artist (identity review)");
+            const auto partner=partner_credit_search_artist(artist);
+            if(partner!=artist && partner!=lead)
+                add_artist(partner,"Release title + other credited artist (identity review)");
+        }
         attempts.push_back({"Release title only (artist unverified)",
             make_search_path(SearchKind::Release,album,"")});
     }

@@ -103,13 +103,23 @@ int main() {
     check(make_search_path(SearchKind::Release,"Album","").find("/ws/2/release?")==0,
           "release search without unknown artist is permitted");
     const auto album_stages=release_search_plan("Live Set","Artist feat. Guest");
-    check(album_stages.size()==2 &&
+    check(album_stages.size()==4 &&
           album_stages[0].path==make_search_path(
               SearchKind::Release,"Live Set","Artist feat. Guest") &&
           album_stages[1].path==make_search_path(
+              SearchKind::Release,"Live Set","Artist") &&
+          album_stages[2].path==make_search_path(
+              SearchKind::Release,"Live Set","Guest") &&
+          album_stages[3].path==make_search_path(
               SearchKind::Release,"Live Set","") &&
-          album_stages[1].label.find("unverified")!=std::string::npos,
-          "CUE release offers bounded artist-free discovery without silently matching artist");
+          album_stages[1].label.find("identity review")!=std::string::npos &&
+          album_stages[2].label.find("identity review")!=std::string::npos &&
+          album_stages[3].label.find("unverified")!=std::string::npos &&
+          std::all_of(album_stages.begin(),album_stages.end(),
+              [](const auto& stage) {
+                  return qualified_musicbrainz_request_path(stage.path);
+              }),
+          "CUE release stages retain full credit, try each credited artist, then title-only without asserting an edition match");
     check(valid_release_search_barcode("4006381333931") &&
           valid_release_search_barcode("036000291452") &&
           !valid_release_search_barcode("4006381333932") &&
@@ -120,15 +130,16 @@ int main() {
           "only check-digit-valid UPC-A/EAN-13 becomes a release identifier");
     const auto catalog_stages=release_search_plan(
         "Live Set","Artist feat. Guest","4006381333931");
-    check(catalog_stages.size()==3 &&
+    check(catalog_stages.size()==5 &&
           catalog_stages.front().label.find("barcode")!=std::string::npos &&
           catalog_stages.front().path==
               std::string("/ws/2/release?query=barcode%3A4006381333931")+
                   std::string(search_request_suffix) &&
           qualified_musicbrainz_request_path(catalog_stages.front().path) &&
-          catalog_stages[1].path==album_stages[0].path &&
-          catalog_stages[2].path==album_stages[1].path,
-          "validated CUE media barcode adds one bounded exact read-only search stage");
+          std::equal(album_stages.begin(),album_stages.end(),
+              catalog_stages.begin()+1,
+              [](const auto& a,const auto& b) {return a.path==b.path;}),
+          "validated CUE media barcode adds one bounded exact read-only search stage before every credited-artist strategy");
     const auto barcode_only=release_search_plan(
         "","Artist feat. Guest","4006381333931");
     check(barcode_only.size()==1 &&
@@ -143,8 +154,37 @@ int main() {
 
     const auto album_without_artist=release_search_plan("Live Set","");
     check(album_without_artist.size()==1 &&
-          album_without_artist[0].path==album_stages[1].path,
+          album_without_artist[0].path==album_stages[3].path,
           "missing release artist never repeats the same provider URL");
+    // Real collaboration names often include an ampersand INSIDE one
+    // artist's name. Only explicit X/feat delimiters may split credits.
+    const auto dj_collaboration=release_search_plan(
+        "1000 Years","Kyau & Albert X Maywave");
+    check(dj_collaboration.size()==4 &&
+          dj_collaboration[0].path==make_search_path(
+              SearchKind::Release,"1000 Years","Kyau & Albert X Maywave") &&
+          dj_collaboration[1].path==make_search_path(
+              SearchKind::Release,"1000 Years","Kyau & Albert") &&
+          dj_collaboration[2].path==make_search_path(
+              SearchKind::Release,"1000 Years","Maywave") &&
+          dj_collaboration[3].path==make_search_path(
+              SearchKind::Release,"1000 Years","") &&
+          dj_collaboration[1].label.find("identity review")!=std::string::npos &&
+          dj_collaboration[2].label.find("identity review")!=std::string::npos,
+          "joined DJ album artist recall retains duo ampersand and requires edition review");
+    const auto single_artist=release_search_plan("Album","Kyau & Albert");
+    check(single_artist.size()==2 &&
+          single_artist[0].path==make_search_path(
+              SearchKind::Release,"Album","Kyau & Albert") &&
+          single_artist[1].path==make_search_path(
+              SearchKind::Release,"Album",""),
+          "ampersand inside a credited artist must never be split");
+    const auto malformed_partner=release_search_plan(
+        "Album","Valid Artist feat. "+std::string(160,'X'));
+    check(malformed_partner.size()==1 &&
+          malformed_partner[0].path==make_search_path(
+              SearchKind::Release,"Album",""),
+          "overlong joined credit cannot leak partial invented identities");
     rejects([]{(void)release_search_plan("","Artist");},
             "empty release title cannot fall back to broad artist-only search");
     const std::string too_long_artist(151,'A');
