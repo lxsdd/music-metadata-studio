@@ -860,6 +860,10 @@ std::vector<djmeta::online::FieldReviewRow> musicbrainz_cue_release_rows(
                 " / "+name;
             row.candidate=field;
             const bool verified_value=verified_occurrence &&
+                std::count_if(remote.fields.begin(),remote.fields.end(),
+                    [&](const FieldEvidence& evidence) {
+                        return evidence.field==name;
+                    })==1 &&
                 std::any_of(remote.fields.begin(),remote.fields.end(),
                     [&](const FieldEvidence& evidence) {
                         return evidence.field==name &&
