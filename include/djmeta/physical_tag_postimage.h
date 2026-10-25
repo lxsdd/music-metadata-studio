@@ -37,11 +37,14 @@ inline std::string physical_fold_name(std::string name){
     return name;
 }
 inline bool physical_tag_immutable(std::string_view name){
+    // ReplayGain has additional real-world fields (e.g. reference loudness,
+    // track/album range); protecting only the four common gain/peak keys
+    // allows an unqualified normalization rule to mutate the rest.
+    const auto upper=physical_fold_name(std::string(name));
     return is_protected_cue_metadata(name) ||
-        metadata_field_equals_ci(name,"REPLAYGAIN_TRACK_GAIN") ||
-        metadata_field_equals_ci(name,"REPLAYGAIN_TRACK_PEAK") ||
-        metadata_field_equals_ci(name,"REPLAYGAIN_ALBUM_GAIN") ||
-        metadata_field_equals_ci(name,"REPLAYGAIN_ALBUM_PEAK");
+        upper.starts_with("replaygain_") ||
+        upper=="metadata_block_picture" ||
+        upper=="coverart" || upper=="coverartmime";
 }
 inline PhysicalTagPostimage preview_explicit_physical_tag_values(
     const PhysicalTagSourceSnapshot& snapshot,
