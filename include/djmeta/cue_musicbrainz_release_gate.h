@@ -38,7 +38,11 @@ inline bool qualified_musicbrainz_cue_album_alignment(
             return false;
         // A recording fallback can support matching but cannot establish the
         // exact release-track title required for an album-wide CUE proposal.
-        if(remote.fields.empty() ||
+        if(remote.fields.empty() || remote.fields.size()>64 ||
+           std::count_if(remote.fields.begin(),remote.fields.end(),
+               [](const FieldEvidence& field) {
+                   return field.field=="TITLE";
+               })!=1 ||
            !std::any_of(remote.fields.begin(),remote.fields.end(),
                [&](const FieldEvidence& field) {
                    return field.field=="TITLE" && field.values.size()==1 &&
