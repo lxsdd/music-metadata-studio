@@ -1697,3 +1697,15 @@ if ('kMaxPreviewUndoSources=4096' not in batch_table_dialog or
 if ('frame.previous_entries=std::move(next_entries);' not in batch_table_dialog or
     'frame.previous_entries=std::move(candidate);' not in batch_table_dialog):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: Undo not connected to both native actions")
+
+
+# One-step Undo must not be displaced by a repeated Accept/Reject/Reset or
+# an identical manual correction. Such a gesture has no new planned change.
+for marker in (
+    'const auto& previous=state.review_decisions[track][proposal];',
+    'previous.action==action',
+    'previous.manual_value==manual_value',
+    'if(affected_tracks.empty()) return;',
+):
+    if marker not in review_action:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: no-op action clobbers Undo: "+marker)
