@@ -4,8 +4,9 @@
 
 namespace djmeta_foobar {
 
-// Native, modal, read-only Prepare Tracks editor. It only chooses a
-// one-time route profile for a preview; nothing is persisted or written.
+// Native, modeless single-instance Studio workspace. This entry point
+// selects only an initial route preview; existing decisions are preserved
+// and no metadata, CUE or filesystem write is performed.
 void show_prepare_tracks_dialog(const metadb_handle_list& handles);
 
 } // namespace djmeta_foobar

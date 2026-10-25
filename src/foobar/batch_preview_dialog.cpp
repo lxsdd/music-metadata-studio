@@ -6918,6 +6918,13 @@ void show_batch_preview_dialog(
             auto* existing = reinterpret_cast<PreviewState*>(
                 GetWindowLongPtrW(g_workspace,GWLP_USERDATA));
             const bool same = existing && same_workspace_selection(*existing,handles);
+            // Reopening via another context-menu route must never silently
+            // replace an in-progress user's accepted/manual decisions.
+            const bool different_route = existing &&
+                (existing->current_choice.display_name != initial_choice.display_name ||
+                 existing->current_choice.destination_root != initial_choice.destination_root ||
+                 existing->current_choice.titleformat_expression !=
+                     initial_choice.titleformat_expression);
             if (existing) existing->online_close_requested=false;
             if (IsIconic(g_workspace)) ShowWindow(g_workspace,SW_RESTORE);
             ShowWindow(g_workspace,SW_SHOW);
@@ -6928,6 +6935,11 @@ void show_batch_preview_dialog(
                     L"Close this workspace, then reopen for the new selection.");
             } else if (existing) {
                 revalidate_workspace(*existing);
+                if (different_route && !existing->stale)
+                    SetDlgItemTextW(g_workspace,IDC_BATCH_HINT,
+                        L"Another route preset was requested. Existing route "
+                        L"and review decisions are preserved. Choose a profile "
+                        L"in File locations, or close and reopen for that preset.");
             }
             return;
         }

@@ -1,7 +1,8 @@
 #include "stdafx.h"
 
 #include "guid.h"
-#include "preview.h"
+#include "batch_preview_dialog.h"
+#include "legacy_routing_profiles.h"
 #include "prepare_dialog.h"
 #include "menu_settings.h"
 #include "routing_preview.h"
@@ -49,16 +50,18 @@ public:
         if (index > 4) return false;
         if (index == 0) {
             output =
-                "Analyzes selected tracks with the shared normalizer ruleset "
-                "and displays original and proposed values. Does not write tags.";
+                "Opens the single-instance modeless Studio workspace for local "
+                "normalization review. Only explicit decisions can affect routing; "
+                "nothing is written.";
         } else if (index == 4) {
             output =
-                "Opens the native Prepare Tracks dialog with an editable destination "
-                "and Title Formatting expression. Preview only; no file or tag writes.";
+                "Opens the modeless Studio workspace with editable routing and "
+                "metadata review. Preview only; no file or tag writes.";
         } else {
             output =
-                "Evaluates the selected legacy foobar File Operations profile against "
-                "SAFE-only staged metadata. No tag writes, renames, moves or copies.";
+                "Opens the same Studio workspace with this legacy route preset. "
+                "An existing batch and its decisions are never replaced. "
+                "No tags, files or CUEs are written.";
         }
         return true;
     }
@@ -90,9 +93,21 @@ public:
                         "Music Metadata Studio");
                     return;
                 }
-                if (index == 0) show_normalization_preview(retained);
-                else if (index == 4) show_prepare_tracks_dialog(retained);
-                else show_legacy_route_preview(retained, index - 1);
+                // All five entry points share the same modeless workspace.
+                // The requested route is an initial preview preset only;
+                // show_batch_preview_dialog preserves any existing batch.
+                if (index == 0 || index == 4) {
+                    show_prepare_tracks_dialog(retained);
+                } else {
+                    const std::size_t route_index =
+                        static_cast<std::size_t>(index - 1);
+                    if (route_index >= legacy_move_route_count) return;
+                    const LegacyMoveRoute& preset =
+                        legacy_move_routes[route_index];
+                    show_batch_preview_dialog(retained, RoutePreviewChoice{
+                        preset.name, preset.destination_root,
+                        preset.foobar_titleformat});
+                }
             });
 
         metadb_io_v2::get()->load_info_async(

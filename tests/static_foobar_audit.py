@@ -336,6 +336,29 @@ for token in ('"Final CUE links: not checked"', '"Final target: not checked"'):
     if token not in batch_table_dialog:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: FileOps tooltip omits global limitation " + token)
 
+# Every context route must enter the same modeless Studio HWND rather than
+# silently showing an unrelated legacy popup with different SAFE semantics.
+for obsolete in ("show_normalization_preview(retained)",
+                 "show_legacy_route_preview(retained"):
+    if obsolete in route_menu:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: split legacy context workflow " + obsolete)
+for label, source, token in [
+    ("normalize and Prepare share workspace", route_menu,
+     "if (index == 0 || index == 4)"),
+    ("preset resolves the exact legacy route", route_menu,
+     "legacy_move_routes[route_index]"),
+    ("preset opens the same modeless workspace", route_menu,
+     "show_batch_preview_dialog(retained, RoutePreviewChoice{"),
+    ("route switch compares actual current workspace", batch_table_dialog,
+     "existing->current_choice.destination_root != initial_choice.destination_root"),
+    ("different preset preserves existing decisions", batch_table_dialog,
+     "Another route preset was requested."),
+    ("route warning does not mask a stale source", batch_table_dialog,
+     "if (different_route && !existing->stale)"),
+]:
+    if token not in source:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: " + label)
+
 layout_storage = (foobar / "batch_table_settings.cpp").read_text(encoding="utf-8")
 route_preview = (foobar / "routing_preview.cpp").read_text(encoding="utf-8")
 legacy_profiles = (foobar / "legacy_routing_profiles.h").read_text(encoding="utf-8")
