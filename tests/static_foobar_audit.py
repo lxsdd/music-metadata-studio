@@ -859,6 +859,7 @@ for token in (
     "qualified_cue_edition_track_provenance(edition,i)",
     "evidence.source_id==remote.source_track_id",
     "evidence.values.front()==value",
+    "std::count_if(remote.fields.begin(),remote.fields.end()",
     "if (local_ordinal && verified_value)",
     "musicbrainz_live_release_track_field_unverified",
 ):
