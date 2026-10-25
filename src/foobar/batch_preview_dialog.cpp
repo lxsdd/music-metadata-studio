@@ -3600,9 +3600,9 @@ void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
         L", missing " + std::to_wstring(missing) +
         L", unqualified " + std::to_wstring(unqualified) +
         L", physical source aliases " + std::to_wstring(physical_source_aliases) +
-        L", unqualified parent chains " + std::to_wstring(unqualified_parents) +
-        L". This is RAW ancestry only. Final foobar destinations/CUE "
-        L"dependencies UNVERIFIED; no writes.";
+        L". Final foobar destinations/CUE dependencies UNVERIFIED; no writes."
+        L" Raw target ancestry only; unqualified parent chains: " +
+        std::to_wstring(unqualified_parents) + L".";
     SetDlgItemTextW(dialog, IDC_BATCH_HINT, hint.c_str());
 }
 
