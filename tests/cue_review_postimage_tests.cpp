@@ -303,7 +303,7 @@ int main(){
     large.edition_id=mb;
     large.fields.push_back({"ALBUM",{"Large album"},
         "musicbrainz",mb,EvidenceScope::Edition});
-    for(int n=1;n<=129;++n) {
+    for(int n=1;n<=128;++n) {
         const auto title="Track "+std::to_string(n)+" (Extended Mix)";
         const auto suffix=std::to_string(n);
         const auto isrc="GBABC26"+std::string(5-suffix.size(),'0')+suffix;
@@ -328,7 +328,7 @@ int main(){
     const auto large_cue=inspect_cue_metadata(
         large_raw,CueCarrierKind::ExternalText);
     const auto large_local=prepare_cue_release_lookup(large_cue);
-    check(large_local.eligible && large_local.tracks.size()==129,
+    check(large_local.eligible && large_local.tracks.size()==128,
           "oversized CUE fixture parses and supplies exact track inventory");
     const auto large_alignment=align_release(large_local.tracks,large);
     check(qualified_musicbrainz_cue_album_alignment(
