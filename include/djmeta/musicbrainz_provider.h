@@ -945,10 +945,12 @@ inline ReleaseEdition parse_release_lookup(std::string_view json,
                 !release_track_ids.insert(row.source_track_id).second))
                 throw std::invalid_argument(
                     "MusicBrainz release has ambiguous track MBID");
-            row.recording.title=str(raw,"title");
+            const auto exact_track_title=str(raw,"title");
+            const auto exact_track_artist=artist_credit(raw);
+            row.recording.title=exact_track_title;
             if (row.recording.title.empty()&&rec)
                 row.recording.title=str(*rec,"title");
-            row.recording.primary_artist=artist_credit(raw);
+            row.recording.primary_artist=exact_track_artist;
             if (row.recording.primary_artist.empty()&&rec)
                 row.recording.primary_artist=artist_credit(*rec);
             // Do not substitute the edition's ALBUM ARTIST for missing
@@ -978,11 +980,12 @@ inline ReleaseEdition parse_release_lookup(std::string_view json,
             // official response supplies an exact release-track occurrence ID.
             // Missing IDs remain matchable discovery facts, not CUE proposals.
             if(!row.source_track_id.empty()) {
-                row.fields.push_back({"TITLE",{row.recording.title},
-                    "musicbrainz",row.source_track_id,EvidenceScope::Edition,
-                    DateMeaning::NotDate});
-                if(!row.recording.primary_artist.empty())
-                    row.fields.push_back({"ARTIST",{row.recording.primary_artist},
+                if(!exact_track_title.empty())
+                    row.fields.push_back({"TITLE",{exact_track_title},
+                        "musicbrainz",row.source_track_id,EvidenceScope::Edition,
+                        DateMeaning::NotDate});
+                if(!exact_track_artist.empty())
+                    row.fields.push_back({"ARTIST",{exact_track_artist},
                         "musicbrainz",row.source_track_id,EvidenceScope::Edition,
                         DateMeaning::NotDate});
             }
