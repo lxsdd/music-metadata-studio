@@ -2839,6 +2839,60 @@ void apply_to_rows(HWND dialog, PreviewState& state, bool all) {
     update_table(state);
 }
 
+void undo_last_preview_action(HWND dialog, PreviewState& state) {
+    if(!state.last_preview_undo || state.show_candidate)
+        throw std::invalid_argument("No local preview change is available to undo.");
+    // Undo is a reversible in-memory view action, not a source writer.
+    // The command dispatcher also performs full source/physical checks.
+    for(const auto& entry:state.entries) verify_snapshot(entry);
+    verify_rules_snapshot(state.captured_rules);
+    const auto& saved=*state.last_preview_undo;
+    if(saved.previous_entries.empty() ||
+       saved.previous_entries.size()>kMaxPreviewUndoSources)
+        throw std::invalid_argument("Preview undo snapshot is invalid.");
+    for(const auto& [index, before]:saved.previous_entries) {
+        if(index>=state.entries.size() ||
+           before.input.source_path!=state.entries[index].input.source_path ||
+           before.input_fingerprint!=state.entries[index].input_fingerprint)
+            throw std::invalid_argument("Preview undo source identity is stale.");
+        if(saved.kind==PreviewUndoFrame::Kind::Review &&
+           (index>=state.review_decisions.size() ||
+            !saved.previous_decisions.contains(index) ||
+            saved.previous_decisions.at(index).size()!=
+                state.review_decisions[index].size()))
+            throw std::invalid_argument("Preview undo decisions are stale.");
+    }
+    auto rollback=std::move(*state.last_preview_undo);
+    state.last_preview_undo.reset();
+    const bool review=rollback.kind==PreviewUndoFrame::Kind::Review;
+    std::set<std::size_t> affected;
+    for(auto& [index, previous]:rollback.previous_entries) {
+        using std::swap;
+        swap(state.entries[index],previous);
+        affected.insert(index);
+        if(review)
+            swap(state.review_decisions[index],
+                 rollback.previous_decisions.at(index));
+    }
+    if(!review) {
+        state.current_choice=std::move(rollback.previous_choice);
+        SetDlgItemTextW(dialog,IDC_BATCH_PROFILE_PICKER,
+                        from_utf8(state.current_choice.display_name).c_str());
+        SetDlgItemTextW(dialog,IDC_BATCH_DESTINATION,
+                        from_utf8(state.current_choice.destination_root).c_str());
+        SetDlgItemTextW(dialog,IDC_BATCH_PATTERN,
+                        from_utf8(state.current_choice.titleformat_expression).c_str());
+    } else {
+        update_pending_review_summaries(state,affected);
+    }
+    EnableWindow(GetDlgItem(dialog,IDC_BATCH_UNDO),FALSE);
+    update_table(state);
+    if(review) {
+        update_master_table(state);
+        update_metadata_table(state);
+    }
+}
+
 // User-initiated inspection of RAW, unsanitized candidate paths only. No
 // host File Operations resolution, no write/overwrite approval, no CUE gate.
 // Scope deliberately follows selected underlying row IDs after sorting.
