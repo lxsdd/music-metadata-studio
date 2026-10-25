@@ -2093,10 +2093,10 @@ if ("raw_candidate,entry.input.destination_root" not in raw_inspect_native or
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: native raw destination not bound to selected root on both probes")
 
 
-// Nested external CUE FILE sources are read-only relative paths anchored to
-// the actual CUE carrier directory; every OS ancestor must exist and remain
-// stable on a SECOND native probe. This must never set the final CUE/FileOps
-// write-qualification gates.
+# Nested external CUE FILE sources are read-only relative paths anchored to
+# the actual CUE carrier directory; every OS ancestor must exist and remain
+# stable on a SECOND native probe. This must never set the final CUE/FileOps
+# write-qualification gates.
 cue_locator=(root/"include/djmeta/cue_reference_locator.h").read_text(encoding="utf-8")
 for marker in ("raw_relative_path_lexically_safe(relative)",
                "CUE_FILE_HOST_PROBE_REQUIRED", "source_parent",
