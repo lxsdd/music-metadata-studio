@@ -258,6 +258,14 @@ void test_physical_cue_selection_source_identity() {
     check(!audit_cue_physical_selection(
         "physical:cue",{},selected).eligible,
         "no FILE references never qualifies CUE");
+    auto capped=files;
+    for(std::size_t i=capped.size();i<129;++i)
+        capped.push_back({i,"physical:other"+std::to_string(i),
+                             "guard:other"+std::to_string(i),true});
+    check(audit_cue_physical_selection(
+        "physical:cue",capped,selected).rejection==
+             "CUE_SOURCE_SELECTION_SHAPE_UNQUALIFIED",
+          "129 FILE references must never appear fully source-qualified");
 }
 
 void test_unsupported_source_encoding() {

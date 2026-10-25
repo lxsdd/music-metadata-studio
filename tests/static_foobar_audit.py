@@ -1931,3 +1931,7 @@ if "append_external_cue_file_reference_evidence(*state,entry,inventory,fields)" 
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: native CUE source bridge not invoked")
 if "cue_physical_selection_audit.h" not in workspace_dialog:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: native CUE source bridge header missing")
+
+if ('file_sources.push_back({i,{}, {},false});' not in cue_inspect_source or
+    'if (i>=maximum_probes)' not in cue_inspect_source):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: truncated CUE FILE prefix appears qualified")

@@ -3211,9 +3211,13 @@ void append_external_cue_file_reference_evidence(
     for (std::size_t i=0;i<inventory.files.size();++i) {
         const auto& item=inventory.files[i];
         if (i>=maximum_probes) {
-            if (i==maximum_probes)
+            if (i==maximum_probes) {
+                // Force shape rejection in the shared pure matcher. Never
+                // claim full coverage from a truncated 128-FILE prefix.
+                file_sources.push_back({i,{}, {},false});
                 append(i,"(further FILE references)",
                        "NOT INSPECTED: over 128 FILE references; operation blocked");
+            }
             break;
         }
         const auto candidate = djmeta::preview_cue_sibling_locator(
