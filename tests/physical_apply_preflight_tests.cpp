@@ -167,20 +167,24 @@ int main(){
     decision_b.decisions={ReviewDecision{ReviewAction::Pending,""}};
     auto normalizer_rows=std::vector<NormalizerBatchReprobe>{
         decision_a,decision_b};
-    for(auto& row:normalizer_rows){
-        const auto projected=preview_explicit_normalizer_physical_tags(
-            row.live.captured,row.live.fresh_tags,
-            row.live.live_physical_key,row.live.live_source_guard,
-            row.captured_analysis,row.active_ruleset_revision,row.decisions);
-        check(projected.eligible,"normalizer batch fixture qualifies exact choices");
-        row.live.observed_item.planned_metadata_fingerprint=
-            fingerprint(projected.planned);
-    }
-    const std::vector<FilePlanItem> norm_plan{
-        normalizer_rows[0].live.observed_item,
-        normalizer_rows[1].live.observed_item};
+    const auto staged=preview_explicit_normalizer_batch_plan(normalizer_rows);
+    check(staged.eligible && staged.items.size()==2 &&
+          staged.postimages.size()==2 && staged.review.blocked==0 &&
+          staged.postimages[0].changed &&
+          !staged.postimages[1].changed &&
+          staged.items[0].planned_metadata_fingerprint==
+              fingerprint(staged.postimages[0].planned) &&
+          staged.items[1].planned_metadata_fingerprint==
+              staged.items[1].metadata_fingerprint &&
+          staged.items[0].source_path==norm_a.observed_item.source_path,
+          "batch staging derives exact changed and no-op hashes from decisions");
+    // UI captures the planned fingerprints from this stage; frozen consent
+    // is created only afterwards against the reviewed entire plan.
+    for(std::size_t i=0;i<normalizer_rows.size();++i)
+        normalizer_rows[i].live.observed_item=staged.items[i];
+    const std::vector<FilePlanItem> norm_plan=staged.items;
     const BatchApproval norm_approval{
-        review_batch_plan(norm_plan).plan_fingerprint,false,{}};
+        staged.review.plan_fingerprint,false,{}};
     const auto norm_frozen=freeze_reviewed_batch_preview(
         norm_plan,norm_approval);
     const auto norm_post=preflight_explicit_normalizer_physical_batch(
@@ -201,6 +205,57 @@ int main(){
               norm_a.captured.original.fields[4] &&
           !norm_post.postimages[1].changed,
           "accepted SAFE + manual multivalue, pending B, CUE/ReplayGain unchanged");
+    // Even before freezing the batch, stage must reject stale source/tag
+    // evidence, a previous different postimage, duplicate host identity,
+    // structural CUE misuse, injected second approval and incomplete probes.
+    const auto stage_refuses=[&](
+        const std::vector<NormalizerBatchReprobe>& attempt){
+        const auto candidate=preview_explicit_normalizer_batch_plan(attempt);
+        return !candidate.eligible && !candidate.rejection.empty() &&
+               candidate.items.empty() && candidate.postimages.empty();
+    };
+    auto bad_staging=normalizer_rows;
+    bad_staging[0].live.observed_item.planned_metadata_fingerprint=
+        "stale earlier selected postimage";
+    check(stage_refuses(bad_staging),
+          "staging must not silently overwrite a previously selected postimage");
+    bad_staging=normalizer_rows;
+    bad_staging[0].live.source_reprobed=false;
+    check(stage_refuses(bad_staging),
+          "staging cannot use stale read-only host source evidence");
+    bad_staging=normalizer_rows;
+    bad_staging[0].live.live_physical_key="foreign identity";
+    check(stage_refuses(bad_staging),
+          "staging cannot bind edits to a replacement physical source");
+    bad_staging=normalizer_rows;
+    bad_staging[1].live.observed_item.physical_id=
+        bad_staging[0].live.observed_item.physical_id;
+    bad_staging[1].live.physical_id=
+        bad_staging[0].live.physical_id;
+    check(stage_refuses(bad_staging),
+          "duplicate physical sources are blocked before batch approval");
+    bad_staging=normalizer_rows;
+    bad_staging[1].live.fresh_tags.fields[2].values={"raced custom edit"};
+    check(stage_refuses(bad_staging),
+          "staging checks unselected source tags before presenting a plan");
+    bad_staging=normalizer_rows;
+    bad_staging[0].live.approvals={
+        {"TITLE",{"Initial NA"},{"hidden alternate"}}
+    };
+    check(stage_refuses(bad_staging),
+          "staging cannot accept a second field-approval vector");
+    bad_staging=normalizer_rows;
+    bad_staging[0].active_ruleset_revision="other ruleset";
+    check(stage_refuses(bad_staging),
+          "staging rejects changed rules before plan fingerprints are made");
+    bad_staging=normalizer_rows;
+    bad_staging[0].live.observed_item.action=FileAction::Copy;
+    bad_staging[0].live.observed_item.target_path=
+        bad_staging[0].live.observed_item.source_path;
+    bad_staging[0].live.observed_item.target_key=
+        bad_staging[0].live.observed_item.source_key;
+    check(stage_refuses(bad_staging),
+          "blocked self-copy cannot be disguised by a valid tag preview");
     const auto normalizer_refuses=[&](
         const std::vector<NormalizerBatchReprobe>& attempt,
         const BatchApproval* alternate_consent=nullptr){
@@ -277,11 +332,16 @@ int main(){
         row.live.observed_item.planned_metadata_fingerprint=
             fingerprint(row.live.captured.original);
     }
-    const std::vector<FilePlanItem> pending_plan{
-        only_pending[0].live.observed_item,
-        only_pending[1].live.observed_item};
+    const auto no_op_stage=preview_explicit_normalizer_batch_plan(only_pending);
+    check(no_op_stage.eligible && no_op_stage.items.size()==2 &&
+          no_op_stage.items[0].planned_metadata_fingerprint==
+              no_op_stage.items[0].metadata_fingerprint &&
+          no_op_stage.items[1].planned_metadata_fingerprint==
+              no_op_stage.items[1].metadata_fingerprint,
+          "no-op batch plan is derived without any default SAFE writes");
+    const std::vector<FilePlanItem> pending_plan=no_op_stage.items;
     const BatchApproval pending_approval{
-        review_batch_plan(pending_plan).plan_fingerprint,false,{}};
+        no_op_stage.review.plan_fingerprint,false,{}};
     const auto pending_frozen=freeze_reviewed_batch_preview(
         pending_plan,pending_approval);
     const auto pending_post=preflight_explicit_normalizer_physical_batch(
