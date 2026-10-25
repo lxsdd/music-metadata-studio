@@ -203,7 +203,9 @@ int main(){
           "accepted SAFE + manual multivalue, pending B, CUE/ReplayGain unchanged");
     const auto normalizer_refuses=[&](
         const std::vector<NormalizerBatchReprobe>& attempt,
-        const BatchApproval& consent=norm_approval){
+        const BatchApproval* alternate_consent=nullptr){
+        const auto& consent=alternate_consent
+            ? *alternate_consent : norm_approval;
         const auto candidate=preflight_explicit_normalizer_physical_batch(
             norm_frozen,consent,attempt);
         return candidate.readiness==PhysicalApplyReadiness::Blocked &&
@@ -264,7 +266,7 @@ int main(){
           "protected CUESHEET cannot become normalizer write via batch");
     auto stale_consent=norm_approval;
     stale_consent.reviewed_plan_fingerprint="old reviewed plan";
-    check(normalizer_refuses(normalizer_rows,stale_consent),
+    check(normalizer_refuses(normalizer_rows,&stale_consent),
           "old whole-plan approval cannot authorize new normalizer batch");
 
     // Two untouched sources still yield no physical or timestamp writes.
