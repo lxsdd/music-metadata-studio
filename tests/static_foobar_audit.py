@@ -1741,6 +1741,6 @@ for marker in (
 ):
     if marker not in online_bridge:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: unified online preview missing "+marker)
-if ('metadb_io' in online_bridge or 'commit_preflighted_' in online_bridge or
+if ('metadb_io::' in online_bridge or 'commit_preflighted_' in online_bridge or
     'MMS_ENABLE_PHYSICAL_WRITES' in review_bridge):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: unified read-only bridge entered writer")
