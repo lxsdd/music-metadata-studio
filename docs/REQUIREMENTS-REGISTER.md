@@ -533,6 +533,6 @@
 
 ### 2026-10-25 — MusicBrainz CUE album gate requires direct track titles (MMS-CUE-01)
 
-- Album-wide differences now require one exact release-track TITLE value for every verified MusicBrainz track occurrence, consistent with its recording identity. An occurrence MBID and a plausible recording fallback alone no longer qualify the whole album.
+- Album-wide differences now require one unambiguous, directly evidenced release-track TITLE for every verified MusicBrainz track occurrence. The recording title used for matching may legitimately differ from this edition field; the native comparison displays the evidenced field value, not a synthesized recording value. An occurrence MBID and a plausible recording fallback alone do not qualify the whole album.
 - Missing, foreign or duplicate TITLE evidence blocks the album-wide change gate. The shared provenance guard also rejects duplicate provider track fields before selected CUE postimage capture, matching the native blocked row. Original source facts and independently proven track evidence remain visible. Core regressions cover missing, artist-only, foreign and duplicate cases.
 - This is a read-only qualification rule. No provider hit, CUE source, physical tag or file is automatically modified.
