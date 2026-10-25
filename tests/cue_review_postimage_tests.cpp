@@ -246,6 +246,20 @@ int main(){
     check(!capture_qualified_cue_edition_postimage(
         release_raw,CueCarrierKind::ExternalText,mb_bad).eligible,
         "album MBID cannot impersonate a release-track occurrence");
+    // A provider field cannot borrow the identity of a different release
+    // occurrence, even when TITLE/ISRC/positions still align perfectly.
+    mb_bad=mb_edition;
+    mb_bad.tracks[0].source_track_id=
+        "00000000-0000-0000-0000-000000000004";
+    const auto mb_mismatch=review_cue_release_edition(
+        inspect_cue_metadata(release_raw,CueCarrierKind::ExternalText),
+        mb_bad);
+    check(!qualified_cue_edition_track_provenance(mb_bad,0) &&
+          mb_mismatch.tracks.size()==1 &&
+          mb_mismatch.tracks[0].fields.empty() &&
+          !capture_qualified_cue_edition_postimage(
+              release_raw,CueCarrierKind::ExternalText,mb_bad).eligible,
+          "foreign MusicBrainz occurrence cannot inherit valid field provenance");
     mb_bad=mb_edition;
     mb_bad.tracks[0].fields.push_back(mb_bad.tracks[0].fields[0]);
     check(!capture_qualified_cue_edition_postimage(
@@ -282,6 +296,18 @@ int main(){
           preview_selected_cue_review_postimage(
               discogs_snap,release_raw,{0,1}).bytes==mb_expected,
           "Discogs exact edition uses same byte-exact external/embedded core");
+    auto discogs_wrong_track=discogs_edition;
+    discogs_wrong_track.tracks[0].source_track_id="123/track/9";
+    const auto discogs_identity_review=review_cue_release_edition(
+        inspect_cue_metadata(release_raw,CueCarrierKind::EmbeddedText),
+        discogs_wrong_track);
+    check(!qualified_cue_edition_track_provenance(discogs_wrong_track,0) &&
+          discogs_identity_review.tracks.size()==1 &&
+          discogs_identity_review.tracks[0].fields.empty() &&
+          !capture_qualified_cue_edition_postimage(
+              release_raw,CueCarrierKind::EmbeddedText,
+              discogs_wrong_track).eligible,
+          "foreign Discogs occurrence cannot inherit valid field provenance");
     discogs_edition.tracks[0].fields[0].source_id="999/track/1";
     const auto forged=capture_qualified_cue_edition_postimage(
         release_raw,CueCarrierKind::EmbeddedText,discogs_edition);
