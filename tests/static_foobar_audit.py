@@ -1797,7 +1797,7 @@ if ("const bool physical_writer_ready=ready && !local_decisions_present" not in
 # including independent on-disk guard. Provider-only counts cannot be shown
 # as though they were accepted into the frozen FileOps/CUE plan.
 native_batch_audit=workspace_dialog.split(
-    "std::wstring workflow_audit_summary(",1,1)[1].split(
+    "std::wstring workflow_audit_summary(",1)[1].split(
     "std::string status_text(",1)[0]
 for marker in (
     'if(!state.online_included_fields.empty()) {',
