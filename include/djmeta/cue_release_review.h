@@ -41,7 +41,12 @@ inline bool qualified_cue_edition_track_provenance(
     const auto& track=edition.tracks[index];
     if(track.fields.empty() || track.fields.size()>64) return false;
     const auto& identity=track.fields.front().source_id;
+    // Release occurrence identity and field provenance must describe the
+    // SAME track. A plausible recording match or a correctly shaped field
+    // source ID cannot repair a stale/foreign EditionTrack.source_track_id.
     if(!valid_evidence_origin(identity,512) ||
+       !valid_evidence_origin(track.source_track_id,512) ||
+       identity!=track.source_track_id ||
        (edition.provider=="discogs" &&
         identity!=edition.edition_id+"/track/"+std::to_string(index+1)))
         return false;
