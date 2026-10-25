@@ -575,7 +575,21 @@ else()
     target_compile_options(djmeta_workspace_defaults_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+# Explicit local + verified online decisions share one physical postimage,
+# one batch fingerprint, and the existing disabled SDK preflight boundary.
+add_executable(djmeta_unified_review_batch_tests
+    tests/unified_review_batch_tests.cpp)
+target_link_libraries(djmeta_unified_review_batch_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_unified_review_batch_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_unified_review_batch_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_unified_review_batch_tests PRIVATE
+        -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 enable_testing()
+add_test(NAME djmeta_unified_review_batch_tests COMMAND djmeta_unified_review_batch_tests)
 add_test(NAME djmeta_workspace_defaults_tests COMMAND djmeta_workspace_defaults_tests)
 add_test(NAME djmeta_filter_once_tests COMMAND djmeta_filter_once_tests)
 add_test(NAME djmeta_physical_write_confirmation_tests COMMAND djmeta_physical_write_confirmation_tests)
