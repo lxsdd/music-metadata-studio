@@ -2869,6 +2869,12 @@ void undo_last_preview_action(HWND dialog, PreviewState& state) {
     for(auto& [index, previous]:rollback.previous_entries) {
         using std::swap;
         swap(state.entries[index],previous);
+        // A restored older preview is NOT fresh evidence for an existing
+        // destination, CUE dependency or overwrite. Keep the user's raw
+        // route and choices, but force all external target checks to be
+        // repeated before any later approval or operation.
+        reset_raw_target_observation(state.entries[index]);
+        state.entries[index].input.cue_dependencies_checked=false;
         affected.insert(index);
         if(review)
             swap(state.review_decisions[index],
