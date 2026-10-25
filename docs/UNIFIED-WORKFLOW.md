@@ -654,3 +654,29 @@ A distinct source-by-source **native** final destination/CUE re-probe and
 explicit final whole-plan consent remain necessary before productive action.
 Synthetic positive and negative multi-FILE and exact no-op cases exercise
 this adapter directly, without music files or any OS I/O.
+
+
+### 2026-10-25 — Native Inspect CUE reconciles real FILE source identities with selected audio (MMS-CUE-06, MMS-FILE-03)
+
+Inspect CUE already bounded independently read the external CUE source and each
+of its FILE physical OS+foobar file IDs/guards. The native adapter now
+**also** matches those IDs to the Workspace's actually selected, unique
+physical subsong-zero audio rows (not CUE strings, titles, subsongs or
+filenames). When source IDs/guards agree the read-only CUE details annotate
+the matched selected track row. The same inventory displays a separate
+blocked **selected physical source coverage** finding, with explicit
+rejection on missing FILE dependencies, duplicate physical aliases,
+source guard drift, unqualified/virtual selected audio, unreferenced
+selected audio or CUE FILE pointing to the CUE carrier itself. Unselected
+FILE source references remain visible but may not impersonate a selected
+source.
+
+The native adapter re-checks matched selected sources' metadata and OS
+physical IDs/guards, every FILE reference's stable attributes, and the CUE
+carrier itself before publishing any rows. On a race it fails the entire
+inspection. The pure source matcher has positive/negative deterministic
+tests, and production native static audits enforce its invocation.
+This advances the real host-bound input side of the joint CUE/FilePlan;
+**it does not assert host-sanitized destination names**, destination-relative
+FILE path resolution, a complete CUE move plan, write approval or any
+audio/tag/CUE filesystem mutation.

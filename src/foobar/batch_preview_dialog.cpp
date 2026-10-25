@@ -48,6 +48,7 @@
 #include "djmeta/discogs_search_hints.h"
 #include "djmeta/cue_online_bridge.h"
 #include "djmeta/cue_reference_locator.h"
+#include "djmeta/cue_physical_selection_audit.h"
 #include "djmeta/physical_selection.h"
 #include "djmeta/physical_sdk_postimage.h"
 #if defined(MMS_ENABLE_PHYSICAL_WRITES)
@@ -3172,7 +3173,8 @@ void undo_last_preview_action(HWND dialog, PreviewState& state) {
 // sets filesystem_target_checked or cue_dependencies_checked; real File
 // Operations path sanitation and write safety are NOT certified here.
 void append_external_cue_file_reference_evidence(
-    const PreviewEntry& entry, const djmeta::CueMetadataInventory& inventory,
+    const PreviewState& state, const PreviewEntry& entry,
+    const djmeta::CueMetadataInventory& inventory,
     std::vector<djmeta::online::FieldReviewRow>& rows) {
     if (!is_external_cue_locator(entry.input.source_path)) return;
     const auto original = probe_host_file_readonly(entry.input.source_path);
@@ -3185,6 +3187,9 @@ void append_external_cue_file_reference_evidence(
     constexpr std::size_t maximum_probes=128;
     std::map<std::string, HostFileObservation> probes;
     std::set<std::string> observed_ids;
+    std::vector<djmeta::CueObservedFileSource> file_sources;
+    std::vector<std::size_t> appended_file_rows;
+    file_sources.reserve((std::min)(inventory.files.size(),maximum_probes));
     auto append = [&](std::size_t index, std::string filename,
                       std::string result) {
         if (rows.size() >= 10000)
@@ -3200,6 +3205,7 @@ void append_external_cue_file_reference_evidence(
         row.candidate.values.push_back(std::move(result));
         row.state = djmeta::online::FieldReviewState::Blocked;
         row.reason = "cue_reference_preflight_only";
+        appended_file_rows.push_back(rows.size());
         rows.push_back(std::move(row));
     };
     for (std::size_t i=0;i<inventory.files.size();++i) {
@@ -3213,6 +3219,7 @@ void append_external_cue_file_reference_evidence(
         const auto candidate = djmeta::preview_cue_sibling_locator(
             entry.input.source_path,item.filename);
         if (!candidate.eligible) {
+            file_sources.push_back({i,{}, {},false});
             append(i,item.filename,"NOT QUALIFIED: "+candidate.reason);
             continue;
         }
@@ -3221,6 +3228,9 @@ void append_external_cue_file_reference_evidence(
         if (inserted)
             it->second = probe_host_file_readonly(candidate.source_candidate);
         const auto& observed=it->second;
+        file_sources.push_back({
+            i,observed.host_physical_key,observed.source_guard,
+            observed.state==HostFileState::ExistingFile});
         if (observed.state == HostFileState::ExistingFile &&
             !observed.host_physical_key.empty() &&
             !observed.source_guard.empty()) {
@@ -3258,6 +3268,70 @@ void append_external_cue_file_reference_evidence(
         current.source_guard != original.source_guard)
         throw std::runtime_error(
             "External CUE changed during FILE-reference inspection.");
+
+    // Match physical FILE source identities against ALL separately selected
+    // top-level audio files, independent of how foobar displays/sorts rows.
+    // Selected source IDs are never inferred from raw FILE names. Unsupported
+    // virtual and ambiguous audio selections MUST be reported as blocked.
+    std::vector<djmeta::CueSelectedPhysicalSource> selected_audio;
+    selected_audio.reserve(state.entries.size());
+    for(std::size_t index=0;index<state.entries.size();++index) {
+        const auto& selected=state.entries[index];
+        if(is_external_cue_locator(selected.input.source_path) ||
+           selected.handle->get_subsong_index()!=0)
+            continue;
+        selected_audio.push_back({index,
+            selected.observed_physical_key,selected.observed_source_guard,
+            selected.input.physical_source_qualified});
+    }
+    const auto matched=djmeta::audit_cue_physical_selection(
+        original.host_physical_key,file_sources,selected_audio);
+
+    // Recheck the matching selected native file_info metadata snapshot after
+    // slow host FILE observations. A matching physical file ID but changed
+    // metadata/guard must never impersonate a selected review source.
+    for(const auto index:matched.file_to_selected_row)
+        if(index!=djmeta::cue_unselected_source_row) {
+            const auto& selected=state.entries.at(index);
+            verify_snapshot(selected);
+            const auto live=probe_host_file_readonly(selected.input.source_path);
+            if(live.state!=HostFileState::ExistingFile ||
+               live.host_physical_key!=selected.observed_physical_key ||
+               live.source_guard!=selected.observed_source_guard)
+                throw std::runtime_error(
+                    "Selected audio source changed during CUE FILE inspection.");
+        }
+    verify_rules_snapshot(state.captured_rules);
+
+    // All presented rows are BLOCKED candidates, even when source identity
+    // matches. The final foobar-sanitized destination and CUE relative FILE
+    // postimage remain completely unchecked and cannot be approved here.
+    if(matched.eligible &&
+       matched.file_to_selected_row.size()==file_sources.size())
+        for(std::size_t i=0;i<file_sources.size();++i) {
+            const auto selected=matched.file_to_selected_row[i];
+            if(selected!=djmeta::cue_unselected_source_row)
+                rows.at(appended_file_rows[i]).candidate.values.front()+=
+                    "; MATCHED selected physical audio row #"+
+                    std::to_string(selected+1)+" (source only)";
+        }
+    if(rows.size()>=10000)
+        throw std::invalid_argument("CUE physical audit display limit reached.");
+    djmeta::online::FieldReviewRow coverage;
+    coverage.field="CUE / Selected physical audio coverage";
+    coverage.candidate.field="Source-only batch CUE FILE mapping";
+    coverage.candidate.provider="Local filesystem (read-only)";
+    coverage.candidate.scope=djmeta::online::EvidenceScope::Edition;
+    coverage.candidate.source_id="cue-physical-selection";
+    coverage.candidate.values.push_back(matched.eligible
+        ? "SOURCE MATCH ONLY: "+std::to_string(matched.selected_matched)+
+          " selected audio, "+std::to_string(matched.unselected_files)+
+          " unselected FILE sources; final FileOps/CUE target unqualified"
+        : "BLOCKED: "+matched.rejection+
+          "; source-to-batch mapping unqualified (no final file action)");
+    coverage.state=djmeta::online::FieldReviewState::Blocked;
+    coverage.reason="cue_physical_source_only_not_fileops_approval";
+    rows.push_back(std::move(coverage));
 }
 
 // Always independently derive the literal joint target from the current
@@ -6904,7 +6978,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             }
             // Shared source-only inventory for Inspect CUE and Discogs.
             auto fields=djmeta::online::cue_original_inventory_rows(inventory);
-            append_external_cue_file_reference_evidence(entry,inventory,fields);
+            append_external_cue_file_reference_evidence(*state,entry,inventory,fields);
             state->candidate_rows = std::move(fields);
             state->candidate_source_index = state->selected_track_index;
             state->cue_inspection_mode = true;

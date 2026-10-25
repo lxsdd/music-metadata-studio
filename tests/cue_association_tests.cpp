@@ -1,5 +1,6 @@
 #include "djmeta/cue_association.h"
 #include "djmeta/cue_file_batch_preview.h"
+#include "djmeta/cue_physical_selection_audit.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -197,6 +198,68 @@ void test_exact_joint_fileplan_cue_binding() {
               unchanged.items[2].cue_postimage_fingerprint,
           "verified unchanged CUE and audio files imply exact zero CUE writes");
 }
+void test_physical_cue_selection_source_identity() {
+    const std::vector<CueObservedFileSource> files{
+        {0,"physical:A","guard:A",true},
+        {1,"physical:B","guard:B",true},
+        {2,"physical:unselected","guard:external",true}};
+    const std::vector<CueSelectedPhysicalSource> selected{
+        {5,"physical:A","guard:A",true},
+        {9,"physical:B","guard:B",true}};
+    const auto good=audit_cue_physical_selection(
+        "physical:cue",files,selected);
+    check(good.eligible && good.selected_matched==2 &&
+          good.unselected_files==1 && good.selected_unreferenced==0 &&
+          good.file_to_selected_row==std::vector<std::size_t>({
+              5,9,cue_unselected_source_row}),
+          "source-only native CUE FILEs match exact selected physical rows");
+    auto altered=files;
+    altered[1].source_guard="old-stale-guard";
+    check(!audit_cue_physical_selection(
+        "physical:cue",altered,selected).eligible,
+        "same physical ID with changed source guard must not match");
+    altered=files;altered[2].host_physical_key="physical:A";
+    check(audit_cue_physical_selection(
+        "physical:cue",altered,selected).rejection==
+              "CUE_FILE_DUPLICATE_PHYSICAL_SOURCE",
+          "CUE FILE alias to existing FILE cannot be counted twice");
+    altered=files;altered[2].host_physical_key="physical:cue";
+    check(audit_cue_physical_selection(
+        "physical:cue",altered,selected).rejection=="CUE_FILE_ALIASES_CARRIER",
+          "audio FILE may never point to CUE carrier itself");
+    altered=files;altered[2].observed=false;
+    check(!audit_cue_physical_selection(
+        "physical:cue",altered,selected).eligible,
+        "a missing CUE dependency blocks all-source mapping");
+    altered=files;altered[1].file_index=8;
+    check(!audit_cue_physical_selection(
+        "physical:cue",altered,selected).eligible,
+        "missing/out-of-order FILE ordinal blocks mapping");
+    auto chosen=selected;chosen.push_back({12,"physical:outside","guard:x",true});
+    check(audit_cue_physical_selection(
+        "physical:cue",files,chosen).rejection==
+              "CUE_SELECTED_AUDIO_NOT_REFERENCED",
+          "selected but unreferenced audio cannot silently join CUE plan");
+    chosen=selected;chosen.push_back({7,"physical:A","guard:alias",true});
+    check(!audit_cue_physical_selection(
+        "physical:cue",files,chosen).eligible,
+        "duplicate selected physical source even at another row blocks");
+    chosen=selected;chosen[0].qualified=false;
+    check(!audit_cue_physical_selection(
+        "physical:cue",files,chosen).eligible,
+        "unqualified subsong or ambiguous selected audio blocks mapping");
+    chosen=selected;chosen[1].source_row=5;
+    check(!audit_cue_physical_selection(
+        "physical:cue",files,chosen).eligible,
+        "one selected row cannot masquerade as two physical sources");
+    check(audit_cue_physical_selection(
+        "physical:cue",files,{}).eligible,
+        "CUE-only inspection may observe physical FILEs without selected audio");
+    check(!audit_cue_physical_selection(
+        "physical:cue",{},selected).eligible,
+        "no FILE references never qualifies CUE");
+}
+
 void test_unsupported_source_encoding() {
     const std::string bad = std::string("\xff\xfe",2) + "F\0I\0";
     check(!qualify_external_cue_association(bad, {}, {}).qualified, "UTF16 cannot be rewritten as UTF8");
@@ -241,6 +304,7 @@ int main() {
     test_complete_selected_audio_and_alias_destinations();
     test_exact_target_identity_and_collisions();
     test_exact_joint_fileplan_cue_binding();
+    test_physical_cue_selection_source_identity();
     test_exact_nochange_and_unsafe_postimage(); test_unsupported_source_encoding();
-    std::cout << "PASS: 8 cue association test suites\n";
+    std::cout << "PASS: 9 cue association test suites\n";
 }

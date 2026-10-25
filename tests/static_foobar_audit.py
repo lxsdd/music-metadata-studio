@@ -1909,3 +1909,25 @@ for marker in (
 if "IDC_BATCH_COPY_AUDIT" not in native_controls or (
     '"Copy audit", IDC_BATCH_COPY_AUDIT' not in resources):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: audit export lacks visible full-batch gate")
+
+
+# The real Inspect CUE action must bind independently probed FILE source
+# physical IDs to selected native audio rows, with a second guard recheck.
+cue_inspect_source=workspace_dialog.split(
+    "void append_external_cue_file_reference_evidence(",1)[1].split(
+    "// Always independently derive the literal joint target",1)[0]
+for marker in (
+    "djmeta::audit_cue_physical_selection(",
+    "selected.input.physical_source_qualified",
+    "probe_host_file_readonly(selected.input.source_path)",
+    "verify_snapshot(selected);",
+    "verify_rules_snapshot(state.captured_rules)",
+    "matched.file_to_selected_row",
+    "cue_physical_source_only_not_fileops_approval",
+):
+    if marker not in cue_inspect_source:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: CUE physical-selection source-only bridge missing "+marker)
+if "append_external_cue_file_reference_evidence(*state,entry,inventory,fields)" not in workspace_dialog:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: native CUE source bridge not invoked")
+if "cue_physical_selection_audit.h" not in workspace_dialog:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: native CUE source bridge header missing")
