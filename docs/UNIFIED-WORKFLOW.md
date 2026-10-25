@@ -123,6 +123,20 @@ The project must not grow an independent parser for `%field%`, `$if()`, or relat
 
 Naming/routing evaluation always runs against the planned canonical metadata, so a metadata normalization and the resulting filename/path are one coherent transaction plan.
 
+**Important consent distinction (MMS-WF-02/05, MMS-FILE-01):** A proposed SAFE cleanup
+may appear in the Review comparison before it is approved. It is **not** part
+of the filename or the physical tag plan while Pending. The foobar routing
+preview and detached physical tag postimage both use the same
+`project_explicit_review_decisions` projection: only explicit Accept or
+ManualValue alters their shared canonical values; Reject and Pending retain
+the complete original values. No-op Accept/Manual still leaves the file and
+its timestamps untouched. The older SAFE-inclusive proposal projection
+remains for read-only analysis/display only; it is not a write approval.
+When a decision changes, the affected raw naming preview is invalidated
+and re-evaluated against fresh source/rules observations. This does not
+qualify the raw route as a foobar File Operations destination or authorize
+an actual filesystem operation.
+
 ### Apply report
 
 After execution, the component shows a compact host-native result report with counts and per-item failures/skips:
