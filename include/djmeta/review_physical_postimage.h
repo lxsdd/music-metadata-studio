@@ -33,14 +33,12 @@ inline PhysicalTagPostimage preview_explicit_normalizer_physical_tags(
     if(analysis.proposals.size()>10000 ||
        decisions.size()!=analysis.proposals.size())
         return refuse("NORMALIZER_DECISION_CARDINALITY_INVALID");
-    std::vector<ReviewDecision> explicitly_selected=decisions;
-    for(auto& decision:explicitly_selected)
-        if(decision.action==ReviewAction::Pending)
-            decision.action=ReviewAction::Reject;
     ReviewProjection projected;
     try {
-        projected=project_review_decisions(
-            source.original,analysis,explicitly_selected);
+        // Same explicit-only projection as foobar's filename routing. A
+        // Pending SAFE suggestion must never appear in either postimage.
+        projected=project_explicit_review_decisions(
+            source.original,analysis,decisions);
     } catch(const std::invalid_argument&) {
         return refuse("NORMALIZER_PROPOSALS_OR_DECISIONS_UNQUALIFIED");
     }
