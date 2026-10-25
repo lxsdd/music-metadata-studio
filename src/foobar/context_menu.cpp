@@ -106,7 +106,7 @@ public:
                         legacy_move_routes[route_index];
                     show_batch_preview_dialog(retained, RoutePreviewChoice{
                         preset.name, preset.destination_root,
-                        preset.foobar_titleformat});
+                        preset.foobar_titleformat}, true);
                 }
             });
 

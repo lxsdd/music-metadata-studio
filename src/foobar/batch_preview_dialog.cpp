@@ -6909,7 +6909,8 @@ initquit_factory_t<workspace_shutdown> g_workspace_shutdown;
 
 void show_batch_preview_dialog(
     const metadb_handle_list& handles,
-    const RoutePreviewChoice& initial_choice) {
+    const RoutePreviewChoice& initial_choice,
+    bool explicit_route_request) {
     try {
         if (handles.get_count() > static_cast<t_size>((std::numeric_limits<int>::max)()))
             throw std::runtime_error("Too many tracks for the batch preview table.");
@@ -6918,9 +6919,11 @@ void show_batch_preview_dialog(
             auto* existing = reinterpret_cast<PreviewState*>(
                 GetWindowLongPtrW(g_workspace,GWLP_USERDATA));
             const bool same = existing && same_workspace_selection(*existing,handles);
-            // Reopening via another context-menu route must never silently
-            // replace an in-progress user's accepted/manual decisions.
-            const bool different_route = existing &&
+            // Only a deliberate preset request may warn about a different
+            // route. Normalize/Prepare reopening uses saved defaults but must
+            // not misrepresent them as a new user-selected preset or replace
+            // in-progress accepted/manual decisions.
+            const bool different_route = explicit_route_request && existing &&
                 (existing->current_choice.display_name != initial_choice.display_name ||
                  existing->current_choice.destination_root != initial_choice.destination_root ||
                  existing->current_choice.titleformat_expression !=
