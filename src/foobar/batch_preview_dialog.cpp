@@ -512,7 +512,27 @@ void update_table(PreviewState& state) {
 
     std::vector<djmeta::BatchPreviewInputRow> inputs;
     inputs.reserve(state.entries.size());
-    for (const auto& entry : state.entries) inputs.push_back(entry.input);
+    // File Locations must disclose the accepted local + selected exact
+    // Discogs fields in the SAME raw collision table, not silently show only
+    // the local normalizer naming candidate. The complete edition remains
+    // an advisory route overlay: no host-resolved target or CUE approval.
+    for (std::size_t index=0;index<state.entries.size();++index) {
+        auto input=state.entries[index].input;
+        if(native_recheck_preserved_online_selection(
+               state.online_field_snapshot.has_value(),
+               state.online_edition_source,index,
+               state.online_included_fields.size())) {
+            input.raw_relative_path=state.online_raw_route_valid
+                ? state.online_raw_route_after:std::string{};
+            input.raw_target_presence=djmeta::RawTargetPresence::NotInspected;
+            input.raw_target_physical_key.clear();
+            input.raw_target_guard.clear();
+            input.raw_target_host_canonical.clear();
+            input.filesystem_target_checked=false;
+            input.cue_dependencies_checked=false;
+        }
+        inputs.push_back(std::move(input));
+    }
     state.table = djmeta::describe_batch_preview(inputs);
     state.view_order = djmeta::sort_batch_table_view(
         inputs, state.table, state.layout.sort_column, state.layout.sort_descending);
@@ -693,11 +713,31 @@ std::wstring cell_text(PreviewState& state, std::size_t row, int column) {
     case 0: return from_utf8(display_file_path(entry.input.source_path));
     case 1: return from_utf8(entry.input.profile);
     case 2: {
+        if(native_recheck_preserved_online_selection(
+               state.online_field_snapshot.has_value(),
+               state.online_edition_source,row,
+               state.online_included_fields.size()) &&
+           !state.online_raw_route_valid)
+            return L"(joint route needs recalculation)";
         std::string display = summary.raw_destination;
         for (char& ch : display) if (ch == '/') ch = '\\';
         return from_utf8(display);
     }
-    case 3: return from_utf8(status_text(summary));
+    case 3:
+        if(native_recheck_preserved_online_selection(
+               state.online_field_snapshot.has_value(),
+               state.online_edition_source,row,
+               state.online_included_fields.size())) {
+            if(!state.online_raw_route_valid)
+                return L"Joint raw route: unqualified";
+            // Preserve collisions and unsafe path diagnostics in the narrow
+            // status cell; the complete issue list stays in the row tooltip.
+            const auto issue=status_text(summary);
+            if(!issue.empty() && issue!="Qualified inputs (not approved)")
+                return from_utf8(issue);
+            return L"Joint raw preview; not probed";
+        }
+        return from_utf8(status_text(summary));
     default: return {};
     }
 }
@@ -3176,6 +3216,19 @@ void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
     }
     if (selected.empty())
         throw std::invalid_argument("Select raw destination rows before inspection.");
+    // Host target probes below still read entry.input (local-only). The joint
+    // online File Locations row is an overlay, NOT an observed target. Refuse
+    // the WHOLE inspection rather than probing a different hidden location.
+    for(const auto index:selected) {
+        if(native_recheck_preserved_online_selection(
+               state.online_field_snapshot.has_value(),
+               state.online_edition_source,index,
+               state.online_included_fields.size()))
+            throw std::invalid_argument(
+                "Selected online + local route is only a read-only raw preview. "
+                "Its combined host destination and CUE preflight are not "
+                "qualified for filesystem target inspection.");
+    }
     // Until the SDK-backed async/batch target probe is qualified, keep
     // explicit GUI-thread filesystem reads bounded on slow network drives.
     if (selected.size() > 128)
@@ -5094,6 +5147,10 @@ void change_online_field_preview(PreviewState& state,int action) {
     state.online_included_fields=proposed;
     state.online_date_targets=std::move(date_targets);
     state.online_field_preview=std::move(projected);
+    // The File Locations table consumes the SAME verified joint raw candidate.
+    // This rebuild also checks collisions against every other batch source;
+    // no target filesystem observation is trusted or performed here.
+    update_table(state);
     refresh_musicbrainz_detail_rows(state);
     const auto& result=*state.online_field_preview;
     const bool year_only_date_target=std::any_of(

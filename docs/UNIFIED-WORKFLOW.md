@@ -577,3 +577,21 @@ this milestone is not an installed-host release candidate.
   a local preview, and the selected provider's naming what-if remains
   advisory until full source-by-source joint routing and final host
   destination/CUE preflight are integrated. No writer is reachable.
+
+
+### 2026-10-25 — Native File Locations displays merged source raw collisions (MMS-WF-05/09, MMS-FILE-01/03)
+
+- The exact Discogs selection's joint local+online Title Formatting what-if
+  now appears as one **read-only raw target** in the *same* native batch table
+  as all other selected physical tracks. Existing raw duplicate/case/source
+  collision diagnostics therefore run against the displayed combined name,
+  instead of comparing the provider name only on a separate online page.
+- If the route is changed, undone, source-unqualified or no longer safely
+  displayable, its joint row is explicitly unqualified; it does not silently
+  fall back to an outdated local-only route. No unobserved target can inherit
+  a previous raw target physical ID, guard, or CUE/host qualification.
+- The currently local-only target inspection must refuse any selection
+  containing this joint route, rather than probing a different destination.
+  All-or-nothing refusal is intentional until a genuine joint host target
+  and CUE/FileOps preflight exists. This overlay is NOT a frozen batch plan,
+  File Operations destination, consent, or write authorization.

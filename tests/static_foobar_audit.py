@@ -1813,3 +1813,44 @@ for marker in (
 ):
     if marker not in native_batch_audit:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: joint source audit missing: "+marker)
+
+
+# File Locations is a read-only joint RAW-collision overlay for the only
+# selected, exact physical Discogs source. It must replace the local-only
+# raw candidate on every online inclusion/removal and MUST NOT let the old
+# local-only host target inspector probe a different path.
+native_update_table=workspace_dialog.split(
+    "void update_table(PreviewState& state)",1)[1].split(
+    "const char* issue_status_text(",1)[0]
+native_fileops_cell=workspace_dialog.split(
+    "std::wstring cell_text(PreviewState& state,",1)[1].split(
+    "std::string readable_track_name(",1)[0]
+native_target_inspect=workspace_dialog.split(
+    "void inspect_selected_raw_targets(HWND dialog, PreviewState& state)",1)[1].split(
+    "void mark_stale_workspace(",1)[0] if (
+    "void mark_stale_workspace(" in workspace_dialog.split(
+        "void inspect_selected_raw_targets(HWND dialog, PreviewState& state)",1)[1]) else workspace_dialog.split(
+    "void inspect_selected_raw_targets(HWND dialog, PreviewState& state)",1)[1].split(
+    "void verify_online_source_snapshot(",1)[0]
+native_online_change=workspace_dialog.split(
+    "void change_online_field_preview(PreviewState& state,int action)",1)[1].split(
+    "INT_PTR CALLBACK batch_dialog_proc",1)[0]
+for marker in (
+    'input.raw_relative_path=state.online_raw_route_valid',
+    'state.online_raw_route_after:std::string{};',
+    'input.raw_target_presence=djmeta::RawTargetPresence::NotInspected;',
+    'input.filesystem_target_checked=false;',
+    'input.cue_dependencies_checked=false;',
+    'state.table = djmeta::describe_batch_preview(inputs);',
+):
+    if marker not in native_update_table:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: joint FileOps table missing "+marker)
+if ('return L"Joint raw route: unqualified";' not in native_fileops_cell or
+    'return L"Joint raw preview; not probed";' not in native_fileops_cell):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: joint route lacks visible status")
+if ('Its combined host destination and CUE preflight are not' not in
+    native_target_inspect or
+    'native_recheck_preserved_online_selection(' not in native_target_inspect):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: joint route probed as local-only")
+if 'update_table(state);\n    refresh_musicbrainz_detail_rows(state);' not in native_online_change:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: online change did not rebuild batch collisions")
