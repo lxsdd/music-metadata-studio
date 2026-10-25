@@ -119,8 +119,19 @@ ReviewProjection project_explicit_review_decisions(
     std::size_t pending=0,semantic=0;
     for(std::size_t i=0;i<selected.size();++i) {
         if(selected[i].action!=ReviewAction::Pending) continue;
+        const auto& proposal=analysis.proposals[i];
+        // Retain the old SAFE-preview validation even though an unapproved
+        // suggestion is not included in the planned filename/postimage.
+        // Otherwise a forged empty or malformed SAFE suggestion would stop
+        // being detected merely because routing now leaves it Pending.
+        if(proposal.safety==SafetyClass::Safe &&
+           ((proposal.proposed_value.empty() &&
+             !proposal.original_value.empty()) ||
+            !valid_utf8_metadata_text(proposal.proposed_value)))
+            throw std::invalid_argument(
+                "pending SAFE proposal has an invalid replacement");
         ++pending;
-        if(analysis.proposals[i].safety!=SafetyClass::Safe) ++semantic;
+        if(proposal.safety!=SafetyClass::Safe) ++semantic;
         selected[i].action=ReviewAction::Reject;
     }
     auto result=project_review_decisions(original,analysis,selected);
