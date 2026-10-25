@@ -536,3 +536,8 @@
 - Album-wide differences now require one unambiguous, directly evidenced release-track TITLE for every verified MusicBrainz track occurrence. The recording title used for matching may legitimately differ from this edition field; the native comparison displays the evidenced field value, not a synthesized recording value. An occurrence MBID and a plausible recording fallback alone do not qualify the whole album.
 - Missing, foreign or duplicate TITLE evidence blocks the album-wide change gate. The shared provenance guard also rejects duplicate provider track fields before selected CUE postimage capture, matching the native blocked row. Original source facts and independently proven track evidence remain visible. Core regressions cover missing, artist-only, foreign and duplicate cases.
 - This is a read-only qualification rule. No provider hit, CUE source, physical tag or file is automatically modified.
+
+### 2026-10-25 — Qualified CUE postimage bound is atomic (MMS-CUE-01, MMS-FILE-03)
+
+- The source-verified in-memory CUE review no longer returns an eligible partial snapshot when more than 512 changed/no-op edition fields qualify. Overflow now fails closed rather than silently dropping later album or track facts.
+- A large, fully aligned synthetic MusicBrainz/CUE fixture establishes that the source and edition themselves qualify and that the review really exceeds the bound before checking rejection. No CUE, tag or FileOps writer is enabled or invoked.
