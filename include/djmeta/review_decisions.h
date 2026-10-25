@@ -34,4 +34,13 @@ ReviewProjection project_review_decisions(
     const AnalysisResult& analysis,
     const std::vector<ReviewDecision>& decisions = {});
 
+// For routing and eventual physical postimages, only a user's Accept or
+// ManualValue can change the source. Pending SAFE remains a visible proposal
+// in the ordinary review view, but it must not silently rename a file.
+// This projection is still read-only: no writer or approval is reachable.
+ReviewProjection project_explicit_review_decisions(
+    const MetadataDocument& original,
+    const AnalysisResult& analysis,
+    const std::vector<ReviewDecision>& decisions = {});
+
 } // namespace djmeta
