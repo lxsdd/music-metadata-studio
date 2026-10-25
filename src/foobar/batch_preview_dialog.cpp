@@ -2615,26 +2615,31 @@ void apply_review_action(HWND dialog, PreviewState& state,
         // No SDK tag writer is called here; virtual/CUE selections remain
         // independently read-only.
         if(entry.input.physical_source_qualified) {
-            const auto live=probe_host_file_readonly(entry.input.source_path);
-            if(live.state!=HostFileState::ExistingFile ||
-               live.host_physical_key!=entry.observed_physical_key ||
-               live.source_guard!=entry.observed_source_guard)
-                throw std::runtime_error(
-                    "Physical file changed during metadata review. Refresh snapshot.");
             djmeta::PhysicalTagSourceSnapshot physical;
             physical.qualified_physical=true;
             physical.host_physical_key=entry.observed_physical_key;
             physical.source_guard=entry.observed_source_guard;
             physical.original=original;
             const auto verified=djmeta::preview_explicit_normalizer_physical_tags(
-                physical,original,live.host_physical_key,live.source_guard,
+                physical,original,entry.observed_physical_key,
+                entry.observed_source_guard,
                 state.analyses[track],state.analyses[track].ruleset_revision,
                 next_decisions[track]);
             if(!verified.eligible)
                 throw std::invalid_argument(
                     "Physical tag decisions rejected: "+verified.rejection);
-            // An exact no-op is still an eligible read-only review. Never
-            // interpret verified.changed as permission to invoke a writer.
+            // Reset/Reject/Pending and accepted exact no-ops MUST NOT issue
+            // thousands of OS probes in a 54k-track library. There is no
+            // candidate physical mutation for these decisions.
+            if(verified.changed) {
+                const auto live=probe_host_file_readonly(entry.input.source_path);
+                if(live.state!=HostFileState::ExistingFile ||
+                   live.host_physical_key!=entry.observed_physical_key ||
+                   live.source_guard!=entry.observed_source_guard)
+                    throw std::runtime_error(
+                        "Physical file changed during metadata review. Refresh snapshot.");
+            }
+            // A changed detached postimage is NOT authorization to write.
         }
         entry.staged = std::move(staged.document);
         entry.input.semantic_proposals_pending = staged.unresolved_semantic > 0;
