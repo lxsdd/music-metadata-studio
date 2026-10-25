@@ -2063,3 +2063,30 @@ for marker in (
 ):
     if marker not in raw_inspect_native:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: raw target ancestry native UI gate missing "+marker)
+
+
+# The raw destination path cannot be qualified from any existing ancestor:
+# the exact user-selected FileOps destination ROOT must be present, physically
+# inspected, within the raw path, and independently re-probed as well.
+for marker in (
+    "selected_destination_root",
+    "filesystem::g_get_canonical_path(",
+    "out.native_destination_root=root.native();",
+    "CompareStringOrdinal(",
+    "RAW_SELECTED_DESTINATION_ROOT_MISSING",
+    "RAW_SELECTED_ROOT_NOT_ANCESTOR_OF_TARGET",
+    "out.destination_root_physical_key=part.physical_key",
+    "found_selected_root",
+):
+    if marker not in native_probe:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: selected destination root not physically bound: "+marker)
+for marker in (
+    "destination_root_physical_key",
+    "destination_root_guard",
+    "matched_root",
+):
+    if marker not in native_probe_header:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: selected root witness missing: "+marker)
+if ("raw_candidate,entry.input.destination_root" not in raw_inspect_native or
+    "state.entries.at(result.index).input.destination_root" not in raw_inspect_native):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: native raw destination not bound to selected root on both probes")

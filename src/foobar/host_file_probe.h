@@ -87,6 +87,13 @@ struct HostDestinationParentChain {
     bool qualified=false; // stable raw-parent evidence only, NOT final FileOps
     std::string rejection;
     std::wstring native_target;
+    // The user-selected destination ROOT has an independently observed
+    // existing directory identity, not just an arbitrary existing parent.
+    // Raw target ancestry must contain this very directory; no implicit
+    // destination-root creation, drive alias or lexical traversal accepted.
+    std::wstring native_destination_root;
+    std::string destination_root_physical_key;
+    std::string destination_root_guard;
     std::vector<HostDestinationAncestor> ancestors;
 };
 inline bool stable_raw_destination_parent_chain(
@@ -96,7 +103,14 @@ inline bool stable_raw_destination_parent_chain(
        before.rejection!=after.rejection ||
        before.native_target.empty() ||
        before.native_target!=after.native_target ||
-       before.ancestors.size()!=after.ancestors.size())
+       before.native_destination_root.empty() ||
+       before.native_destination_root!=after.native_destination_root ||
+       before.destination_root_physical_key!=after.destination_root_physical_key ||
+       before.destination_root_guard!=after.destination_root_guard ||
+       before.ancestors.size()!=after.ancestors.size() ||
+       (before.qualified &&
+        (before.destination_root_physical_key.empty() ||
+         before.destination_root_guard.empty())))
         return false;
     for(std::size_t i=0;i<before.ancestors.size();++i) {
         const auto& old=before.ancestors[i];
@@ -111,10 +125,21 @@ inline bool stable_raw_destination_parent_chain(
                (!old.physical_key.empty() || !old.guard.empty())))
             return false;
     }
+    if(before.qualified) {
+        bool matched_root=false;
+        for(const auto& observed:before.ancestors)
+            if(observed.native_path==before.native_destination_root &&
+               observed.existing &&
+               observed.physical_key==before.destination_root_physical_key &&
+               observed.guard==before.destination_root_guard)
+                matched_root=true;
+        if(!matched_root) return false;
+    }
     return true;
 }
 HostDestinationParentChain probe_raw_destination_parent_chain_readonly(
-    const std::string& literal_candidate);
+    const std::string& literal_candidate,
+    const std::string& selected_destination_root);
 
 // Missing is a legitimate observation for a proposed target but NOT for a
 // selected source. The caller enforces that distinction.

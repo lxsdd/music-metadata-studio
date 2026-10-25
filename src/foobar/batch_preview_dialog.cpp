@@ -3484,7 +3484,8 @@ void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
             : entry.input.destination_root+"\\"+entry.input.raw_relative_path;
         observations.push_back({index,raw_candidate,
             probe_host_file_readonly(raw_candidate),
-            probe_raw_destination_parent_chain_readonly(raw_candidate),joint});
+            probe_raw_destination_parent_chain_readonly(
+                raw_candidate,entry.input.destination_root),joint});
     }
     // All-or-nothing UI update: revalidate the entire captured metadata and
     // ruleset snapshot after the slowest selected filesystem observation.
@@ -3522,7 +3523,9 @@ void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
             throw std::runtime_error(
                 "Raw destination changed during filesystem inspection. Refresh preview.");
         const auto current_parents=
-            probe_raw_destination_parent_chain_readonly(result.raw_candidate);
+            probe_raw_destination_parent_chain_readonly(
+                result.raw_candidate,
+                state.entries.at(result.index).input.destination_root);
         if(!stable_raw_destination_parent_chain(result.parents,current_parents))
             throw std::runtime_error(
                 "Raw target parent directory, junction or filesystem identity "

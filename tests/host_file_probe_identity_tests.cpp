@@ -46,7 +46,8 @@ int main() {
     require(!stable_raw_target_observation(stable,different),
             "source modification invalidates snapshot");
     const HostDestinationParentChain valid_chain{
-        true,{},L"C:\\Audio\\Future\\track.flac",{
+        true,{},L"C:\\Audio\\Future\\track.flac",
+        L"C:\\Audio","win-dir-v1:11:55","guard:stable",{
             {L"C:\\Audio\\Future",false,{},{}},
             {L"C:\\Audio",true,"win-dir-v1:11:55","guard:stable"},
             {L"C:\\",true,"win-dir-v1:11:1","guard:root"}
@@ -84,6 +85,30 @@ int main() {
     altered_chain.ancestors[1].guard.clear();
     require(!stable_raw_destination_parent_chain(valid_chain,altered_chain),
         "empty observed physical ancestor guard cannot qualify");
+    altered_chain=valid_chain;
+    altered_chain.native_destination_root=L"C:\\Other";
+    require(!stable_raw_destination_parent_chain(valid_chain,altered_chain),
+        "switched user-selected destination root cannot reuse old witness");
+    altered_chain=valid_chain;
+    altered_chain.destination_root_physical_key="win-dir-v1:11:60";
+    require(!stable_raw_destination_parent_chain(valid_chain,altered_chain),
+        "destination root physical replacement invalidates raw review");
+    altered_chain=valid_chain;
+    altered_chain.destination_root_guard.clear();
+    require(!stable_raw_destination_parent_chain(valid_chain,altered_chain),
+        "missing destination root version guard cannot qualify");
+    altered_chain=valid_chain;
+    altered_chain.native_destination_root=L"C:\\Audio\\Future";
+    altered_chain.destination_root_physical_key="win-dir-v1:11:55";
+    altered_chain.destination_root_guard="guard:stable";
+    require(!stable_raw_destination_parent_chain(altered_chain,altered_chain),
+        "a missing subfolder can never impersonate a selected existing root");
+    altered_chain=valid_chain;
+    altered_chain.native_destination_root=L"C:\\";
+    altered_chain.destination_root_physical_key="win-dir-v1:11:1";
+    altered_chain.destination_root_guard="guard:root";
+    require(stable_raw_destination_parent_chain(altered_chain,altered_chain),
+        "explicitly selected existing drive root remains a valid observed ancestor");
     std::cout << "PASS: Windows OS file identity and read-only guard semantics "
                  "including full target parent chain\n";
 }

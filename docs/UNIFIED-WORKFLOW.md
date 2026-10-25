@@ -816,3 +816,27 @@ still not the final metadata-sanitized foobar File Operations destination,
 the ancestor proof grants no overwrite/move/write permission, and
 future actual FileOps target handling still needs its own independent
 destination evidence.
+
+
+### 2026-10-25 — Physical destination ROOT binding for native RAW inspection (MMS-FILE-03/05, MMS-WF-09)
+
+The already real Win32/x64 raw-target ancestor inspection now checks that the
+**exact user-selected File Operations destination root** is a member of the
+candidate's OS-level native parent hierarchy, actually exists as a directory,
+is not a junction/reparse point, and has its own independently inspected
+Windows volume+file ID and change guard. It resolves the selected root and
+literal raw candidate through foobar's native filesystem path services,
+not title-format substitution rules. Comparing only to any existing parent
+(such as the drive root) was insufficient: a mistyped/missing selected root
+could otherwise look like a qualified raw directory chain, even though
+foobar File Operations explicitly requires its destination root to exist.
+Now a missing selected root and a target redirected outside that root
+are rejected with separate codes, and a replaced selected root or changed
+root fingerprint fails the entire second-pass review. Native raw inspection
+supplies the selected per-row root for BOTH independent probes.
+
+Portable positive/negative coverage includes missing nested subfolders
+below a real selected root, switched/missing root identity or guard, missing
+subfolder masquerading as root, drive-root choice and out-of-tree root.
+Actual final foobar filename sanitation, CUE future destination, approved
+file writes and directory creation remain unqualified/disabled.
