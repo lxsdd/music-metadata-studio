@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <limits>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -44,12 +45,15 @@ inline bool qualified_cue_edition_track_provenance(
        (edition.provider=="discogs" &&
         identity!=edition.edition_id+"/track/"+std::to_string(index+1)))
         return false;
-    return std::all_of(track.fields.begin(),track.fields.end(),
-        [&](const FieldEvidence& field) {
-            return field.provider==edition.provider &&
-                   field.scope==EvidenceScope::Edition &&
-                   field.source_id==identity;
-        });
+    std::set<std::string> names;
+    for(const auto& field:track.fields) {
+        if(field.provider!=edition.provider ||
+           field.scope!=EvidenceScope::Edition ||
+           field.source_id!=identity ||
+           !names.insert(field.field).second)
+            return false;
+    }
+    return true;
 }
 
 // UPC-A and EAN-13 describe the same media code when the EAN carries a
