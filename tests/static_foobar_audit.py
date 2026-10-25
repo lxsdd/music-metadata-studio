@@ -2024,3 +2024,42 @@ for marker in (
 ):
     if marker not in unified_cue_strict:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: canonical all-FILE/proposal bound missing "+marker)
+
+
+# Literal RAW paths remain unqualified for foobar FileOps, but their complete
+# Windows parent directory chain now has independent read-only physical
+# observations, double-probed atomically with raw candidates. Junctions,
+# symlinks, replaced directories and missing-then-created parents must not
+# yield an apparently stable raw target or a false final destination.
+native_probe=(root / "src" / "foobar" / "host_file_probe.cpp").read_text(encoding="utf-8")
+native_probe_header=(root / "src" / "foobar" / "host_file_probe.h").read_text(encoding="utf-8")
+for marker in (
+    "probe_raw_destination_parent_chain_readonly(",
+    "FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT",
+    "FILE_ATTRIBUTE_REPARSE_POINT",
+    "RAW_PARENT_DIRECTORY_REPLACED",
+    "RAW_PARENT_NO_OBSERVED_DIRECTORY",
+):
+    if marker not in native_probe:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: native raw parent chain source evidence missing "+marker)
+for marker in (
+    "stable_raw_destination_parent_chain(",
+    "before.ancestors.size()!=after.ancestors.size()",
+    "old.physical_key!=now.physical_key",
+    "old.guard!=now.guard",
+):
+    if marker not in native_probe_header:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: parent chain identity/stability guard missing "+marker)
+raw_inspect_native=workspace_dialog.split(
+    "void inspect_selected_raw_targets(",1)[1].split(
+    "std::vector<PreviewEntry> capture_preview(",1)[0]
+for marker in (
+    "probe_raw_destination_parent_chain_readonly(raw_candidate)",
+    "probe_raw_destination_parent_chain_readonly(result.raw_candidate)",
+    "stable_raw_destination_parent_chain(result.parents,current_parents)",
+    "if(!result.parents.qualified)",
+    "result.observed.state=HostFileState::Unqualified",
+    "Final foobar destinations/CUE",
+):
+    if marker not in raw_inspect_native:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: raw target ancestry native UI gate missing "+marker)

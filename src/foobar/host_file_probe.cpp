@@ -5,6 +5,7 @@
 
 #include <climits>
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <string_view>
 
@@ -140,6 +141,105 @@ HostFileObservation probe_host_file_readonly(const std::string& path) {
         out.detail = "foobar filesystem identity/statistics probe failed.";
     } catch (...) {
         out.detail = "Unsupported foobar filesystem probe failure.";
+    }
+    return out;
+}
+
+// Observe ALL native parent components, not merely the last file entry:
+// a missing target below a junction or a parent replaced between source and
+// destination probes must never appear to be a stable raw destination.
+// Explicitly no SDK File Operations sanitization, path creation or writes.
+HostDestinationParentChain probe_raw_destination_parent_chain_readonly(
+    const std::string& literal_candidate) {
+    HostDestinationParentChain out;
+    try {
+        if(literal_candidate.empty() ||
+           literal_candidate.find('\0')!=std::string::npos)
+            throw std::invalid_argument("Empty or NUL raw target");
+        pfc::string8 canonical,native;
+        filesystem::g_get_canonical_path(literal_candidate.c_str(),canonical);
+        if(canonical.is_empty() ||
+           !filesystem::g_get_native_path(
+               canonical.get_ptr(),native,fb2k::noAbort))
+            throw std::invalid_argument("Unsupported native destination");
+        out.native_target=utf8_to_native(native.get_ptr());
+        const std::filesystem::path target(out.native_target);
+        if(!target.is_absolute() || !target.has_parent_path())
+            throw std::invalid_argument("Nonabsolute native destination");
+        std::filesystem::path parent=target.parent_path();
+        bool have_existing_ancestor=false;
+        for(std::size_t depth=0;depth<64;++depth) {
+            if(parent.empty())
+                break;
+            HostDestinationAncestor part;
+            part.native_path=parent.native();
+            const DWORD attrs=GetFileAttributesW(part.native_path.c_str());
+            if(attrs==INVALID_FILE_ATTRIBUTES) {
+                const DWORD error=GetLastError();
+                if(error!=ERROR_FILE_NOT_FOUND &&
+                   error!=ERROR_PATH_NOT_FOUND) {
+                    out.rejection="RAW_PARENT_ATTRIBUTES_UNAVAILABLE";
+                    return out;
+                }
+                // Missing directory is not a permission to create it.
+                // Its exact position/name is included in both observations.
+            } else {
+                if(!(attrs & FILE_ATTRIBUTE_DIRECTORY) ||
+                   (attrs & FILE_ATTRIBUTE_REPARSE_POINT)) {
+                    out.rejection="RAW_PARENT_NOT_DIRECTORY_OR_REPARSE";
+                    return out;
+                }
+                const HANDLE handle=CreateFileW(part.native_path.c_str(),
+                    FILE_READ_ATTRIBUTES,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                    nullptr,OPEN_EXISTING,
+                    FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                    nullptr);
+                if(handle==INVALID_HANDLE_VALUE) {
+                    out.rejection="RAW_PARENT_DIRECTORY_HANDLE_UNAVAILABLE";
+                    return out;
+                }
+                BY_HANDLE_FILE_INFORMATION info{};
+                const BOOL valid=GetFileInformationByHandle(handle,&info);
+                CloseHandle(handle);
+                if(!valid ||
+                   !(info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
+                   (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+                    out.rejection="RAW_PARENT_DIRECTORY_REPLACED";
+                    return out;
+                }
+                const auto index=file_number(
+                    info.nFileIndexHigh,info.nFileIndexLow);
+                if(!valid_native_file_identity(
+                    info.dwVolumeSerialNumber,index)) {
+                    out.rejection="RAW_PARENT_IDENTITY_UNAVAILABLE";
+                    return out;
+                }
+                part.existing=true;
+                part.physical_key="win-dir-v1:"+
+                    std::to_string(info.dwVolumeSerialNumber)+":"+
+                    std::to_string(index);
+                part.guard=part.physical_key+":"+
+                    std::to_string(time_number(info.ftCreationTime))+":"+
+                    std::to_string(time_number(info.ftLastWriteTime))+":"+
+                    std::to_string(info.dwFileAttributes);
+                have_existing_ancestor=true;
+            }
+            out.ancestors.push_back(std::move(part));
+            const auto next=parent.parent_path();
+            if(next==parent) {
+                out.qualified=have_existing_ancestor;
+                if(!out.qualified)
+                    out.rejection="RAW_PARENT_NO_OBSERVED_DIRECTORY";
+                return out;
+            }
+            parent=next;
+        }
+        out.rejection="RAW_PARENT_DEPTH_OR_ROOT_UNQUALIFIED";
+    } catch(const std::exception&) {
+        out.rejection="RAW_PARENT_NATIVE_RESOLUTION_UNQUALIFIED";
+    } catch(...) {
+        out.rejection="RAW_PARENT_UNSUPPORTED_HOST_FAILURE";
     }
     return out;
 }

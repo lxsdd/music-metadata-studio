@@ -3446,6 +3446,7 @@ void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
         std::size_t index;
         std::string raw_candidate;
         HostFileObservation observed;
+        HostDestinationParentChain parents;
         bool joint=false;
     };
     std::vector<RawObservation> observations;
@@ -3482,7 +3483,8 @@ void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
             ? recheck_joint_raw_target_candidate(state,index,typed)
             : entry.input.destination_root+"\\"+entry.input.raw_relative_path;
         observations.push_back({index,raw_candidate,
-            probe_host_file_readonly(raw_candidate),joint});
+            probe_host_file_readonly(raw_candidate),
+            probe_raw_destination_parent_chain_readonly(raw_candidate),joint});
     }
     // All-or-nothing UI update: revalidate the entire captured metadata and
     // ruleset snapshot after the slowest selected filesystem observation.
@@ -3519,9 +3521,28 @@ void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
         if (!stable_raw_target_observation(result.observed, current))
             throw std::runtime_error(
                 "Raw destination changed during filesystem inspection. Refresh preview.");
+        const auto current_parents=
+            probe_raw_destination_parent_chain_readonly(result.raw_candidate);
+        if(!stable_raw_destination_parent_chain(result.parents,current_parents))
+            throw std::runtime_error(
+                "Raw target parent directory, junction or filesystem identity "
+                "changed during inspection. Refresh the entire preview.");
     }
+    std::size_t unqualified_parents=0;
     for (auto& result : observations) {
         PreviewEntry& entry = state.entries[result.index];
+        if(!result.parents.qualified) {
+            ++unqualified_parents;
+            // An observed raw file is never enough when its ancestor
+            // chain contains a junction, changed directory or unsupported
+            // physical identity. Never copy raw presence or source guard as
+            // a usable target observation in that case.
+            result.observed.state=HostFileState::Unqualified;
+            result.observed.host_physical_key.clear();
+            result.observed.source_guard.clear();
+            result.observed.detail="Raw destination parent unqualified: "+
+                result.parents.rejection;
+        }
         if(result.joint) {
             state.online_raw_target_observation=JointRawTargetObservation{
                 result.index,result.raw_candidate,
@@ -3579,7 +3600,9 @@ void inspect_selected_raw_targets(HWND dialog, PreviewState& state) {
         L", missing " + std::to_wstring(missing) +
         L", unqualified " + std::to_wstring(unqualified) +
         L", physical source aliases " + std::to_wstring(physical_source_aliases) +
-        L". Final foobar destinations/CUE dependencies UNVERIFIED; no writes.";
+        L", unqualified parent chains " + std::to_wstring(unqualified_parents) +
+        L". This is RAW ancestry only. Final foobar destinations/CUE "
+        L"dependencies UNVERIFIED; no writes.";
     SetDlgItemTextW(dialog, IDC_BATCH_HINT, hint.c_str());
 }
 

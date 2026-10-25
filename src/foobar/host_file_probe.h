@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace djmeta_foobar {
 
@@ -68,6 +69,52 @@ inline bool valid_native_file_identity(
 inline bool valid_native_regular_file_attributes(std::uint32_t attrs) noexcept {
     return attrs != UINT32_MAX && (attrs & (0x10u | 0x400u)) == 0;
 }
+
+// Bounded, read-only native ancestor observation of a LITERAL candidate
+// path. It is explicitly not a foobar File Operations final destination
+// renderer, does not sanitize metadata and never grants permission to move.
+// On missing subdirectories, remember their exact native names and guard all
+// EXISTING ancestors with independent OS directory handles. A symlink,
+// junction, unsupported physical directory ID, access failure or replacement
+// invalidates the entire advisory ancestor chain.
+struct HostDestinationAncestor {
+    std::wstring native_path;
+    bool existing=false;
+    std::string physical_key;
+    std::string guard;
+};
+struct HostDestinationParentChain {
+    bool qualified=false; // stable raw-parent evidence only, NOT final FileOps
+    std::string rejection;
+    std::wstring native_target;
+    std::vector<HostDestinationAncestor> ancestors;
+};
+inline bool stable_raw_destination_parent_chain(
+    const HostDestinationParentChain& before,
+    const HostDestinationParentChain& after) {
+    if(before.qualified!=after.qualified ||
+       before.rejection!=after.rejection ||
+       before.native_target.empty() ||
+       before.native_target!=after.native_target ||
+       before.ancestors.size()!=after.ancestors.size())
+        return false;
+    for(std::size_t i=0;i<before.ancestors.size();++i) {
+        const auto& old=before.ancestors[i];
+        const auto& now=after.ancestors[i];
+        if(old.native_path!=now.native_path ||
+           old.existing!=now.existing ||
+           old.physical_key!=now.physical_key ||
+           old.guard!=now.guard ||
+           (old.existing &&
+               (old.physical_key.empty() || old.guard.empty())) ||
+           (!old.existing &&
+               (!old.physical_key.empty() || !old.guard.empty())))
+            return false;
+    }
+    return true;
+}
+HostDestinationParentChain probe_raw_destination_parent_chain_readonly(
+    const std::string& literal_candidate);
 
 // Missing is a legitimate observation for a proposed target but NOT for a
 // selected source. The caller enforces that distinction.

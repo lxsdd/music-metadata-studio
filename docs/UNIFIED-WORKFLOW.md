@@ -786,3 +786,33 @@ unselected canonical spoofing, empty host source keys, physical alias
 substitution, changed rule/proposal meaning with unchanged output, and
 second-pass unselected path drift. No fake final FileOps sanitization,
 writer, freeze token, public artifact or user media mutation.
+
+
+### 2026-10-25 — Double-probed native RAW destination ancestor chain (MMS-FILE-03, MMS-WF-09, MMS-UI-07)
+
+The Windows/foobar host raw target inspector now independently observes
+the **entire native destination parent directory chain** (up to 64
+components), not only the destination file itself. Each EXISTING
+directory is opened read-only with
+`FILE_READ_ATTRIBUTES | FILE_FLAG_BACKUP_SEMANTICS |`
+`FILE_FLAG_OPEN_REPARSE_POINT`, then bound to its OS volume/file
+identity, creation/last-modified timestamps and attributes. Junctions,
+directory symlinks and unexpected reparse points are rejected rather
+than followed silently; nonexistent intermediate directories remain
+recorded as explicitly missing segments, never as permission to create
+them. Every ancestor is checked a second time after the complete
+source/target probe, detecting a replaced directory, new subfolder,
+changed inode/guard, or changed canonical literal candidate.
+If any parent chain is unqualified, its raw observation is presented as
+UNQUALIFIED, not a misleading PRESENT/MISSING candidate.
+
+This is a real, bounded **native read-only physical filesystem
+observation** built with Win32 and foobar SDK canonical-path resolution;
+cross-platform regression tests exercise stable/mutating ancestor IDs,
+guards, missing-to-existing directories, reparse rejection, shortened
+chains and changed native target. All existing physical writer, host
+source isolation and CUE safety gates remain intact. The **raw** path is
+still not the final metadata-sanitized foobar File Operations destination,
+the ancestor proof grants no overwrite/move/write permission, and
+future actual FileOps target handling still needs its own independent
+destination evidence.
