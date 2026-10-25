@@ -2731,9 +2731,10 @@ void apply_review_action(HWND dialog, PreviewState& state,
             // must remain compatible with the new local Accept/Manual choice.
             // Re-stage both independent immutable evidence streams before
             // publishing any new local decision; never prefer one silently.
-            if(qualified_online_field_preview(state) &&
-               state.online_edition_source==track &&
-               !state.online_included_fields.empty()) {
+            if(native_recheck_preserved_online_selection(
+                   state.online_field_snapshot.has_value(),
+                   state.online_edition_source,track,
+                   state.online_included_fields.size())) {
                 djmeta::UnifiedReviewBatchReprobe unified;
                 unified.normalizer.live.captured=physical;
                 unified.normalizer.live.fresh_tags=original;

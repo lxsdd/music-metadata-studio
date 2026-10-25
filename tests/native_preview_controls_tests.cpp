@@ -98,6 +98,19 @@ bool centers_match(HWND dialog, int label_id, int control_id) {
 }
 
 int main() {
+    using djmeta_foobar::native_recheck_preserved_online_selection;
+    const auto same_source_selection=[](bool online_pane_visible) {
+        // The native tab switch is a presentation change: the guard has
+        // no page-mode parameter and must remain true on BOTH tabs.
+        (void)online_pane_visible;
+        return native_recheck_preserved_online_selection(true,5,5,2);
+    };
+    check(same_source_selection(true) && same_source_selection(false),
+          "preserved online source is rechecked after returning to local Review");
+    check(!native_recheck_preserved_online_selection(false,5,5,2) &&
+          !native_recheck_preserved_online_selection(true,5,6,2) &&
+          !native_recheck_preserved_online_selection(true,5,5,0),
+          "absent snapshot, changed source and no selection avoid unrelated crosschecks");
     // Pure read-only target-state stability contract. No filesystem access
     // or real user audio required by these negative tests.
     using djmeta_foobar::HostFileObservation;

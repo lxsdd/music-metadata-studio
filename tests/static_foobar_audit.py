@@ -1724,6 +1724,8 @@ for marker in (
     'djmeta::UnifiedReviewBatchReprobe unified;',
     'unified.normalizer.decisions=next_decisions[track];',
     'unified.selected_online_indices=state.online_included_fields;',
+    'native_recheck_preserved_online_selection(',
+    'state.online_field_snapshot.has_value(),',
     'djmeta::preview_unified_review_physical_tags(',
     'if(!joint.physical.eligible)',
 ):
@@ -1744,3 +1746,6 @@ for marker in (
 if ('metadb_io::' in online_bridge or 'commit_preflighted_' in online_bridge or
     'MMS_ENABLE_PHYSICAL_WRITES' in review_bridge):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: unified read-only bridge entered writer")
+
+if 'if(qualified_online_field_preview(state) &&' in review_bridge:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: hidden online tab bypasses local conflict check")

@@ -17,6 +17,16 @@
 
 namespace djmeta_foobar {
 
+// Online selections belong to an immutable source, not to the visible tab.
+// Returning to the local Review page must NOT disable a conflict cross-check
+// just because the online comparison controls are hidden there.
+inline constexpr bool native_recheck_preserved_online_selection(
+    bool has_verified_snapshot,std::size_t online_source,
+    std::size_t review_source,std::size_t selected_count) noexcept {
+    return has_verified_snapshot && online_source==review_source &&
+           selected_count!=0;
+}
+
 // A keyboard WM_CONTEXTMENU carries (-1,-1), not a pointer location.
 // Place the column picker at its header so Shift+F10 remains usable when
 // the mouse is on another monitor. Mouse right-click keeps its exact point.
