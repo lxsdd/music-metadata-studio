@@ -212,12 +212,13 @@ inline CuePostimageReviewSnapshot capture_qualified_cue_edition_postimage(
             cue,edition,reviewed.alignment);
     std::vector<CuePostimageEvidence> inputs;
     std::vector<CueCandidateFieldReview> expected;
+    bool overflow=false;
     const auto append=[&](const CueCandidateFieldReview& field,
                           std::optional<std::size_t> track,bool track_field) {
         if(field.state!=FieldReviewState::NeedsReview &&
            field.state!=FieldReviewState::Unchanged)
             return;
-        if(inputs.size()>=512) return;
+        if(inputs.size()>=512) {overflow=true;return;}
         inputs.push_back({track,field.candidate,track_field,full});
         expected.push_back(field);
     };
@@ -250,7 +251,7 @@ inline CuePostimageReviewSnapshot capture_qualified_cue_edition_postimage(
     }
     // A release with no independently verified reviewable rows cannot
     // yield an eligible edition snapshot.
-    if(inputs.empty() || inputs.size()!=expected.size()) return {};
+    if(overflow || inputs.empty() || inputs.size()!=expected.size()) return {};
     auto snapshot=capture_cue_postimage_review(raw,carrier,inputs);
     if(!snapshot.eligible || snapshot.rows.size()!=expected.size())
         return {};
