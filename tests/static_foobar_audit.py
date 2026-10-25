@@ -1846,8 +1846,9 @@ for marker in (
     if marker not in native_update_table:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: joint FileOps table missing "+marker)
 if ('return L"Joint raw route: unqualified";' not in native_fileops_cell or
-    'return L"Joint raw preview; not probed";' not in native_fileops_cell):
-    raise SystemExit("STATIC FOOBAR AUDIT FAIL: joint route lacks visible status")
+    'L"Joint raw preview; not probed"' not in native_fileops_cell or
+    'L"Joint raw inspected; not final"' not in native_fileops_cell):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: joint route lacks visible inspected/unqualified status")
 for marker in (
     'recheck_joint_raw_target_candidate(state,index,typed)',
     'recheck_joint_raw_target_candidate(state,result.index,typed)',
