@@ -79,6 +79,33 @@ int main(){
     check(fail(snap,original,"volume:physical-id","source:v1",{
         {"replaygain_track_gain",original.fields[4].values,{"-4.0 dB"}}
     }),"replaygain requires dedicated host guard");
+    for(const auto* reserved : {"REPLAYGAIN_REFERENCE_LOUDNESS",
+                                "replaygain_track_range",
+                                "METADATA_BLOCK_PICTURE",
+                                "coverart","COVERARTMIME"}) {
+        check(physical_tag_immutable(reserved),
+              "specialized audio/tag carriers are not generic physical metadata");
+        check(fail(snap,original,"volume:physical-id","source:v1",{
+            {reserved,{},{"forged rewrite"}}
+        }),"ReplayGain and artwork cannot enter physical field insertions");
+    }
+    auto rich=original;
+    rich.fields.push_back({"REPLAYGAIN_REFERENCE_LOUDNESS",{"89 dB"}});
+    rich.fields.push_back({"METADATA_BLOCK_PICTURE",{"binary payload left opaque"}});
+    rich.fields.push_back({"COVERART",{"opaque base64 art"}}); 
+    auto rich_source=snap;
+    rich_source.original=rich;
+    const auto rich_preview=preview_explicit_physical_tag_values(
+        rich_source,rich,"volume:physical-id","source:v1",{
+            {"TITLE",{"Old Title"},{"Retitled"}}
+        });
+    check(rich_preview.eligible && rich_preview.changed &&
+          rich_preview.planned.fields.size()==rich.fields.size() &&
+          rich_preview.planned.fields[5]==rich.fields[5] &&
+          rich_preview.planned.fields[6]==rich.fields[6] &&
+          rich_preview.planned.fields[7]==rich.fields[7],
+          "unrelated normalizer title edit preserves all ReplayGain/art payloads");
+
     check(fail(snap,original,"volume:physical-id","source:v1",{
         {"CUSTOM DJ NOTES",{"Original DJ note"},{}}
     }),"field deletion requires separate qualification");
