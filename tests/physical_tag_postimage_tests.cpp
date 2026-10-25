@@ -1,4 +1,4 @@
-#include "djmeta/physical_tag_postimage.h"
+#include "djmeta/review_physical_postimage.h"
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -97,5 +97,121 @@ int main(){
           {"GENRE",{"House","Progressive House"},{"House","Melodic House"}}
     }).planned.fields.empty(),
           "planner emits a complete detached document");
+
+    // Normalizer decisions and physical SDK plans are deliberately separate.
+    // Pending SAFE is visible in preview but NEVER implicit write consent.
+    AnalysisResult analysis;
+    analysis.input_fingerprint=fingerprint(original);
+    analysis.ruleset_revision="rules:v1";
+    const auto proposed=[&](std::size_t field,std::size_t value,
+                            const std::string& replacement,SafetyClass safety){
+        Proposal p;
+        p.field_index=field;
+        p.field=original.fields[field].name;
+        p.value_index=value;
+        p.original_value=original.fields[field].values[value];
+        p.proposed_value=replacement;
+        p.safety=safety;
+        p.rule_ids={"test.rule"};
+        return p;
+    };
+    analysis.proposals={
+        proposed(0,0,"Old Title",SafetyClass::Safe),
+        proposed(1,1,"Melodic House",SafetyClass::Review),
+        proposed(2,0,"Suggested note",SafetyClass::Confident)
+    };
+    const std::vector<ReviewDecision> pending(analysis.proposals.size());
+    const auto pending_tags=preview_explicit_normalizer_physical_tags(
+        snap,original,"volume:physical-id","source:v1",
+        analysis,"rules:v1",pending);
+    check(pending_tags.eligible && !pending_tags.changed &&
+          pending_tags.planned==original && pending_tags.explicitly_changed==0,
+          "pending SAFE and semantic normalizer proposals do not permit a tag write");
+    auto explicit_decisions=pending;
+    explicit_decisions[1].action=ReviewAction::Accept;
+    explicit_decisions[2]={ReviewAction::ManualValue,"Reviewed DJ note"};
+    const auto staged_normalizer=preview_explicit_normalizer_physical_tags(
+        snap,original,"volume:physical-id","source:v1",
+        analysis,"rules:v1",explicit_decisions);
+    check(staged_normalizer.eligible && staged_normalizer.changed &&
+          staged_normalizer.explicitly_changed==2 &&
+          staged_normalizer.planned.fields[0]==original.fields[0] &&
+          staged_normalizer.planned.fields[1].values==
+              std::vector<std::string>({"House","Melodic House"}) &&
+          staged_normalizer.planned.fields[2].values==
+              std::vector<std::string>{"Reviewed DJ note"} &&
+          staged_normalizer.planned.fields[3]==original.fields[3] &&
+          staged_normalizer.planned.fields[4]==original.fields[4],
+          "explicit semantic Accept and manual override create exact physical postimage");
+    explicit_decisions[0].action=ReviewAction::Accept;
+    const auto with_safe_accept=preview_explicit_normalizer_physical_tags(
+        snap,original,"volume:physical-id","source:v1",
+        analysis,"rules:v1",explicit_decisions);
+    check(with_safe_accept.eligible && with_safe_accept.changed &&
+          with_safe_accept.explicitly_changed==3 &&
+          with_safe_accept.planned.fields[0].values==
+              std::vector<std::string>{"Old Title"},
+          "even SAFE normalization reaches physical tags only after explicit Accept");
+    const auto normalizer_rejected=[&](
+        const AnalysisResult& captured,
+        const std::vector<ReviewDecision>& selection,
+        const std::string& key="volume:physical-id",
+        const std::string& guard="source:v1",
+        const std::string& rules="rules:v1",
+        const MetadataDocument& observed=original){
+        const auto result=preview_explicit_normalizer_physical_tags(
+            snap,observed,key,guard,captured,rules,selection);
+        return !result.eligible && !result.changed && !result.rejection.empty();
+    };
+    check(normalizer_rejected(analysis,explicit_decisions,
+                              "volume:physical-id","source:v1","rules:v2"),
+          "changed normalization ruleset invalidates every approval");
+    check(normalizer_rejected(analysis,explicit_decisions,
+                              "different:physical-id"),
+          "normalizer cannot cross a changed physical file identity");
+    check(normalizer_rejected(analysis,explicit_decisions,
+                              "volume:physical-id","source:v2"),
+          "normalizer cannot cross a changed source guard");
+    check(normalizer_rejected(analysis,{explicit_decisions[0]}),
+          "partial/stale explicit decision vector cannot cross gate");
+    auto wrong_analysis=analysis;
+    wrong_analysis.proposals[1].original_value="forged original";
+    check(normalizer_rejected(wrong_analysis,explicit_decisions),
+          "forged rule-proposal original cannot authorize physical write");
+    auto invalid_decisions=explicit_decisions;
+    invalid_decisions[2].manual_value="unsafe\\nCUE line";
+    check(normalizer_rejected(analysis,invalid_decisions),
+          "unsafe manual normalizer value cannot cross physical guard");
+    auto protected_analysis=analysis;
+    protected_analysis.proposals={
+        proposed(3,0,"forged cue text",SafetyClass::Review)
+    };
+    check(normalizer_rejected(protected_analysis,
+          {ReviewDecision{ReviewAction::Accept,""}}),
+          "normalizer cannot bypass dedicated CUESHEET writer");
+    auto equal_analysis=analysis;
+    equal_analysis.proposals={
+        proposed(0,0,"Old Title",SafetyClass::Safe)
+    };
+    equal_analysis.proposals[0].proposed_value="Old Title";
+    const auto equal_approval=preview_explicit_normalizer_physical_tags(
+        snap,original,"volume:physical-id","source:v1",equal_analysis,
+        "rules:v1",{ReviewDecision{ReviewAction::Accept,""}});
+    check(equal_approval.eligible && equal_approval.changed,
+          "original whitespace differs from explicit normalizer target");
+    equal_analysis.proposals[0].proposed_value="Old Title";
+    auto true_noop_source=original;
+    true_noop_source.fields[0].values={"Old Title"};
+    PhysicalTagSourceSnapshot true_noop_snap=snap;
+    true_noop_snap.original=true_noop_source;
+    equal_analysis.input_fingerprint=fingerprint(true_noop_source);
+    equal_analysis.proposals[0].original_value="Old Title";
+    const auto equal_noop=preview_explicit_normalizer_physical_tags(
+        true_noop_snap,true_noop_source,"volume:physical-id","source:v1",
+        equal_analysis,"rules:v1",
+        {ReviewDecision{ReviewAction::Accept,""}});
+    check(equal_noop.eligible && !equal_noop.changed &&
+          equal_noop.planned==true_noop_source,
+          "explicit acceptance of an already equal normalizer value is zero-write");
     std::cout<<"PASS: selected physical multivalue/tag postimage and protected CUE guards\n";
 }
