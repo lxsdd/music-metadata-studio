@@ -1681,6 +1681,9 @@ if any(token in undo_action for token in
        ('metadb_io','commit_preflighted','physical_tag_writer')):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: preview Undo entered writer")
 if ('case IDC_BATCH_UNDO:' not in native_controls or
+    'IDC_BATCH_UNDO,' not in batch_table_dialog.split(
+        'void mark_stale_workspace(PreviewState& state) {',1)[1].split(
+        '// Verify the physical source on the UI thread',1)[0] or
     'if (id == IDC_BATCH_UNDO && HIWORD(wp) == BN_CLICKED)' not in batch_table_dialog):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: Undo command not protected")
 refresh_action=batch_table_dialog.split(
