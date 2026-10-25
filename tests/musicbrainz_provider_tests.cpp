@@ -269,13 +269,13 @@ int main() {
     SearchResult first_stage;
     first_stage.kind=SearchKind::Recording;
     first_stage.candidates.push_back({SearchKind::Recording,first,
-        "What Time Is Love","The KLF","",{},231000,96});
+        "What Time Is Love","The KLF","",{},231000,96,"",false});
     SearchResult second_stage;
     second_stage.kind=SearchKind::Recording;
     second_stage.candidates.push_back({SearchKind::Recording,first,
-        "What Time Is Love","The KLF","",{},231000,84});
+        "What Time Is Love","The KLF","",{},231000,84,"",false});
     second_stage.candidates.push_back({SearchKind::Recording,second,
-        "What Time Is Love (Original Version)","The KLF","",{},231500,81});
+        "What Time Is Love (Original Version)","The KLF","",{},231500,81,"",false});
     const SearchResult empty_stage{SearchKind::Recording,{}};
     const auto accumulated_first=merge_search_stage_results(
         empty_stage,first_stage,"Main title + artist",false);
@@ -312,7 +312,8 @@ int main() {
           "new query or exhausted-plan restart discards previous stage results");
     SearchResult release_stage;
     release_stage.kind=SearchKind::Release;
-    release_stage.candidates.push_back({SearchKind::Release,first,"Album","Artist"});
+    release_stage.candidates.push_back({SearchKind::Release,first,"Album","Artist",
+        "",{},-1,0,"",false});
     rejects([&] {(void)merge_search_stage_results(
         accumulated_first.result,release_stage,"Other kind",true);},
         "recording and release cannot share accumulated browser");
