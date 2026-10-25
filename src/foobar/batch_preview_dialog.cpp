@@ -3257,6 +3257,7 @@ void mark_stale_workspace(PreviewState& state) {
     for (int id : {IDC_METADATA_ACCEPT, IDC_METADATA_REJECT,
                    IDC_METADATA_RESET, IDC_METADATA_USE_VALUE,
                    IDC_BATCH_APPLY_SELECTED, IDC_BATCH_APPLY_ALL,
+                   IDC_BATCH_UNDO,
                    IDC_METADATA_MB_SEARCH, IDC_METADATA_MB_LOAD_RELEASE,
                    IDC_METADATA_DISCOGS_NEXT_PAGE,
                    IDC_ONLINE_INCLUDE_FIELDS,IDC_ONLINE_IGNORE_FIELDS,
