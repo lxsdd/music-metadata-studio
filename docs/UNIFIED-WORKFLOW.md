@@ -759,3 +759,30 @@ a frozen BatchApproval, a qualified foobar File Operations filename,
 SDK physical writer, CUE/file executor or permission to mutate audio.
 The native final host destination and installed foobar acceptance are still
 separately required before a real user action can be approved.
+
+
+### 2026-10-25 — Every CUE FILE canonical source + full rule proposal bound into joint two-pass (MMS-CUE-06, MMS-FILE-03/06, MMS-WF-08/09)
+
+The original host-observed CUE FILE physical identity now additionally
+preserves the **canonical source key returned by foobar's real filesystem
+probe**. The source-only Inspect CUE view remains read-only, but the
+detached unified CUE+FilePlan integration now strictly compares this
+independent canonical source key to the separately host-qualified
+`CueHostReference.resolved_source_key` for **every** FILE, including
+unselected audio. Same physical file ID and source-version guard with a
+different path, or a forged/missing independently observed canonical path,
+now fails closed; the second pass compares those path identities again.
+This prevents silently attaching an unselected CUE FILE reference to an
+unrelated physical source under a stale or substituted path.
+
+The joint second-pass metadata consent proof also now binds the entire
+original normalizer proposal payload (field/value indices, original and
+suggested strings, safety classification, rule IDs and explanations),
+the original chained Change trail and canonical preview; previously only
+the decision type/manual value and analysis input fingerprint were bound.
+The same output tag bytes with a different displayed rule or meaning
+**must** lose its prior review. Deterministic tests cover selected and
+unselected canonical spoofing, empty host source keys, physical alias
+substitution, changed rule/proposal meaning with unchanged output, and
+second-pass unselected path drift. No fake final FileOps sanitization,
+writer, freeze token, public artifact or user media mutation.

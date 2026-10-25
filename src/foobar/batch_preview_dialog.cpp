@@ -3245,7 +3245,8 @@ void append_external_cue_file_reference_evidence(
         const auto& observed=it->second;
         file_sources.push_back({
             i,observed.host_physical_key,observed.source_guard,
-            observed.state==HostFileState::ExistingFile});
+            observed.state==HostFileState::ExistingFile,
+            observed.canonical_path});
         if (observed.state == HostFileState::ExistingFile &&
             !observed.host_physical_key.empty() &&
             !observed.source_guard.empty()) {

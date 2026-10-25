@@ -2004,3 +2004,23 @@ for marker in (
 if "unselected_swapped.file_sources[2].source_guard" not in (
     root / "tests" / "unified_review_batch_tests.cpp").read_text(encoding="utf-8"):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: unselected CUE source replacement regression missing")
+
+
+# Real native external CUE FILE inventory must preserve foobar's canonical
+# source key together with independently observed file ID/version; the
+# detached whole-batch planner has to match ALL FILEs, including unselected
+# participants, to separately qualified source references.
+if 'observed.canonical_path});' not in cue_inspect_source:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: native CUE FILE canonical path not retained")
+unified_cue_strict=(root / "include" / "djmeta" / "unified_cue_file_plan_preview.h").read_text(encoding="utf-8")
+for marker in (
+    "physical_file.canonical_source_key.empty()",
+    "physical_file.canonical_source_key!=reference.resolved_source_key",
+    "UNIFIED_CUE_FILE_CANONICAL_SOURCE_MISMATCH",
+    "before.canonical_source_key!=now.canonical_source_key",
+    "LOCAL_PROPOSAL_RULE_IDS",
+    "LOCAL_PROPOSAL_RATIONALES",
+    "LOCAL_CHANGE",
+):
+    if marker not in unified_cue_strict:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: canonical all-FILE/proposal bound missing "+marker)

@@ -58,7 +58,31 @@ inline std::string unified_cue_review_selection_fingerprint(
         row.normalizer.live.live_physical_key,
         row.normalizer.live.live_source_guard});
     add("RULESET",{row.normalizer.active_ruleset_revision});
-    add("CAPTURE",{row.normalizer.captured_analysis.input_fingerprint});
+    const auto& analysis=row.normalizer.captured_analysis;
+    add("CAPTURE",{analysis.input_fingerprint,analysis.ruleset_revision});
+    // A decision index is only meaningful against the *same* immutable
+    // proposal/rule explanation. An updated rule could yield byte-identical
+    // tags yet materially different user intent; the second pass must refuse
+    // that silent substitution rather than comparing just postimages.
+    add("CANONICAL_PREVIEW",{fingerprint(analysis.canonical_preview)});
+    for(std::size_t i=0;i<analysis.changes.size();++i) {
+        const auto& c=analysis.changes[i];
+        add("LOCAL_CHANGE",{std::to_string(i),
+            std::to_string(c.field_index),c.field,
+            std::to_string(c.value_index),c.original_value,
+            c.before_value,c.proposed_value,c.rule_id,
+            std::to_string(static_cast<int>(c.safety)),c.rationale});
+    }
+    for(std::size_t i=0;i<analysis.proposals.size();++i) {
+        const auto& p=analysis.proposals[i];
+        add("LOCAL_PROPOSAL",{std::to_string(i),
+            std::to_string(p.field_index),p.field,
+            std::to_string(p.value_index),p.original_value,
+            p.proposed_value,
+            std::to_string(static_cast<int>(p.safety))});
+        add("LOCAL_PROPOSAL_RULE_IDS",p.rule_ids);
+        add("LOCAL_PROPOSAL_RATIONALES",p.rationales);
+    }
     for(std::size_t i=0;i<row.normalizer.decisions.size();++i) {
         const auto& decision=row.normalizer.decisions[i];
         add("LOCAL_DECISION",{std::to_string(i),
@@ -176,8 +200,16 @@ inline UnifiedCueFilePlanPreview preview_unified_cue_file_plan(
 
     for(std::size_t i=0;i<host.file_destinations.size();++i) {
         const auto selected=physical.file_to_selected_row[i];
-        if(selected==cue_unselected_source_row) continue;
         const auto& reference=host.file_destinations[i];
+        const auto& physical_file=host.file_sources[i];
+        // A physical ID + file version is NOT proof that its separately
+        // supplied canonical source name matches this FILE reference.
+        // This check is mandatory for unselected sources too: otherwise a
+        // moved CUE could silently relink an unrelated audio file.
+        if(physical_file.canonical_source_key.empty() ||
+           physical_file.canonical_source_key!=reference.resolved_source_key)
+            return refuse("UNIFIED_CUE_FILE_CANONICAL_SOURCE_MISMATCH");
+        if(selected==cue_unselected_source_row) continue;
         // Same original audio for the FILE physical handle and for the
         // captured host canonical path and future final target. Reject path
         // substitutions even when both sources still exist on disk.
@@ -254,7 +286,8 @@ inline UnifiedCueSecondPassCheck recheck_unified_cue_file_plan(
         if(before.file_index!=now.file_index ||
            before.host_physical_key!=now.host_physical_key ||
            before.source_guard!=now.source_guard ||
-           before.observed!=now.observed)
+           before.observed!=now.observed ||
+           before.canonical_source_key!=now.canonical_source_key)
             return refuse("UNIFIED_CUE_SECOND_PASS_FILE_SOURCE_CHANGED");
         const auto& ref_before=previous.observed_file_references[i];
         const auto& ref_now=refreshed_host.file_destinations[i];

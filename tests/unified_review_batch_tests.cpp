@@ -113,9 +113,11 @@ static void test_joint_audio_online_normalizer_and_cue_fileplan() {
         host.cue_target_reprobed=true;
     host.file_sources={
         {0,a.normalizer.live.live_physical_key,
-           a.normalizer.live.live_source_guard,true},
+           a.normalizer.live.live_source_guard,true,
+           a.normalizer.live.observed_item.source_key},
         {1,b.normalizer.live.live_physical_key,
-           b.normalizer.live.live_source_guard,true}
+           b.normalizer.live.live_source_guard,true,
+           b.normalizer.live.observed_item.source_key}
     };
     const auto& left=a.normalizer.live.observed_item;
     const auto& right=b.normalizer.live.observed_item;
@@ -137,6 +139,25 @@ static void test_joint_audio_online_normalizer_and_cue_fileplan() {
     check(!recheck_unified_cue_file_plan(
         joined,original,1,changed_consent,bytes,host).eligible,
           "local Pending becoming Reject cannot reuse prior review despite byte-identical postimage");
+    auto shifted_rule=audio;
+    shifted_rule[0].normalizer.captured_analysis.proposals[0].rule_ids={
+        "different.rule.with.identical.destination.bytes"};
+    check(!recheck_unified_cue_file_plan(
+        joined,original,1,shifted_rule,bytes,host).eligible,
+          "same accepted tag bytes but changed displayed rule/proposal invalidates consent");
+    shifted_rule=audio;
+    shifted_rule[1].normalizer.captured_analysis.proposals[0].rationales={
+        "new meaning for pending SAFE"};
+    check(!recheck_unified_cue_file_plan(
+        joined,original,1,shifted_rule,bytes,host).eligible,
+          "pending proposal explanation is part of exact user review evidence");
+    shifted_rule=audio;
+    shifted_rule[0].normalizer.captured_analysis.changes.push_back(
+        {0,"TITLE",0," Old A "," Old A ","Old A","unexpected.rule",
+          SafetyClass::Safe,"Changed hidden rule trail"});
+    check(!recheck_unified_cue_file_plan(
+        joined,original,1,shifted_rule,bytes,host).eligible,
+          "same computed tags cannot hide a changed normalizer rule trail");
     auto changed_provenance=audio;
     changed_provenance[0].online_capture->evidence[0].source_id="new-release";
     check(!recheck_unified_cue_file_plan(
@@ -165,7 +186,8 @@ static void test_joint_audio_online_normalizer_and_cue_fileplan() {
     const std::string extended_bytes=bytes+"FILE \"Unselected.flac\" WAVE\n";
     auto extended_host=host;
     extended_host.file_sources.push_back({
-        2,"disk:unselected","guard:unselected",true});
+        2,"disk:unselected","guard:unselected",true,
+        "z:/library/unselected.flac"});
     extended_host.file_destinations.push_back({
         2,"Unselected.flac","z:/library/unselected.flac",
         "Unselected.flac",true,true,"z:/library/unselected.flac"});
@@ -175,7 +197,23 @@ static void test_joint_audio_online_normalizer_and_cue_fileplan() {
           recheck_unified_cue_file_plan(
               extended,original,1,audio,extended_bytes,extended_host).eligible,
           "unselected physical CUE FILE participant is tracked by the same joint plan");
+    auto unselected_bad=extended_host;
+    unselected_bad.file_sources[2].canonical_source_key="z:/library/swapped-unselected.flac";
+    check(!preview_unified_cue_file_plan(
+        original,1,audio,extended_bytes,unselected_bad).eligible,
+          "unselected FILE physical ID cannot be attached to forged canonical source");
+    unselected_bad=extended_host;
+    unselected_bad.file_sources[2].canonical_source_key.clear();
+    check(!preview_unified_cue_file_plan(
+        original,1,audio,extended_bytes,unselected_bad).eligible,
+          "missing independent unselected FILE canonical path always blocks");
     auto unselected_swapped=extended_host;
+    unselected_swapped.file_sources[2].canonical_source_key=
+        "z:/library/later-source.flac";
+    check(!recheck_unified_cue_file_plan(
+        extended,original,1,audio,extended_bytes,unselected_swapped).eligible,
+          "unselected source canonical path changed during second re-probe");
+    unselected_swapped=extended_host;
     unselected_swapped.file_sources[2].source_guard="guard:replaced";
     check(!recheck_unified_cue_file_plan(
         extended,original,1,audio,extended_bytes,unselected_swapped).eligible,
@@ -228,6 +266,10 @@ static void test_joint_audio_online_normalizer_and_cue_fileplan() {
     bad_host.file_sources[1].source_guard="raced:guard";
     check(!preview_unified_cue_file_plan(original,1,audio,bytes,bad_host).eligible,
           "CUE FILE participant physical source guard race blocks");
+    bad_host=host;
+    bad_host.file_sources[1].canonical_source_key=left.source_key;
+    check(!preview_unified_cue_file_plan(original,1,audio,bytes,bad_host).eligible,
+          "same physical FILE ID and guard cannot impersonate another canonical source");
     bad_host=host;
     bad_host.file_destinations[1].resolved_source_key=left.source_key;
     check(!preview_unified_cue_file_plan(original,1,audio,bytes,bad_host).eligible,

@@ -19,6 +19,11 @@ struct CueObservedFileSource {
     std::string host_physical_key;
     std::string source_guard;
     bool observed=false;
+    // Real foobar filesystem canonical source path returned by the same
+    // independently inspected physical FILE; not an inferred CUE filename.
+    // Source-only audits can omit this, but the unified FilePlan MUST bind
+    // it to the separately qualified FILE reference for every participant.
+    std::string canonical_source_key;
 };
 struct CueSelectedPhysicalSource {
     std::size_t source_row=0;
