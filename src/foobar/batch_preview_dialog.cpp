@@ -619,7 +619,11 @@ const char* issue_status_text(std::string_view issue) {
     return "Other safety finding";
 }
 
-std::wstring workflow_audit_summary(const PreviewState& state) {
+std::wstring workflow_audit_summary(
+    const PreviewState& state,
+    std::optional<djmeta::WorkflowOnlineSourceCounts>* verified_online=nullptr) {
+    if(verified_online) verified_online->reset();
+    verify_rules_snapshot(state.captured_rules);
     const auto audit=djmeta::audit_workflow_preview(
         state.table,state.analyses,state.review_decisions);
     std::wstring report=L"Captured tracks: "+std::to_wstring(audit.tracks)+
@@ -687,6 +691,13 @@ std::wstring workflow_audit_summary(const PreviewState& state) {
             throw std::invalid_argument(
                 "Batch audit: local + Discogs field selection unqualified: "+
                 combined.rejection);
+        if(verified_online)
+            *verified_online=djmeta::WorkflowOnlineSourceCounts{
+                track,combined.physical.explicitly_changed,
+                combined.normalizer_changed_fields,
+                combined.online_changed_fields,
+                combined.mutually_agreed_fields,
+                state.online_included_fields.size(),latest.source_guard};
         report+=L"\nVerified Discogs source #"+std::to_wstring(track+1)+
             L": explicit local field differences "+
             std::to_wstring(combined.normalizer_changed_fields)+
@@ -4127,10 +4138,12 @@ void copy_crates_search_text(HWND dialog,std::wstring_view query) {
 // postimage exactly as Audit batch does before copying the entire source-order
 // report. No disk, tags, CUE, or FileOps writer is reachable here.
 void copy_workflow_audit(HWND dialog,const PreviewState& state) {
-    const auto verified_summary=workflow_audit_summary(state);
+    std::optional<djmeta::WorkflowOnlineSourceCounts> verified_online;
+    const auto verified_summary=workflow_audit_summary(state,&verified_online);
     const auto audit=djmeta::audit_workflow_preview(
         state.table,state.analyses,state.review_decisions);
-    const auto tsv=djmeta::format_workflow_audit_tsv(state.table,audit);
+    const auto tsv=djmeta::format_workflow_audit_tsv(
+        state.table,audit,verified_online);
     const auto report=verified_summary+L"\r\n\r\n"+from_utf8(tsv);
     native_copy_audit_text_to_clipboard(dialog,report);
     SetDlgItemTextW(dialog,IDC_BATCH_HINT,

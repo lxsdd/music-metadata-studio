@@ -680,3 +680,24 @@ This advances the real host-bound input side of the joint CUE/FilePlan;
 **it does not assert host-sanitized destination names**, destination-relative
 FILE path resolution, a complete CUE move plan, write approval or any
 audio/tag/CUE filesystem mutation.
+
+
+### 2026-10-25 — Exact Discogs+local source counts in *full* audit TSV (MMS-WF-05/09, MMS-UI-07, MMS-FILE-01)
+
+Previously the modal Audit batch summary correctly re-probed the selected
+Discogs physical source and combined it with accepted local decisions, but
+"Copy full audit" exported only the **local-only proposal counts** in
+per-track TSV rows, potentially misrepresenting an online-edited source
+as unchanged. The core read-only TSV output now distinguishes **local
+proposal changes** from **distinct verified combined physical changed
+fields**, selected online changes, local physical changes and mutually
+identical fields. Only the exact source-order row whose host physical file
+ID/version, metadata and current rules have been verified receives these
+counts, with "SOURCE_VERIFIED_POSTIMAGE_ONLY"; all other rows show N/A.
+No raw music/tag values, file paths, guards, credentials or persistent
+approval tokens are exported. The local-only export remains explicit
+"Verified joint source NONE". Synthetic positive/negative fixtures reject
+an out-of-range source, missing source guard, zero field selection, impossible
+remote-change counts and invented overlap; the native static audit enforces
+full summary/TSV parity. The export remains a read-only review, never a
+qualified final File Operations target or write approval.

@@ -63,6 +63,39 @@ int main() {
           export_tsv.find("#3\t0\t0\t1\t0\t0\tYES\tYES\tDUPLICATE_RAW_TARGET")!=std::string::npos &&
           export_tsv.find("source")==std::string::npos,
           "complete TSV includes every row and issue code, no source fingerprint");
+    const WorkflowOnlineSourceCounts physical_online{
+        0,2,1,1,0,2,"guard:current-dummy-physical-version"};
+    const auto joint_export=format_workflow_audit_tsv(
+        table,summary,physical_online);
+    check(joint_export.find("Verified joint source\t#1")!=std::string::npos &&
+          joint_export.find("Local proposal changes")!=std::string::npos &&
+          joint_export.find("#1\t1\t0\t0\t1\t0\tNO\tNO\t\t2\t1\t1\t0\tSOURCE_VERIFIED_POSTIMAGE_ONLY")
+              !=std::string::npos &&
+          joint_export.find("#2\t0\t2\t0\t0\t0\tNO\tYES\tRAW_TARGET_EXISTS;FILESYSTEM_TARGET_UNCHECKED\tN/A")
+              !=std::string::npos &&
+          joint_export.find("guard:current-dummy") == std::string::npos,
+          "merged Discogs+local physical fields are visible ONLY on exact verified row");
+    auto forged=physical_online;
+    forged.source_index=4;
+    rejects([&]{(void)format_workflow_audit_tsv(table,summary,forged);},
+        "foreign verified online source row rejected");
+    forged=physical_online;forged.verified_source_guard.clear();
+    rejects([&]{(void)format_workflow_audit_tsv(table,summary,forged);},
+        "missing host physical guard cannot certify online export row");
+    forged=physical_online;forged.selected_online_fields=0;
+    rejects([&]{(void)format_workflow_audit_tsv(table,summary,forged);},
+        "zero selected online fields never has verified online evidence");
+    forged=physical_online;forged.selected_online_changed_fields=3;
+    rejects([&]{(void)format_workflow_audit_tsv(table,summary,forged);},
+        "more changed online fields than selected must fail");
+    forged=physical_online;forged.mutually_agreed_fields=3;
+    rejects([&]{(void)format_workflow_audit_tsv(table,summary,forged);},
+        "unrealistic overlap cannot produce a fabricated field count");
+    const auto offline=format_workflow_audit_tsv(table,summary);
+    check(offline.find("Verified joint source\tNONE")!=std::string::npos &&
+          offline.find("SOURCE_VERIFIED_POSTIMAGE_ONLY")==std::string::npos &&
+          offline.find("\tNOT_APPLICABLE")!=std::string::npos,
+          "local-only export must never suggest verified Discogs postimage");
     auto injected=table;
     injected.rows[1].issues={"BAD\tFORMULA"};
     rejects([&]{(void)format_workflow_audit_tsv(injected,summary);},

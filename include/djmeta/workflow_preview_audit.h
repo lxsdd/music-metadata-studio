@@ -5,6 +5,7 @@
 #include "djmeta/review_decisions.h"
 #include "djmeta/structural_guard.h"
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <set>
@@ -146,23 +147,51 @@ inline WorkflowPreviewAudit audit_workflow_preview(
     return audit;
 }
 
+// The native host attaches this to at most one exact, independently
+// re-probed physical Discogs source. These are different units from the
+// proposal-count columns below: counts here are DISTINCT physical fields
+// in one merged local+official-edition postimage, not individual proposals.
+// Host source version evidence is never exported. No approval is captured.
+struct WorkflowOnlineSourceCounts {
+    std::size_t source_index=0;
+    std::size_t combined_changed_fields=0;
+    std::size_t local_changed_fields=0;
+    std::size_t selected_online_changed_fields=0;
+    std::size_t mutually_agreed_fields=0;
+    std::size_t selected_online_fields=0;
+    std::string verified_source_guard;
+};
+
 // Full, bounded per-track export: no music paths, tag values, tokens or
 // persisted approval. Row numbers are original source-selection order.
 // Explicit errors replace silent truncation when a batch is too large.
 inline std::string format_workflow_audit_tsv(
-    const BatchPreviewTable& table,const WorkflowPreviewAudit& audit) {
+    const BatchPreviewTable& table,const WorkflowPreviewAudit& audit,
+    const std::optional<WorkflowOnlineSourceCounts>& online=std::nullopt) {
     if(table.rows.size()!=audit.tracks || audit.rows.size()!=audit.tracks ||
        audit.tracks>5000)
         throw std::invalid_argument("WORKFLOW_AUDIT_EXPORT_SHAPE_OR_LIMIT");
+    if(online &&
+       (online->source_index>=audit.tracks ||
+        online->verified_source_guard.empty() ||
+        online->selected_online_fields==0 ||
+        online->selected_online_fields>10000 ||
+        online->combined_changed_fields>10000 ||
+        online->local_changed_fields>10000 ||
+        online->selected_online_changed_fields>online->selected_online_fields ||
+        online->mutually_agreed_fields>online->selected_online_fields))
+        throw std::invalid_argument("WORKFLOW_AUDIT_ONLINE_SOURCE_EVIDENCE_INVALID");
     std::string out="Music Metadata Studio\tREAD-ONLY batch audit; no write approval\r\n";
     out+="Tracks\t"+std::to_string(audit.tracks)+
-         "\tStaged changed tracks\t"+
+         "\tLocal staged changed tracks\t"+
          std::to_string(audit.normalizer_changed_tracks)+
          "\tPending tracks\t"+std::to_string(audit.tracks_with_pending)+
          "\tRaw collisions\t"+std::to_string(audit.raw_collision_tracks)+
          "\tFileOps unqualified\t"+std::to_string(audit.file_plan_blocked_tracks)+
+         "\tVerified joint source\t"+
+         (online ? "#"+std::to_string(online->source_index+1) : "NONE")+
          "\r\n";
-    out+="Source row\tChanged fields\tExact no-ops\tRejected fields\tPending SAFE\tPending semantic\tRaw collision\tFileOps unqualified\tFindings\r\n";
+    out+="Source row\tLocal proposal changes\tExact no-ops\tRejected fields\tPending SAFE\tPending semantic\tRaw collision\tFileOps unqualified\tFindings\tVerified combined changed fields\tSelected Discogs changed fields\tLocal changed fields\tMutually agreed fields\tJoint field evidence\r\n";
     out.reserve(out.size()+audit.tracks*160);
     for(std::size_t i=0;i<audit.tracks;++i) {
         const auto& row=audit.rows[i];
@@ -190,6 +219,13 @@ inline std::string format_workflow_audit_tsv(
             out+=issue;
             first=false;
         }
+        if(online && i==online->source_index) {
+            out+="\t"+std::to_string(online->combined_changed_fields)+
+                 "\t"+std::to_string(online->selected_online_changed_fields)+
+                 "\t"+std::to_string(online->local_changed_fields)+
+                 "\t"+std::to_string(online->mutually_agreed_fields)+
+                 "\tSOURCE_VERIFIED_POSTIMAGE_ONLY";
+        } else out+="\tN/A\tN/A\tN/A\tN/A\tNOT_APPLICABLE";
         out+="\r\n";
         if(out.size()>2u*1024u*1024u)
             throw std::invalid_argument("WORKFLOW_AUDIT_EXPORT_TOO_LARGE");

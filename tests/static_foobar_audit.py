@@ -1900,8 +1900,9 @@ for marker in (
 for marker in (
     "IDC_BATCH_COPY_AUDIT",
     "native_copy_audit_text_to_clipboard(dialog,report);",
-    "const auto verified_summary=workflow_audit_summary(state);",
-    "djmeta::format_workflow_audit_tsv(state.table,audit)",
+    "const auto verified_summary=workflow_audit_summary(state,&verified_online);",
+    "djmeta::format_workflow_audit_tsv(",
+    "state.table,audit,verified_online)",
     "if (id == IDC_BATCH_COPY_AUDIT && HIWORD(wp) == BN_CLICKED)",
 ):
     if marker not in workspace_dialog:
@@ -1935,3 +1936,29 @@ if "cue_physical_selection_audit.h" not in workspace_dialog:
 if ('file_sources.push_back({i,{}, {},false});' not in cue_inspect_source or
     'if (i>=maximum_probes)' not in cue_inspect_source):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: truncated CUE FILE prefix appears qualified")
+
+
+# Copying the full audit must attach the EXACT re-probed online+local
+# physical postimage counts to the real source-order TSV row rather than
+# exporting local-only decisions while displaying a richer summary.
+native_summary_source=workspace_dialog.split(
+    "std::wstring workflow_audit_summary(",1)[1].split(
+    "void show_workflow_audit(",1)[0]
+for marker in (
+    "verify_rules_snapshot(state.captured_rules);",
+    "if(verified_online) verified_online->reset();",
+    "if(verified_online)",
+    "djmeta::WorkflowOnlineSourceCounts{",
+    "combined.physical.explicitly_changed",
+    "combined.online_changed_fields",
+    "latest.source_guard",
+):
+    if marker not in native_summary_source:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: merged online TSV source not verified: "+marker)
+if ('std::optional<djmeta::WorkflowOnlineSourceCounts> verified_online;' not in workspace_dialog or
+    'workflow_audit_summary(state,&verified_online)' not in workspace_dialog or
+    'state.table,audit,verified_online)' not in workspace_dialog):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: full TSV export drops native merged Discogs review")
+if ("WORKFLOW_AUDIT_ONLINE_SOURCE_EVIDENCE_INVALID" not in workflow_audit_header or
+    "SOURCE_VERIFIED_POSTIMAGE_ONLY" not in workflow_audit_header):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: joint TSV evidence guard missing")
