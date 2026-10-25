@@ -17,6 +17,79 @@ struct NormalizerBatchReprobe {
     std::string active_ruleset_revision;
 };
 
+// Compute an unapproved batch plan from the very same explicit normalizer
+// decisions the subsequent frozen-plan preflight will re-evaluate.
+// This does not freeze a plan or constitute an approval. All caller-supplied
+// source/target/CUE observations remain subject to review_batch_plan.
+struct NormalizerBatchPlanPreview {
+    bool eligible=false;
+    std::string rejection;
+    std::vector<FilePlanItem> items;
+    std::vector<PhysicalTagPostimage> postimages;
+    BatchPlanReview review;
+};
+
+inline NormalizerBatchPlanPreview preview_explicit_normalizer_batch_plan(
+    const std::vector<NormalizerBatchReprobe>& rows) {
+    const auto fail=[](const char* why) {
+        NormalizerBatchPlanPreview result;
+        result.rejection=why;
+        return result;
+    };
+    if(rows.empty() || rows.size()>100000)
+        return fail("NORMALIZER_PLAN_SHAPE_INVALID");
+
+    NormalizerBatchPlanPreview result;
+    result.items.reserve(rows.size());
+    result.postimages.reserve(rows.size());
+    for(const auto& row:rows) {
+        const auto& live=row.live;
+        const auto& item=live.observed_item;
+        if(!live.source_reprobed || !live.tags_reread ||
+           !live.target_reprobed || !live.captured.qualified_physical ||
+           live.captured.virtual_subsong ||
+           live.physical_id.empty() || item.physical_id!=live.physical_id ||
+           live.live_physical_key.empty() ||
+           live.live_physical_key!=live.captured.host_physical_key ||
+           live.live_source_guard.empty() ||
+           live.live_source_guard!=live.captured.source_guard ||
+           item.source_guard!=live.live_source_guard)
+            return fail("NORMALIZER_PLAN_SOURCE_UNQUALIFIED");
+        if(row.active_ruleset_revision.empty() ||
+           row.active_ruleset_revision!=row.captured_analysis.ruleset_revision ||
+           row.active_ruleset_revision!=item.ruleset_revision ||
+           !live.approvals.empty())
+            return fail("NORMALIZER_PLAN_RULES_OR_APPROVALS_INVALID");
+        if(item.metadata_fingerprint.empty() ||
+           item.metadata_fingerprint!=fingerprint(live.captured.original))
+            return fail("NORMALIZER_PLAN_SOURCE_TAGS_STALE");
+        const auto post=preview_explicit_normalizer_physical_tags(
+            live.captured,live.fresh_tags,
+            live.live_physical_key,live.live_source_guard,
+            row.captured_analysis,row.active_ruleset_revision,row.decisions);
+        if(!post.eligible)
+            return fail("NORMALIZER_PLAN_DECISION_POSTIMAGE_UNQUALIFIED");
+        const auto planned_fp=fingerprint(post.planned);
+        // An already-staged different plan cannot be silently replaced.
+        // A fresh source item may carry its original/no-op fingerprint.
+        if(!item.planned_metadata_fingerprint.empty() &&
+           item.planned_metadata_fingerprint!=item.metadata_fingerprint &&
+           item.planned_metadata_fingerprint!=planned_fp)
+            return fail("NORMALIZER_PLAN_PREVIOUS_STAGING_STALE");
+        auto planned=item;
+        planned.planned_metadata_fingerprint=planned_fp;
+        result.items.push_back(std::move(planned));
+        result.postimages.push_back(post);
+    }
+    result.review=review_batch_plan(result.items);
+    if(result.review.blocked!=0)
+        return fail("NORMALIZER_PLAN_BATCH_CONFLICT");
+    // Overwrite proposals can remain awaiting explicit consent. Nothing is
+    // automatically frozen and no file/metadata writer is reachable here.
+    result.eligible=true;
+    return result;
+}
+
 // The caller must independently obtain fresh host observations, immutable
 // review decisions, and explicit *whole-plan* BatchApproval. Re-derive each
 // physical tag change from the exact original normalizer evidence; never
