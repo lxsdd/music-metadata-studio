@@ -198,20 +198,27 @@ int main() {
     HWND refresh=GetDlgItem(dialog,IDC_BATCH_REFRESH);
     HWND help=GetDlgItem(dialog,IDC_BATCH_HELP);
     HWND audit=GetDlgItem(dialog,IDC_BATCH_AUDIT);
+    HWND undo=GetDlgItem(dialog,IDC_BATCH_UNDO);
     HWND guide=GetDlgItem(dialog,IDC_BATCH_GUIDE);
-    check(refresh!=nullptr && IsWindowEnabled(refresh) && help && audit && guide,
+    check(refresh!=nullptr && IsWindowEnabled(refresh) && help && audit && undo && guide,
           "production resource offers Refresh, Help and stage guidance");
-    RECT help_box{},audit_box{},hint_box{};
+    RECT help_box{},audit_box{},undo_box{},hint_box{};
     check(GetWindowRect(help,&help_box) &&
           GetWindowRect(audit,&audit_box) &&
+          GetWindowRect(undo,&undo_box) &&
           GetWindowRect(GetDlgItem(dialog,IDC_BATCH_HINT),&hint_box) &&
           help_box.right<audit_box.left &&
-          audit_box.bottom<=hint_box.top,
-          "native batch audit is visible without overlapping help or footer");
+          audit_box.right<undo_box.left &&
+          audit_box.bottom<=hint_box.top &&
+          undo_box.bottom<=hint_box.top,
+          "native undo and batch audit do not overlap toolbar or footer");
     wchar_t caption[96]{};
     GetWindowTextW(audit,caption,96);
     check(std::wcscmp(caption,L"Audit batch")==0,
           "audit action names its read-only scope");
+    GetWindowTextW(undo,caption,96);
+    check(std::wcscmp(caption,L"Undo preview")==0,
+          "undo labels an in-memory view operation rather than a file write");
     GetWindowTextW(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH),caption,96);
     check(std::wcscmp(caption,L"Search MusicBrainz")==0,
           "search button names its online source");
@@ -349,7 +356,7 @@ int main() {
     for(const int id : {IDC_METADATA_ACCEPT,IDC_METADATA_REJECT,
                         IDC_METADATA_RESET,IDC_METADATA_USE_VALUE,
                         IDC_BATCH_APPLY_SELECTED,IDC_BATCH_APPLY_ALL,
-                        IDC_BATCH_AUDIT})
+                        IDC_BATCH_AUDIT,IDC_BATCH_UNDO})
         check(scope_for(id)==NativeWorkspaceCheckScope::FullBatch,
               "batch approval and Apply require every captured source");
     check(scope_for(IDC_METADATA_VISIBLE_WHITESPACE)==
