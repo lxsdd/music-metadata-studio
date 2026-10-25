@@ -39,6 +39,9 @@ struct SearchCandidate {
     std::vector<std::string> recording_isrcs;
     std::int64_t duration_ms = -1;
     int search_score = 0; // MusicBrainz search rank, NOT match confidence.
+    // Set only by a published native discovery stage, never by HTTP parsing.
+    std::string discovery_strategy;
+    bool repeated_identity_conflict = false;
 };
 struct SearchResult {
     SearchKind kind = SearchKind::Recording;
@@ -254,6 +257,67 @@ inline bool valid_mbid(std::string_view id) {
                      (c>='A'&&c<='F'))) return false;
     }
     return true;
+}
+// Retain one visible recording/release per exact MBID across successful
+// user-triggered search stages of the SAME selected source and query.
+// First-seen rank/evidence/order win; contradictory repeated snippets are
+// marked for manual review rather than silently replacing earlier evidence.
+struct SearchStageMerge {
+    SearchResult result;
+    std::size_t added=0;
+    std::size_t repeated=0;
+    std::size_t conflicting=0;
+};
+inline SearchStageMerge merge_search_stage_results(
+    const SearchResult& previous, const SearchResult& fresh,
+    std::string_view stage_label, bool append_same_plan) {
+    if(stage_label.empty() || stage_label.size()>128 ||
+       std::any_of(stage_label.begin(),stage_label.end(),
+           [](unsigned char c) {return c<0x20u || c==0x7fu;}))
+        throw std::invalid_argument("Invalid MusicBrainz discovery stage");
+    if(fresh.candidates.size()>max_search_candidates ||
+       (append_same_plan && previous.kind!=fresh.kind))
+        throw std::invalid_argument("Unqualified MusicBrainz stage identity");
+    SearchStageMerge merged;
+    merged.result.kind=fresh.kind;
+    if(append_same_plan) merged.result.candidates=previous.candidates;
+    constexpr std::size_t max_accumulated=max_search_candidates*8;
+    if(merged.result.candidates.size()>max_accumulated)
+        throw std::invalid_argument("MusicBrainz accumulated results exceed bounds");
+    for(auto hit:fresh.candidates) {
+        if(hit.kind!=fresh.kind || !valid_mbid(hit.mbid))
+            throw std::invalid_argument("Unqualified MusicBrainz hit identity");
+        const auto it=std::find_if(merged.result.candidates.begin(),
+            merged.result.candidates.end(),[&](const SearchCandidate& prior) {
+                return prior.kind==hit.kind && prior.mbid==hit.mbid;
+            });
+        if(it!=merged.result.candidates.end()) {
+            ++merged.repeated;
+            const bool conflict=
+                (!it->title.empty() && !hit.title.empty() &&
+                    it->title!=hit.title) ||
+                (!it->artist.empty() && !hit.artist.empty() &&
+                    it->artist!=hit.artist) ||
+                (!it->release_date.empty() && !hit.release_date.empty() &&
+                    it->release_date!=hit.release_date) ||
+                (!it->recording_isrcs.empty() && !hit.recording_isrcs.empty() &&
+                    it->recording_isrcs!=hit.recording_isrcs) ||
+                (it->duration_ms>=0 && hit.duration_ms>=0 &&
+                    it->duration_ms!=hit.duration_ms);
+            if(conflict) {
+                if(!it->repeated_identity_conflict) ++merged.conflicting;
+                it->repeated_identity_conflict=true;
+            }
+            continue;
+        }
+        if(merged.result.candidates.size()==max_accumulated)
+            throw std::invalid_argument("MusicBrainz stage results exceed 200 hits");
+        hit.discovery_strategy=std::string(stage_label);
+        hit.repeated_identity_conflict=false;
+        merged.result.candidates.push_back(std::move(hit));
+        ++merged.added;
+    }
+    return merged;
 }
 // Browser URL input is NOT a network URL. Accept only an exact official
 // recording or release identity, then rebuild the fixed-host WS/2 route.

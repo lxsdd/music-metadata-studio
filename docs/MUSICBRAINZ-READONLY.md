@@ -15,7 +15,7 @@ The query is triggered **only** when the user clicks **Find MB** in the native C
 
 ## Privacy
 
-Only the locally selected *track title + optional artist*, or an explicitly typed title/album override, are sent as percent-encoded search text. In CUE mode only the qualified global album `TITLE` and global `PERFORMER` are used. **No media bytes, CUE document content, filenames, paths, library catalogs, cover artwork, hashes, timestamps, playlists or credentials are sent.** The optional query field permits searching without a stored TITLE. The user remains responsible for deciding whether to send artist/title search text to a public provider.
+Only the locally selected *track title + optional artist*, or an explicitly typed title/album override, are sent as percent-encoded search text. When the title/album term is edited, the selected source's qualified ARTIST / CUE global PERFORMER remains an **initial discovery filter**; later stages include title-only fallback. ISRC / CUE barcode identifiers are sent only for the unchanged auto-suggested source query. A search filter never proves mix or edition identity. In CUE mode only the qualified global album `TITLE` and global `PERFORMER` are used. **No media bytes, CUE document content, filenames, paths, library catalogs, cover artwork, hashes, timestamps, playlists or credentials are sent.** The optional query field permits searching without a stored TITLE. The user remains responsible for deciding whether to send artist/title search text to a public provider.
 
 No persistent search history or HTTP response cache. The UI retains the most recent candidate rows only during the open preview dialog; switching files invalidates that association. No network call occurs merely by opening the dialog, inspecting CUE, opening Preferences, importing a clipboard candidate or switching tabs.
 
@@ -54,7 +54,7 @@ The next patch:
 Core Windows/Linux must qualify `musicbrainz_provider_tests.cpp` (offline synthetic recording/release lookup, Unicode/escape/security, edition/track matching) and all existing tests; foobar Win32/x64 must compile WinHTTP adapter, button resources and no-writer static guards and produce one exact-SHA `.fb2k-component` package.
 
 **Only after both CI checks pass**, perform first installed foobar test:
-- Use a disposable physical MP3 or external CUE. To obtain predictable results, in the optional query input type a known public artist/song or album title before clicking Find MB. A manually typed title deliberately omits the local artist filter, allowing public searches even when the source tags or album artist are missing or incorrect.
+- Use a disposable physical MP3 or external CUE. To obtain predictable results, in the optional query input type a known public artist/song or album title before clicking Find MB. A manually typed title first retains the selected source's qualified artist as a **discovery hint**, then offers title-only fallback if the local artist is incorrect or indexed differently. ISRC/barcode identifiers are never reused for an edited query.
 - Confirm the title/artist rows with **MusicBrainz API** provenance. For a CUE, select an album candidate row and **Load MB release** after at least 1.2 seconds, checking that track title/artist names and any album title/date are shown without enabling writes.
 - Repeat the local SHA-256, creation/mtime no-write test and test the no-network behavior on initial dialog opening. Do not upload personal paths or test music to the repository.
 - Include a screenshot and short PASS/FAIL result, plus meaningful anonymized failure messages if any. CI PASS alone does not prove actual TLS/proxy routing or host URL connectivity.
@@ -80,3 +80,20 @@ control-bearing or ambiguous credits cannot be sent as partial searches.
 Each stage is a single user-triggered fixed-host HTTPS request; it does
 not silently match, select, import or rewrite any source metadata.
 No physical/virtual/CUE/FileOps writer is enabled.
+
+
+### 2026-10-26 — Retained multi-strategy MusicBrainz discovery
+
+Successive user-clicked, bounded official MusicBrainz search strategies for the
+same physical source or CUE retain previous candidate rows in the modeless
+Find browser. A MusicBrainz recording/release ID appears **once**, ordered by
+first discovery. The original rank and first search strategy remain visible
+in each selected candidate's detail pane. If another stage returns
+inconsistent nonempty evidence for that exact ID, the candidate and its
+detail are explicitly flagged rather than silently replaced. The native
+status reports new/repeated/total unique hits; an empty later stage does not
+erase previous results and can continue automatically within the existing
+bounded plan. Failed HTTPS stages retry without skipping. A new source,
+query, provider, exact URL or restarted plan cannot mix stale candidates.
+Maximum: eight explicit strategies of 25 results each (200 in memory), no
+background catalog scan, automatic matching, caching or tag/CUE/file writes.

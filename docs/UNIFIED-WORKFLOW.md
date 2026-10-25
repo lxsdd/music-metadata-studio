@@ -908,3 +908,15 @@ all proposed values require review, and every writer/FileOps route stays
 disabled. Core positive/negative fixtures and native static wiring audit
 cover this path; installed UI and protected live provider acceptance remain
 separate gates.
+
+
+### 2026-10-26 — Bounded MusicBrainz multi-strategy review (MMS-ONL-01/02, MMS-UI-02)
+
+Native Find & compare retains one candidate per exact MusicBrainz recording
+or release ID while the user explores subsequent official search strategies
+for the same source and query. First-seen order, source stage and search rank
+remain review-only evidence. Inconsistent repeated identity snippets are
+explicitly flagged. A manually edited title still tries the selected source's
+qualified artist before title-only fallback; original ISRC/barcode is used
+only with the unchanged automatic query. Failed requests do not consume the
+next strategy. No provider hit or field becomes an approved writer action.

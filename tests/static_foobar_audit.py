@@ -259,7 +259,7 @@ batch_table_dialog = (foobar / "batch_preview_dialog.cpp").read_text(encoding="u
 for token in (
     "prefill_musicbrainz_query(", "state->auto_search_track",
     "djmeta::should_replace_auto_online_query(",
-    "suggested_query?local_artist", "IDC_BATCH_GUIDE", "IDC_BATCH_HELP",
+    "term,local_artist", "IDC_BATCH_GUIDE", "IDC_BATCH_HELP",
     "install_workspace_tooltips(", "TOOLTIPS_CLASSW", "TTM_ADDTOOLW",
     "show_workspace_help(", "header->code == NM_DBLCLK",
     "MAKEWPARAM(IDC_METADATA_MB_SEARCH,BN_CLICKED)",
@@ -269,6 +269,21 @@ for token in (
 ):
     if token not in batch_table_dialog:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: guided search, help or refresh text missing " + token)
+
+# Successive MusicBrainz stages must merge only same-source exact-ID
+# evidence and failed requests must not advance the strategy.
+for token in (
+    "merge_search_stage_results(", "request.plan_identity",
+    "state.search_plan_identity==request.plan_identity",
+    "musicbrainz_has_published_attempt",
+    "musicbrainz_published_attempt_index",
+    "state.last_musicbrainz_stage_empty,qualified",
+    "DISCOVERY STRATEGY (read-only)",
+    "REPEATED IDENTITY CONFLICT (read-only)",
+    "state.musicbrainz_results=merged.result.candidates",
+):
+    if token not in batch_table_dialog:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: staged MusicBrainz browser disconnected: "+token)
 
 # The production WM_COMMAND path must use the tested per-command scope:
 # read-only online actions validate the selected source; batch decisions

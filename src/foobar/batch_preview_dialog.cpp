@@ -146,6 +146,7 @@ struct PendingMusicBrainzContext {
     std::string local_artist;
     djmeta::MetadataDocument originals;
     std::string strategy;
+    std::string plan_identity; // source+query+kind of this clicked stage
     std::size_t attempt_index=0;
     std::size_t total=1;
     std::string release_mbid;
@@ -177,6 +178,10 @@ struct PreviewState {
     djmeta::online::musicbrainz::RecordingSearchPlan search_plan;
     std::string search_plan_identity;
     std::size_t search_attempt_index = 0;
+    // Failed/cancelled HTTPS must not consume the next strategy.
+    bool musicbrainz_has_published_attempt=false;
+    std::size_t musicbrainz_published_attempt_index=0;
+    bool last_musicbrainz_stage_empty=false;
     std::wstring search_attempt_notice;
     std::size_t auto_search_track = (std::numeric_limits<std::size_t>::max)();
     bool modeless_registered = false;
@@ -909,6 +914,8 @@ MusicBrainzBrowseRows musicbrainz_search_rows(
         if (!hit.release_date.empty()) summary.candidate.values={hit.release_date};
         summary.candidate.field=musicbrainz::recording_identity_label(
             local_title,local_artist,hit.title,hit.artist);
+        if(hit.repeated_identity_conflict)
+            summary.candidate.field+=" [conflicting search evidence]";
         summary.candidate.provider="musicbrainz";
         summary.candidate.source_id=hit.mbid;
         summary.candidate.scope=hit.kind==musicbrainz::SearchKind::Release
@@ -966,6 +973,11 @@ MusicBrainzBrowseRows musicbrainz_search_rows(
             if (auto date=musicbrainz_search_edition_date(
                     hit.mbid,hit.release_date))
                 detail.push_back(std::move(*date));
+        add("DISCOVERY STRATEGY (read-only)","",hit.discovery_strategy);
+        if(hit.repeated_identity_conflict)
+            add("REPEATED IDENTITY CONFLICT (read-only)","",
+                "Same exact MusicBrainz ID had inconsistent search snippets. "
+                "Inspect the official edition before considering any field.");
         // Display the full original physical inventory independently from
         // search-hit fields. Keep all values and source identities separate;
         // above native capacity show an explicit overflow count, not silence.
@@ -3939,6 +3951,9 @@ void refresh_workspace_snapshot(PreviewState& state) {
         state.search_plan= {};
         state.search_plan_identity.clear();
         state.search_attempt_index=0;
+        state.musicbrainz_has_published_attempt=false;
+        state.musicbrainz_published_attempt_index=0;
+        state.last_musicbrainz_stage_empty=false;
         state.search_attempt_notice.clear();
         state.auto_search_track=(std::numeric_limits<std::size_t>::max)();
         SetDlgItemTextW(state.dialog,IDC_METADATA_MB_QUERY,
@@ -5104,22 +5119,42 @@ void publish_musicbrainz_search(
     if(request.cue_mode && read_cue_raw_on_demand(
         entry.handle,entry.input.source_path).raw_text!=request.cue_before)
         throw std::runtime_error("CUE changed during online search. Retry.");
-    auto result=djmeta::online::musicbrainz::parse_search(
+    if(request.exact_recording_mbid.empty() &&
+       (request.plan_identity.empty() ||
+        request.plan_identity!=state.search_plan_identity))
+        throw std::runtime_error(
+            "MusicBrainz search strategy no longer belongs to this source/query.");
+    auto fresh=djmeta::online::musicbrainz::parse_search(
         reply,request.kind);
     if(!request.exact_recording_mbid.empty()) {
         if(request.kind!=djmeta::online::musicbrainz::SearchKind::Recording ||
            !djmeta::online::musicbrainz::valid_mbid(
                request.exact_recording_mbid))
             throw std::runtime_error("Exact recording URL context is invalid.");
-        result.candidates.erase(std::remove_if(
-            result.candidates.begin(),result.candidates.end(),
+        fresh.candidates.erase(std::remove_if(
+            fresh.candidates.begin(),fresh.candidates.end(),
             [&](const auto& candidate) {
                 return candidate.kind!=request.kind ||
                     candidate.mbid!=request.exact_recording_mbid;
-            }),result.candidates.end());
+            }),fresh.candidates.end());
     }
+    const bool raw_stage_empty=fresh.candidates.empty();
+    const bool append_previous=request.exact_recording_mbid.empty() &&
+        request.attempt_index>0 &&
+        state.musicbrainz_has_published_attempt &&
+        state.musicbrainz_published_attempt_index+1==request.attempt_index &&
+        state.musicbrainz_live_view && !state.discogs_live_view &&
+        !state.musicbrainz_release_loaded &&
+        state.musicbrainz_kind==request.kind &&
+        state.candidate_source_index==request.source_index &&
+        state.search_plan_identity==request.plan_identity;
+    djmeta::online::musicbrainz::SearchResult previous;
+    previous.kind=request.kind;
+    if(append_previous) previous.candidates=state.musicbrainz_results;
+    const auto merged=djmeta::online::musicbrainz::merge_search_stage_results(
+        previous,fresh,request.strategy,append_previous);
     auto rows=musicbrainz_search_rows(
-        result,request.local_title,request.local_artist,request.originals);
+        merged.result,request.local_title,request.local_artist,request.originals);
     verify_online_source_snapshot(state, entry);
     verify_rules_snapshot(state.captured_rules);
     state.candidate_rows=std::move(rows.summary);
@@ -5127,7 +5162,10 @@ void publish_musicbrainz_search(
     state.musicbrainz_original_title=request.local_title;
     state.musicbrainz_original_artist=request.local_artist;
     state.candidate_source_index=request.source_index;
-    state.musicbrainz_results=result.candidates;
+    state.musicbrainz_results=merged.result.candidates;
+    state.musicbrainz_has_published_attempt=true;
+    state.musicbrainz_published_attempt_index=request.attempt_index;
+    state.last_musicbrainz_stage_empty=raw_stage_empty;
     state.discogs_live_view=false;
     state.discogs_results.clear();
     state.discogs_master_id=0;
@@ -5146,14 +5184,19 @@ void publish_musicbrainz_search(
         L"MusicBrainz query "+std::to_wstring(request.attempt_index+1)+
         L"/"+std::to_wstring(request.total)+L" - "+
         from_utf8(request.strategy)+L": "+
-        std::to_wstring(result.candidates.size())+L" result(s). "+
-        (result.candidates.empty() && request.attempt_index+1<request.total
-            ? L"No hits; trying the next bounded strategy automatically."
-            : result.candidates.empty()
+        std::to_wstring(merged.added)+L" new, "+
+        std::to_wstring(merged.repeated)+L" repeated; "+
+        std::to_wstring(state.musicbrainz_results.size())+
+        L" unique hits retained across stages. "+
+        (merged.conflicting ? std::to_wstring(merged.conflicting)+
+            L" conflicting repeated identities require review. " : L"")+
+        (raw_stage_empty && request.attempt_index+1<request.total
+            ? L"No hits in this stage; trying the next bounded strategy."
+            : raw_stage_empty && state.musicbrainz_results.empty()
             ? L"No more search variants. Edit the title to retry."
             : request.attempt_index+1<request.total
-            ? L"Compare identity evidence. Click Search to try another strategy; no writes."
-            : L"Compare identity evidence. Search restarts this bounded plan; no writes.");
+            ? L"Compare identity evidence. Click Search for another strategy; no writes."
+            : L"Compare retained identity evidence. Search restarts the plan; no writes.");
     update_metadata_table(state);
 }
 
@@ -5289,7 +5332,7 @@ void consume_musicbrainz_network(HWND dialog, PreviewState& state) {
                 !state.musicbrainz_request && !state.discogs_request;
             if(djmeta::online::musicbrainz::continue_empty_search_plan(
                     request->attempt_index,request->total,
-                    state.musicbrainz_results.empty(),qualified))
+                    state.last_musicbrainz_stage_empty,qualified))
                 SendMessageW(dialog,WM_COMMAND,
                     MAKEWPARAM(IDC_METADATA_MB_SEARCH,BN_CLICKED),
                     reinterpret_cast<LPARAM>(
@@ -6619,6 +6662,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             // A delayed response must fail closed even after edit-and-restore.
             invalidate_online_request(*state);
             state->search_plan_identity.clear();
+            state->musicbrainz_has_published_attempt=false;
             if(state->discogs_provider_selected)
                 SetDlgItemTextW(dialog,IDC_METADATA_MB_SEARCH,L"Search Discogs");
             update_live_provider_controls(*state);
@@ -6669,6 +6713,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             state->candidate_rows.clear();
             state->search_plan_identity.clear();
             state->search_attempt_index=0;
+            state->musicbrainz_has_published_attempt=false;
             state->search_attempt_notice.clear();
             update_live_provider_controls(*state);
             update_metadata_table(*state);
@@ -6926,6 +6971,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 // Rebuild the official fixed-host route from the verified ID.
                 state->search_plan_identity.clear();
                 state->search_attempt_index=0;
+                state->musicbrainz_has_published_attempt=false;
                 PendingMusicBrainzContext request;
                 request.source_index=state->selected_track_index;
                 request.kind=kind;
@@ -6979,19 +7025,21 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             std::size_t strategy_count=1;
             if (kind==SearchKind::Recording) {
                 const auto plan=recording_search_plan(
-                    term,suggested_query?local_artist:std::string{},
+                    term,local_artist,
                     suggested_query?local_isrc:std::string{});
                 const auto identity=std::string("recording|")+
                     entry.input.source_path+"|"+
                     std::to_string(state->selected_track_index)+"|"+
-                    term+"|"+(suggested_query?local_artist:"")+"|"+
+                    term+"|"+local_artist+"|"+
                     (suggested_query?local_isrc:"");
                 if(identity!=state->search_plan_identity) {
                     state->search_attempt_index=0;
                     state->search_plan_identity=identity;
+                    state->musicbrainz_has_published_attempt=false;
                 } else {
                     state->search_attempt_index=next_clicked_search_attempt(
-                        state->search_attempt_index,plan.attempts.size(),
+                        state->musicbrainz_published_attempt_index,plan.attempts.size(),
+                        state->musicbrainz_has_published_attempt &&
                         state->musicbrainz_live_view &&
                         state->musicbrainz_kind==kind &&
                         state->candidate_source_index==state->selected_track_index);
@@ -7003,19 +7051,21 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 strategy_count=plan.attempts.size();
             } else {
                 const auto release_attempts=release_search_plan(
-                    term,suggested_query?local_artist:std::string{},
+                    term,local_artist,
                     suggested_query?local_barcode:std::string{});
                 const auto identity=std::string("release|")+
                     entry.input.source_path+"|"+
                     std::to_string(state->selected_track_index)+"|"+
-                    term+"|"+(suggested_query?local_artist:"")+"|"+
+                    term+"|"+local_artist+"|"+
                     (suggested_query?local_barcode:"");
                 if(identity!=state->search_plan_identity) {
                     state->search_attempt_index=0;
                     state->search_plan_identity=identity;
+                    state->musicbrainz_has_published_attempt=false;
                 } else {
                     state->search_attempt_index=next_clicked_search_attempt(
-                        state->search_attempt_index,release_attempts.size(),
+                        state->musicbrainz_published_attempt_index,release_attempts.size(),
+                        state->musicbrainz_has_published_attempt &&
                         state->musicbrainz_live_view &&
                         state->musicbrainz_kind==kind &&
                         state->candidate_source_index==state->selected_track_index);
@@ -7042,6 +7092,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             request.local_title=std::move(local_title);
             request.local_artist=std::move(local_artist);
             request.strategy=std::move(strategy);
+            request.plan_identity=state->search_plan_identity;
             request.attempt_index=state->search_attempt_index;
             request.total=strategy_count;
             begin_musicbrainz_network(dialog,*state,std::move(path),

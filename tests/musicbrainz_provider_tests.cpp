@@ -264,6 +264,66 @@ int main() {
           klf.attempts[2].path==make_search_path(
               SearchKind::Recording,"What Time Is Love",""),
           "KLF regression: main title+artist before manually broader search");
+    // Successive official search stages retain exact IDs and provenance
+    // without treating duplicate results as independent editions.
+    SearchResult first_stage;
+    first_stage.kind=SearchKind::Recording;
+    first_stage.candidates.push_back({SearchKind::Recording,first,
+        "What Time Is Love","The KLF","",{},231000,96});
+    SearchResult second_stage;
+    second_stage.kind=SearchKind::Recording;
+    second_stage.candidates.push_back({SearchKind::Recording,first,
+        "What Time Is Love","The KLF","",{},231000,84});
+    second_stage.candidates.push_back({SearchKind::Recording,second,
+        "What Time Is Love (Original Version)","The KLF","",{},231500,81});
+    const SearchResult empty_stage{SearchKind::Recording,{}};
+    const auto accumulated_first=merge_search_stage_results(
+        empty_stage,first_stage,"Main title + artist",false);
+    const auto accumulated_second=merge_search_stage_results(
+        accumulated_first.result,second_stage,"Full title + artist",true);
+    check(accumulated_first.added==1 &&
+          accumulated_second.added==1 && accumulated_second.repeated==1 &&
+          accumulated_second.result.candidates.size()==2 &&
+          accumulated_second.result.candidates[0].mbid==first &&
+          accumulated_second.result.candidates[0].search_score==96 &&
+          accumulated_second.result.candidates[0].discovery_strategy==
+              "Main title + artist" &&
+          accumulated_second.result.candidates[1].discovery_strategy==
+              "Full title + artist" &&
+          !accumulated_second.result.candidates[0].repeated_identity_conflict,
+          "multiple successful stages retain unique IDs, first rank and provenance");
+    auto conflicting_stage=second_stage;
+    conflicting_stage.candidates[0].title="What Time Is Love (different)";
+    const auto conflicting=merge_search_stage_results(
+        accumulated_first.result,conflicting_stage,"Title only",true);
+    check(conflicting.conflicting==1 &&
+          conflicting.result.candidates[0].repeated_identity_conflict &&
+          conflicting.result.candidates[0].title=="What Time Is Love" &&
+          conflicting.result.candidates[0].discovery_strategy=="Main title + artist",
+          "same MBID inconsistent snippets flagged without replacing first evidence");
+    const auto no_new=merge_search_stage_results(
+        accumulated_second.result,empty_stage,"Empty fallback",true);
+    check(no_new.added==0 && no_new.result.candidates.size()==2,
+          "empty later stage does not erase earlier search results");
+    const auto restart=merge_search_stage_results(
+        accumulated_second.result,first_stage,"Restarted title",false);
+    check(restart.result.candidates.size()==1 &&
+          restart.result.candidates[0].discovery_strategy=="Restarted title",
+          "new query or exhausted-plan restart discards previous stage results");
+    SearchResult release_stage;
+    release_stage.kind=SearchKind::Release;
+    release_stage.candidates.push_back({SearchKind::Release,first,"Album","Artist"});
+    rejects([&] {(void)merge_search_stage_results(
+        accumulated_first.result,release_stage,"Other kind",true);},
+        "recording and release cannot share accumulated browser");
+    SearchResult invalid_stage=first_stage;
+    invalid_stage.candidates[0].mbid="not-an-mbid";
+    rejects([&] {(void)merge_search_stage_results(
+        empty_stage,invalid_stage,"Invalid",false);},
+        "invalid MBID cannot enter accumulated search results");
+    rejects([&] {(void)merge_search_stage_results(
+        empty_stage,first_stage,"Stage\nInjected",false);},
+        "untrusted stage label cannot become user-visible provenance");
     check(search_title_core("Track (Unknown Remixer Club Dub)")==
               "Track (Unknown Remixer Club Dub)" &&
           search_title_core("Track (Extended Mix)")=="Track",
