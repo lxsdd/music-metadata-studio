@@ -97,6 +97,18 @@ struct PreviewEntry {
     std::string raw_target_probe_detail; // never represents foobar's final FileOps destination
 };
 
+// Only the LAST read-only local review/route action is reversible. We keep
+// sparse previous rows, never foobar writes, provider credentials or a
+// persisted approval. Very large bulk actions discard undo to bound memory.
+struct PreviewUndoFrame {
+    enum class Kind { Review, Route };
+    Kind kind=Kind::Review;
+    std::map<std::size_t,PreviewEntry> previous_entries;
+    std::map<std::size_t,std::vector<djmeta::ReviewDecision>> previous_decisions;
+    RoutePreviewChoice previous_choice;
+};
+constexpr std::size_t kMaxPreviewUndoSources=4096;
+
 // Pure data captured on the main foobar UI thread before starting a single
 // official Discogs GET. The network worker never reads foobar SDK handles,
 // local music files, CUE carriers, or native dialog HWND controls.
@@ -182,6 +194,7 @@ struct PreviewState {
     int split_drag_start_offset_96 = 0;
     bool split_dragging = false;
     std::vector<PreviewEntry> entries;
+    std::optional<PreviewUndoFrame> last_preview_undo;
     djmeta::BatchPreviewTable table;
     RoutePreviewChoice current_choice;
     djmeta::RulesTextSnapshot captured_rules;
@@ -2099,6 +2112,10 @@ void show_preview_page(HWND dialog, PreviewState& state,
         ? L"2. Review normalization proposals. Only Accept/Manual affects the proposed filenames; nothing is written."
         : L"3. Preview file names and folders from accepted values only. Paths remain unverified; nothing is moved.");
     if (candidate) prefill_musicbrainz_query(state);
+    ShowWindow(GetDlgItem(dialog,IDC_BATCH_UNDO),
+               candidate ? SW_HIDE : SW_SHOW);
+    EnableWindow(GetDlgItem(dialog,IDC_BATCH_UNDO),
+                 state.last_preview_undo && !state.stale ? TRUE : FALSE);
     update_live_provider_controls(state);
     ShowWindow(GetDlgItem(dialog, IDC_METADATA_IMPORT_CANDIDATE),
         candidate ? SW_SHOW : SW_HIDE);
@@ -2738,6 +2755,15 @@ void apply_review_action(HWND dialog, PreviewState& state,
         swap(state.entries[track],entry);
         swap(state.review_decisions[track],next_decisions.at(track));
     }
+    if(next_entries.size()<=kMaxPreviewUndoSources) {
+        PreviewUndoFrame frame;
+        frame.kind=PreviewUndoFrame::Kind::Review;
+        frame.previous_entries=std::move(next_entries);
+        frame.previous_decisions=std::move(next_decisions);
+        state.last_preview_undo=std::move(frame);
+    } else state.last_preview_undo.reset();
+    EnableWindow(GetDlgItem(dialog,IDC_BATCH_UNDO),
+                 state.last_preview_undo ? TRUE : FALSE);
     // Source metadata, proposal types and field counts are snapshot-immutable.
     // A single decision changes only these tracks' Pending/Review counters.
     update_pending_review_summaries(state,affected_tracks);
@@ -2800,7 +2826,16 @@ void apply_to_rows(HWND dialog, PreviewState& state, bool all) {
         using std::swap;
         swap(state.entries[index],changed);
     }
+    if(candidate.size()<=kMaxPreviewUndoSources) {
+        PreviewUndoFrame frame;
+        frame.kind=PreviewUndoFrame::Kind::Route;
+        frame.previous_entries=std::move(candidate);
+        frame.previous_choice=state.current_choice;
+        state.last_preview_undo=std::move(frame);
+    } else state.last_preview_undo.reset();
     state.current_choice = choice;
+    EnableWindow(GetDlgItem(dialog,IDC_BATCH_UNDO),
+                 state.last_preview_undo ? TRUE : FALSE);
     update_table(state);
 }
 
@@ -3299,6 +3334,10 @@ void refresh_workspace_snapshot(PreviewState& state) {
         }
         refresh_review_summaries(next);
         state.entries.swap(next.entries);
+        // A refreshed source snapshot must never inherit a preview rollback
+        // or any stale user decisions from the previous captured batch.
+        state.last_preview_undo.reset();
+        EnableWindow(GetDlgItem(state.dialog,IDC_BATCH_UNDO),FALSE);
         state.analyses.swap(next.analyses);
         state.metadata_rows.swap(next.metadata_rows);
         std::swap(state.metadata_row_index,next.metadata_row_index);
@@ -3426,6 +3465,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_BATCH_REFRESH,L"Reload the original selection after a confirmation. Discards pending decisions, search hits and routing previews. Does not import a different selection."},
         {IDC_BATCH_HELP,L"Open the three-stage walkthrough and explain what each tab can and cannot do."},
         {IDC_BATCH_AUDIT,L"Recheck every selected source, then show all local explicit/no-op/pending normalization decisions and raw FileOps blockers. Read-only; no execution or approval."},
+        {IDC_BATCH_UNDO,L"Undo the last local Accept/Reject/Manual or file route preview in memory. Up to 4096 affected tracks; no file writes or persisted approvals."},
         {IDCANCEL,L"Close the workspace without writing tags, CUE data or music files."}
     };
     for (const auto& item : texts) {
