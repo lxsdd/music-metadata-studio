@@ -37,8 +37,18 @@ int main() {
               "file:///Z:/Music/Album/audio (Extended Mix).flac" &&
           sibling.reason=="CUE_FILE_HOST_PROBE_REQUIRED",
           "safe sibling FILE must still require independent host identity proof");
+    for(const std::string& nested : {
+            std::string("nested/other.flac"),
+            std::string("nested\\other.flac")}) {
+        const auto candidate=preview_cue_sibling_locator(
+            "file:///Z:/Music/Album/set.cue",nested);
+        check(candidate.eligible && candidate.nested &&
+              candidate.source_parent=="file:///Z:/Music/Album/" &&
+              candidate.reason=="CUE_FILE_HOST_PROBE_REQUIRED",
+              "safe nested FILE remains read-only and needs physical parent proof");
+    }
     for(const std::string bad : {
-            "../other.flac", "nested/other.flac", "nested\\other.flac",
+            "../other.flac", "nested/../other.flac", "nested//other.flac",
             "C:\\other.flac", "other.flac:tag", "other?.flac",
             "CON.flac", "COM1.wav", "track%.mp3", "..", "bad.flac ",
             "evil\nname.flac"}) {
