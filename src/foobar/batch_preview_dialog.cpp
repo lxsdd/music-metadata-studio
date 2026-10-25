@@ -2651,23 +2651,30 @@ void apply_review_action(HWND dialog, PreviewState& state,
         manual_value = to_utf8(read_control(dialog, IDC_METADATA_MANUAL_INPUT));
     }
 
-    auto next_decisions = state.review_decisions;
-    auto next_entries = state.entries;
+    // Stage only touched tracks. Deep-copying all captured metadata and
+    // decisions for each Accept/Reject makes 50k+ track reviews O(library
+    // size) in allocations even when changing a single field.
+    std::map<std::size_t,std::vector<djmeta::ReviewDecision>> next_decisions;
+    std::map<std::size_t,PreviewEntry> next_entries;
     std::set<std::size_t> affected_tracks;
     for (const auto& target : targets) {
         const auto track = target.first;
         const auto proposal = target.second;
-        if (track >= next_decisions.size() ||
-            proposal >= next_decisions[track].size() ||
-            track >= next_entries.size())
+        if (track >= state.review_decisions.size() ||
+            proposal >= state.review_decisions[track].size() ||
+            track >= state.entries.size())
             throw std::invalid_argument("Selection no longer matches captured proposals.");
-        next_decisions[track][proposal] = {action, manual_value};
+        auto [it, inserted] = next_decisions.try_emplace(
+            track,state.review_decisions[track]);
+        it->second[proposal] = {action, manual_value};
         affected_tracks.insert(track);
     }
 
     TitleformatBatchEvaluator formatter;
     for (const auto track : affected_tracks) {
-        auto& entry = next_entries[track];
+        auto [it, inserted] = next_entries.try_emplace(
+            track,state.entries[track]);
+        auto& entry = it->second;
         verify_snapshot(entry);
         const auto current = entry.handle->get_info_ref();
         const auto original = metadata_from_file_info(current->info());
@@ -2721,11 +2728,16 @@ void apply_review_action(HWND dialog, PreviewState& state,
         }
     }
     // Transactional whole-batch stale-input gate before publishing preview.
-    for (const auto& entry : next_entries) verify_snapshot(entry);
+    for (const auto& entry : state.entries) verify_snapshot(entry);
     verify_rules_snapshot(state.captured_rules);
 
-    state.entries = std::move(next_entries);
-    state.review_decisions = std::move(next_decisions);
+    // Every affected row and the entire source/ruleset snapshot have passed.
+    // Commit only touched identities. No public writer or filesystem action.
+    for (auto& [track, entry] : next_entries) {
+        using std::swap;
+        swap(state.entries[track],entry);
+        swap(state.review_decisions[track],next_decisions.at(track));
+    }
     // Source metadata, proposal types and field counts are snapshot-immutable.
     // A single decision changes only these tracks' Pending/Review counters.
     update_pending_review_summaries(state,affected_tracks);
@@ -2757,10 +2769,12 @@ void apply_to_rows(HWND dialog, PreviewState& state, bool all) {
 
     // Transactional: every evaluation must succeed before any displayed
     // batch row is updated. No metadata or filesystem state is modified.
-    auto candidate = state.entries;
+    std::map<std::size_t,PreviewEntry> candidate;
     TitleformatBatchEvaluator formatter;
     for (const auto index : selected) {
-        PreviewEntry& entry = candidate[index];
+        auto [it, inserted] = candidate.try_emplace(
+            index,state.entries.at(index));
+        PreviewEntry& entry = it->second;
         verify_snapshot(entry);
         entry.input.profile = choice.display_name;
         entry.input.destination_root = choice.destination_root;
@@ -2779,10 +2793,13 @@ void apply_to_rows(HWND dialog, PreviewState& state, bool all) {
 
     // No mixed stale snapshots: refuse the entire preview update if any
     // selected or unselected source metadata has changed.
-    for (const auto& entry : candidate) verify_snapshot(entry);
+    for (const auto& entry : state.entries) verify_snapshot(entry);
     verify_rules_snapshot(state.captured_rules);
 
-    state.entries = std::move(candidate);
+    for (auto& [index, changed] : candidate) {
+        using std::swap;
+        swap(state.entries[index],changed);
+    }
     state.current_choice = choice;
     update_table(state);
 }
