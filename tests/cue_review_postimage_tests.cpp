@@ -339,8 +339,8 @@ int main(){
     for(const auto& field:large_review.album_fields)
         if(field.state==FieldReviewState::NeedsReview ||
            field.state==FieldReviewState::Unchanged) ++reviewable;
-    for(const auto& track:large_review.tracks)
-        for(const auto& field:track.fields)
+    for(const auto& review_track:large_review.tracks)
+        for(const auto& field:review_track.fields)
             if(field.state==FieldReviewState::NeedsReview ||
                field.state==FieldReviewState::Unchanged) ++reviewable;
     check(reviewable>512,"oversized CUE fixture has more than 512 reviewable fields");
