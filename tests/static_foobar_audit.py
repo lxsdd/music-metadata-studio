@@ -1959,6 +1959,6 @@ if ('std::optional<djmeta::WorkflowOnlineSourceCounts> verified_online;' not in 
     'workflow_audit_summary(state,&verified_online)' not in workspace_dialog or
     'state.table,audit,verified_online)' not in workspace_dialog):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: full TSV export drops native merged Discogs review")
-if ("WORKFLOW_AUDIT_ONLINE_SOURCE_EVIDENCE_INVALID" not in workflow_audit_header or
-    "SOURCE_VERIFIED_POSTIMAGE_ONLY" not in workflow_audit_header):
+if ("WORKFLOW_AUDIT_ONLINE_SOURCE_EVIDENCE_INVALID" not in audit_header or
+    "SOURCE_VERIFIED_POSTIMAGE_ONLY" not in audit_header):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: joint TSV evidence guard missing")
