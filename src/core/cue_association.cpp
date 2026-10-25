@@ -35,13 +35,13 @@ CueAssociationPlan qualify_external_cue_association(
         return plan;
     }
 
-    std::map<std::string, std::string> selected_source_to_id;
+    std::map<std::string, const CueSelectedAudio*> selected_source_to_audio;
     std::set<std::string> selected_physical_ids;
     for (const auto& audio : selected_audios) {
         if (audio.physical_id.empty() || audio.source_key.empty() ||
             audio.target_key.empty() ||
             !selected_physical_ids.insert(audio.physical_id).second ||
-            !selected_source_to_id.emplace(audio.source_key, audio.physical_id).second) {
+            !selected_source_to_audio.emplace(audio.source_key, &audio).second) {
             fail(plan, "DUPLICATE_OR_UNQUALIFIED_SELECTED_AUDIO");
             return plan;
         }
@@ -58,6 +58,7 @@ CueAssociationPlan qualify_external_cue_association(
 
     std::set<std::string> related;
     std::map<std::string, std::string> proposed_name_per_physical_source;
+    std::map<std::string, std::string> destination_to_source;
     for (std::size_t i = 0; i < cue.references.size(); ++i) {
         const auto found = by_index.find(i);
         if (found == by_index.end()) {
@@ -74,8 +75,18 @@ CueAssociationPlan qualify_external_cue_association(
             fail(plan, "CUE_REFERENCE_AMBIGUOUS_OR_MISSING");
             return plan;
         }
-        if (!host.destination_reference_verified || host.proposed_filename.empty()) {
+        if (!host.destination_reference_verified ||
+            host.proposed_filename.empty() ||
+            host.verified_destination_key.empty()) {
             fail(plan, "CUE_DESTINATION_RELATION_UNVERIFIED");
+            return plan;
+        }
+        // Two genuinely different physical sources must not alias one final
+        // FILE destination even if their raw filename strings look distinct.
+        const auto [dest, unique]=destination_to_source.emplace(
+            host.verified_destination_key,host.resolved_source_key);
+        if(!unique && dest->second!=host.resolved_source_key) {
+            fail(plan, "CUE_MULTIPLE_SOURCES_SHARE_DESTINATION");
             return plan;
         }
         const auto [destination, inserted] =
@@ -87,8 +98,14 @@ CueAssociationPlan qualify_external_cue_association(
         }
         // For files not selected in the batch, the host must nevertheless
         // verify the post-move FILE reference still points to that file.
-        const auto selected = selected_source_to_id.find(host.resolved_source_key);
-        if (selected != selected_source_to_id.end()) related.insert(selected->second);
+        const auto selected=selected_source_to_audio.find(host.resolved_source_key);
+        if(selected!=selected_source_to_audio.end()) {
+            if(host.verified_destination_key!=selected->second->target_key) {
+                fail(plan, "CUE_TARGET_DIFFERS_FROM_SELECTED_AUDIO_PLAN");
+                return plan;
+            }
+            related.insert(selected->second->physical_id);
+        }
         if (host.proposed_filename != original.filename)
             plan.changes.push_back({i, original.filename, host.proposed_filename});
     }

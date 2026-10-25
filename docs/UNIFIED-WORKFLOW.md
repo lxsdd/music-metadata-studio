@@ -617,3 +617,19 @@ this milestone is not an installed-host release candidate.
   coordination, frozen batch, final consent or write authority.
   Positive and negative native identity fixtures and production static
   assertions enforce the distinction. No audio, tag, CUE or DB writing.
+
+
+### 2026-10-25 — Explicit host destination identity for every CUE FILE (MMS-CUE-01/04, MMS-FILE-01/03)
+
+The detached CUE-association preflight now requires a genuine host-qualified
+canonical destination key for every FILE reference, including audio tracks
+not selected for modification. A bare verified=true flag no longer suffices.
+For every selected audio the independently verified future FILE destination
+key must exactly equal its separately planned audio target key, not just
+match a raw Title Formatting filename or the original basename. Different
+physical audio sources resolving to the same destination key are rejected.
+Single and multi-FILE, no-op, source alias, missing/forged destination
+evidence and collisions are covered in seven deterministic suites. The
+host must supply genuinely qualified target keys: core never invents final
+foobar File Operations naming/cleanup from CUE text. This is not approval
+of a CUE rewrite, audio move or metadata writer.
