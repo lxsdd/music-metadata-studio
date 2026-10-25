@@ -558,3 +558,22 @@ this milestone is not an installed-host release candidate.
 - Native source/static regressions check the source wiring and fail-closed
   boundaries. Final foobar installed visual qualification, protected live
   Discogs search and all productive writers remain separate acceptance gates.
+
+
+### 2026-10-25 — Mixed local-only and exact Discogs source audit (MMS-WF-02/05/09)
+
+- The unified read-only physical planner accepts a truly *absent* online
+  snapshot for tracks reviewed only with local normalizer decisions. It
+  independently rejects any provider index or date target without real
+  evidence. Original-only exact no-ops, local Accept, full host/ruleset
+  re-probe and mixed-batch frozen fingerprints are regression-tested.
+- Native **Audit batch** now re-probes the selected physical Discogs source,
+  independently reprojects its accepted local decisions AND provider field
+  choices, and reports actual merged field differences and duplicate
+  identical choices. The online evidence remains source-bound even if
+  the visible tab is the local review page; a changed source or conflict
+  rejects the read-only audit rather than misreporting provider-only counts.
+- **No FileOps/CUE approval is implied.** The native batch route remains
+  a local preview, and the selected provider's naming what-if remains
+  advisory until full source-by-source joint routing and final host
+  destination/CUE preflight are integrated. No writer is reachable.

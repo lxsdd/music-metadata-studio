@@ -1791,3 +1791,25 @@ if ("const bool physical_writer_ready=ready && !local_decisions_present" not in
     '"QA online-only writer cannot ignore accepted local normalization.' not in
     workspace_dialog):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: QA-only writer may apply partial postimage")
+
+
+# Batch Audit must revalidate exact same-source joint physical evidence,
+# including independent on-disk guard. Provider-only counts cannot be shown
+# as though they were accepted into the frozen FileOps/CUE plan.
+native_batch_audit=workspace_dialog.split(
+    "void show_workflow_audit(HWND dialog,const PreviewState& state)",1)[1].split(
+    "std::string status_text(",1)[0]
+for marker in (
+    'if(!state.online_included_fields.empty()) {',
+    'const auto track=state.online_edition_source;',
+    'verify_snapshot(entry);',
+    'probe_host_file_readonly(entry.input.source_path)',
+    'unified.normalizer.decisions=state.review_decisions[track];',
+    'unified.online_capture=*state.online_field_snapshot;',
+    'unified.selected_online_indices=state.online_included_fields;',
+    'const auto combined=djmeta::preview_unified_review_physical_tags(unified);',
+    'if(!combined.physical.eligible)',
+    'the full FileOps/CUE batch remains unqualified.',
+):
+    if marker not in native_batch_audit:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: joint source audit missing: "+marker)

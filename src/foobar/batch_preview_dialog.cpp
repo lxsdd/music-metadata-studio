@@ -574,14 +574,68 @@ void show_workflow_audit(HWND dialog,const PreviewState& state) {
         std::to_wstring(audit.raw_collision_tracks)+
         L"\nUnqualified FileOps rows: "+
         std::to_wstring(audit.file_plan_blocked_tracks);
-    if(state.online_field_preview)
-        report+=L"\nOnline edition: "+
-            std::to_wstring(state.online_field_preview->explicitly_changed)+
-            L" selected online field changes; combined local + online naming what-if "
-            L"is read-only and not frozen into the full batch."+
+    if(!state.online_included_fields.empty()) {
+        // Audit the selected physical source independently of which tab is
+        // visible. A summary of online-only edits is NOT the postimage when
+        // the normalizer already has accepted decisions for this source.
+        const auto track=state.online_edition_source;
+        if(!state.online_field_snapshot || track>=state.entries.size() ||
+           track>=state.analyses.size() ||
+           track>=state.review_decisions.size())
+            throw std::invalid_argument(
+                "Batch audit: selected online source evidence is missing.");
+        const auto& entry=state.entries[track];
+        verify_snapshot(entry);
+        if(!entry.input.physical_source_qualified ||
+           entry.handle->get_subsong_index()!=0 ||
+           is_external_cue_locator(entry.input.source_path))
+            throw std::invalid_argument(
+                "Batch audit: selected online source is not a physical audio file.");
+        const auto latest=probe_host_file_readonly(entry.input.source_path);
+        if(latest.state!=HostFileState::ExistingFile ||
+           latest.host_physical_key!=entry.observed_physical_key ||
+           latest.source_guard!=entry.observed_source_guard)
+            throw std::runtime_error(
+                "Batch audit: selected online physical source changed; refresh.");
+        const auto current=metadata_from_file_info(
+            entry.handle->get_info_ref()->info());
+        djmeta::UnifiedReviewBatchReprobe unified;
+        unified.normalizer.live.captured={
+            true,false,entry.observed_physical_key,
+            entry.observed_source_guard,current};
+        unified.normalizer.live.fresh_tags=current;
+        unified.normalizer.live.live_physical_key=latest.host_physical_key;
+        unified.normalizer.live.live_source_guard=latest.source_guard;
+        unified.normalizer.captured_analysis=state.analyses[track];
+        unified.normalizer.active_ruleset_revision=
+            state.analyses[track].ruleset_revision;
+        unified.normalizer.decisions=state.review_decisions[track];
+        unified.online_capture=*state.online_field_snapshot;
+        unified.selected_online_indices=state.online_included_fields;
+        unified.explicit_date_targets=state.online_date_targets;
+        const auto combined=djmeta::preview_unified_review_physical_tags(unified);
+        if(!combined.physical.eligible)
+            throw std::invalid_argument(
+                "Batch audit: local + Discogs field selection unqualified: "+
+                combined.rejection);
+        report+=L"\nVerified Discogs source #"+std::to_wstring(track+1)+
+            L": explicit local field differences "+
+            std::to_wstring(combined.normalizer_changed_fields)+
+            L", selected online field differences "+
+            std::to_wstring(combined.online_changed_fields)+
+            L", mutually identical "+
+            std::to_wstring(combined.mutually_agreed_fields)+
+            L", combined physical field differences "+
+            std::to_wstring(combined.physical.explicitly_changed)+
+            L". This ONE source has a verified detached postimage; "
+            L"the full FileOps/CUE batch remains unqualified."+
             std::wstring(state.online_raw_route_valid
-                ? L" Current raw what-if qualified."
-                : L" Raw what-if expired or unqualified; reselect fields to recalculate.");
+                ? L" Advisory raw filename available."
+                : L" Raw filename must be recalculated or is unqualified.");
+    } else if(state.online_field_preview) {
+        report+=L"\nDiscogs field selection: none. "
+                L"Only explicitly accepted local normalization is staged.";
+    }
     if(state.cue_value_preview)
         report+=L"\nCUE: independent read-only postimage; not a batch write.";
     std::size_t listed=0;
