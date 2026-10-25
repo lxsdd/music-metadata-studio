@@ -633,3 +633,24 @@ evidence and collisions are covered in seven deterministic suites. The
 host must supply genuinely qualified target keys: core never invents final
 foobar File Operations naming/cleanup from CUE text. This is not approval
 of a CUE rewrite, audio move or metadata writer.
+
+
+### 2026-10-25 — Exact CUE and audio FilePlan coupling (MMS-CUE-06, MMS-FILE-03/05/06)
+
+The read-only adapter in include/djmeta/cue_file_batch_preview.h now
+independently rebuilds all FILE reference replacements from inspected CUE
+source bytes and exact host target identities, cross-checks every selected
+audio's physical ID, canonical source/target keys, source guard, and declared
+CUE relationship against the SAME FilePlan items, then projects the guarded
+CUE source/postimage fingerprints and all related audio IDs into a copied
+whole-batch FilePlan. Existing CUE staging or participant mismatch fails
+closed. The existing batch planner independently rejects raw/physical
+destination conflicts, uninspected targets and unresolved dependencies.
+
+This is **one analysis-only, unapproved** plan, never an implicit FileOps,
+tag or CUE writer. The adapter intentionally refuses CUE metadata-value
+edits unless their independent authority is separately qualified.
+A distinct source-by-source **native** final destination/CUE re-probe and
+explicit final whole-plan consent remain necessary before productive action.
+Synthetic positive and negative multi-FILE and exact no-op cases exercise
+this adapter directly, without music files or any OS I/O.
