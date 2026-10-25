@@ -4,9 +4,10 @@
 #include "metadata_adapter.h"
 #include "routing_preview.h"
 #include "rules_runtime.h"
-#include "djmeta/staging.h"
+#include "djmeta/review_decisions.h"
 #include "titleformat_planner.h"
 
+#include <algorithm>
 #include <map>
 #include <string>
 #include <vector>
@@ -84,9 +85,19 @@ void show_custom_route_preview(
             if (entry.requires_physical_selection) {
                 ++physically_ambiguous;
             } else {
-                const auto staged = djmeta::stage_safe_only(original, analysis);
-                entry.safe_proposals = staged.safe_proposals_applied;
-                entry.unresolved_proposals = staged.unresolved_proposals;
+                // This legacy popup cannot capture individual approval.
+                // Count visible SAFE suggestions, but derive every filename
+                // from the ORIGINAL tags until a user explicitly accepts
+                // proposals in the unified modeless workspace.
+                const auto staged = djmeta::project_explicit_review_decisions(
+                    original,analysis);
+                entry.safe_proposals = static_cast<std::size_t>(
+                    std::count_if(analysis.proposals.begin(),
+                                  analysis.proposals.end(),
+                        [](const djmeta::Proposal& proposal) {
+                            return proposal.safety==djmeta::SafetyClass::Safe;
+                        }));
+                entry.unresolved_proposals = staged.unresolved_semantic;
                 total_safe += entry.safe_proposals;
                 total_unresolved += entry.unresolved_proposals;
                 // Compile/evaluate using foobar's actual titleformat compiler
@@ -137,7 +148,7 @@ void show_custom_route_preview(
         report += std::to_string(proposed.size());
         report += "\nPhysical source ambiguous: ";
         report += std::to_string(physically_ambiguous);
-        report += "\nStaged SAFE tag proposals: ";
+        report += "\nUnapproved SAFE suggestions (NOT routed): ";
         report += std::to_string(total_safe);
         report += "\nUnselected CONFIDENT/REVIEW proposals: ";
         report += std::to_string(total_unresolved);
@@ -182,6 +193,9 @@ void show_custom_route_preview(
             report += " additional items are not displayed individually.";
         }
 
+        report += "\n\nFilename routing here uses ORIGINAL values only. "
+                  "Accept/Manual in the unified workspace to preview "
+                  "explicitly selected normalization changes.";
         report += "\n\nIMPORTANT: These are raw Title Formatting values, ";
         report += "NOT verified File Operations destinations.";
         report += "\nDifferent raw paths may still resolve to the same Windows destination.";
