@@ -96,6 +96,39 @@ int main() {
           automatic.unresolved_semantic == 2,
           "only SAFE default preview, unrelated fields preserved");
 
+    // The ordinary Review pane may show SAFE as an unapproved suggestion,
+    // but physical tags and Title Formatting input use explicit choices ONLY.
+    const auto initial_route=project_explicit_review_decisions(original,analysis);
+    check(initial_route.document==original &&
+          initial_route.automatic_safe==0 &&
+          initial_route.explicitly_rejected==0 &&
+          initial_route.unresolved_semantic==2,
+          "unaccepted SAFE may not silently change initial FileOps filenames");
+    auto only_safe=std::vector<ReviewDecision>(analysis.proposals.size());
+    only_safe[0].action=ReviewAction::Accept;
+    const auto accepted_route=project_explicit_review_decisions(
+        original,analysis,only_safe);
+    check(accepted_route.document.fields[0].values[0]=="Old Title" &&
+          accepted_route.document.fields[3]==original.fields[3] &&
+          accepted_route.unresolved_semantic==2 &&
+          accepted_route.explicitly_accepted==1 &&
+          accepted_route.automatic_safe==0,
+          "a single accepted SAFE must not approve any other pending SAFE");
+    auto safe_noop=only_safe;
+    safe_noop[0].action=ReviewAction::ManualValue;
+    safe_noop[0].manual_value=" Old Title ";
+    check(project_explicit_review_decisions(original,analysis,safe_noop).document==
+              original,
+          "manual original value produces identical routing metadata");
+    should_reject([&]{(void)project_explicit_review_decisions(
+        original,analysis,{ReviewDecision{}});},
+        "partial explicit decision snapshot cannot enter file routing");
+    auto forged_route=analysis;
+    forged_route.proposals[0].field_index=20;
+    should_reject([&]{(void)project_explicit_review_decisions(
+        original,forged_route);},
+        "unmatched proposal index cannot pass explicit routing guard");
+
     std::vector<ReviewDecision> decisions(analysis.proposals.size());
     decisions[0].action = ReviewAction::Reject;
     decisions[1].action = ReviewAction::Accept;
