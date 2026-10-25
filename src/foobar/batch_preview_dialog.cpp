@@ -2681,12 +2681,20 @@ void apply_review_action(HWND dialog, PreviewState& state,
             proposal >= state.review_decisions[track].size() ||
             track >= state.entries.size())
             throw std::invalid_argument("Selection no longer matches captured proposals.");
+        const auto& previous=state.review_decisions[track][proposal];
+        if(previous.action==action &&
+           (action!=djmeta::ReviewAction::ManualValue ||
+            previous.manual_value==manual_value))
+            continue; // repeated Accept/Reject/Reset is a true preview no-op
         auto [it, inserted] = next_decisions.try_emplace(
             track,state.review_decisions[track]);
         it->second[proposal] = {action, manual_value};
         affected_tracks.insert(track);
     }
 
+    // A repeated identical decision is not a new action. Preserve the last
+    // reversible preview state, layout, and costly 54k-row update.
+    if(affected_tracks.empty()) return;
     TitleformatBatchEvaluator formatter;
     for (const auto track : affected_tracks) {
         auto [it, inserted] = next_entries.try_emplace(
