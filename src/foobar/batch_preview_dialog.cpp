@@ -6983,6 +6983,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             return TRUE;
         }
 #endif
+        if (id == IDC_BATCH_UNDO && HIWORD(wp) == BN_CLICKED) {
+            undo_last_preview_action(dialog,*state);
+            return TRUE;
+        }
         if (id == IDC_BATCH_AUDIT && HIWORD(wp) == BN_CLICKED) {
             // The generic command gate has already re-probed the FULL batch.
             // A stale source aborts without presenting an outdated audit.
