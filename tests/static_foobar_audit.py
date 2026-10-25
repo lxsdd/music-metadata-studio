@@ -2113,3 +2113,24 @@ for marker in ("candidate.source_parent", "parent_probes",
                "file_sources.push_back({i,{}, {},false})"):
     if marker not in cue_native:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: nested CUE parent witness missing: "+marker)
+
+
+# Exact pasted MusicBrainz browser URLs select identities, not arbitrary
+# WinHTTP routes or fabricated search results. Physical recording and CUE
+# release both require explicit Search and the same source rechecks.
+for token in (
+    "parse_exact_entity_url(", "make_exact_recording_search_path(",
+    "request.exact_recording_mbid", "candidate.mbid!=request.exact_recording_mbid",
+    "request.direct_release", "make_release_lookup_path(",
+    "state.candidate_source_index=request.source_index;",
+    "begin_musicbrainz_network(dialog,*state,std::move(route)",
+):
+    if token not in batch_table_dialog:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: exact MusicBrainz URL native path: "+token)
+for token in (
+    "Only exact HTTPS musicbrainz.org recording/release URLs",
+    "valid_mbid(path)", 'encode_url_query("rid:"',
+    "qualified_musicbrainz_request_path(",
+):
+    if token not in mb_provider:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: MusicBrainz URL allowlist missing: "+token)

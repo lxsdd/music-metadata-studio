@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <limits>
 #include <map>
+#include <optional>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -254,6 +255,63 @@ inline bool valid_mbid(std::string_view id) {
     }
     return true;
 }
+// Browser URL input is NOT a network URL. Accept only an exact official
+// recording or release identity, then rebuild the fixed-host WS/2 route.
+// This prevents userinfo, lookalike domains, query/fragment injection,
+// redirects, release-group/track confusion and arbitrary HTTP requests.
+// Ordinary free-text titles are not treated as URLs.
+struct ExactEntityUrl {
+    SearchKind kind=SearchKind::Recording;
+    std::string mbid;
+};
+inline std::optional<ExactEntityUrl> parse_exact_entity_url(
+    std::string_view entered) {
+    const auto begin=entered.find_first_not_of(" \t\r\n");
+    if(begin==std::string_view::npos) return std::nullopt;
+    const auto end=entered.find_last_not_of(" \t\r\n");
+    entered=entered.substr(begin,end-begin+1);
+    std::string folded(entered);
+    for(char& c:folded)
+        if(c>='A' && c<='Z') c=static_cast<char>(c+('a'-'A'));
+    const bool url_like=folded.find("://")!=std::string::npos ||
+        folded.starts_with("musicbrainz.org") ||
+        folded.starts_with("www.musicbrainz.org") ||
+        folded.starts_with("http:");
+    if(!url_like) return std::nullopt;
+    std::string_view path;
+    for(const std::string_view host:{
+            std::string_view("https://musicbrainz.org/"),
+            std::string_view("https://www.musicbrainz.org/")}) {
+        if(folded.starts_with(host)) {
+            path=entered.substr(host.size());
+            break;
+        }
+    }
+    if(path.empty())
+        throw std::invalid_argument(
+            "Only exact HTTPS musicbrainz.org recording/release URLs are accepted");
+    ExactEntityUrl out;
+    const std::string_view lower_path(folded.data()+
+        (entered.size()-path.size()),path.size());
+    if(lower_path.starts_with("recording/")) {
+        out.kind=SearchKind::Recording;
+        path.remove_prefix(std::string_view("recording/").size());
+    } else if(lower_path.starts_with("release/")) {
+        out.kind=SearchKind::Release;
+        path.remove_prefix(std::string_view("release/").size());
+    } else
+        throw std::invalid_argument(
+            "MusicBrainz URL must identify one recording or exact release");
+    if(path.ends_with("/")) path.remove_suffix(1);
+    if(!valid_mbid(path))
+        throw std::invalid_argument(
+            "MusicBrainz URL has no single valid recording/release MBID");
+    out.mbid.assign(path);
+    for(char& c:out.mbid)
+        if(c>='A' && c<='F') c=static_cast<char>(c+('a'-'A'));
+    return out;
+}
+
 // Official MusicBrainz edition dates have three supported precisions.
 // Validate known calendar components before presenting a provider value as
 // edition evidence. This is shared by search snippets and exact lookups.
@@ -355,6 +413,17 @@ inline std::string make_search_path(SearchKind kind,
     return std::string(kind==SearchKind::Recording
         ? "/ws/2/recording?query=" : "/ws/2/release?query=") +
         encode_url_query(query)+std::string(search_request_suffix);
+}
+
+// The official MusicBrainz recording search documents rid as its MBID.
+// The native publisher must independently retain ONLY the exact returned
+// recording ID, not a similarly titled recording or a different mix.
+inline std::string make_exact_recording_search_path(std::string_view mbid) {
+    if(!valid_mbid(mbid))
+        throw std::invalid_argument("Invalid exact MusicBrainz recording identity");
+    return "/ws/2/recording?query="+
+        encode_url_query("rid:"+std::string(mbid))+
+        std::string(search_request_suffix);
 }
 
 struct RecordingSearchAttempt {

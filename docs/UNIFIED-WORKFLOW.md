@@ -882,3 +882,29 @@ release/recording identities are retained; a result under one partner is
 only an edition-review candidate, never an approved tag or CUE change.
 MMS-ONL-01/02 and MMS-CUE-01 remain partial until native installed-host
 and protected provider end-to-end acceptance.
+
+
+### 2026-10-25 — Exact MusicBrainz browser URL intake (MMS-SRC-01/02/08, MMS-UI-02, MMS-CUE-03)
+
+Find & compare MusicBrainz Search now accepts an **explicitly pasted exact
+HTTPS recording URL** for a qualified physical track, or an **exact release
+URL** for a qualified external/embedded CUE. Only one user-clicked read-only
+operation is allowed. The pure core accepts `musicbrainz.org` or
+`www.musicbrainz.org` with exactly one valid MBID under `/recording/` or
+`/release/`. It rejects arbitrary hosts, non-HTTPS, userinfo, ports,
+fragments, query strings, release groups, tracks, nested paths and invalid
+IDs rather than silently converting malformed URLs into text searches.
+
+For a recording Studio constructs the documented bounded WS/2 `rid:`
+search and **retains only the response whose recording MBID exactly
+matches the requested ID**; other hits cannot impersonate the selected
+recording/mix. For a CUE release Studio constructs the existing fixed-host
+exact WS/2 release lookup, validates the returned edition MBID and
+unchanged on-demand CUE inventory, and publishes real edition/track
+evidence directly without fabricating a prior search hit or allowing
+implicit staging. Editing the query or changing provider/source invalidates
+an in-flight result. Original physical tags and CUE bytes remain intact,
+all proposed values require review, and every writer/FileOps route stays
+disabled. Core positive/negative fixtures and native static wiring audit
+cover this path; installed UI and protected live provider acceptance remain
+separate gates.

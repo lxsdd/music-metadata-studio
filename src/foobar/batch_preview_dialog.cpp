@@ -149,6 +149,9 @@ struct PendingMusicBrainzContext {
     std::size_t attempt_index=0;
     std::size_t total=1;
     std::string release_mbid;
+    // Explicit browser URL identities, never arbitrary network URLs.
+    std::string exact_recording_mbid;
+    bool direct_release=false;
 };
 
 struct PendingBeatportPageContext {
@@ -3996,7 +3999,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_BATCH_TABS,L"1. Search online and compare. 2. Review local rule-based suggestions. 3. Preview file locations. These previews do not write files."},
         {IDC_BATCH_GUIDE,L"Follow the steps from left to right. Online matches from any provider are evidence, never approved tag edits."},
         {IDC_METADATA_TRACK_LIST,L"Find tab: double-click/Enter searches MusicBrainz or Discogs, or opens Crates in Beatport mode using full TITLE and qualified ARTIST credits where available. Other tabs only navigate to Find without launching an online action."},
-        {IDC_METADATA_MB_QUERY,L"MusicBrainz: TITLE/album. Discogs: title or exact release/master URL. Beatport: one canonical public track URL, or leave empty for the clipboard. No automatic requests."},
+        {IDC_METADATA_MB_QUERY,L"MusicBrainz: TITLE/album or exact HTTPS recording/release URL (release requires a qualified CUE). Discogs: title or exact release/master URL. Beatport: canonical public track URL or clipboard. Only an explicit Search makes a request."},
         {IDC_METADATA_ONLINE_PROVIDER,L"MusicBrainz and Discogs use official APIs. Beatport + Crates supports single public Beatport URLs, lawful clipboard evidence and a hand-off to the public Crates browser; no logged-in API impersonation."},
         {IDC_METADATA_DISCOGS_TOKEN_LABEL,L"Discogs token only lives in this password control."},
         {IDC_METADATA_DISCOGS_TOKEN,L"Personal Discogs API token. Not saved, logged, embedded or copied into URLs."},
@@ -5101,8 +5104,20 @@ void publish_musicbrainz_search(
     if(request.cue_mode && read_cue_raw_on_demand(
         entry.handle,entry.input.source_path).raw_text!=request.cue_before)
         throw std::runtime_error("CUE changed during online search. Retry.");
-    const auto result=djmeta::online::musicbrainz::parse_search(
+    auto result=djmeta::online::musicbrainz::parse_search(
         reply,request.kind);
+    if(!request.exact_recording_mbid.empty()) {
+        if(request.kind!=djmeta::online::musicbrainz::SearchKind::Recording ||
+           !djmeta::online::musicbrainz::valid_mbid(
+               request.exact_recording_mbid))
+            throw std::runtime_error("Exact recording URL context is invalid.");
+        result.candidates.erase(std::remove_if(
+            result.candidates.begin(),result.candidates.end(),
+            [&](const auto& candidate) {
+                return candidate.kind!=request.kind ||
+                    candidate.mbid!=request.exact_recording_mbid;
+            }),result.candidates.end());
+    }
     auto rows=musicbrainz_search_rows(
         result,request.local_title,request.local_artist,request.originals);
     verify_online_source_snapshot(state, entry);
@@ -5148,12 +5163,15 @@ void publish_musicbrainz_release(
     if(!state.online_context_version.matches(request.context_version) ||
        state.stale || state.refreshing || !state.show_candidate ||
        state.discogs_provider_selected ||
-       !state.musicbrainz_live_view || state.musicbrainz_release_loaded ||
-       state.musicbrainz_kind!=
-           djmeta::online::musicbrainz::SearchKind::Release ||
+       (!request.direct_release &&
+        (!state.musicbrainz_live_view || state.musicbrainz_release_loaded ||
+         state.musicbrainz_kind!=
+             djmeta::online::musicbrainz::SearchKind::Release ||
+         state.candidate_source_index!=request.source_index)) ||
        state.selected_track_index!=request.source_index ||
-       state.candidate_source_index!=request.source_index ||
-       request.source_index>=state.entries.size())
+       request.source_index>=state.entries.size() ||
+       (request.direct_release && (!request.cue_mode ||
+           !djmeta::online::musicbrainz::valid_mbid(request.release_mbid))))
         throw std::runtime_error("MusicBrainz release result discarded after source change.");
     const bool still_verified=std::any_of(
         state.musicbrainz_results.begin(),state.musicbrainz_results.end(),
@@ -5161,17 +5179,19 @@ void publish_musicbrainz_release(
             return result.kind==djmeta::online::musicbrainz::SearchKind::Release &&
                    result.mbid==request.release_mbid;
         });
-    if(!still_verified)
+    if(!request.direct_release && !still_verified)
         throw std::runtime_error("MusicBrainz release no longer belongs to the current search.");
-    const int selected=ListView_GetNextItem(state.metadata_list,-1,LVNI_SELECTED);
-    if(selected<0 ||
-       static_cast<std::size_t>(selected)>=state.candidate_view_order.size() ||
-       state.candidate_view_order[static_cast<std::size_t>(selected)]>=
-           state.candidate_rows.size() ||
-       state.candidate_rows[
-           state.candidate_view_order[static_cast<std::size_t>(selected)]]
-               .candidate.source_id!=request.release_mbid)
-        throw std::runtime_error("MusicBrainz release selection changed during lookup.");
+    if(!request.direct_release) {
+        const int selected=ListView_GetNextItem(state.metadata_list,-1,LVNI_SELECTED);
+        if(selected<0 ||
+           static_cast<std::size_t>(selected)>=state.candidate_view_order.size() ||
+           state.candidate_view_order[static_cast<std::size_t>(selected)]>=
+               state.candidate_rows.size() ||
+           state.candidate_rows[
+               state.candidate_view_order[static_cast<std::size_t>(selected)]]
+                   .candidate.source_id!=request.release_mbid)
+            throw std::runtime_error("MusicBrainz release selection changed during lookup.");
+    }
     const auto& entry=state.entries[request.source_index];
     verify_online_source_snapshot(state, entry);
     verify_rules_snapshot(state.captured_rules);
@@ -5191,6 +5211,33 @@ void publish_musicbrainz_release(
     verify_rules_snapshot(state.captured_rules);
     state.candidate_rows=std::move(grouped.summary);
     state.musicbrainz_detail_groups=std::move(grouped.detail);
+    if(request.direct_release) {
+        // A direct URL is an explicit edition lookup, NOT a synthetic search
+        // result. Only the response's exact MBID and original CUE establish
+        // evidence. No physical tag stage survives a direct CUE lookup.
+        state.candidate_source_index=request.source_index;
+        state.musicbrainz_original_title=request.local_title;
+        state.musicbrainz_original_artist=request.local_artist;
+        state.musicbrainz_results.clear();
+        state.musicbrainz_kind=djmeta::online::musicbrainz::SearchKind::Release;
+        state.musicbrainz_live_view=true;
+        state.discogs_live_view=false;
+        state.discogs_results.clear();
+        state.discogs_direct_edition.reset();
+        state.cue_inspection_mode=false;
+        state.cue_candidate_comparison_mode=false;
+        state.online_physical_edition.reset();
+        state.online_field_snapshot.reset();
+        state.online_field_preview.reset();
+        state.online_raw_target_observation.reset();
+        state.online_included_fields.clear();
+        state.online_date_targets.clear();
+        state.online_edition_source=(std::numeric_limits<std::size_t>::max)();
+        state.search_attempt_notice=L"Exact MusicBrainz release URL "+
+            from_utf8(request.release_mbid)+
+            L" verified against official WS/2 response and original CUE. "
+            L"Read-only; compare each track/edition field before staging.";
+    }
     state.cue_value_preview.reset();
     state.cue_value_preview_indices.clear();
     if(cue_preview.eligible)
@@ -5599,7 +5646,9 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             FALSE, reinterpret_cast<LPARAM>(
                 state->beatport_offline_selected
                     ? L"Exact Beatport URL (or paste from clipboard)"
-                    : L"Title or album"));
+                    : state->discogs_provider_selected
+                        ? L"Title or Discogs release/master URL"
+                        : L"Title, album or MusicBrainz URL"));
         state->show_whitespace = workspace_defaults.show_whitespace;
         SendDlgItemMessageW(dialog, IDC_METADATA_VISIBLE_WHITESPACE,
             BM_SETCHECK, state->show_whitespace ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -6596,7 +6645,9 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 FALSE,reinterpret_cast<LPARAM>(
                     state->beatport_offline_selected
                     ? L"Exact Beatport URL (or paste from clipboard)"
-                    : L"Title or album"));
+                    : state->discogs_provider_selected
+                        ? L"Title or Discogs release/master URL"
+                        : L"Title, album or MusicBrainz URL"));
             if(!state->discogs_provider_selected)
                 SetDlgItemTextW(dialog,IDC_METADATA_DISCOGS_TOKEN,L"");
             state->musicbrainz_live_view=false;
@@ -6862,6 +6913,49 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 catch (const std::invalid_argument&) {} // ambiguous ISRC is excluded
             }
             const auto entered=to_utf8(read_control(dialog,IDC_METADATA_MB_QUERY));
+            const auto exact_url=
+                djmeta::online::musicbrainz::parse_exact_entity_url(entered);
+            if(exact_url) {
+                if(exact_url->kind!=kind)
+                    throw std::invalid_argument(
+                        kind==djmeta::online::musicbrainz::SearchKind::Release
+                            ? "This CUE needs an exact MusicBrainz RELEASE URL, not a recording URL."
+                            : "An exact MusicBrainz RELEASE URL needs a qualified CUE; "
+                              "use a RECORDING URL for a physical track.");
+                // One explicit gesture, no Lucene fallback or synthetic hit.
+                // Rebuild the official fixed-host route from the verified ID.
+                state->search_plan_identity.clear();
+                state->search_attempt_index=0;
+                PendingMusicBrainzContext request;
+                request.source_index=state->selected_track_index;
+                request.kind=kind;
+                request.cue_mode=cue_mode;
+                request.cue_before=std::move(cue_before);
+                request.originals=std::move(original_tags);
+                request.local_title=std::move(local_title);
+                request.local_artist=std::move(local_artist);
+                request.strategy=kind==djmeta::online::musicbrainz::SearchKind::Release
+                    ? "Exact release URL" : "Exact recording URL";
+                request.total=1;
+                std::string route;
+                if(kind==djmeta::online::musicbrainz::SearchKind::Release) {
+                    request.operation=PendingMusicBrainzContext::Kind::Release;
+                    request.direct_release=true;
+                    request.release_mbid=exact_url->mbid;
+                    route=djmeta::online::musicbrainz::make_release_lookup_path(
+                        exact_url->mbid);
+                } else {
+                    request.operation=PendingMusicBrainzContext::Kind::Search;
+                    request.exact_recording_mbid=exact_url->mbid;
+                    route=djmeta::online::musicbrainz::
+                        make_exact_recording_search_path(exact_url->mbid);
+                }
+                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                    L"Inspecting exact MusicBrainz identity (official HTTPS, read-only)...");
+                begin_musicbrainz_network(dialog,*state,std::move(route),
+                                          std::move(request));
+                return TRUE;
+            }
             const bool suggested_query = entered.empty() ||
                 (state->auto_search_track == state->selected_track_index &&
                  entered == to_utf8(state->auto_search_text));
