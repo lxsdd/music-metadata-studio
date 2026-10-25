@@ -21,7 +21,10 @@ int main() {
     table.unqualified_rows=2;table.raw_collision_items=1;
     std::vector<AnalysisResult> analyses(4);
     std::vector<std::vector<ReviewDecision>> decisions(4);
-    for(auto& a:analyses) {a.input_fingerprint="source";a.ruleset_revision="rules";}
+    for(auto& a:analyses) {
+        a.input_fingerprint="SENSITIVE_CAPTURED_FINGERPRINT_1234";
+        a.ruleset_revision="rules";
+    }
     auto proposal=[](std::size_t idx,SafetyClass safety,
                      const char* original,const char* candidate) {
         Proposal p;
@@ -61,7 +64,7 @@ int main() {
     check(export_tsv.find("READ-ONLY batch audit; no write approval")!=std::string::npos &&
           export_tsv.find("#1\t1\t0\t0\t1\t0\tNO\tNO")!=std::string::npos &&
           export_tsv.find("#3\t0\t0\t1\t0\t0\tYES\tYES\tDUPLICATE_RAW_TARGET")!=std::string::npos &&
-          export_tsv.find("source")==std::string::npos,
+          export_tsv.find("SENSITIVE_CAPTURED_FINGERPRINT_1234")==std::string::npos,
           "complete TSV includes every row and issue code, no source fingerprint");
     const WorkflowOnlineSourceCounts physical_online{
         0,2,1,1,0,2,"guard:current-dummy-physical-version"};
