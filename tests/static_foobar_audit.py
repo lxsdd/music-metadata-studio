@@ -408,7 +408,7 @@ for label, source, token in [
     ("per-batch atomic UI edits", batch_table_dialog, "state.entries = std::move(candidate)"),
     ("unverified CUE gate", batch_table_dialog, "entry.input.cue_dependencies_checked = false"),
     ("unverified destination gate", batch_table_dialog, "entry.input.filesystem_target_checked = false"),
-    ("safe-only projection", route_preview, "djmeta::stage_safe_only"),
+    ("unapproved SAFE not used in routes", route_preview, "djmeta::project_explicit_review_decisions"),
     ("foobar titleformat projection", route_preview, "formatter.evaluate("),
     ("stale metadata guard", route_preview, "djmeta::fingerprint(latest)"),
     ("subsong physical guard", route_preview, "get_subsong_index() != 0"),
@@ -1584,3 +1584,12 @@ if ('djmeta::project_review_decisions(' in review_for_route or
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: unapproved SAFE feeds FileOps")
 if ('staged.unresolved_semantic > 0' not in workspace_dialog):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: pending semantic route status stale")
+
+# The old context-menu routing popup has no per-field Accept action. Its
+# source may show SAFE suggestion counts, but must never sneak those values
+# into foobar titleformat filenames. Real consent is in the modeless workspace.
+if ('djmeta::stage_safe_only(' in route_preview or
+    'project_explicit_review_decisions(' not in route_preview or
+    'info, staged.document,' not in route_preview or
+    'Unapproved SAFE suggestions (NOT routed)' not in route_preview):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: legacy filename route auto-accepted SAFE")
