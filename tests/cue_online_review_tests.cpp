@@ -387,10 +387,10 @@ int main() {
         {item("ALBUM", {"Release"}, EvidenceScope::Edition,
               DateMeaning::NotDate, "881")},
         {
-            {"881/track/1", {"Lunar", "Artist B", "", MixKind::Unknown, "", -1},
+            {"2", {"Lunar", "Artist B", "", MixKind::Unknown, "", -1},
              -1, 2, {item("TITLE", {"Lunar"}, EvidenceScope::Edition,
                           DateMeaning::NotDate, "881/track/1")}},
-            {"881/track/2", {"Solar (Extended Mix)", "Artist A", "",
+            {"1", {"Solar (Extended Mix)", "Artist A", "",
                     MixKind::Unknown, "GBABC2600001", -1},
              -1, 1, {
                  item("TITLE", {"Solar (Extended Mix)"}, EvidenceScope::Edition,
