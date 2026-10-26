@@ -2269,3 +2269,17 @@ for marker in ("IDC_BATCH_BACK_TO_CUE",
                "MAKEWPARAM(IDC_METADATA_INSPECT_CUE,BN_CLICKED)"):
     if marker not in workspace_dialog:
         raise SystemExit("STATIC CUE RETURN WORKFLOW FAIL: "+marker)
+
+
+# CUE inspection queue is per-source read-only evidence: full batch plan
+# changes invalidate receipts and Copy issues never exports source paths.
+cue_queue=(root / "include" / "djmeta" / "cue_inspection_queue.h").read_text(encoding="utf-8")
+for marker in ("void observe(", "void record(", "STALE_REINSPECT",
+               "next_attention(", "export_tsv(", "NOT_QUALIFIED"):
+    if marker not in cue_queue:
+        raise SystemExit("STATIC CUE INSPECTION QUEUE FAIL: "+marker)
+for marker in ("state.cue_inspections.observe(", "state.cue_inspections.record(",
+               "cue_ledger=state.cue_inspections.export_tsv(",
+               "IDC_BATCH_NEXT_CUE", "revalidate_workspace(*state,true);"):
+    if marker not in workspace_dialog:
+        raise SystemExit("STATIC NATIVE CUE INSPECTION QUEUE FAIL: "+marker)

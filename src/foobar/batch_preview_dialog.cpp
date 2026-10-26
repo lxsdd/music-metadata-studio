@@ -53,6 +53,7 @@
 #include "djmeta/cue_reference_locator.h"
 #include "djmeta/cue_physical_selection_audit.h"
 #include "djmeta/cue_raw_route_impact.h"
+#include "djmeta/cue_inspection_queue.h"
 #include "djmeta/cue_file_navigation.h"
 #include "djmeta/physical_selection.h"
 #include "djmeta/physical_sdk_postimage.h"
@@ -221,6 +222,8 @@ struct PreviewState {
     int split_drag_start_offset_96 = 0;
     bool split_dragging = false;
     std::vector<PreviewEntry> entries;
+    djmeta::CueInspectionQueue cue_inspections; // session-only CUE audit
+    std::size_t next_cue_cursor=0; // original captured source ordinal
     std::optional<PreviewUndoFrame> last_preview_undo;
     djmeta::BatchPreviewTable table;
     RoutePreviewChoice current_choice;
@@ -659,6 +662,13 @@ void reset_raw_target_observation(PreviewEntry& entry) {
 
 // A live overview of the entire captured selection, not just the focused
 // proposal or the currently sorted FileOps row. No SDK writer is reachable.
+std::vector<std::size_t> captured_cue_carriers(const PreviewState& state) {
+    std::vector<std::size_t> rows;
+    for(std::size_t i=0;i<state.entries.size();++i)
+        if(is_external_cue_locator(state.entries[i].input.source_path))
+            rows.push_back(i);
+    return rows;
+}
 void update_workflow_audit_hint(PreviewState& state) {
     if(!state.dialog || state.show_metadata) return;
     const auto audit=djmeta::audit_workflow_preview(
@@ -678,8 +688,15 @@ void update_workflow_audit_hint(PreviewState& state) {
         L". Action-stage filters show BLOCKED / RAW ONLY / SKIP from the "
         L"complete action ledger; Preview all and Audit still cover hidden "
         L"rows. No writes.";
+    const auto cue_ids=captured_cue_carriers(state);
+    const auto cue_summary=state.cue_inspections.plan.size()==state.entries.size()
+        ? state.cue_inspections.counts(cue_ids) : djmeta::CueQueueCounts{};
+    const auto detailed=hint+(cue_ids.empty() ? std::wstring{} :
+        L" CUE carriers "+std::to_wstring(cue_ids.size())+
+        L", needing inspection "+std::to_wstring(
+            cue_summary.missing+cue_summary.stale+cue_summary.blocked)+L".");
     SetDlgItemTextW(state.dialog,IDC_BATCH_HINT,
-        native_workspace_display_hint(state.stale,hint.c_str()));
+        native_workspace_display_hint(state.stale,detailed.c_str()));
 }
 
 std::vector<djmeta::BatchPreviewInputRow> current_batch_route_inputs(
@@ -738,6 +755,28 @@ std::vector<djmeta::BatchPreviewInputRow> current_batch_route_inputs(
     return inputs;
 }
 
+std::vector<djmeta::CueQueuePlanRow> current_cue_plan_rows(
+    const PreviewState& state,
+    const std::vector<djmeta::BatchPreviewInputRow>& inputs) {
+    if(inputs.size()!=state.entries.size() ||
+       inputs.size()!=state.table.rows.size())
+        throw std::invalid_argument("CUE_QUEUE_PLAN_SHAPE_STALE");
+    std::vector<djmeta::CueQueuePlanRow> rows;
+    rows.reserve(inputs.size());
+    for(std::size_t i=0;i<inputs.size();++i) {
+        const auto& source=state.entries[i];
+        const auto& input=inputs[i];
+        rows.push_back({source.observed_physical_key,
+            source.observed_source_guard,input.destination_root,
+            input.raw_relative_path,source.file_action,
+            source.file_action_explicitly_staged,
+            input.physical_source_qualified,
+            input.semantic_proposals_pending,
+            state.table.rows[i].has_raw_target_collision});
+    }
+    return rows;
+}
+
 void update_table(PreviewState& state) {
     // Preserve underlying identities, NOT virtual screen positions, when
     // a sort or user override causes displayed rows to change order.
@@ -753,6 +792,7 @@ void update_table(PreviewState& state) {
 
     const auto inputs=current_batch_route_inputs(state);
     state.table = djmeta::describe_batch_preview(inputs);
+    state.cue_inspections.observe(current_cue_plan_rows(state,inputs));
     const auto sorted=djmeta::sort_batch_table_view(
         inputs, state.table, state.layout.sort_column, state.layout.sort_descending);
     if(state.location_queue==djmeta::BatchLocationQueue::FileActionBlocked ||
@@ -836,6 +876,19 @@ djmeta::WorkflowFileActionAudit current_file_action_audit(
     for(const auto& entry:state.entries) actions.push_back(entry.file_action);
     return djmeta::audit_workflow_file_actions(
         state.table,inputs,actions,review);
+}
+
+std::wstring cue_inspection_summary(const PreviewState& state) {
+    if(state.cue_inspections.plan.size()!=state.entries.size())
+        return L"CUE inspection queue not initialized.";
+    const auto s=state.cue_inspections.counts(captured_cue_carriers(state));
+    return L"CUE carriers: "+std::to_wstring(s.total)+
+        L"; not inspected "+std::to_wstring(s.missing)+
+        L", stale "+std::to_wstring(s.stale)+
+        L", blocked "+std::to_wstring(s.blocked)+
+        L", RAW-only "+std::to_wstring(s.raw_only)+
+        L", original kept "+std::to_wstring(s.kept)+
+        L". No final FILE links qualified.";
 }
 
 std::wstring workflow_audit_summary(
@@ -953,6 +1006,7 @@ std::wstring workflow_audit_summary(
         report+=L"\nDiscogs field selection: none. "
                 L"Only explicitly accepted local normalization is staged.";
     }
+    report+=L"\n"+cue_inspection_summary(state);
     if(state.cue_value_preview)
         report+=L"\nCUE: independent read-only postimage; not a batch write.";
     std::size_t listed=0;
@@ -2686,6 +2740,9 @@ void show_preview_page(HWND dialog, PreviewState& state,
         ShowWindow(GetDlgItem(dialog,id),metadata?SW_HIDE:SW_SHOW);
     ShowWindow(GetDlgItem(dialog,IDC_BATCH_BACK_TO_CUE),
         !metadata && state.cue_return.has_value() ? SW_SHOW : SW_HIDE);
+    ShowWindow(GetDlgItem(dialog,IDC_BATCH_NEXT_CUE),
+        !metadata && !captured_cue_carriers(state).empty()
+            ? SW_SHOW : SW_HIDE);
     ShowWindow(GetDlgItem(dialog,IDC_BATCH_AUDIT),
         metadata ? SW_HIDE : SW_SHOW);
     ShowWindow(GetDlgItem(dialog,IDC_BATCH_COPY_AUDIT),
@@ -2717,7 +2774,7 @@ void show_history_page(HWND dialog,PreviewState& state) {
     // window, persistent history database or clipboard access.
     show_preview_page(dialog,state,false,false);
     for(const int id:{IDC_BATCH_LIST,IDC_BATCH_LOCATION_FILTER,
-        IDC_BATCH_FILE_ACTION,IDC_BATCH_BACK_TO_CUE,
+        IDC_BATCH_FILE_ACTION,IDC_BATCH_BACK_TO_CUE,IDC_BATCH_NEXT_CUE,
         IDC_BATCH_LOCATION_FILTER_LABEL,IDC_BATCH_LOCATION_NOTE,
         IDC_BATCH_ROUTE_LABEL,IDC_BATCH_DEST_LABEL,IDC_BATCH_PATTERN_LABEL,
         IDC_BATCH_PROFILE_PICKER,IDC_BATCH_PROFILE_SAVE,
@@ -3937,7 +3994,7 @@ void undo_last_preview_action(HWND dialog, PreviewState& state) {
 // sets filesystem_target_checked or cue_dependencies_checked; real File
 // Operations path sanitation and write safety are NOT certified here.
 void append_external_cue_file_reference_evidence(
-    const PreviewState& state, const PreviewEntry& entry,
+    PreviewState& state, const PreviewEntry& entry,
     const djmeta::CueMetadataInventory& inventory,
     std::vector<djmeta::online::FieldReviewRow>& rows) {
     if (!is_external_cue_locator(entry.input.source_path)) return;
@@ -4236,6 +4293,11 @@ void append_external_cue_file_reference_evidence(
     sidecar_row.state=djmeta::online::FieldReviewState::Blocked;
     sidecar_row.reason="cue_carrier_action_not_final_approval";
     rows.push_back(std::move(sidecar_row));
+    // Commit the diagnostic receipt only after the real CUE FILE inventory,
+    // physical audio matching and sidecar cross-check all completed.
+    state.cue_inspections.observe(current_cue_plan_rows(
+        state,current_batch_route_inputs(state)));
+    state.cue_inspections.record(state.selected_track_index,impact,sidecar);
     if(rows.size()>=10000)
         throw std::invalid_argument("CUE physical audit display limit reached.");
     djmeta::online::FieldReviewRow coverage;
@@ -4911,6 +4973,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_BATCH_LOCATION_FILTER,L"Display-only full-batch raw route and staged FileAction queues: BLOCKED, RAW ONLY or SKIP. Selected/visible previews use only visible original source IDs; Preview all and Audit include hidden rows. No final FileOps/CUE approval."},
         {IDC_BATCH_FILE_ACTION,L"Explicit action intent for the next selected/visible/all preview: Move, Copy, Rename or No file action. Each track retains its own intent; Rename awaits verified same-parent host destination. Nothing is executed."},
         {IDC_BATCH_BACK_TO_CUE,L"Return to the original CUE carrier and reread its full physical FILE reference and sidecar action evidence. Rechecks all sources; never writes files."},
+        {IDC_BATCH_NEXT_CUE,L"Open the next uninspected, stale or blocked external CUE carrier from original source order. Reread FILE dependencies on demand. No online search or writer."},
         {IDC_BATCH_PROFILE_PICKER,L"Choose a built-in or saved route, or type a new name. Saved templates do not approve files."},
         {IDC_BATCH_PROFILE_SAVE,L"Save this name, destination and Title Formatting expression in the foobar profile. Existing names require default-No confirmation. Preview again for RAW routes."},
         {IDC_BATCH_PROFILE_DELETE,L"Delete only a saved custom route after default-No confirmation. Built-in Singles/Alben/Livesets are immutable."},
@@ -5111,8 +5174,12 @@ void copy_workflow_audit(HWND dialog,const PreviewState& state,
         file_actions,attention_only
             ? djmeta::WorkflowAuditExportScope::AttentionRows
             : djmeta::WorkflowAuditExportScope::AllRows);
+    if(state.cue_inspections.plan.size()!=state.entries.size())
+        throw std::invalid_argument("CUE_QUEUE_EXPORT_PLAN_STALE");
+    const auto cue_ledger=state.cue_inspections.export_tsv(
+        captured_cue_carriers(state),attention_only);
     const auto report=verified_summary+L"\r\n\r\n"+from_utf8(tsv)+
-        L"\r\n"+from_utf8(ledger);
+        L"\r\n"+from_utf8(ledger)+L"\r\n"+from_utf8(cue_ledger);
     native_copy_audit_text_to_clipboard(dialog,report);
     SetDlgItemTextW(dialog,IDC_BATCH_HINT,attention_only
         ? L"Read-only attention queue copied (whole batch verified; source-order IDs). No paths, tags or writes."
@@ -8813,6 +8880,51 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         if (id == IDC_BATCH_COPY_ISSUES && HIWORD(wp) == BN_CLICKED) {
             // Filtered report only; global source and route checks are intact.
             copy_workflow_audit(dialog,*state,true);
+            return TRUE;
+        }
+        if(id==IDC_BATCH_NEXT_CUE && HIWORD(wp)==BN_CLICKED) {
+            if(state->stale || state->refreshing ||
+               TabCtrl_GetCurSel(state->tabs)!=2)
+                throw std::invalid_argument("Next CUE requires fresh File locations.");
+            const auto carrier_ids=captured_cue_carriers(*state);
+            const auto next=state->cue_inspections.next_attention(
+                carrier_ids,state->next_cue_cursor);
+            if(next>=state->entries.size()) {
+                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                    L"No remaining uninspected, stale or blocked CUE source. "
+                    L"Final foobar FileOps/CUE permission remains unavailable.");
+                return TRUE;
+            }
+            verify_snapshot(state->entries[next]);
+            verify_rules_snapshot(state->captured_rules);
+            revalidate_workspace(*state,true);
+            if(state->stale)
+                throw std::runtime_error("CUE queue changed. Refresh.");
+            state->next_cue_cursor=next;
+            state->track_discovery=djmeta::TrackDiscovery::All;
+            state->metadata_focus=djmeta::MetadataFocus::All;
+            SendDlgItemMessageW(dialog,IDC_METADATA_TRACK_FILTER,CB_SETCURSEL,0,0);
+            SendDlgItemMessageW(dialog,IDC_METADATA_FILTER,CB_SETCURSEL,2,0);
+            state->selected_track_index=next;
+            TabCtrl_SetCurSel(state->tabs,1);
+            show_preview_page(dialog,*state,true,true);
+            update_master_table(*state);
+            const auto it=std::find(state->track_view_order.begin(),
+                                    state->track_view_order.end(),next);
+            if(it==state->track_view_order.end())
+                throw std::runtime_error("CUE source not visible in full Find queue.");
+            const auto row=static_cast<int>(it-state->track_view_order.begin());
+            state->updating_track_selection=true;
+            ListView_SetItemState(state->metadata_track_list,-1,0,LVIS_SELECTED);
+            ListView_SetItemState(state->metadata_track_list,row,
+                                  LVIS_SELECTED|LVIS_FOCUSED,
+                                  LVIS_SELECTED|LVIS_FOCUSED);
+            state->updating_track_selection=false;
+            ListView_EnsureVisible(state->metadata_track_list,row,FALSE);
+            SendMessageW(dialog,WM_COMMAND,
+                MAKEWPARAM(IDC_METADATA_INSPECT_CUE,BN_CLICKED),
+                reinterpret_cast<LPARAM>(GetDlgItem(dialog,IDC_METADATA_INSPECT_CUE)));
+            SetFocus(state->metadata_list);
             return TRUE;
         }
         if(id==IDC_BATCH_BACK_TO_CUE && HIWORD(wp)==BN_CLICKED) {

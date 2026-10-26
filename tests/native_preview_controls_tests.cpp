@@ -297,6 +297,15 @@ int main() {
           back_rect.top<route_rect.bottom &&
           route_rect.top<back_rect.bottom,
           "CUE return does not overlap scoped file preview at default DPI");
+    const HWND next_cue=GetDlgItem(dialog,IDC_BATCH_NEXT_CUE);
+    check(next_cue!=nullptr &&
+          (GetWindowLongPtrW(next_cue,GWL_STYLE)&WS_TABSTOP)!=0,
+          "native Next CUE is keyboard accessible");
+    RECT cue_rect{},selected_rect{};
+    GetWindowRect(next_cue,&cue_rect);
+    GetWindowRect(GetDlgItem(dialog,IDC_BATCH_APPLY_SELECTED),&selected_rect);
+    check(cue_rect.right<selected_rect.left,
+          "Next CUE does not overlap selected file plan at default DPI");
     const HWND visible_route=GetDlgItem(dialog,IDC_BATCH_APPLY_VISIBLE);
     check(visible_route!=nullptr &&
           (GetWindowLongPtrW(visible_route,GWL_STYLE)&WS_TABSTOP)!=0,

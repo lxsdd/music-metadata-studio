@@ -49,7 +49,7 @@
 | MMS-WF-06 | PARTIAL | Native Audit, full/blocked-only TSV and sortable File locations action-stage queues include per-source staged Move/Copy/Rename/Skip with BLOCKED/RAW ONLY reasons, while final host-resolved FileOps/CUE targets and executable confirmation remain OPEN. No-op rows stay out of file actions. | #33, #50 |
 | MMS-WF-07 | OPEN | After execution show a compact per-item report, skips/errors and a useful **history** for the current workflow; no duplicate permanent metadata database. | [workflow](UNIFIED-WORKFLOW.md) |
 | MMS-WF-08 | PARTIAL | Incomplete/stale/switching track or source shows explicit loading/stale indications; long tasks give progress, cancellation when safe, and preserve still-valid in-memory decisions. | #47, #48 |
-| MMS-WF-09 | OPEN | Consistent workflow for 1, 10, 100 or 500 selected items; clear empty/loading/ambiguous states, without requiring repetitive individual dialogs. | #50 |
+| MMS-WF-09 | PARTIAL | Source-order native Next CUE and read-only full/attention CUE inspection ledgers for up to 54,129 sources; missing/stale/blocked states and native GUI tests. Final host FileOps qualification and installed owner acceptance remain OPEN. | #50 |
 
 ## UI — konsistente foobar-Bedienung
 

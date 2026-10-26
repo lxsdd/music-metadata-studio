@@ -1280,3 +1280,25 @@ unknown action, contradictory stage and stale aggregate counters fail closed.
 No execution, overwrite consent, CUE rewrite, tag write, persistence of
 approval or new normalization engine was added. Native Win32/x64 host-load
 and installed GUI acceptance are separate qualification gates.
+
+
+### Complete source-order CUE inspection queue
+
+The File locations native workspace shows the count of captured external-CUE
+carriers and an explicit **Next CUE** control. It opens one pending/stale/
+blocked CUE at a time through the preexisting user-triggered read-only
+Inspect CUE flow; there is NO mass audio scan, online request, or writer.
+The existing Audit/Copy audit/Copy issues include a second path-free CUE
+ledger: NOT_INSPECTED, STALE_REINSPECT, BLOCKED, RAW_ONLY_FINAL_CUE_UNQUALIFIED
+or ORIGINAL_CUE_KEPT. Original source ordinals alone appear in the export,
+not CUE text, audio names, tags, source guards, local paths or credentials.
+
+A diagnostic receipt is created only after physical FILE host-probes and
+sidecar analysis. Exact full-source-order equality is checked against the
+plan each time File locations is recomputed. A changed physical key/guard,
+file action, pending metadata state, RAW destination or batch collision
+renders all old CUE evidence stale, including otherwise hidden source rows.
+Sorting/filtering with no actual changed evidence retains receipts.
+Revisiting one CUE updates that source only. Reports never qualify final
+foobar File Operations targets or relative CUE FILE token postimages.
+Synthetic 54,129-source tests and native Win32/x64 UI checks cover the path.
