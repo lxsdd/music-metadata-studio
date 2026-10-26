@@ -1,5 +1,6 @@
 #include "djmeta/musicbrainz_provider.h"
 #include "djmeta/musicbrainz_search_review.h"
+#include "djmeta/musicbrainz_physical_review.h"
 #include "djmeta/cue_online_bridge.h"
 
 #include <algorithm>
@@ -24,6 +25,14 @@ int main() {
     using namespace djmeta;
     using namespace djmeta::online;
     using namespace djmeta::online::musicbrainz;
+    check(explicit_physical_album_term("ALBUM:  Via Balearia  ")==
+              std::optional<std::string>{"Via Balearia"} &&
+          !explicit_physical_album_term("Via Balearia") &&
+          !explicit_physical_album_term("album-title") &&
+          !explicit_physical_album_term("recording: 1000 Years"),
+          "album prefix alone selects the explicit physical release search");
+    rejects([] { (void)explicit_physical_album_term("Album:  "); },
+            "empty physical album search fails before any official request");
     check(request_spacing_wait_ms(0,100)==0 &&
           request_spacing_wait_ms(100,100)==1200 &&
           request_spacing_wait_ms(100,101)==1199 &&
@@ -818,6 +827,91 @@ int main() {
       ]
     })MB");
     const auto edition=parse_release_lookup(edition_json,first);
+    // End-to-end parsed official edition -> exact physical track match ->
+    // grouped read-only local/album/track details. No physical stage is exposed.
+    const auto physical_release=parse_release_lookup(R"MB({
+      "id":"11111111-1111-1111-1111-111111111111",
+      "title":"Synthetic Edition", "date":"2026-10-21",
+      "barcode":"1234567890123",
+      "artist-credit":[{"name":"Example Artist"}],
+      "media":[{"position":1,"tracks":[
+        {"id":"22222222-2222-2222-2222-222222222222",
+         "position":1,"title":"Skyline (Extended Mix)","length":420000,
+         "artist-credit":[{"name":"Example Artist"}],
+         "recording":{"title":"Skyline (Extended Mix)",
+           "artist-credit":[{"name":"Example Artist"}]}},
+        {"id":"33333333-3333-3333-3333-333333333333",
+         "position":2,"title":"Other (Extended Mix)","length":240000,
+         "artist-credit":[{"name":"Example Artist"}],
+         "recording":{"title":"Other (Extended Mix)",
+           "artist-credit":[{"name":"Example Artist"}]}}
+      ]}]
+    })MB",first);
+    const MetadataDocument physical_tags{{
+        {"TITLE",{"Skyline (Extended Mix)"}},
+        {"ARTIST",{"Example Artist"}},
+        {"TRACKNUMBER",{"1"}},
+        {"DISCNUMBER",{"1"}},
+        {"BARCODE",{"1234567890123"}},
+        {"DJ_CUSTOM",{"Keep","All","Values"}},
+        {"REPLAYGAIN_TRACK_GAIN",{"-5 dB"}}
+    }};
+    const auto originals_copy=physical_tags;
+    const auto details=review_musicbrainz_physical_edition(
+        physical_tags,physical_release,420000);
+    const auto get_row=[](const auto& rows,std::string_view name) {
+        return std::find_if(rows.begin(),rows.end(),[&](const auto& row) {
+            return row.field==name;
+        });
+    };
+    check(get_row(details,"Album / ALBUM")!=details.end() &&
+          get_row(details,"Album / ALBUM")->state==
+              FieldReviewState::NeedsReview &&
+          get_row(details,"Release Track 1 / MATCH")->state==
+              FieldReviewState::Unchanged &&
+          get_row(details,"Release Track 1 / TITLE")->state==
+              FieldReviewState::Unchanged &&
+          get_row(details,"Release Track 2 / MATCH")->state==
+              FieldReviewState::Blocked &&
+          get_row(details,"Release Track 2 / TITLE")->state==
+              FieldReviewState::Blocked &&
+          get_row(details,"Physical / DJ_CUSTOM")->original_values==
+              std::vector<std::string>({"Keep","All","Values"}) &&
+          get_row(details,"Physical / REPLAYGAIN_TRACK_GAIN")!=details.end() &&
+          physical_tags==originals_copy,
+          "physical edition comparison preserves custom/ReGain vectors and only "
+          "one direct exact occurrence promotes read-only album and track evidence");
+    auto no_id=physical_release;
+    no_id.tracks[0].source_track_id.clear();
+    no_id.tracks[0].fields.clear();
+    const auto missed=review_musicbrainz_physical_edition(
+        physical_tags,no_id,420000);
+    check(get_row(missed,"Album / ALBUM")->state==FieldReviewState::Blocked &&
+          get_row(missed,"Release Track 1 / MATCH")->state==FieldReviewState::Blocked,
+          "recording title/artist/duration cannot replace absent release track ID");
+    auto forged_track=physical_release;
+    forged_track.tracks[0].fields[0].source_id=first; // release != track
+    const auto forged=review_musicbrainz_physical_edition(
+        physical_tags,forged_track,420000);
+    check(get_row(forged,"Album / ALBUM")->state==FieldReviewState::Blocked,
+          "wrong-MBID track field blocks matched album evidence");
+    auto wrong_barcode=physical_tags;
+    wrong_barcode.fields[4].values={"9999999999999"};
+    const auto disputed=review_musicbrainz_physical_edition(
+        wrong_barcode,physical_release,420000);
+    check(get_row(disputed,"Album / ALBUM")->state==FieldReviewState::Blocked,
+          "conflicting local barcode blocks entire edition identity promotion");
+    auto mismatched_mix=physical_tags;
+    mismatched_mix.fields[0].values={"Skyline (Radio Edit)"};
+    const auto wrong_mix=review_musicbrainz_physical_edition(
+        mismatched_mix,physical_release,420000);
+    check(get_row(wrong_mix,"Album / ALBUM")->state==FieldReviewState::Blocked,
+          "same artist but wrong mix never becomes exact physical edition match");
+    rejects([&]{auto mixed=physical_release;
+        mixed.fields[0].source_id=second;
+        (void)review_musicbrainz_physical_edition(physical_tags,mixed,420000);
+    },"foreign edition field source is never trusted in physical comparison");
+
     check(edition.provider=="musicbrainz"&&edition.edition_id==first &&
           edition.fields.size()==3 &&
           edition.fields[2].date_meaning==DateMeaning::EditionRelease &&

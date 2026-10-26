@@ -22,6 +22,28 @@
 namespace djmeta::online::musicbrainz {
 
 enum class SearchKind { Recording, Release };
+
+// Physical-source release browsing is always a visibly typed user intent.
+// Never reinterpret ordinary TITLE search, a recording URL, or CUE search.
+inline std::optional<std::string> explicit_physical_album_term(
+    std::string_view entered) {
+    constexpr std::string_view prefix="album:";
+    if (entered.size()<prefix.size()) return std::nullopt;
+    for (std::size_t i=0;i<prefix.size();++i) {
+        char c=entered[i];
+        if (c>='A'&&c<='Z') c=static_cast<char>(c-'A'+'a');
+        if (c!=prefix[i]) return std::nullopt;
+    }
+    entered.remove_prefix(prefix.size());
+    while(!entered.empty() && (entered.front()==' '||entered.front()=='\t'))
+        entered.remove_prefix(1);
+    while(!entered.empty() && (entered.back()==' '||entered.back()=='\t'))
+        entered.remove_suffix(1);
+    if (entered.empty())
+        throw std::invalid_argument("album: requires an explicit release title");
+    return std::string(entered);
+}
+
 // Keep official search and exact-release HTTP boundaries in one source of
 // truth. The native allowlist must not reject an URL built by this provider.
 inline constexpr std::size_t max_search_candidates=25;

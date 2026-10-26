@@ -121,3 +121,29 @@ or File Operations writer is enabled. Offline tests include full
 25-record pages, exhausted count, malformed count, mismatched offset,
 out-of-range page and URL injection. The existing Win32/x64 host GUI
 tests and protected provider-health checks remain separate gates.
+
+
+## Physical-track MusicBrainz release comparison (2026-10-26)
+
+A user-selected qualified physical audio source now supports a deliberately
+entered `album: Album Name` query (official bounded RELEASE search), or a
+full exact `https://musicbrainz.org/release/<MBID>` URL. Ordinary physical
+TITLE searches remain RECORDING searches. Release candidates must be
+explicitly selected and loaded; neither track selection nor a snippet starts
+an unsolicited release lookup.
+
+The exact official response is parsed into independent edition and
+release-track occurrence evidence. Only a unique, independently corroborated
+physical TITLE/ARTIST/mix/duration/optional ISRC association with a direct
+release-track MBID can make album and track facts reviewable. Local
+barcode/catalogue conflicts, unknown release-track MBIDs, mismatched
+provider field provenance and changed local snapshots block promotion.
+All physical custom tags, ReplayGain, multivalues and original dates remain
+visible and unmodified. Other edition tracks show blocked diagnostics.
+A CUE source continues to use its existing dedicated CUE path.
+
+**This path is strictly read-only comparison:** it intentionally does NOT
+reuse Discogs physical staging or enable MusicBrainz physical field approval,
+tag/CUE/FileOps writers, release-group substitution or background search.
+Native Windows/foobar installed GUI acceptance and real public MusicBrainz
+host-network behavior remain separate from deterministic CI qualification.

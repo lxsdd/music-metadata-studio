@@ -30,6 +30,7 @@
 #include "djmeta/cue_manual_preview.h"
 #include "djmeta/musicbrainz_provider.h"
 #include "djmeta/musicbrainz_search_review.h"
+#include "djmeta/musicbrainz_physical_review.h"
 #include "djmeta/online_field_staging.h"
 #include "djmeta/online_physical_postimage.h"
 #include "djmeta/online_field_ui_selection.h"
@@ -6248,8 +6249,8 @@ void publish_musicbrainz_release(
          state.candidate_source_index!=request.source_index)) ||
        state.selected_track_index!=request.source_index ||
        request.source_index>=state.entries.size() ||
-       (request.direct_release && (!request.cue_mode ||
-           !djmeta::online::musicbrainz::valid_mbid(request.release_mbid))))
+       (request.direct_release &&
+           !djmeta::online::musicbrainz::valid_mbid(request.release_mbid)))
         throw std::runtime_error("MusicBrainz release result discarded after source change.");
     const bool still_verified=std::any_of(
         state.musicbrainz_results.begin(),state.musicbrainz_results.end(),
@@ -6273,18 +6274,45 @@ void publish_musicbrainz_release(
     const auto& entry=state.entries[request.source_index];
     verify_online_source_snapshot(state, entry);
     verify_rules_snapshot(state.captured_rules);
-    const auto raw=read_cue_raw_on_demand(entry.handle,entry.input.source_path);
-    if(raw.raw_text!=request.cue_before)
-        throw std::runtime_error("CUE changed during lookup; discard stale results.");
-    const auto cue=djmeta::inspect_cue_metadata(raw.raw_text,raw.carrier);
-    if(cue.status!=djmeta::CueSyntaxStatus::Parsed)
-        throw std::invalid_argument("MusicBrainz CUE became unqualified.");
     const auto release=djmeta::online::musicbrainz::parse_release_lookup(
         reply,request.release_mbid);
-    auto grouped=group_musicbrainz_release_rows(
-        musicbrainz_cue_release_rows(cue,release));
-    auto cue_preview=djmeta::online::capture_qualified_cue_edition_postimage(
-        raw.raw_text,raw.carrier,release);
+    std::vector<djmeta::online::FieldReviewRow> compared;
+    std::optional<djmeta::online::CuePostimageReviewSnapshot> cue_preview;
+    if(request.cue_mode) {
+        const auto raw=read_cue_raw_on_demand(
+            entry.handle,entry.input.source_path);
+        if(raw.raw_text!=request.cue_before)
+            throw std::runtime_error(
+                "CUE changed during lookup; discard stale results.");
+        const auto cue=djmeta::inspect_cue_metadata(raw.raw_text,raw.carrier);
+        if(cue.status!=djmeta::CueSyntaxStatus::Parsed)
+            throw std::invalid_argument("MusicBrainz CUE became unqualified.");
+        compared=musicbrainz_cue_release_rows(cue,release);
+        auto candidate=djmeta::online::capture_qualified_cue_edition_postimage(
+            raw.raw_text,raw.carrier,release);
+        if(candidate.eligible) cue_preview.emplace(std::move(candidate));
+    } else {
+        if(!entry.input.physical_source_qualified ||
+           entry.handle->get_subsong_index()!=0 ||
+           is_external_cue_locator(entry.input.source_path))
+            throw std::invalid_argument(
+                "MusicBrainz release needs qualified physical audio or CUE.");
+        const auto info=entry.handle->get_info_ref();
+        const auto original=metadata_from_file_info(info->info());
+        if(original!=request.originals)
+            throw std::runtime_error(
+                "Physical tags changed after MusicBrainz release search.");
+        const double seconds=info->info().get_length();
+        const std::int64_t ms=seconds>0.0 && seconds<=36000.0
+            ? static_cast<std::int64_t>(seconds*1000.0+0.5) : -1;
+        compared=djmeta::online::review_musicbrainz_physical_edition(
+            original,release,ms);
+        if(metadata_from_file_info(entry.handle->get_info_ref()->info())!=
+           request.originals)
+            throw std::runtime_error(
+                "Physical tags changed during MusicBrainz release comparison.");
+    }
+    auto grouped=group_musicbrainz_release_rows(compared);
     verify_online_source_snapshot(state, entry);
     verify_rules_snapshot(state.captured_rules);
     state.candidate_rows=std::move(grouped.summary);
@@ -6318,13 +6346,26 @@ void publish_musicbrainz_release(
     }
     state.cue_value_preview.reset();
     state.cue_value_preview_indices.clear();
-    if(cue_preview.eligible)
-        state.cue_postimage_snapshot.emplace(std::move(cue_preview));
-    else state.cue_postimage_snapshot.reset();
+    state.cue_postimage_snapshot=std::move(cue_preview);
+    // Physical MusicBrainz releases are comparison evidence only until
+    // a separately qualified source-aware field-staging adapter exists.
+    state.online_physical_edition.reset();
+    state.online_field_snapshot.reset();
+    state.online_field_preview.reset();
+    state.online_raw_target_observation.reset();
+    state.online_included_fields.clear();
+    state.online_date_targets.clear();
+    state.online_edition_source=(std::numeric_limits<std::size_t>::max)();
     state.cue_postimage_source=state.cue_postimage_snapshot
         ? request.source_index:(std::numeric_limits<std::size_t>::max)();
     state.cue_postimage_discogs=false;
+    state.musicbrainz_page_cue_mode=request.cue_mode;
     state.musicbrainz_release_loaded=true;
+    if(!request.cue_mode)
+        state.search_attempt_notice=
+            L"Exact MusicBrainz edition and physical tracklist compared. "
+            L"Unmatched or unverified fields are blocked; comparison only. "
+            L"No tag selection or file writes.";
     ListView_SetItemState(state.metadata_list,-1,0,LVIS_SELECTED);
     update_metadata_table(state);
 }
@@ -8169,10 +8210,17 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                   state->cue_candidate_comparison_mode ||
                   (state->musicbrainz_live_view &&
                    state->musicbrainz_kind==
-                     djmeta::online::musicbrainz::SearchKind::Release)));
+                     djmeta::online::musicbrainz::SearchKind::Release &&
+                   state->musicbrainz_page_cue_mode)));
             std::string local_title, local_artist, local_isrc, local_barcode, cue_before;
             djmeta::MetadataDocument original_tags;
-            const auto kind=cue_mode
+            // An explicit "album:" request is a RELEASE search even for a
+            // physical song; ordinary physical searches stay RECORDING-only.
+            const auto entered=to_utf8(read_control(dialog,IDC_METADATA_MB_QUERY));
+            const auto album_term=cue_mode
+                ? std::optional<std::string>{}
+                : djmeta::online::musicbrainz::explicit_physical_album_term(entered);
+            const auto kind=(cue_mode || album_term)
                 ? djmeta::online::musicbrainz::SearchKind::Release
                 : djmeta::online::musicbrainz::SearchKind::Recording;
             if (cue_mode) {
@@ -8200,16 +8248,26 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 try {local_isrc=unique_metadata_value(original_tags,"ISRC");}
                 catch (const std::invalid_argument&) {} // ambiguous ISRC is excluded
             }
-            const auto entered=to_utf8(read_control(dialog,IDC_METADATA_MB_QUERY));
+            if(!cue_mode && kind==djmeta::online::musicbrainz::SearchKind::Release) {
+                try {
+                    const auto album_artist=unique_metadata_value(
+                        original_tags,"ALBUM ARTIST");
+                    if(!album_artist.empty()) local_artist=album_artist;
+                } catch(const std::invalid_argument&) {
+                    local_artist.clear(); // ambiguous album artist is not search evidence
+                }
+            }
             const auto exact_url=
                 djmeta::online::musicbrainz::parse_exact_entity_url(entered);
             if(exact_url) {
-                if(exact_url->kind!=kind)
+                if(exact_url->kind!=kind &&
+                   !( !cue_mode &&
+                      exact_url->kind==
+                          djmeta::online::musicbrainz::SearchKind::Release))
                     throw std::invalid_argument(
                         kind==djmeta::online::musicbrainz::SearchKind::Release
                             ? "This CUE needs an exact MusicBrainz RELEASE URL, not a recording URL."
-                            : "An exact MusicBrainz RELEASE URL needs a qualified CUE; "
-                              "use a RECORDING URL for a physical track.");
+                            : "Use an exact recording/release URL or type album: before an album title.");
                 // One explicit gesture, no Lucene fallback or synthetic hit.
                 // Rebuild the official fixed-host route from the verified ID.
                 state->search_plan_identity.clear();
@@ -8217,17 +8275,18 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 state->musicbrainz_has_published_attempt=false;
                 PendingMusicBrainzContext request;
                 request.source_index=state->selected_track_index;
-                request.kind=kind;
+                request.kind=exact_url->kind;
                 request.cue_mode=cue_mode;
                 request.cue_before=std::move(cue_before);
                 request.originals=std::move(original_tags);
                 request.local_title=std::move(local_title);
                 request.local_artist=std::move(local_artist);
-                request.strategy=kind==djmeta::online::musicbrainz::SearchKind::Release
+                request.strategy=exact_url->kind==
+                    djmeta::online::musicbrainz::SearchKind::Release
                     ? "Exact release URL" : "Exact recording URL";
                 request.total=1;
                 std::string route;
-                if(kind==djmeta::online::musicbrainz::SearchKind::Release) {
+                if(exact_url->kind==djmeta::online::musicbrainz::SearchKind::Release) {
                     request.operation=PendingMusicBrainzContext::Kind::Release;
                     request.direct_release=true;
                     request.release_mbid=exact_url->mbid;
@@ -8248,7 +8307,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             const bool suggested_query = entered.empty() ||
                 (state->auto_search_track == state->selected_track_index &&
                  entered == to_utf8(state->auto_search_text));
-            const std::string term=entered.empty()?local_title:entered;
+            const std::string term=album_term
+                ? *album_term : entered.empty()?local_title:entered;
             const bool identifier_only=suggested_query &&
                 (kind==djmeta::online::musicbrainz::SearchKind::Recording
                     ? djmeta::online::musicbrainz::valid_search_isrc(local_isrc)
@@ -8357,7 +8417,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 state->candidate_source_index!=state->selected_track_index ||
                 state->selected_track_index>=state->entries.size())
                 throw std::invalid_argument(
-                    "Search for a MusicBrainz CUE release before loading its tracks.");
+                    "Search for a MusicBrainz release before loading its tracks.");
             const int selected=ListView_GetNextItem(
                 state->metadata_list,-1,LVNI_SELECTED);
             if (selected<0 ||
@@ -8379,11 +8439,23 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             const auto& entry=state->entries[state->selected_track_index];
             verify_snapshot(entry);
             verify_rules_snapshot(state->captured_rules);
-            const auto raw=read_cue_raw_on_demand(
-                entry.handle,entry.input.source_path);
-            const auto cue=djmeta::inspect_cue_metadata(raw.raw_text,raw.carrier);
-            if (cue.status!=djmeta::CueSyntaxStatus::Parsed)
-                throw std::invalid_argument("Selected CUE track inventory is unqualified.");
+            const bool release_cue_mode=state->musicbrainz_page_cue_mode;
+            std::string cue_before;
+            if(release_cue_mode) {
+                const auto raw=read_cue_raw_on_demand(
+                    entry.handle,entry.input.source_path);
+                const auto cue=djmeta::inspect_cue_metadata(
+                    raw.raw_text,raw.carrier);
+                if(cue.status!=djmeta::CueSyntaxStatus::Parsed)
+                    throw std::invalid_argument(
+                        "Selected CUE track inventory is unqualified.");
+                cue_before=raw.raw_text;
+            } else if(!entry.input.physical_source_qualified ||
+                      entry.handle->get_subsong_index()!=0 ||
+                      is_external_cue_locator(entry.input.source_path)) {
+                throw std::invalid_argument(
+                    "MusicBrainz physical release source is unqualified.");
+            }
             SetDlgItemTextW(dialog,IDC_BATCH_HINT,
                 L"Retrieving the selected MusicBrainz release tracklist (read-only)...");
             RedrawWindow(dialog,nullptr,nullptr,RDW_INVALIDATE|RDW_UPDATENOW);
@@ -8391,8 +8463,9 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             request.operation=PendingMusicBrainzContext::Kind::Release;
             request.source_index=state->selected_track_index;
             request.kind=djmeta::online::musicbrainz::SearchKind::Release;
-            request.cue_mode=true;
-            request.cue_before=raw.raw_text;
+            request.cue_mode=release_cue_mode;
+            request.cue_before=std::move(cue_before);
+            request.originals=state->musicbrainz_page_originals;
             request.release_mbid=mbid;
             begin_musicbrainz_network(dialog,*state,
                 djmeta::online::musicbrainz::make_release_lookup_path(mbid),

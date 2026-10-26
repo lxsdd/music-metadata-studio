@@ -579,3 +579,17 @@ remain OPEN. Exact-SHA CI evidence is recorded in Draft PR #45 and Issue #50.
   negative offline tests and original Win32/x64 resource coverage. Templates
   only; import/export, final sanitized FileOps destinations, CUE references,
   productive writes and installed owner acceptance remain OPEN.
+
+### 2026-10-26 — Physical MusicBrainz exact edition comparisons (MMS-SRC-01/02/05/08; PARTIAL)
+
+The explicit `album:` release search and verified exact release URL are
+available for qualified physical tracks, with a source-snapshot-bound native
+read-only album/release-track comparison. Direct MusicBrainz release-track
+occurrence MBID and uniquely Suggested title/artist/mix/duration/optional
+ISRC must agree before album/track rows become reviewable; mismatched local
+BARCODE/CATALOGNUMBER, missing occurrence IDs or forged field source IDs
+remain blocked. All original tags and multivalues remain intact.
+MusicBrainz physical tag staging is intentionally NOT enabled by this
+read-only browsing block. Core and native exact-SHA CI must be rechecked;
+the installed DPI/host UX and official live provider scenario are still
+separate acceptance gates.
