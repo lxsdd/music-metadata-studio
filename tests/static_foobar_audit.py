@@ -95,7 +95,8 @@ batch_handler = precision.split(
 )[-1].split("void start_search(Workspace& state) {", 1)[0]
 for token in (
     "IsDlgButtonChecked(state.dialog, IDC_PRECISION_EDITION_CONFIRMED)",
-    "preflight_precision_cue_external_batch(batch)",
+    "preflight_precision_cue_external_batch(",
+    "batch, *state.release",
     "before.target_paths[i].wstring()",
     "MessageBoxW(state.dialog, question.c_str()",
     "MB_DEFBUTTON2",
@@ -105,7 +106,7 @@ for token in (
     if token not in batch_handler:
         raise SystemExit(
             "STATIC FOOBAR AUDIT FAIL: native multi-disc preflight/confirmation missing: " + token)
-if (batch_handler.find("preflight_precision_cue_external_batch(batch)") >
+if (batch_handler.find("preflight_precision_cue_external_batch(") >
         batch_handler.find("MessageBoxW(state.dialog, question.c_str()") or
         batch_handler.find("MessageBoxW(state.dialog, question.c_str()") >
         batch_handler.find("create_confirmed_precision_cue_external_batch(")):
