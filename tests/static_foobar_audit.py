@@ -467,8 +467,10 @@ for label, source, token in [
 # source guards and transactional action validation stay unchanged.
 for token in (
     "void update_pending_review_summaries(",
-    "state.track_summaries[track].review_required=",
-    "djmeta::count_pending_review_proposals(",
+    "djmeta::summarize_track_review_progress(",
+    "summary.review_required=progress.pending_review;",
+    "summary.pending_proposals=progress.pending_proposals;",
+    "summary.staged_changes=progress.staged_changes;",
     "update_pending_review_summaries(state,affected_tracks);",
     "refresh_review_summaries(next);",
     "refresh_review_summaries(*state);",
