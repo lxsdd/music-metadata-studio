@@ -172,3 +172,7 @@ contradict a fully verified exact-edition tracklist; this permits read-only
 comparison before the user has tagged the album. Supplied nonempty ALBUM
 values must agree across the batch; duplicate or blank physical ALBUM tags
 fail closed. Tests cover both missing ALBUM and conflicting/duplicate ALBUM.
+
+### Physical album batch: per-source blocking reasons
+
+An exact-edition album comparison now labels the problematic **Physical #N / MATCH** row with an explicit source-specific blocker for ambiguous or conflicting ALBUM, contradictory ALBUM ARTIST, invalid/unqualified physical source, duration, ISRC, missing track identity, or conflicting release identifiers. When the source itself is otherwise qualified but edition-track matching fails, the row distinguishes a title/mix/number/duration mismatch from a whole-batch blocker. These are read-only diagnostics inside the existing native comparison, never implicit tag selection or write authority. Complete original custom, multivalue, ReplayGain and CUE fields remain preserved.

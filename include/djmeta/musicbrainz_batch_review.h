@@ -35,6 +35,7 @@ inline PhysicalBatchEditionReview review_musicbrainz_physical_batch(
     std::vector<LocalReleaseTrack> local;
     local.reserve(sources.size());
     bool qualified=true;
+    std::map<std::size_t,std::string> source_problems;
     std::optional<std::string> common_album,common_album_artist;
     for(const auto& source:sources) {
         if(!ids.insert(source.source_index).second ||
@@ -48,32 +49,51 @@ inline PhysicalBatchEditionReview review_musicbrainz_physical_batch(
         const bool tagged_album=std::any_of(
             source.originals.fields.begin(),source.originals.fields.end(),
             [](const auto& f){return ascii_upper_field(f.name)=="ALBUM";});
-        if(tagged_album && (!album || album->empty()))
+        if(tagged_album && (!album || album->empty())) {
             qualified=false;
+            source_problems.emplace(source.source_index,"AMBIGUOUS_ALBUM");
+        }
         if(album && !album->empty()) {
-            if(common_album && *album!=*common_album)
+            if(common_album && *album!=*common_album) {
                 qualified=false;
+                source_problems.emplace(source.source_index,"CONFLICTING_ALBUM");
+            }
             if(!common_album)common_album=album;
         }
         if(artist && !artist->empty()) {
-            if(common_album_artist && *artist!=*common_album_artist)
+            if(common_album_artist && *artist!=*common_album_artist) {
                 qualified=false;
+                source_problems.emplace(source.source_index,"CONFLICTING_ALBUM_ARTIST");
+            }
             if(!common_album_artist)common_album_artist=artist;
         }
-        if(!source.physical_qualified ||
-           source.duration_ms<=0 || source.duration_ms>36000000 ||
-           musicbrainz_physical_edition_identifier_conflict(
-               source.originals,edition))
+        if(!source.physical_qualified) {
             qualified=false;
+            source_problems.emplace(source.source_index,"NOT_PHYSICAL_SOURCE");
+        }
+        if(source.duration_ms<=0 || source.duration_ms>36000000) {
+            qualified=false;
+            source_problems.emplace(source.source_index,"DURATION_UNQUALIFIED");
+        }
+        if(musicbrainz_physical_edition_identifier_conflict(
+               source.originals,edition)) {
+            qualified=false;
+            source_problems.emplace(source.source_index,"EDITION_IDENTIFIER_CONFLICT");
+        }
         auto identity=discogs_physical_identity(
             source.originals,source.duration_ms);
         const auto isrc=unique_discogs_physical_tag(source.originals,"ISRC");
         const bool has_isrc=std::any_of(
             source.originals.fields.begin(),source.originals.fields.end(),
             [](const auto& f){return ascii_upper_field(f.name)=="ISRC";});
-        if(has_isrc && (!isrc || normalized_isrc(*isrc).empty()))
+        if(has_isrc && (!isrc || normalized_isrc(*isrc).empty())) {
             qualified=false;
-        if(!identity)qualified=false;
+            source_problems.emplace(source.source_index,"AMBIGUOUS_ISRC");
+        }
+        if(!identity) {
+            qualified=false;
+            source_problems.emplace(source.source_index,"TRACK_IDENTITY_UNQUALIFIED");
+        }
         if(identity) {
             identity->source_index=source.source_index;
             if(isrc)identity->recording.isrc=*isrc;
@@ -133,14 +153,21 @@ inline PhysicalBatchEditionReview review_musicbrainz_physical_batch(
         const bool found=it!=verified.end();
         match.candidate.source_id=found
             ? edition.tracks[it->second].source_track_id:edition.edition_id;
+        const auto problem=source_problems.find(source.source_index);
         match.candidate.values={found
             ? "Unique edition-track occurrence matched (read-only)"
-            : "No unique qualified edition-track occurrence"};
+            : problem!=source_problems.end()
+                ? "Physical source blocker: "+problem->second
+                : qualified
+                    ? "No unique matching edition-track occurrence (title/mix/number/duration)"
+                    : "Whole-batch qualification blocked; inspect other physical source findings"};
         match.state=found?FieldReviewState::Unchanged:
                           FieldReviewState::Blocked;
         match.reason=found
             ? "musicbrainz_physical_batch_track_verified_readonly"
-            : "musicbrainz_physical_batch_track_unverified";
+            : problem!=source_problems.end()
+                ? "musicbrainz_physical_batch_"+problem->second
+                : "musicbrainz_physical_batch_track_unverified";
         out.rows.push_back(std::move(match));
         // Complete untouched original field vectors, including custom tags,
         // multivalues and ReplayGain, remain visible for every source.

@@ -922,6 +922,8 @@ int main() {
         {0,physical_tags,420000,true},
         {1,second_tags,240000,false}},physical_release);
     check(!partial.complete && partial.matched==0 &&
+          get_row(partial.rows,"Physical #2 / MATCH")->reason==
+              "musicbrainz_physical_batch_NOT_PHYSICAL_SOURCE" &&
           get_row(partial.rows,"Batch / ALBUM")->state==
               FieldReviewState::Blocked &&
           get_row(partial.rows,"Physical #2 / MATCH")->state==
@@ -934,15 +936,19 @@ int main() {
     const auto mixed=review_musicbrainz_physical_batch({
         {0,album_first,420000,true},
         {1,wrong_album,240000,true}},physical_release);
-    check(!mixed.complete && mixed.matched==0,
-          "mixed/ambiguous album identity cannot certify batch edition");
+    check(!mixed.complete && mixed.matched==0 &&
+          get_row(mixed.rows,"Physical #2 / MATCH")->reason==
+              "musicbrainz_physical_batch_CONFLICTING_ALBUM",
+          "mixed album identity shows source-specific blocker");
     auto duplicate_album=wrong_album;
     duplicate_album.fields.push_back({"ALBUM",{"Synthetic Edition"}});
     const auto ambiguous_album=review_musicbrainz_physical_batch({
         {0,physical_tags,420000,true},
         {1,duplicate_album,240000,true}},physical_release);
-    check(!ambiguous_album.complete && ambiguous_album.matched==0,
-          "duplicate physical ALBUM field blocks entire batch");
+    check(!ambiguous_album.complete && ambiguous_album.matched==0 &&
+          get_row(ambiguous_album.rows,"Physical #2 / MATCH")->reason==
+              "musicbrainz_physical_batch_AMBIGUOUS_ALBUM",
+          "duplicate ALBUM field identifies source-specific blocker");
     auto oversized_sources=std::vector<PhysicalBatchTrack>(129,
         {0,physical_tags,420000,true});
     rejects([&]{(void)review_musicbrainz_physical_batch(
@@ -953,15 +959,19 @@ int main() {
     const auto conflict=review_musicbrainz_physical_batch({
         {0,physical_tags,420000,true},
         {1,disputed_batch,240000,true}},physical_release);
-    check(!conflict.complete && conflict.matched==0,
-          "hidden second-source edition identifier conflict blocks all");
+    check(!conflict.complete && conflict.matched==0 &&
+          get_row(conflict.rows,"Physical #2 / MATCH")->reason==
+              "musicbrainz_physical_batch_EDITION_IDENTIFIER_CONFLICT",
+          "hidden second-source edition identifier exposes exact blocker");
     auto wrong_mix_batch=second_tags;
     wrong_mix_batch.fields[0].values={"Other (Radio Edit)"};
     const auto remix=review_musicbrainz_physical_batch({
         {0,physical_tags,420000,true},
         {1,wrong_mix_batch,240000,true}},physical_release);
-    check(!remix.complete && remix.matched<2,
-          "same artist but wrong mix does not complete album");
+    check(!remix.complete && remix.matched<2 &&
+          get_row(remix.rows,"Physical #2 / MATCH")->candidate.values[0].find(
+              "title/mix/number/duration")!=std::string::npos,
+          "wrong mix names matching ambiguity without proposing a replacement");
     rejects([&]{(void)review_musicbrainz_physical_batch({
         {0,physical_tags,420000,true},
         {0,second_tags,240000,true}},physical_release);
