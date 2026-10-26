@@ -420,78 +420,78 @@ int main() {
             native_candidate_status_label(physical_group)=="Keep original",
             "custom multivalue physical source remains keep-original in native review");
     // Exact physical album comparison, including hidden-source conflicts.
-    auto second=physical;
-    second.fields[0].values={"Track Two (Extended Mix)"};
-    second.fields[2].values={"2"};
-    second.fields.push_back({"DJ_NOTES",{"Keep","Both"}});
-    const auto original_second=second;
-    const auto original_first=physical;
-    const auto batch=review_discogs_physical_batch({
-        {0,physical,242000,true},{1,second,242000,true}},exact);
-    require(batch.complete && batch.matched==2 &&
-            field(batch.rows,"Batch / MATCH")->state==FieldReviewState::Unchanged &&
-            field(batch.rows,"Physical #1 / MATCH")->state==FieldReviewState::Unchanged &&
-            field(batch.rows,"Physical #2 / MATCH")->state==FieldReviewState::Unchanged &&
-            field(batch.rows,"Physical #2 / Original DJ_NOTES")->original_values==
+    auto album_case_second=physical;
+    album_case_second.fields[0].values={"Track Two (Extended Mix)"};
+    album_case_second.fields[2].values={"2"};
+    album_case_second.fields.push_back({"DJ_NOTES",{"Keep","Both"}});
+    const auto album_case_original_second=album_case_second;
+    const auto album_case_original_first=physical;
+    const auto album_case_batch=review_discogs_physical_batch({
+        {0,physical,242000,true},{1,album_case_second,242000,true}},exact);
+    require(album_case_batch.complete && album_case_batch.matched==2 &&
+            field(album_case_batch.rows,"Batch / MATCH")->state==FieldReviewState::Unchanged &&
+            field(album_case_batch.rows,"Physical #1 / MATCH")->state==FieldReviewState::Unchanged &&
+            field(album_case_batch.rows,"Physical #2 / MATCH")->state==FieldReviewState::Unchanged &&
+            field(album_case_batch.rows,"Physical #2 / Original DJ_NOTES")->original_values==
                 std::vector<std::string>({"Keep","Both"}) &&
-            field(batch.rows,"Physical #1 / Original REPLAYGAIN_TRACK_GAIN") &&
-            field(batch.rows,"Physical #2 / Provider TITLE") &&
-            second==original_second && physical==original_first,
+            field(album_case_batch.rows,"Physical #1 / Original REPLAYGAIN_TRACK_GAIN") &&
+            field(album_case_batch.rows,"Physical #2 / Provider TITLE") &&
+            album_case_second==album_case_original_second && physical==album_case_original_first,
             "exact two-file Discogs album preserves original vectors");
-    auto first_album=physical,second_album=second;
-    first_album.fields.push_back({"ALBUM",{"Exact EP"}});
-    second_album.fields.push_back({"ALBUM",{"Exact EP"}});
-    const auto no_op=review_discogs_physical_batch({
-        {0,first_album,242000,true},{1,second_album,242000,true}},exact);
-    require(no_op.complete &&
-            field(no_op.rows,"Batch / ALBUM")->state==FieldReviewState::Unchanged,
+    auto album_case_first_album=physical,album_case_second_album=album_case_second;
+    album_case_first_album.fields.push_back({"ALBUM",{"Exact EP"}});
+    album_case_second_album.fields.push_back({"ALBUM",{"Exact EP"}});
+    const auto album_case_no_op=review_discogs_physical_batch({
+        {0,album_case_first_album,242000,true},{1,album_case_second_album,242000,true}},exact);
+    require(album_case_no_op.complete &&
+            field(album_case_no_op.rows,"Batch / ALBUM")->state==FieldReviewState::Unchanged,
             "already tagged album is unchanged");
-    second_album.fields.back().values={"Different Album"};
-    const auto mixed=review_discogs_physical_batch({
-        {0,first_album,242000,true},{1,second_album,242000,true}},exact);
-    require(!mixed.complete && mixed.matched==0 &&
-            field(mixed.rows,"Batch / ALBUM")->state==FieldReviewState::Blocked,
-            "mixed local albums cannot certify edition");
-    auto duplicate=first_album;
-    duplicate.fields.push_back({"album",{"Exact EP"}});
+    album_case_second_album.fields.back().values={"Different Album"};
+    const auto album_case_mixed=review_discogs_physical_batch({
+        {0,album_case_first_album,242000,true},{1,album_case_second_album,242000,true}},exact);
+    require(!album_case_mixed.complete && album_case_mixed.matched==0 &&
+            field(album_case_mixed.rows,"Batch / ALBUM")->state==FieldReviewState::Blocked,
+            "album_case_mixed local albums cannot certify edition");
+    auto album_case_duplicate=album_case_first_album;
+    album_case_duplicate.fields.push_back({"album",{"Exact EP"}});
     require(!review_discogs_physical_batch({
-        {0,duplicate,242000,true},{1,second,242000,true}},exact).complete,
-        "duplicate ALBUM must not be flattened");
-    auto remix=second;
-    remix.fields[0].values={"Track Two (Radio Edit)"};
+        {0,album_case_duplicate,242000,true},{1,album_case_second,242000,true}},exact).complete,
+        "album_case_duplicate ALBUM must not be flattened");
+    auto album_case_remix=album_case_second;
+    album_case_remix.fields[0].values={"Track Two (Radio Edit)"};
     require(!review_discogs_physical_batch({
-        {0,physical,242000,true},{1,remix,242000,true}},exact).complete,
-        "different remix blocks full album");
-    auto wrong_barcode=second;
-    wrong_barcode.fields.push_back({"BARCODE",{"not-the-edition"}});
-    const auto conflict=review_discogs_physical_batch({
-        {0,physical,242000,true},{1,wrong_barcode,242000,true}},identified);
-    require(!conflict.complete && conflict.matched==0 &&
-            field(conflict.rows,"Physical #2 / Original BARCODE"),
-            "hidden second-file identifier conflict blocks entire batch");
-    auto forged=exact;
-    forged.tracks[1].fields.front().source_id="foreign/track/2";
+        {0,physical,242000,true},{1,album_case_remix,242000,true}},exact).complete,
+        "different album_case_remix blocks full album");
+    auto album_case_wrong_barcode=album_case_second;
+    album_case_wrong_barcode.fields.push_back({"BARCODE",{"not-the-edition"}});
+    const auto album_case_conflict=review_discogs_physical_batch({
+        {0,physical,242000,true},{1,album_case_wrong_barcode,242000,true}},identified);
+    require(!album_case_conflict.complete && album_case_conflict.matched==0 &&
+            field(album_case_conflict.rows,"Physical #2 / Original BARCODE"),
+            "hidden album_case_second-file identifier album_case_conflict blocks entire album_case_batch");
+    auto album_case_forged=exact;
+    album_case_forged.tracks[1].fields.front().source_id="foreign/track/2";
     require(!review_discogs_physical_batch({
-        {0,physical,242000,true},{1,second,242000,true}},forged).complete,
-        "forged track provenance never certifies album");
+        {0,physical,242000,true},{1,album_case_second,242000,true}},album_case_forged).complete,
+        "album_case_forged track provenance never certifies album");
     require(!review_discogs_physical_batch({
-        {0,physical,242000,true},{1,second,242000,false}},exact).complete &&
+        {0,physical,242000,true},{1,album_case_second,242000,false}},exact).complete &&
             !review_discogs_physical_batch({
-        {0,physical,242000,true},{1,second,-1,true}},exact).complete,
+        {0,physical,242000,true},{1,album_case_second,-1,true}},exact).complete,
         "unqualified physical or missing duration fails closed");
-    bool rejected=false;
+    bool album_case_rejected=false;
     try{(void)review_discogs_physical_batch({{0,physical,242000,true}},exact);}
-    catch(const std::invalid_argument&){rejected=true;}
-    require(rejected,"single source is not an album batch");
-    rejected=false;
+    catch(const std::invalid_argument&){album_case_rejected=true;}
+    require(album_case_rejected,"single source is not an album album_case_batch");
+    album_case_rejected=false;
     try{(void)review_discogs_physical_batch({
-        {0,physical,242000,true},{0,second,242000,true}},exact);}
-    catch(const std::invalid_argument&){rejected=true;}
-    require(rejected,"duplicate captured physical source identity rejected");
-    rejected=false;
+        {0,physical,242000,true},{0,album_case_second,242000,true}},exact);}
+    catch(const std::invalid_argument&){album_case_rejected=true;}
+    require(album_case_rejected,"album_case_duplicate captured physical source identity album_case_rejected");
+    album_case_rejected=false;
     try{(void)review_discogs_physical_batch(
         std::vector<PhysicalBatchTrack>(129,{0,physical,242000,true}),exact);}
-    catch(const std::invalid_argument&){rejected=true;}
-    require(rejected,"over-128 selection rejected before analysis");
+    catch(const std::invalid_argument&){album_case_rejected=true;}
+    require(album_case_rejected,"over-128 selection album_case_rejected before analysis");
     std::cout<<"Discogs read-only physical edition review PASS\n";
 }
