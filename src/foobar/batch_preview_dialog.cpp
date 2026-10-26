@@ -687,6 +687,28 @@ std::vector<std::size_t> captured_cue_carriers(const PreviewState& state) {
             rows.push_back(i);
     return rows;
 }
+// Resolve a single highlighted physical File locations row against current
+// CUE FILE receipts. Sorted/filtered ListView positions are never source IDs.
+// This is display/navigation only and never authorizes an operation.
+std::vector<djmeta::CueRelatedCarrier> related_cues_for_selected_file(
+    const PreviewState& state) {
+    if(!state.list || state.show_metadata || state.stale || state.refreshing ||
+       state.cue_inspections.plan.size()!=state.entries.size() ||
+       ListView_GetSelectedCount(state.list)!=1)
+        return {};
+    const int selected=ListView_GetNextItem(state.list,-1,LVNI_SELECTED);
+    if(selected<0 || static_cast<std::size_t>(selected)>=state.view_order.size())
+        return {};
+    const auto source=state.view_order[static_cast<std::size_t>(selected)];
+    if(source>=state.entries.size()) return {};
+    const auto& entry=state.entries[source];
+    if(!entry.input.physical_source_qualified ||
+       entry.handle->get_subsong_index()!=0 ||
+       is_external_cue_locator(entry.input.source_path))
+        return {};
+    return djmeta::related_inspected_cue_carriers(
+        state.cue_inspections,captured_cue_carriers(state),source);
+}
 void update_workflow_audit_hint(PreviewState& state) {
     if(!state.dialog || state.show_metadata) return;
     const auto audit=djmeta::audit_workflow_preview(
@@ -5125,7 +5147,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_METADATA_MANUAL_INPUT,L"Enter a replacement value for exactly one selected local rule proposal."},
         {IDC_METADATA_USE_VALUE,L"Use the entered value for one proposal or the selected scalar field across visible/all qualified physical tracks. Bulk requires default-No confirmation; no writes."},
         {IDC_METADATA_VISIBLE_WHITESPACE,L"Display tabs, spaces and other invisible characters visibly; original tags remain unchanged."},
-        {IDC_BATCH_LIST,L"Proposed source-to-target rows. Destination paths have not passed the final foobar File Operations safety checks."},
+        {IDC_BATCH_LIST,L"Proposed source-to-target rows. Right-click one physical source to inspect its uniquely linked, previously inspected CUE carrier. Multiple or stale CUE links are not guessed. Final foobar File Operations targets remain unqualified."},
         {IDC_BATCH_HISTORY_LIST,L"Last 256 session actions. Double-click a single-source action to inspect its current preview, never replay it."},
         {IDC_BATCH_HISTORY_FILTER,L"Filter session actions; source order and original event identities remain unchanged."},
         {IDC_BATCH_LOCATION_FILTER,L"Display-only full-batch raw route and staged FileAction queues: BLOCKED, RAW ONLY or SKIP. Selected/visible previews use only visible original source IDs; Preview all and Audit include hidden rows. No final FileOps/CUE approval."},
@@ -8082,6 +8104,19 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             AppendMenuW(menu, MF_STRING |
                 (ListView_GetSelectedCount(state->list) ? MF_ENABLED : MF_GRAYED),
                 inspectCommand, L"Inspect selected raw targets (read-only)");
+            // A reverse link exists only after Inspect CUE produced a
+            // current physical FILE graph. Ambiguous multiple CUE carriers
+            // cannot be chosen by sorting or by a guessed basename.
+            constexpr UINT relatedCueCommand = 41301u;
+            std::size_t related_count=0;
+            try { related_count=related_cues_for_selected_file(*state).size(); }
+            catch(const std::exception&) { related_count=0; }
+            AppendMenuW(menu, MF_STRING |
+                (related_count==1 ? MF_ENABLED : MF_GRAYED),
+                relatedCueCommand,
+                related_count>1
+                    ? L"Multiple related CUEs (inspect CUE queue)"
+                    : L"Inspect related CUE (read-only)");
             POINT point{};
             if (lp == static_cast<LPARAM>(-1)) {
                 RECT rect{};
@@ -8096,8 +8131,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 TPM_RETURNCMD | TPM_RIGHTBUTTON, point.x, point.y,
                 0, dialog, nullptr);
             DestroyMenu(menu);
-            if (command == inspectCommand)
-                SendMessageW(dialog, WM_COMMAND, MAKEWPARAM(inspectCommand, 0), 0);
+            if (command == inspectCommand || command == relatedCueCommand)
+                SendMessageW(dialog, WM_COMMAND, MAKEWPARAM(command, 0), 0);
             return TRUE;
         }
         if (requested == state->metadata_track_list) {
@@ -9199,6 +9234,75 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         }
         if (id == 41300u) {
             inspect_selected_raw_targets(dialog, *state);
+            return TRUE;
+        }
+        if(id==41301u) {
+            // File locations -> inspected CUE carrier, the inverse of the
+            // existing CUE FILE -> physical audio drilldown. No HTTP or
+            // FileOps; only exact captured source IDs and fresh host evidence.
+            if(state->stale || state->refreshing ||
+               TabCtrl_GetCurSel(state->tabs)!=2 ||
+               ListView_GetSelectedCount(state->list)!=1)
+                throw std::invalid_argument(
+                    "Select exactly one fresh physical File locations row.");
+            const int selected=ListView_GetNextItem(
+                state->list,-1,LVNI_SELECTED);
+            if(selected<0 ||
+               static_cast<std::size_t>(selected)>=state->view_order.size())
+                throw std::invalid_argument("Selected physical row expired.");
+            const auto audio_index=state->view_order[
+                static_cast<std::size_t>(selected)];
+            const auto links=related_cues_for_selected_file(*state);
+            if(links.size()!=1)
+                throw std::invalid_argument(
+                    "Inspect CUE FILE sources first; multiple or missing "
+                    "qualified CUE carriers cannot be selected automatically.");
+            const auto cue_index=links.front().carrier_source_row;
+            const auto& audio=state->entries.at(audio_index);
+            const auto& cue=state->entries.at(cue_index);
+            if(!is_external_cue_locator(cue.input.source_path))
+                throw std::runtime_error("Related CUE carrier identity changed.");
+            if(!confirm_online_preview_navigation(dialog,*state,cue_index))
+                return TRUE;
+            verify_snapshot(audio);
+            verify_snapshot(cue);
+            verify_rules_snapshot(state->captured_rules);
+            revalidate_workspace(*state,true);
+            if(state->stale)
+                throw std::runtime_error("Related CUE source changed. Refresh.");
+            const auto checked=related_cues_for_selected_file(*state);
+            if(checked.size()!=1 ||
+               checked.front().carrier_source_row!=cue_index ||
+               checked.front().referenced_files!=links.front().referenced_files)
+                throw std::runtime_error(
+                    "CUE FILE relationship changed during navigation. Reinspect.");
+            state->cue_return.reset();
+            state->track_discovery=djmeta::TrackDiscovery::All;
+            state->metadata_focus=djmeta::MetadataFocus::All;
+            SendDlgItemMessageW(dialog,IDC_METADATA_TRACK_FILTER,CB_SETCURSEL,0,0);
+            SendDlgItemMessageW(dialog,IDC_METADATA_FILTER,CB_SETCURSEL,2,0);
+            state->selected_track_index=cue_index;
+            TabCtrl_SetCurSel(state->tabs,1);
+            show_preview_page(dialog,*state,true,true);
+            update_master_table(*state);
+            const auto it=std::find(state->track_view_order.begin(),
+                                    state->track_view_order.end(),cue_index);
+            if(it==state->track_view_order.end())
+                throw std::runtime_error("Related CUE no longer visible.");
+            const auto row=static_cast<int>(it-state->track_view_order.begin());
+            state->updating_track_selection=true;
+            ListView_SetItemState(state->metadata_track_list,-1,0,LVIS_SELECTED);
+            ListView_SetItemState(state->metadata_track_list,row,
+                                  LVIS_SELECTED|LVIS_FOCUSED,
+                                  LVIS_SELECTED|LVIS_FOCUSED);
+            state->updating_track_selection=false;
+            ListView_EnsureVisible(state->metadata_track_list,row,FALSE);
+            if(!IsWindowEnabled(GetDlgItem(dialog,IDC_METADATA_INSPECT_CUE)))
+                throw std::runtime_error("Related CUE is not inspectable.");
+            SendMessageW(dialog,WM_COMMAND,
+                MAKEWPARAM(IDC_METADATA_INSPECT_CUE,BN_CLICKED),
+                reinterpret_cast<LPARAM>(GetDlgItem(dialog,IDC_METADATA_INSPECT_CUE)));
+            SetFocus(state->metadata_list);
             return TRUE;
         }
         if(id==IDC_BATCH_PROFILE_SAVE && HIWORD(wp)==BN_CLICKED) {

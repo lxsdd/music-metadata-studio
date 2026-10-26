@@ -224,4 +224,55 @@ inline std::vector<std::size_t> filter_cue_queue_view(
     }
     return visible;
 }
+// Reverse navigation is derived ONLY from a current, previously inspected
+// physical FILE graph. A basename guess, raw route or stale receipt cannot
+// become an audio-to-CUE link. Multiple carriers remain distinct; the UI
+// must not silently choose one or treat any of these as FileOps approval.
+struct CueRelatedCarrier {
+    std::size_t carrier_source_row=0;
+    std::size_t referenced_files=0;
+    CueQueueStage stage=CueQueueStage::Missing;
+};
+inline std::vector<CueRelatedCarrier> related_inspected_cue_carriers(
+    const CueInspectionQueue& queue,
+    const std::vector<std::size_t>& carrier_ids,
+    std::size_t audio_source_row) {
+    const auto n=queue.plan.size();
+    if(n==0 || n>100000 || audio_source_row>=n)
+        throw std::invalid_argument("CUE_REVERSE_SOURCE_SHAPE");
+    (void)queue.counts(carrier_ids); // strictly increasing complete source IDs
+    const auto& audio=queue.plan[audio_source_row];
+    if(!audio.physical_qualified || audio.physical_key.empty() ||
+       audio.source_guard.empty())
+        return {};
+    std::vector<CueRelatedCarrier> result;
+    for(const auto carrier:carrier_ids) {
+        if(carrier==audio_source_row ||
+           queue.plan[carrier].physical_key.empty() ||
+           queue.plan[carrier].source_guard.empty() ||
+           queue.plan[carrier].physical_key==audio.physical_key)
+            continue;
+        const auto found=queue.receipts.find(carrier);
+        if(found==queue.receipts.end() ||
+           found->second.epoch!=queue.epoch ||
+           !found->second.qualified_graph)
+            continue;
+        const auto& receipt=found->second;
+        if(receipt.files==0 || receipt.files>128 ||
+           receipt.references.size()!=receipt.files)
+            throw std::invalid_argument("CUE_REVERSE_RECEIPT_SHAPE");
+        std::size_t linked=0;
+        for(std::size_t i=0;i<receipt.references.size();++i) {
+            const auto& file=receipt.references[i];
+            if(file.file_index!=i ||
+               (file.selected_source_row!=cue_unselected_source_row &&
+                file.selected_source_row>=n))
+                throw std::invalid_argument("CUE_REVERSE_FILE_IDENTITY");
+            if(file.selected_source_row==audio_source_row) ++linked;
+        }
+        if(linked)
+            result.push_back({carrier,linked,queue.stage(carrier)});
+    }
+    return result;
+}
 } // namespace djmeta

@@ -1452,3 +1452,19 @@ records `MMS_PROTECTED_NATIVE_HOST=SKIPPED_PINNED_ACTION_MANUAL_ONLY` instead
 of misreporting a green native test. The existing protected manual dispatch
 still exercises the complete Win32/x64 native host flow. Do not alter event
 variables, environment protection or token scope to bypass this boundary.
+
+### Reverse CUE dependency navigation (MMS-WF-09 / MMS-CUE-06, read-only)
+
+In **File locations**, right-click exactly one qualified physical audio source and
+choose **Inspect related CUE (read-only)**. The action is available only when
+an earlier explicit **Inspect CUE** established one current carrier with an
+exact FILE→captured-physical-source link. The original source row ID is
+preserved across sorting/filtering; current source, carrier, rules and the
+complete CUE receipt are rechecked before opening that carrier in the existing
+Find/Compare inspection pane. The original CUE FILE inventory is then reread.
+
+No link is inferred from a matching basename or a raw Title Formatting path.
+Uninspected, stale, invalid or multiple carrier relationships never silently
+choose a destination; use the CUE inspection queue to review those carriers.
+This reverse link is navigation only, not final foobar File Operations target
+resolution, relative CUE FILE postimage qualification or write approval.

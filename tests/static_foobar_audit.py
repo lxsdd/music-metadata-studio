@@ -2345,6 +2345,16 @@ for marker in ("state.cue_inspections.observe(", "state.cue_inspections.record("
 # Physical CUE File locations stages project the original full-batch source
 # permutation; never silently change metadata decisions or enable writers.
 cue_filter=(root / "include" / "djmeta" / "cue_inspection_queue.h").read_text(encoding="utf-8")
+for marker in ("related_inspected_cue_carriers(", "CUE_REVERSE_RECEIPT_SHAPE",
+               "CUE_REVERSE_FILE_IDENTITY", "receipt.epoch!=queue.epoch"):
+    if marker not in cue_filter:
+        raise SystemExit("STATIC REVERSE CUE FILE NAVIGATION FAIL: "+marker)
+for marker in ("related_cues_for_selected_file(", "id==41301u",
+               "relatedCueCommand", "checked.front().referenced_files",
+               "verify_snapshot(audio);", "verify_snapshot(cue);",
+               "revalidate_workspace(*state,true);"):
+    if marker not in workspace_dialog:
+        raise SystemExit("STATIC NATIVE REVERSE CUE NAVIGATION FAIL: "+marker)
 for marker in ("filter_cue_queue_view(", "CUE_QUEUE_FILTER_SORTED_ID",
                "BatchLocationQueue::CueAttention",
                "BatchLocationQueue::CueRawOnly",

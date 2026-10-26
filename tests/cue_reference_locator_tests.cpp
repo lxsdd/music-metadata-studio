@@ -324,6 +324,12 @@ int main() {
     std::vector<CueQueuePlanRow> snapshot(54129);
     snapshot[8]={"private-id","private-guard","R:\\PRIVATE","Track.flac",
                  FileAction::Move,true,true,false,false};
+    snapshot[32]={"second-cue","second-guard","R:\\PRIVATE","Other.cue",
+                  FileAction::None,true,false,false,false};
+    snapshot[4]={"phys-A","version-A","R:\\PRIVATE","Track-A.flac",
+                 FileAction::Copy,true,true,false,false};
+    snapshot[1]={"phys-B","version-B","R:\\PRIVATE","Track-B.flac",
+                 FileAction::Copy,true,true,false,false};
     queue.observe(snapshot);
     const std::vector<std::size_t> cues{8,32};
     require(queue.counts(cues).missing==2 &&
@@ -341,6 +347,31 @@ int main() {
     queue.record(32,all_copy_impact,kept);
     require(queue.stage(32)==CueQueueStage::OriginalKept,
             "CUE kept original on audio Copy remains advisory");
+    // Reverse FILE->CUE navigation uses only currently inspected, physical
+    // source-bound receipts; multiple carriers are not silently collapsed.
+    auto related=related_inspected_cue_carriers(queue,cues,4);
+    require(related.size()==2 &&
+            related[0].carrier_source_row==8 &&
+            related[1].carrier_source_row==32 &&
+            related[0].referenced_files==1 &&
+            related[1].referenced_files==1 &&
+            related[0].stage==CueQueueStage::RawOnly &&
+            related[1].stage==CueQueueStage::OriginalKept,
+            "one physical audio can link to two distinct inspected CUE carriers");
+    require(related_inspected_cue_carriers(queue,{8},4).size()==1 &&
+            related_inspected_cue_carriers(queue,cues,1).size()==2,
+            "exact carrier scope and second physical FILE reference");
+    require(related_inspected_cue_carriers(queue,cues,32).empty(),
+            "CUE carrier is not a qualified physical audio target");
+    try {
+        (void)related_inspected_cue_carriers(queue,{32,8},4);
+        require(false,"reordered reverse CUE carrier identities");
+    } catch(const std::invalid_argument&) {}
+    try {
+        (void)related_inspected_cue_carriers(queue,cues,54129);
+        require(false,"out-of-range reverse audio identity");
+    } catch(const std::invalid_argument&) {}
+
     require(queue.next_attention(cues,32)==queue.plan.size(),
             "Next CUE must not endlessly revisit previously inspected RAW-only CUEs");
     auto tsv=queue.export_tsv(cues);
@@ -386,6 +417,8 @@ int main() {
     require(queue.epoch!=epoch && queue.counts(cues).stale==2 &&
             queue.stage(8)==CueQueueStage::Stale,
             "changing hidden source invalidates ALL prior CUE inspections");
+    require(related_inspected_cue_carriers(queue,cues,4).empty(),
+            "hidden route change invalidates every reverse FILE-to-CUE link");
     tsv=queue.export_tsv(cues,true);
     require(tsv.find("#9\tSTALE_REINSPECT")!=std::string::npos &&
             tsv.find("#33\tSTALE_REINSPECT")!=std::string::npos &&
