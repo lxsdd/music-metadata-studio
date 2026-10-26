@@ -72,9 +72,8 @@ def main() -> None:
         CONFIG.replace("./scripts/qa-physical-writer-host.ps1",
                        "./scripts/fake-writer-qa.ps1", 1),
         CONFIG.replace(
-            "  physical-sdk-runtime-qa:", "  physical-sdk-runtime-qa:", 1)
-            .replace("    needs: static-audit\\n    runs-on: windows-2022",
-                     "    needs: []\\n    runs-on: windows-2022", 1),
+            "    needs: static-audit\n    runs-on: windows-2022\n    timeout-minutes: 25",
+            "    needs: []\n    runs-on: windows-2022\n    timeout-minutes: 25", 1),
     ):
         assert violations(altered, SCRIPT), "negative workflow mutation escaped"
     for mutated in (

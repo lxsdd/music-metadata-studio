@@ -1250,7 +1250,13 @@ if workflow.count("repository: lxsdd/foobar2000_component_template") != 3 or (
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: SDK checkout pins missing on one of three Windows jobs")
 if (workflow.count("repository: lxsdd/dev-infrastructure-public") != 1 or
     workflow.count("ref: 31930d4fca571f449f2c57044bea5ba2e01f0ca7") != 1 or
-    "  physical-sdk-runtime-qa:\n    if: github.event_name == 'push' && github.ref == 'refs/heads/feature/online-metadata-discovery-foundation-20261009'" not in workflow or
+    (
+        "  physical-sdk-runtime-qa:\\n" not in workflow or
+        "github.event.pull_request.head.repo.full_name == github.repository" not in workflow or
+        "github.event.pull_request.head.ref == 'feature/online-metadata-discovery-foundation-20261009'" not in workflow or
+        "github.event.pull_request.base.ref == 'main'" not in workflow or
+        "github.ref == 'refs/heads/feature/online-metadata-discovery-foundation-20261009'" not in workflow
+    ) or
     "MMS_NATIVE_PHYSICAL_WRITER_QA" not in (root / "scripts" / "qa-physical-writer-host.ps1").read_text(encoding="utf-8")):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: synthetic SDK writer QA not isolated and pinned")
 # Exactly two *step-scoped* references are now allowed: one for the
