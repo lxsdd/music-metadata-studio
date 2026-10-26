@@ -100,7 +100,7 @@
 | ID | Status | Verbindliches Verhalten und Abnahme | Detail |
 |---|---|---|---|
 | MMS-SRC-01 | PARTIAL | User-initiated MusicBrainz and authenticated Discogs discovery; title/artist/version plus fallback ISRC/catalog/barcode/release IDs and exact provider-ID dedup; no silent network requests. | #50, #48 |
-| MMS-SRC-02 | PARTIAL | Exact release/master/edition/tracklist matching, manual URL input, double-click load, bounded user-clicked MusicBrainz/Discogs result pagination, confidence and source attribution, preserve disputed mix identities. | #50 |
+| MMS-SRC-02 | PARTIAL | Exact release/master/edition/tracklist matching, manual URL input, double-click load, read-only exact-MBID 2–128 physical-track batch album alignment, bounded user-clicked MusicBrainz/Discogs result pagination, confidence and source attribution, preserve disputed mix identities. | #50 |
 | MMS-SRC-03 | PARTIAL | Discogs documented API and its authentication/license/attribution policies; use central protected QA evidence without exposing personal tokens. | #50 |
 | MMS-SRC-04 | PARTIAL | Beatport + Crates lawful public URL/clipboard workflow; unsupported/deprecated/credential-gated Beatport, Deezer or Spotify endpoints clearly disabled instead of simulated. | #50 |
 | MMS-SRC-05 | PARTIAL | Compare full available original fields with provider evidence, including label/catalog/edition, credits, genre/style, remixers, ISRC, release dates, custom fields and multivalues. Unknown/absent never means delete. | #49 |

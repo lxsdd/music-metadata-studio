@@ -31,6 +31,7 @@
 #include "djmeta/musicbrainz_provider.h"
 #include "djmeta/musicbrainz_search_review.h"
 #include "djmeta/musicbrainz_physical_review.h"
+#include "djmeta/musicbrainz_batch_review.h"
 #include "djmeta/online_field_staging.h"
 #include "djmeta/online_physical_postimage.h"
 #include "djmeta/online_field_ui_selection.h"
@@ -6281,6 +6282,7 @@ void publish_musicbrainz_release(
         reply,request.release_mbid);
     std::vector<djmeta::online::FieldReviewRow> compared;
     std::optional<djmeta::online::CuePostimageReviewSnapshot> cue_preview;
+    bool physical_batch_compared=false;
     if(request.cue_mode) {
         const auto raw=read_cue_raw_on_demand(
             entry.handle,entry.input.source_path);
@@ -6310,6 +6312,41 @@ void publish_musicbrainz_release(
             ? static_cast<std::int64_t>(seconds*1000.0+0.5) : -1;
         compared=djmeta::online::review_musicbrainz_physical_edition(
             original,release,ms);
+        // An explicitly selected small album batch gets a whole-selection
+        // exact-edition alignment, not one independent title-only guess per
+        // file. Never bulk-scan a 54k library during an online lookup.
+        if(state.entries.size()>1 && state.entries.size()<=128) {
+            bool all_physical=true;
+            for(const auto& source:state.entries)
+                if(!source.input.physical_source_qualified ||
+                   source.handle->get_subsong_index()!=0 ||
+                   is_external_cue_locator(source.input.source_path))
+                    all_physical=false;
+            if(all_physical) {
+                std::vector<djmeta::online::PhysicalBatchTrack> sources;
+                sources.reserve(state.entries.size());
+                for(std::size_t i=0;i<state.entries.size();++i) {
+                    const auto& source=state.entries[i];
+                    verify_online_source_snapshot(state,source);
+                    const auto observed=source.handle->get_info_ref();
+                    const double duration=observed->info().get_length();
+                    const std::int64_t milliseconds=
+                        duration>0.0 && duration<=36000.0
+                        ? static_cast<std::int64_t>(duration*1000.0+0.5):-1;
+                    sources.push_back({i,
+                        metadata_from_file_info(observed->info()),
+                        milliseconds,true});
+                }
+                const auto batch=djmeta::online::review_musicbrainz_physical_batch(
+                    sources,release);
+                compared.insert(compared.end(),
+                    batch.rows.begin(),batch.rows.end());
+                // A changed hidden source invalidates the entire audit.
+                for(const auto& source:state.entries)
+                    verify_online_source_snapshot(state,source);
+                physical_batch_compared=true;
+            }
+        }
         if(metadata_from_file_info(entry.handle->get_info_ref()->info())!=
            request.originals)
             throw std::runtime_error(
@@ -6365,10 +6402,13 @@ void publish_musicbrainz_release(
     state.musicbrainz_page_cue_mode=request.cue_mode;
     state.musicbrainz_release_loaded=true;
     if(!request.cue_mode)
-        state.search_attempt_notice=
-            L"Exact MusicBrainz edition and physical tracklist compared. "
-            L"Unmatched or unverified fields are blocked; comparison only. "
-            L"No tag selection or file writes.";
+        state.search_attempt_notice=physical_batch_compared
+            ? L"Exact MusicBrainz edition: physical batch match, individual "
+              L"source tags and original vectors compared. Incomplete album "
+              L"or disputed tracks remain blocked. No staging or writes."
+            : L"Exact MusicBrainz edition and physical tracklist compared. "
+              L"Unmatched or unverified fields are blocked; comparison only. "
+              L"No tag selection or file writes.";
     ListView_SetItemState(state.metadata_list,-1,0,LVIS_SELECTED);
     update_metadata_table(state);
 }

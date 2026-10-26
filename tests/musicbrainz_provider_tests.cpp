@@ -1,6 +1,7 @@
 #include "djmeta/musicbrainz_provider.h"
 #include "djmeta/musicbrainz_search_review.h"
 #include "djmeta/musicbrainz_physical_review.h"
+#include "djmeta/musicbrainz_batch_review.h"
 #include "djmeta/cue_online_bridge.h"
 
 #include <algorithm>
@@ -881,6 +882,73 @@ int main() {
           physical_tags==originals_copy,
           "physical edition comparison preserves custom/ReGain vectors and only "
           "one direct exact occurrence promotes read-only album and track evidence");
+    // One explicit two-file album selection: complete one-to-one exact
+    // edition proof is visible, with every original vector retained.
+    auto second_tags=physical_tags;
+    second_tags.fields[0].values={"Other (Extended Mix)"};
+    second_tags.fields[2].values={"2"};
+    second_tags.fields.push_back({"DJ_NOTES",{"second","source"}});
+    const auto batch_before=second_tags;
+    const auto batch=review_musicbrainz_physical_batch({
+        {0,physical_tags,420000,true},
+        {1,second_tags,240000,true}},physical_release);
+    check(batch.complete && batch.matched==2 &&
+          get_row(batch.rows,"Batch / MATCH")->state==
+              FieldReviewState::Unchanged &&
+          get_row(batch.rows,"Physical #1 / MATCH")->state==
+              FieldReviewState::Unchanged &&
+          get_row(batch.rows,"Physical #2 / MATCH")->state==
+              FieldReviewState::Unchanged &&
+          get_row(batch.rows,"Physical #2 / Original DJ_NOTES")->original_values==
+              std::vector<std::string>({"second","source"}) &&
+          get_row(batch.rows,"Physical #1 / Original REPLAYGAIN_TRACK_GAIN")!=
+              batch.rows.end() &&
+          second_tags==batch_before && physical_tags==originals_copy,
+          "whole physical album comparison preserves all original vectors");
+    const auto partial=review_musicbrainz_physical_batch({
+        {0,physical_tags,420000,true},
+        {1,second_tags,240000,false}},physical_release);
+    check(!partial.complete && partial.matched==0 &&
+          get_row(partial.rows,"Batch / ALBUM")->state==
+              FieldReviewState::Blocked &&
+          get_row(partial.rows,"Physical #2 / MATCH")->state==
+              FieldReviewState::Blocked,
+          "unqualified physical source blocks batch album identity");
+    auto wrong_album=second_tags;
+    wrong_album.fields.push_back({"ALBUM",{"Different Edition"}});
+    const auto mixed=review_musicbrainz_physical_batch({
+        {0,physical_tags,420000,true},
+        {1,wrong_album,240000,true}},physical_release);
+    check(!mixed.complete && mixed.matched==0,
+          "mixed/ambiguous album identity cannot certify batch edition");
+    auto disputed_batch=second_tags;
+    disputed_batch.fields[4].values={"different barcode"};
+    const auto conflict=review_musicbrainz_physical_batch({
+        {0,physical_tags,420000,true},
+        {1,disputed_batch,240000,true}},physical_release);
+    check(!conflict.complete && conflict.matched==0,
+          "hidden second-source edition identifier conflict blocks all");
+    auto wrong_mix_batch=second_tags;
+    wrong_mix_batch.fields[0].values={"Other (Radio Edit)"};
+    const auto remix=review_musicbrainz_physical_batch({
+        {0,physical_tags,420000,true},
+        {1,wrong_mix_batch,240000,true}},physical_release);
+    check(!remix.complete && remix.matched<2,
+          "same artist but wrong mix does not complete album");
+    rejects([&]{(void)review_musicbrainz_physical_batch({
+        {0,physical_tags,420000,true},
+        {0,second_tags,240000,true}},physical_release);
+    },"duplicate physical source identity rejected");
+    rejects([&]{(void)review_musicbrainz_physical_batch({
+        {0,physical_tags,420000,true}},physical_release);
+    },"single source is not a physical album batch");
+    auto tainted=physical_release;
+    tainted.tracks[1].fields[0].source_id=first;
+    const auto forged_batch=review_musicbrainz_physical_batch({
+        {0,physical_tags,420000,true},
+        {1,second_tags,240000,true}},tainted);
+    check(!forged_batch.complete,
+          "foreign release-track MBID never qualifies physical album");
     auto no_id=physical_release;
     no_id.tracks[0].source_track_id.clear();
     no_id.tracks[0].fields.clear();

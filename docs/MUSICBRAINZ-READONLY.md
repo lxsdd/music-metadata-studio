@@ -147,3 +147,22 @@ reuse Discogs physical staging or enable MusicBrainz physical field approval,
 tag/CUE/FileOps writers, release-group substitution or background search.
 Native Windows/foobar installed GUI acceptance and real public MusicBrainz
 host-network behavior remain separate from deterministic CI qualification.
+
+## Explicit physical album batch vs exact MusicBrainz edition (read-only)
+
+When a user loads an exact official release while the existing foobar selection
+contains **2–128 qualified physical audio files**, the native grouped Find
+comparison now adds **Batch / MATCH** and **Physical #N** groups alongside the
+focused-track album and release-track inventory. Each group retains original
+field vectors, including custom/multivalue/ReplayGain values, and shows
+track-occurrence MBID-backed provider comparisons only after a unique
+one-to-one identity match. A complete edition requires every selected physical
+source to match a different verified release-track occurrence and the exact
+track counts to agree. Mixed album identities, unavailable duration, invalid
+ISRC, conflicting barcode/catalog, virtual subsongs and mismatched mixes never
+qualify an album. Incomplete selections remain visibly blocked. A selection
+above 128 sources, or one containing CUE/nonphysical items, retains the prior
+single-source comparison without a bulk media scan. A source or rules change
+during network lookup discards the batch audit. The existing search/edition
+transport and normalizer remain unchanged. This is **comparison only**: no
+batch acceptance, no tag/file/CUE writes, and no persisted approval.
