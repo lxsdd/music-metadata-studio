@@ -13,6 +13,7 @@
 #include "batch_table_settings.h"
 #include "legacy_routing_profiles.h"
 #include "native_preview_controls.h"
+#include "session_preview_history.h"
 #include "review_grid_controls.h"
 #include "metadata_adapter.h"
 #include "resource.h"
@@ -228,6 +229,8 @@ struct PreviewState {
     HWND metadata_track_filter = nullptr;
     HWND metadata_scope = nullptr;
     HWND tabs = nullptr;
+    HWND history_list = nullptr;
+    SessionPreviewHistory preview_history;
     bool show_metadata = true;
     bool show_candidate = false; // third tab, never a write path
     bool cue_inspection_mode = false; // exact CUE source view, no online proposal
@@ -2286,8 +2289,64 @@ void update_live_provider_controls(PreviewState& state) {
                  next_result || crates_search?TRUE:FALSE);
 }
 
+const wchar_t* preview_history_action(PreviewHistoryKind kind) noexcept {
+    switch(kind) {
+    case PreviewHistoryKind::Accept: return L"Accept proposals";
+    case PreviewHistoryKind::Reject: return L"Reject proposals";
+    case PreviewHistoryKind::Reset: return L"Reset decisions";
+    case PreviewHistoryKind::Manual: return L"Manual replacement";
+    case PreviewHistoryKind::Route: return L"Recalculate route";
+    case PreviewHistoryKind::UndoReview: return L"Undo review";
+    case PreviewHistoryKind::UndoRoute: return L"Undo route";
+    }
+    return L"Unknown";
+}
+const wchar_t* preview_history_scope(const PreviewHistoryEvent& event) noexcept {
+    if(event.kind==PreviewHistoryKind::Route)
+        return event.scope==2 ? L"All tracks" : L"Selected tracks";
+    if(event.kind==PreviewHistoryKind::UndoReview ||
+       event.kind==PreviewHistoryKind::UndoRoute) return L"Last action";
+    switch(event.scope) {
+    case 0: return L"Selected fields";
+    case 1: return L"Selected tracks";
+    case 2: return L"All tracks";
+    case 3: return L"Visible queue";
+    default: return L"Unknown";
+    }
+}
+void refresh_preview_history_list(PreviewState& state) {
+    if(!state.history_list) return;
+    ListView_DeleteAllItems(state.history_list);
+    const auto& events=state.preview_history.events();
+    for(std::size_t i=0;i<events.size();++i) {
+        const auto& event=events[i];
+        std::wstring sequence=std::to_wstring(event.sequence);
+        LVITEMW row{};
+        row.mask=LVIF_TEXT;
+        row.iItem=static_cast<int>(i);
+        row.pszText=sequence.data();
+        const int index=ListView_InsertItemW(state.history_list,&row);
+        if(index<0) throw std::runtime_error("Cannot display preview history.");
+        std::wstring sources=std::to_wstring(event.sources);
+        std::wstring items=std::to_wstring(event.items);
+        ListView_SetItemText(state.history_list,index,1,
+            const_cast<LPWSTR>(preview_history_action(event.kind)));
+        ListView_SetItemText(state.history_list,index,2,
+            const_cast<LPWSTR>(preview_history_scope(event)));
+        ListView_SetItemText(state.history_list,index,3,sources.data());
+        ListView_SetItemText(state.history_list,index,4,items.data());
+    }
+}
+void record_preview_history(PreviewState& state,PreviewHistoryKind kind,
+                            std::size_t sources,std::size_t items,unsigned scope) {
+    if(state.preview_history.append(kind,sources,items,scope) &&
+       state.tabs && TabCtrl_GetCurSel(state.tabs)==3)
+        refresh_preview_history_list(state);
+}
+
 void show_preview_page(HWND dialog, PreviewState& state,
                        bool metadata, bool candidate = false) {
+    if(state.history_list) ShowWindow(state.history_list,SW_HIDE);
     if (metadata && state.native_grid_candidate_mode!=candidate &&
         state.metadata_track_list && state.metadata_list) {
         // Capture the outgoing grid ONCE at the actual previous display DPI.
@@ -2416,6 +2475,25 @@ void show_preview_page(HWND dialog, PreviewState& state,
     } else {
         update_workflow_audit_hint(state);
     }
+}
+
+void show_history_page(HWND dialog,PreviewState& state) {
+    // Reuse the same modeless workspace and source snapshot; no new writer,
+    // window, persistent history database or clipboard access.
+    show_preview_page(dialog,state,false,false);
+    for(const int id:{IDC_BATCH_LIST,IDC_BATCH_LOCATION_FILTER,
+        IDC_BATCH_LOCATION_FILTER_LABEL,IDC_BATCH_LOCATION_NOTE,
+        IDC_BATCH_ROUTE_LABEL,IDC_BATCH_DEST_LABEL,IDC_BATCH_PATTERN_LABEL,
+        IDC_BATCH_PROFILE_PICKER,IDC_BATCH_DESTINATION,IDC_BATCH_PATTERN,
+        IDC_BATCH_APPLY_SELECTED,IDC_BATCH_APPLY_ALL,IDC_BATCH_AUDIT,
+        IDC_BATCH_COPY_AUDIT,IDC_BATCH_NEXT_ISSUE})
+        ShowWindow(GetDlgItem(dialog,id),SW_HIDE);
+    refresh_preview_history_list(state);
+    ShowWindow(state.history_list,SW_SHOW);
+    SetDlgItemTextW(dialog,IDC_BATCH_GUIDE,
+        L"4. Session history: explicit local preview decisions, route recalculations and Undo. No writes.");
+    SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+        L"Session only (last 256 actions). No tag values, paths or credentials stored. Refresh clears history.");
 }
 
 // Navigate the entire captured read-only batch; no implicit search or write.
@@ -2784,16 +2862,18 @@ void capture_resize_layout(PreviewState& state) {
                         reinterpret_cast<POINT*>(&layout.original), 2);
         const int id = GetDlgCtrlID(control);
         layout.stretch_width =
-            id == IDC_BATCH_LIST ||
+            id == IDC_BATCH_LIST || id == IDC_BATCH_HISTORY_LIST ||
             id == IDC_BATCH_TABS || id == IDC_BATCH_PROFILE_PICKER ||
             id == IDC_BATCH_DESTINATION || id == IDC_BATCH_PATTERN ||
             id == IDC_METADATA_MANUAL_INPUT ||
             (id == -1 && layout.original.right >
              current.initial_client_width - 24);
         layout.stretch_height = id == IDC_BATCH_LIST ||
+                                id == IDC_BATCH_HISTORY_LIST ||
                                 id == IDC_METADATA_LIST ||
                                 id == IDC_METADATA_TRACK_LIST;
-        layout.shift_down = id != IDC_BATCH_LIST && id != IDC_METADATA_LIST &&
+        layout.shift_down = id != IDC_BATCH_LIST &&
+            id != IDC_BATCH_HISTORY_LIST && id != IDC_METADATA_LIST &&
             id != IDC_METADATA_TRACK_LIST &&
             id != IDC_BATCH_TABS &&
             layout.original.top >= current.initial_list_bottom;
@@ -3052,6 +3132,7 @@ void apply_review_action(HWND dialog, PreviewState& state,
     std::map<std::size_t,std::vector<djmeta::ReviewDecision>> next_decisions;
     std::map<std::size_t,PreviewEntry> next_entries;
     std::set<std::size_t> affected_tracks;
+    std::size_t changed_decisions=0;
     // Recalculate the currently selected online source's advisory raw path
     // together with a local decision. Never publish a route computed from
     // yesterday's accepted values or a half-applied batch.
@@ -3073,6 +3154,7 @@ void apply_review_action(HWND dialog, PreviewState& state,
             track,state.review_decisions[track]);
         it->second[proposal] = {action, manual_value};
         affected_tracks.insert(track);
+        ++changed_decisions;
     }
 
     // A repeated identical decision is not a new action. Preserve the last
@@ -3235,6 +3317,14 @@ void apply_review_action(HWND dialog, PreviewState& state,
     update_metadata_table(state);
     if (action == djmeta::ReviewAction::ManualValue)
         SetDlgItemTextW(dialog, IDC_METADATA_MANUAL_INPUT, L"");
+    const auto kind=action==djmeta::ReviewAction::Accept
+        ? PreviewHistoryKind::Accept
+        : action==djmeta::ReviewAction::Reject
+        ? PreviewHistoryKind::Reject
+        : action==djmeta::ReviewAction::ManualValue
+        ? PreviewHistoryKind::Manual : PreviewHistoryKind::Reset;
+    record_preview_history(state,kind,affected_tracks.size(),
+                           changed_decisions,static_cast<unsigned>(scope));
 }
 
 void apply_to_rows(HWND dialog, PreviewState& state, bool all) {
@@ -3306,6 +3396,8 @@ void apply_to_rows(HWND dialog, PreviewState& state, bool all) {
     EnableWindow(GetDlgItem(dialog,IDC_BATCH_UNDO),
                  state.last_preview_undo ? TRUE : FALSE);
     update_table(state);
+    record_preview_history(state,PreviewHistoryKind::Route,
+                           selected.size(),candidate.size(),all?2u:1u);
 }
 
 void undo_last_preview_action(HWND dialog, PreviewState& state) {
@@ -3372,6 +3464,8 @@ void undo_last_preview_action(HWND dialog, PreviewState& state) {
         update_master_table(state);
         update_metadata_table(state);
     }
+    record_preview_history(state,review?PreviewHistoryKind::UndoReview:
+        PreviewHistoryKind::UndoRoute,affected.size(),affected.size(),0);
 }
 
 // User-initiated inspection of RAW, unsanitized candidate paths only. No
@@ -4103,6 +4197,7 @@ void refresh_workspace_snapshot(PreviewState& state) {
         // A refreshed source snapshot must never inherit a preview rollback
         // or any stale user decisions from the previous captured batch.
         state.last_preview_undo.reset();
+        state.preview_history.clear();
         EnableWindow(GetDlgItem(state.dialog,IDC_BATCH_UNDO),FALSE);
         state.analyses.swap(next.analyses);
         state.metadata_rows.swap(next.metadata_rows);
@@ -4169,7 +4264,9 @@ void refresh_workspace_snapshot(PreviewState& state) {
         SetWindowTextW(state.dialog,L"Music Metadata Studio - Prepare Tracks (Read-only)");
         update_table(state);
         update_master_table(state);
-        show_preview_page(state.dialog,state,state.show_metadata,state.show_candidate);
+        if(TabCtrl_GetCurSel(state.tabs)==3)
+            show_history_page(state.dialog,state);
+        else show_preview_page(state.dialog,state,state.show_metadata,state.show_candidate);
         SetDlgItemTextW(state.dialog,IDC_BATCH_HINT,
             L"Snapshot refreshed. Previous candidate results and decisions discarded. "
             L"Read-only: nothing was written.");
@@ -4196,7 +4293,7 @@ void install_workspace_tooltips(PreviewState& state) {
     SendMessageW(tips,TTM_SETDELAYTIME,TTDT_AUTOPOP,5200);
     struct HelpText { int id; const wchar_t* text; };
     const HelpText texts[] = { // static-lifetime literal text, dynamic provider ID
-        {IDC_BATCH_TABS,L"1. Search online and compare. 2. Review local rule-based suggestions. 3. Preview file locations. These previews do not write files."},
+        {IDC_BATCH_TABS,L"1. Find and compare. 2. Review proposals. 3. File locations. 4. Session history. No writes."},
         {IDC_BATCH_GUIDE,L"Follow the steps from left to right. Online matches from any provider are evidence, never approved tag edits."},
         {IDC_METADATA_TRACK_LIST,L"Find tab: double-click/Enter searches MusicBrainz or Discogs, or opens Crates in Beatport mode using full TITLE and qualified ARTIST credits where available. Other tabs only navigate to Find without launching an online action."},
         {IDC_METADATA_MB_QUERY,L"MusicBrainz: TITLE/album or exact HTTPS recording/release URL (release requires a qualified CUE). Discogs: title or exact release/master URL. Beatport: canonical public track URL or clipboard. Only an explicit Search makes a request."},
@@ -4227,6 +4324,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_METADATA_USE_VALUE,L"Use the manually entered value for one selected proposal in the read-only preview."},
         {IDC_METADATA_VISIBLE_WHITESPACE,L"Display tabs, spaces and other invisible characters visibly; original tags remain unchanged."},
         {IDC_BATCH_LIST,L"Proposed source-to-target rows. Destination paths have not passed the final foobar File Operations safety checks."},
+        {IDC_BATCH_HISTORY_LIST,L"Last 256 local preview actions, no source paths, tag values or credentials. Refresh discards this in-memory history."},
         {IDC_BATCH_LOCATION_FILTER,L"Display-only filter of full-batch raw route findings. Selected preview uses selected visible source IDs; Preview all and Audit still cover every source. No final FileOps/CUE approval."},
         {IDC_BATCH_PROFILE_PICKER,L"Select an existing foobar routing template or enter a custom display name; no file operation is performed."},
         {IDC_BATCH_DESTINATION,L"Destination root for the preview only. No folder is created."},
@@ -5771,6 +5869,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         try {
         state->dark.AddDialogWithControls(dialog);
         state->list = GetDlgItem(dialog, IDC_BATCH_LIST);
+        state->history_list = GetDlgItem(dialog, IDC_BATCH_HISTORY_LIST);
         state->metadata_list = GetDlgItem(dialog, IDC_METADATA_LIST);
         state->musicbrainz_details = GetDlgItem(dialog, IDC_METADATA_MB_DETAILS);
         state->musicbrainz_details_label = GetDlgItem(dialog, IDC_METADATA_MB_DETAIL_LABEL);
@@ -5779,13 +5878,14 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         state->metadata_track_filter = GetDlgItem(dialog, IDC_METADATA_TRACK_FILTER);
         state->metadata_scope = GetDlgItem(dialog, IDC_METADATA_REVIEW_SCOPE);
         state->tabs = GetDlgItem(dialog, IDC_BATCH_TABS);
-        if (!state->list || !state->metadata_list || !state->musicbrainz_details ||
+        if (!state->list || !state->history_list ||
+            !state->metadata_list || !state->musicbrainz_details ||
             !state->musicbrainz_details_label || !state->metadata_track_list ||
             !state->metadata_filter || !state->metadata_track_filter ||
             !state->metadata_scope || !state->tabs)
             throw std::runtime_error("Required native dialog controls missing.");
         for (const wchar_t* name : {L"1. Find & compare", L"2. Review proposals",
-                                    L"3. Plan file locations"}) {
+                                    L"3. Plan file locations", L"4. History"}) {
             TCITEMW tab{};
             tab.mask = TCIF_TEXT;
             tab.pszText = const_cast<wchar_t*>(name);
@@ -5793,6 +5893,13 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         }
         const auto workspace_defaults = load_workspace_defaults();
         TabCtrl_SetCurSel(state->tabs, workspace_defaults.opening_tab);
+        ListView_SetExtendedListViewStyle(state->history_list,
+            LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
+        add_column(state->history_list,0,L"Step",54);
+        add_column(state->history_list,1,L"Action",153);
+        add_column(state->history_list,2,L"Scope",143);
+        add_column(state->history_list,3,L"Tracks",76);
+        add_column(state->history_list,4,L"Items",76);
         ListView_SetExtendedListViewStyle(state->metadata_track_list,
             LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_INFOTIP |
             LVS_EX_HEADERDRAGDROP);
@@ -6165,7 +6272,9 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             dismiss_workspace_tooltips(*state);
             invalidate_online_request(*state);
             const int selected_tab = TabCtrl_GetCurSel(state->tabs);
-            show_preview_page(dialog, *state, selected_tab != 2, selected_tab == 0);
+            if(selected_tab==3) show_history_page(dialog,*state);
+            else show_preview_page(dialog, *state,
+                selected_tab != 2, selected_tab == 0);
             return TRUE;
         }
         if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&

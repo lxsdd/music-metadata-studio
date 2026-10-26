@@ -981,3 +981,18 @@ No raw findings is *not* a final destination approval: foobar File Operations
 sanitization/identity and external CUE references remain unqualified.
 Core negative/54,129-source fixtures and original Win32 resource tests guard
 the native workflow. Nothing is written, and no approval is persisted.
+
+
+## Native in-memory History (MMS-WF-04, partial)
+
+The fourth workspace tab **History** shows up to 256 recent explicit local
+preview operations: Accept, Reject, Reset, Manual, route recalculation and
+Undo, with their scope and counts. It uses the same modeless HWND and an
+ordinary native ListView; no additional database or second normalizer is
+introduced. A repeated identical review decision is not recorded. The event
+model stores only action type, ordinal, scope and counts: never track paths,
+tag values, provider tokens, credentials or physical-write approval. Refresh
+clears the session history. The production writer remains disabled, so this
+is **not** an execution/result log or evidence that File Operations ran.
+A later qualified writer must separately supply verified per-item outcomes,
+failures and recovery status before MMS-WF-07 can be completed.

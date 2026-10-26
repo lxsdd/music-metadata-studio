@@ -1,4 +1,5 @@
 #include "../src/foobar/native_preview_controls.h"
+#include "../src/foobar/session_preview_history.h"
 #include "../src/foobar/readonly_network_request.h"
 #include "../src/foobar/review_grid_controls.h"
 #include "../src/foobar/host_file_probe.h"
@@ -98,6 +99,24 @@ bool centers_match(HWND dialog, int label_id, int control_id) {
 }
 
 int main() {
+    using djmeta_foobar::SessionPreviewHistory;
+    using djmeta_foobar::PreviewHistoryKind;
+    SessionPreviewHistory history;
+    check(!history.append(PreviewHistoryKind::Accept,0,0,0) &&
+          history.events().empty(),"no-op preview is never a history event");
+    for(std::size_t i=0;i<300;++i)
+        check(history.append(PreviewHistoryKind::Route,1,1,2),
+              "bounded session history records explicit route action");
+    check(history.events().size()==SessionPreviewHistory::limit &&
+          history.events().front().sequence==45 &&
+          history.events().back().sequence==300 &&
+          history.events().back().scope==2,
+          "history retains the latest 256 events and stable ordinal");
+    history.clear();
+    check(history.events().empty() &&
+          history.append(PreviewHistoryKind::UndoReview,3,5,0) &&
+          history.events().front().sequence==1,
+          "refresh resets session-only history without old decisions");
     using djmeta_foobar::native_recheck_preserved_online_selection;
     const auto same_source_selection=[](bool online_pane_visible) {
         // The native tab switch is a presentation change: the guard has
@@ -186,6 +205,15 @@ int main() {
     HWND dialog = CreateDialogParamW(GetModuleHandleW(nullptr),
         MAKEINTRESOURCEW(IDD_BATCH_PREVIEW), nullptr, test_dialog_proc, 0);
     check(dialog != nullptr, "actual production dialog template instantiation");
+    const HWND history_grid=GetDlgItem(dialog,IDC_BATCH_HISTORY_LIST);
+    RECT history_rect{},footer_rect_history{};
+    check(history_grid!=nullptr &&
+          (GetWindowLongPtrW(history_grid,GWL_STYLE)&LVS_TYPEMASK)==LVS_REPORT &&
+          !IsWindowVisible(history_grid) &&
+          GetWindowRect(history_grid,&history_rect) &&
+          GetWindowRect(GetDlgItem(dialog,IDC_BATCH_HINT),&footer_rect_history) &&
+          history_rect.bottom<=footer_rect_history.top,
+          "production fourth history page is a hidden native report grid above footer");
     HWND workspace_prefs = CreateDialogParamW(GetModuleHandleW(nullptr),
         MAKEINTRESOURCEW(IDD_WORKSPACE_PREFERENCES), dialog, test_dialog_proc, 0);
     check(workspace_prefs != nullptr,

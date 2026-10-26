@@ -44,7 +44,7 @@
 | MMS-WF-01 | PARTIAL | One **modeless single-instance workspace** alongside foobar playback, playlists and Properties; no application-locking wizard or forced topmost; minimize/maximize/taskbar; preserve an existing in-progress batch. | #47 |
 | MMS-WF-02 | PARTIAL | One intelligible journey: **Find/compare → normalize/review → file plan → one final confirmation**, with no redundant dialogs or double entry. Three central views for daily work; inline guidance. | #48, [workflow](UNIFIED-WORKFLOW.md) |
 | MMS-WF-03 | PARTIAL | Select one/many tracks from foobar; show one compact **row per track** with grouped expandable field differences rather than an endless one-row-per-change list; multi-selection and clear status counts. | #48, #49 |
-| MMS-WF-04 | OPEN | Final workspace clearly separates **Metadaten, Dateien, Verlauf** without scattering actions across windows; shared staged canonical metadata is the only input to routing. | [workflow](UNIFIED-WORKFLOW.md) |
+| MMS-WF-04 | PARTIAL | Final workspace clearly separates **Metadaten, Dateien, Verlauf** without scattering actions across windows; shared staged canonical metadata is the only input to routing. | [workflow](UNIFIED-WORKFLOW.md) |
 | MMS-WF-05 | PARTIAL | Accept/Reject/Reset/manual value for a field, selected tracks or all; applicable actions must name their scope. No provider result or SAFE rule silently approves a write. | #49 |
 | MMS-WF-06 | PARTIAL | Batch overview reports changed/unchanged/blocked/conflicting and shows precisely what will happen before **Änderungen prüfen & ausführen**. No-op rows stay out of writes. | #33, #50 |
 | MMS-WF-07 | OPEN | After execution show a compact per-item report, skips/errors and a useful **history** for the current workflow; no duplicate permanent metadata database. | [workflow](UNIFIED-WORKFLOW.md) |
@@ -553,3 +553,8 @@
 // device aliases, Unicode directional overrides, missing/junction parents
 // remain BLOCKED. This is source inventory only, not coordinated FileOps
 // rename, CUE rewrite, future target approval or permission to write.
+
+- 2026-10-26: MMS-WF-04 partial read-only fourth **History** tab (bounded
+  in-memory explicit review/route/undo event summaries). Does not complete
+  MMS-WF-07 execution results; no file/tag/CUE writes or persisted consent.
+  Exact-SHA CI must be attached in PR #45 before any qualification claim.
