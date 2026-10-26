@@ -122,14 +122,16 @@ inline std::string format_workflow_file_action_tsv(
     out+="Source row\tFile action\tStage\tReason\tFinal foobar target\tCUE FILE/sidecar\r\n";
     for(std::size_t i=0;i<actions.rows.size();++i) {
         const auto& row=actions.rows[i];
-        if(scope==WorkflowAuditExportScope::AttentionRows && !row.blocked)
-            continue;
+        // Validate hidden entries too: attention filtering never conceals
+        // malformed source evidence or clipboard injection.
         const std::string_view reason(row.reason?row.reason:"");
         if(reason.empty() || reason.size()>80)
             throw std::invalid_argument("FILE_ACTION_EXPORT_INVALID_REASON");
         for(const unsigned char ch:reason)
             if(!((ch>='A'&&ch<='Z') || (ch>='0'&&ch<='9') || ch=='_'))
                 throw std::invalid_argument("FILE_ACTION_EXPORT_UNSAFE_REASON");
+        if(scope==WorkflowAuditExportScope::AttentionRows && !row.blocked)
+            continue;
         out+="#"+std::to_string(i+1)+"\t"+
             std::string(file_action_label(row.action))+"\t"+
             (row.skip?"SKIP":row.blocked?"BLOCKED":"RAW_ONLY")+

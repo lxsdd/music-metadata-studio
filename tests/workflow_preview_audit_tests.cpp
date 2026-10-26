@@ -67,8 +67,8 @@ int main() {
     for(auto& source:file_sources) {
         source.physical_source_qualified=true;
         source.source_physical_key="private-host-id";
-        source.destination_root="C:\\\\Music";
-        source.raw_relative_path="Artist\\\\Track.flac";
+        source.destination_root=R"(Z:\Music\Singles)";
+        source.raw_relative_path="Test/Artist - Track";
     }
     const std::vector<FileAction> file_actions={
         FileAction::Move,FileAction::Copy,FileAction::Rename,FileAction::None};
@@ -80,17 +80,17 @@ int main() {
           ledger.rows[2].blocked && ledger.rows[3].skip,
           "whole-batch mixed actions remain blocked by pending review, raw findings and rename");
     const auto file_tsv=format_workflow_file_action_tsv(ledger);
-    check(file_tsv.find("#1\\tMove\\tBLOCKED")!=std::string::npos &&
-          file_tsv.find("#2\\tCopy\\tBLOCKED")!=std::string::npos &&
-          file_tsv.find("#3\\tRename\\tBLOCKED")!=std::string::npos &&
-          file_tsv.find("#4\\tNo file action\\tSKIP")!=std::string::npos &&
+    check(file_tsv.find("#1\tMove\tBLOCKED")!=std::string::npos &&
+          file_tsv.find("#2\tCopy\tBLOCKED")!=std::string::npos &&
+          file_tsv.find("#3\tRename\tBLOCKED")!=std::string::npos &&
+          file_tsv.find("#4\tNo file action\tSKIP")!=std::string::npos &&
           file_tsv.find("private-host-id")==std::string::npos &&
           file_tsv.find("Artist")==std::string::npos,
           "per-source action export preserves identity order without paths");
     const auto blocked_tsv=format_workflow_file_action_tsv(
         ledger,WorkflowAuditExportScope::AttentionRows);
-    check(blocked_tsv.find("Included rows\\t3")!=std::string::npos &&
-          blocked_tsv.find("#4\\t")==std::string::npos,
+    check(blocked_tsv.find("Included rows\t3")!=std::string::npos &&
+          blocked_tsv.find("#4\t")==std::string::npos,
           "blocked-only action queue does not invent work for no-action rows");
     auto no_pending=summary;
     no_pending.rows[0].pending_safe=0;
@@ -111,7 +111,7 @@ int main() {
         table,stale_file_sources,file_actions,summary);},
         "truncated physical source batch fails closed");
     auto forged_ledger=ledger;
-    forged_ledger.rows[0].reason="INJECT\\tFORMULA";
+    forged_ledger.rows[0].reason="INJECT\tFORMULA";
     rejects([&]{(void)format_workflow_file_action_tsv(forged_ledger);},
         "clipboard refuses injected action reason");
     forged_ledger=ledger;forged_ledger.raw_only=1;
@@ -286,6 +286,27 @@ int main() {
         choices[i].push_back({ReviewAction::Pending,{}});
     }
     const auto catalog=audit_workflow_preview(large,many,choices);
+    // Library-scale FileOps intention ledger: one unresolved action, all
+    // remaining sources explicitly skipped, no output truncation or paths.
+    std::vector<BatchPreviewInputRow> catalog_sources(catalog_size);
+    std::vector<FileAction> catalog_actions(catalog_size,FileAction::None);
+    catalog_actions[0]=FileAction::Move;
+    catalog_sources[0].physical_source_qualified=true;
+    catalog_sources[0].source_physical_key="private-host-identity";
+    catalog_sources[0].destination_root=R"(Z:\Music\Singles)";
+    catalog_sources[0].raw_relative_path="Test/Artist - Track";
+    const auto catalog_ledger=audit_workflow_file_actions(
+        large,catalog_sources,catalog_actions,catalog);
+    const auto catalog_file_export=format_workflow_file_action_tsv(catalog_ledger);
+    const auto catalog_blocked_export=format_workflow_file_action_tsv(
+        catalog_ledger,WorkflowAuditExportScope::AttentionRows);
+    check(catalog_ledger.blocked==1 && catalog_ledger.skips==catalog_size-1 &&
+          catalog_file_export.find("#54129\tNo file action\tSKIP")!=std::string::npos &&
+          catalog_file_export.size()<16u*1024u*1024u &&
+          catalog_file_export.find("private-host-identity")==std::string::npos &&
+          catalog_blocked_export.find("Included rows\t1")!=std::string::npos &&
+          catalog_blocked_export.find("#2\t")==std::string::npos,
+          "54,129 source file action ledger is complete, private and bounded");
     const auto full_catalog=format_workflow_audit_tsv(large,catalog);
     check(full_catalog.find("Included rows\t54129")!=std::string::npos &&
           full_catalog.find("#54129\t")!=std::string::npos &&

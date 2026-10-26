@@ -1865,8 +1865,11 @@ for marker in (
 # raw candidate on every online inclusion/removal and MUST NOT let the old
 # local-only host target inspector probe a different path.
 native_update_table=workspace_dialog.split(
-    "void update_table(PreviewState& state)",1)[1].split(
+    "std::vector<djmeta::BatchPreviewInputRow> current_batch_route_inputs(",1)[1].split(
     "const char* issue_status_text(",1)[0]
+if "const auto inputs=current_batch_route_inputs(state);" not in native_update_table:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: shared joint route builder not used by table")
+
 native_fileops_cell=workspace_dialog.split(
     "std::wstring cell_text(PreviewState& state,",1)[1].split(
     "std::string readable_track_name(",1)[0]
