@@ -4,9 +4,11 @@
 // before an unforeseen later I/O failure. Never auto-delete published CUEs.
 #include "djmeta/precision_cue_external_host_review.h"
 
+#include <array>
 #include <cstddef>
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -34,6 +36,30 @@ struct PrecisionCueExternalBatchResult {
 };
 
 namespace precision_cue_batch_detail {
+inline std::string album_header(std::string_view cue) {
+    // Canonical generated layout already enforces these exact header
+    // directives. Their bytes must agree across the whole reviewed album.
+    // Comparing just disc counts or file paths could accidentally mix two
+    // different album releases in a single batch.
+    std::string out;
+    std::size_t pos = 0;
+    while (pos < cue.size()) {
+        const auto end = cue.find('\n', pos);
+        if (end == std::string_view::npos) return {};
+        const auto line = cue.substr(pos, end - pos);
+        if (line.starts_with("FILE ")) break;
+        if (line.starts_with("REM GENRE ") ||
+            line.starts_with("REM DATE ") ||
+            line.starts_with("PERFORMER ") ||
+            line.starts_with("TITLE ")) {
+            out.append(line);
+            out.push_back('\n');
+        }
+        pos = end + 1;
+    }
+    return out;
+}
+
 inline bool same_target(const std::filesystem::path& a,
                         const std::filesystem::path& b) {
 #ifdef _WIN32
@@ -63,6 +89,7 @@ preflight_precision_cue_external_batch(
         out.diagnostic = "CUE_BATCH_DISC_COUNT_INVALID";
         return out;
     }
+    std::string shared_album_header;
     for (std::size_t index = 0; index < reviews.size(); ++index) {
         out.failed_disc_index = index;
         const auto& review = reviews[index];
@@ -87,6 +114,14 @@ preflight_precision_cue_external_batch(
             out.diagnostic = "CUE_BATCH_REVIEW_INVALID";
             return out;
         }
+        const auto actual_album_header =
+            precision_cue_batch_detail::album_header(plan.external_cue_utf8);
+        if (actual_album_header.empty() ||
+            (index != 0 && actual_album_header != shared_album_header)) {
+            out.diagnostic = "CUE_BATCH_ALBUM_EDITION_CONFLICT";
+            return out;
+        }
+        if (index == 0) shared_album_header = actual_album_header;
         // The validated generator records consecutive disc numbers in its
         // canonical REM fields; not merely a vector index or filename.
         const std::string disc_line = "REM DISCNUMBER " +
