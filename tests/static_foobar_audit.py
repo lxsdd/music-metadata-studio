@@ -1304,11 +1304,17 @@ for token in (
 ):
     if token not in protected_job:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing protected live QA guard: " + token)
+# Ordinary uncredentialed host keeps the prior well-qualified action; only
+# the protected environment job may use the separately source-vetted PR #56
+# action that admits exact Studio PR #45 source events. All refs immutable.
 if workflow.count(
     "lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@"
     "31930d4fca571f449f2c57044bea5ba2e01f0ca7"
-) != 2:
-    raise SystemExit("STATIC FOOBAR AUDIT FAIL: mismatched protected/ordinary host pins")
+) != 1 or protected_job.count(
+    "lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@"
+    "a71edfa479ba478611e32086e41665e80eb305a2"
+) != 1 or "MMS_PROTECTED_NATIVE_HOST=SKIPPED_PINNED_ACTION_MANUAL_ONLY" in protected_job:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: native protected Discogs E2E not bound to reviewed source pin")
 # Public workflows are source-only. Previously this gate accepted two
 # upload conditions targeting main, but those conditions could still publish
 # unqualified DLLs. Require the stronger merged #55 safety hold instead.

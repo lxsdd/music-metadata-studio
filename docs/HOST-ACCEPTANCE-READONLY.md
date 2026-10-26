@@ -126,3 +126,27 @@ staged search and display `MMS_PROTECTED_NATIVE_HOST=SKIPPED_PINNED_ACTION_MANUA
 The real native host step remains executable on the existing protected manual
 `workflow_dispatch` path. This is a known external qualification gap, **not**
 a successful native Search → Edition → Compare or installed owner acceptance.
+
+## 2026-10-26 — approved exact-PR automatic authenticated native Discogs host QA
+
+An independently owner-approved change to the shared action has been staged
+as infrastructure **Draft PR #56** at immutable commit `a71edfa479ba478611e32086e41665e80eb305a2`.
+Its source-only static mutations, Windows positive/negative real GitHub PR
+fixture admission and disposable Win32/x64 original foobar host-boot tests
+passed in the infrastructure repository. Only the **protected**
+`discogs-authorized-native` job now pins that exact vetted infrastructure
+SHA. It tests real native user-triggered Search → Edition → field display for
+both architectures on the protected `discogs-qa` environment during trusted
+same-repository Studio PR #45, as well as the existing explicit manually
+dispatched QA. The native script verifies that the event really belongs to
+PR #45, the exact captured Studio feature branch and main, and that checked-
+out `git HEAD` equals the PR event's head SHA. Other PRs, forks,
+`pull_request_target`, push, schedule and malformed events fail closed.
+No credential leaves the environment; no event variable is spoofed; no
+untrusted source, user music, DLL or package is uploaded or installed in an
+owner profile. Authentication success is not user-installed GUI/DPI acceptance
+and does not qualify FileOps sanitized final targets or productive writes.
+The normal uncredentialed original host action keeps its original pinned SHA.
+**The infra PR is still Draft/unmerged**; no infra-main edit or merge was
+approved or performed. The live protected job's own exact-SHA CI result must
+be checked before reporting `NATIVE_PASS`.
