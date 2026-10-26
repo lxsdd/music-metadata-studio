@@ -1,0 +1,233 @@
+#pragma once
+// Pure, source-only handoff into the canonical Music Metadata Studio review.
+// No second window, no foobar handles, no writer, no filesystem or HTTP.
+// All rows are advisory: even exact 75-fps agreement is NOT audio proof.
+#include "djmeta/precision_cue_assemble.h"
+#include "djmeta/precision_cue_reference_diff.h"
+#include "djmeta/precision_cue_write_preflight.h"
+
+#include <cstddef>
+#include <cstdint>
+#include <exception>
+#include <optional>
+#include <string>
+#include <vector>
+
+namespace djmeta {
+
+struct PrecisionCueStudioSourceView {
+    // Obtained independently from the foobar selection. Never infer a
+    // physical source from a virtual CUE subsong or a displayed filename.
+    std::uint32_t subsong = 0;
+    bool host_readonly_physical_probe_passed = false;
+};
+
+enum class PrecisionCueStudioHandoffState {
+    Blocked,
+    RowsRequireReview,
+    ReadOnlyRows
+};
+
+enum class PrecisionCueStudioReferenceState {
+    NotProvided,
+    ExactFrameNotAudioProof,
+    WithinOneFrameNotAudioProof,
+    ReviewRequired,
+    Unqualified
+};
+
+struct PrecisionCueStudioReviewRow {
+    unsigned disc_number = 0;
+    unsigned track_number = 0;
+    std::size_t physical_selection_index = 0;
+    std::string physical_basename;
+    std::string title;
+    std::string performer;
+    std::string provider;
+    std::string provider_release_id;
+    std::int64_t elapsed_ms = 0;
+    std::int64_t cue_frame = 0;
+    PrecisionCueStudioReferenceState reference_state =
+        PrecisionCueStudioReferenceState::NotProvided;
+    std::optional<std::int64_t> signed_reference_delta_frames;
+};
+
+struct PrecisionCueStudioHandoff {
+    PrecisionCueStudioHandoffState state =
+        PrecisionCueStudioHandoffState::Blocked;
+    const char* diagnostic = "STUDIO_HANDOFF_BLOCKED";
+    std::vector<PrecisionCueStudioReviewRow> rows;
+};
+
+// The existing Studio workspace owns the only UI, selected physical handles,
+// per-field decisions and eventual independently authorized write controller.
+// The caller passes its host selection and optional read-only reference CUE
+// bytes. This contract deliberately returns NO write/approval token.
+// Recompute the entire provider/edition/disc plan: a mutated or stale UI
+// preview cannot be laundered into a trusted review row.
+inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
+    const PrecisionCuePreviewRequest& request,
+    const PrecisionCuePreviewResult& displayed,
+    const std::vector<PrecisionCueStudioSourceView>& sources,
+    const std::vector<std::optional<std::string>>& reference_cues) {
+    PrecisionCueStudioHandoff out;
+    const auto count = request.physical_discs.size();
+    if (count == 0 || count > 8 || sources.size() != count ||
+        reference_cues.size() != count ||
+        request.reviewed_physical_index_by_disc.size() != count) {
+        out.diagnostic = "STUDIO_SELECTION_OR_MAPPING_INCOMPLETE";
+        return out;
+    }
+    for (const auto& source : sources) {
+        if (source.subsong != 0 || !source.host_readonly_physical_probe_passed) {
+            out.diagnostic = "STUDIO_PHYSICAL_VIRTUAL_ISOLATION_UNQUALIFIED";
+            return out;
+        }
+    }
+    const auto matched = match_precision_cue_releases(
+        request.reference, request.candidates);
+    if (matched.state != PrecisionCueMatchState::Selected ||
+        !matched.selected_candidate_index ||
+        *matched.selected_candidate_index >= request.candidates.size()) {
+        out.diagnostic = "STUDIO_RELEASE_EDITION_NOT_UNIQUE";
+        return out;
+    }
+    const auto& edition = request.candidates[*matched.selected_candidate_index];
+    // Deezer whole-second data may corroborate identity but may not become
+    // the frame-accurate primary CUE clock.
+    if (edition.provider != "apple" || edition.provider_release_id.empty()) {
+        out.diagnostic = "STUDIO_HIGH_RESOLUTION_EDITION_REQUIRED";
+        return out;
+    }
+    try {
+        const auto fresh = make_precision_cue_release_preview(request);
+        if (fresh.discs.empty() || fresh.discs.size() != count ||
+            displayed.discs.size() != count ||
+            fresh.state != displayed.state ||
+            fresh.preview_qualified != displayed.preview_qualified ||
+            fresh.provider != displayed.provider ||
+            fresh.provider_release_id != displayed.provider_release_id ||
+            fresh.provider != edition.provider ||
+            fresh.provider_release_id != edition.provider_release_id) {
+            out.diagnostic = "STUDIO_PREVIEW_CHANGED_SINCE_REVIEW";
+            return out;
+        }
+        std::vector<bool> used(count, false);
+        std::size_t release_offset = 0;
+        bool reference_needs_review = false;
+        for (std::size_t disc = 0; disc < count; ++disc) {
+            const auto source_index = request.reviewed_physical_index_by_disc[disc];
+            if (source_index >= count || used[source_index]) {
+                out.diagnostic = "STUDIO_DISC_MAPPING_NOT_A_PERMUTATION";
+                out.rows.clear();
+                return out;
+            }
+            used[source_index] = true;
+            const auto& planned = displayed.discs[disc];
+            const auto& canonical = fresh.discs[disc];
+            if (planned.external_cue_utf8 != canonical.external_cue_utf8 ||
+                planned.total_duration_ms != canonical.total_duration_ms ||
+                planned.boundaries.size() != canonical.boundaries.size() ||
+                !plan_precision_cue_external_export(
+                    planned, request.physical_discs[source_index].mp3_basename).eligible) {
+                out.diagnostic = "STUDIO_CUE_PLAN_CHANGED_SINCE_REVIEW";
+                out.rows.clear();
+                return out;
+            }
+            PrecisionCueStudioReferenceState reference_state =
+                PrecisionCueStudioReferenceState::NotProvided;
+            std::vector<PrecisionCueBoundaryDifference> differences;
+            if (reference_cues[disc]) {
+                const auto diff = compare_precision_cue_external_reference(
+                    planned, *reference_cues[disc],
+                    request.physical_discs[source_index].mp3_basename);
+                switch (diff.state) {
+                case PrecisionCueReferenceDiffState::ExactFramesPreviewOnly:
+                    reference_state =
+                        PrecisionCueStudioReferenceState::ExactFrameNotAudioProof;
+                    break;
+                case PrecisionCueReferenceDiffState::WithinOneFramePreviewOnly:
+                    reference_state =
+                        PrecisionCueStudioReferenceState::WithinOneFrameNotAudioProof;
+                    break;
+                case PrecisionCueReferenceDiffState::ReviewRequired:
+                    reference_state = PrecisionCueStudioReferenceState::ReviewRequired;
+                    reference_needs_review = true;
+                    break;
+                case PrecisionCueReferenceDiffState::Unqualified:
+                    reference_state = PrecisionCueStudioReferenceState::Unqualified;
+                    reference_needs_review = true;
+                    break;
+                }
+                differences = diff.audit.differences;
+            }
+            std::int64_t elapsed = 0;
+            for (std::size_t track = 0; track < planned.boundaries.size(); ++track) {
+                if (release_offset >= edition.tracks.size()) {
+                    out.diagnostic = "STUDIO_TRACK_COUNT_CHANGED";
+                    out.rows.clear();
+                    return out;
+                }
+                const auto& item = edition.tracks[release_offset++];
+                const auto& boundary = planned.boundaries[track];
+                const auto& expected = canonical.boundaries[track];
+                if (item.disc_number != disc + 1 ||
+                    item.track_number != track + 1 || item.duration_ms <= 0 ||
+                    boundary.track_number != item.track_number ||
+                    boundary.elapsed_ms != elapsed ||
+                    boundary.cue_frame != milliseconds_to_cue_frame(elapsed) ||
+                    boundary.elapsed_ms != expected.elapsed_ms ||
+                    boundary.cue_frame != expected.cue_frame) {
+                    out.diagnostic = "STUDIO_TRACK_TIMELINE_CHANGED";
+                    out.rows.clear();
+                    return out;
+                }
+                PrecisionCueStudioReviewRow row;
+                row.disc_number = item.disc_number;
+                row.track_number = item.track_number;
+                row.physical_selection_index = source_index;
+                row.physical_basename =
+                    request.physical_discs[source_index].mp3_basename;
+                row.title = item.title;
+                row.performer = item.performer;
+                row.provider = edition.provider;
+                row.provider_release_id = edition.provider_release_id;
+                row.elapsed_ms = boundary.elapsed_ms;
+                row.cue_frame = boundary.cue_frame;
+                row.reference_state = reference_state;
+                if (differences.size() == planned.boundaries.size())
+                    row.signed_reference_delta_frames =
+                        differences[track].signed_delta_frames;
+                out.rows.push_back(std::move(row));
+                elapsed += item.duration_ms;
+            }
+            if (elapsed != planned.total_duration_ms) {
+                out.diagnostic = "STUDIO_DISC_DURATION_CHANGED";
+                out.rows.clear();
+                return out;
+            }
+        }
+        if (release_offset != edition.tracks.size()) {
+            out.diagnostic = "STUDIO_RELEASE_TRACK_COUNT_CHANGED";
+            out.rows.clear();
+            return out;
+        }
+        // Multi-disc assignment and physical/edition mastering identity
+        // remain an explicit Studio review, even with exact CUE frames.
+        if (displayed.state != PrecisionCueMatchState::Selected ||
+            !displayed.preview_qualified || reference_needs_review) {
+            out.state = PrecisionCueStudioHandoffState::RowsRequireReview;
+            out.diagnostic = "STUDIO_ROWS_PREVIEW_ONLY_REVIEW_REQUIRED";
+        } else {
+            out.state = PrecisionCueStudioHandoffState::ReadOnlyRows;
+            out.diagnostic = "STUDIO_ROWS_PREVIEW_ONLY_NO_WRITE_TOKEN";
+        }
+    } catch (const std::exception&) {
+        out.state = PrecisionCueStudioHandoffState::Blocked;
+        out.diagnostic = "STUDIO_HANDOFF_RECOMPUTE_FAILED";
+        out.rows.clear();
+    }
+    return out;
+}
+
+} // namespace djmeta

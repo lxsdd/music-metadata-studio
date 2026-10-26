@@ -10,6 +10,7 @@
 #include "djmeta/precision_cue_external_host_review.h"
 #include "djmeta/precision_cue_external_inspect.h"
 #include "djmeta/precision_cue_external_batch.h"
+#include "djmeta/precision_cue_studio_handoff.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -492,6 +493,97 @@ void cross_provider_release_and_cue() {
     CHECK(reviewed.discs[1].boundaries.front().cue_frame == 0);
     CHECK(reviewed.discs[1].external_cue_utf8.find(
         "FILE \"Disc 2.mp3\" WAVE") != std::string::npos);
+    // The canonical Studio workspace can consume rows without acquiring a
+    // second window/writer engine or treating a 75-fps match as audio proof.
+    const std::vector<PrecisionCueStudioSourceView> studio_sources{
+        {0, true}, {0, true}};
+    const std::vector<std::optional<std::string>> no_references(2);
+    const auto studio = prepare_precision_cue_studio_review(
+        request, reviewed, studio_sources, no_references);
+    CHECK(studio.state == PrecisionCueStudioHandoffState::RowsRequireReview);
+    CHECK(studio.rows.size() == 30);
+    CHECK(studio.rows[0].disc_number == 1 &&
+          studio.rows[0].track_number == 1 &&
+          studio.rows[0].cue_frame == 0 &&
+          studio.rows[0].provider == "apple");
+    CHECK(studio.rows[15].disc_number == 2 &&
+          studio.rows[15].track_number == 1 &&
+          studio.rows[15].cue_frame == 0 &&
+          studio.rows[15].physical_selection_index == 1);
+    CHECK(studio.rows[29].track_number == 15);
+    CHECK(studio.rows[0].reference_state ==
+          PrecisionCueStudioReferenceState::NotProvided);
+    CHECK(!studio.rows[0].signed_reference_delta_frames);
+
+    // Independent reference text stays in memory. Exact-frame and one-frame
+    // matches are explicitly labelled NOT AUDIO PROOF, never write consent.
+    auto references_for_studio = no_references;
+    references_for_studio[0] = reviewed.discs[0].external_cue_utf8;
+    const auto exact_studio = prepare_precision_cue_studio_review(
+        request, reviewed, studio_sources, references_for_studio);
+    CHECK(exact_studio.rows.size() == 30);
+    CHECK(exact_studio.rows[1].reference_state ==
+          PrecisionCueStudioReferenceState::ExactFrameNotAudioProof);
+    CHECK(exact_studio.rows[1].signed_reference_delta_frames == 0);
+    replace_once(*references_for_studio[0],
+                 "INDEX 01 02:00:00", "INDEX 01 02:00:01");
+    const auto frame_studio = prepare_precision_cue_studio_review(
+        request, reviewed, studio_sources, references_for_studio);
+    CHECK(frame_studio.rows[1].reference_state ==
+          PrecisionCueStudioReferenceState::WithinOneFrameNotAudioProof);
+    CHECK(frame_studio.rows[1].signed_reference_delta_frames == -1);
+    references_for_studio[0] = "not a CUE";
+    const auto invalid_reference = prepare_precision_cue_studio_review(
+        request, reviewed, studio_sources, references_for_studio);
+    CHECK(invalid_reference.state ==
+          PrecisionCueStudioHandoffState::RowsRequireReview);
+    CHECK(invalid_reference.rows[0].reference_state ==
+          PrecisionCueStudioReferenceState::Unqualified);
+    CHECK(!invalid_reference.rows[0].signed_reference_delta_frames);
+
+    // Stale, forged, virtual and incomplete selections must fail CLOSED,
+    // with no partial row handoff and no hidden disc permutation.
+    auto virtual_sources = studio_sources;
+    virtual_sources[0].subsong = 1;
+    CHECK(prepare_precision_cue_studio_review(
+        request, reviewed, virtual_sources, no_references).rows.empty());
+    virtual_sources = studio_sources;
+    virtual_sources[1].host_readonly_physical_probe_passed = false;
+    CHECK(prepare_precision_cue_studio_review(
+        request, reviewed, virtual_sources, no_references).rows.empty());
+    auto stale_preview = reviewed;
+    ++stale_preview.discs[0].boundaries[1].cue_frame;
+    CHECK(prepare_precision_cue_studio_review(
+        request, stale_preview, studio_sources, no_references).rows.empty());
+    stale_preview = reviewed;
+    stale_preview.discs[0].external_cue_utf8 += "REM UNKNOWN 1\n";
+    CHECK(prepare_precision_cue_studio_review(
+        request, stale_preview, studio_sources, no_references).rows.empty());
+    auto remapped_request = request;
+    remapped_request.reviewed_physical_index_by_disc = {1, 0};
+    CHECK(prepare_precision_cue_studio_review(
+        remapped_request, reviewed, studio_sources, no_references).rows.empty());
+    remapped_request = request;
+    remapped_request.reviewed_physical_index_by_disc = {0, 0};
+    CHECK(prepare_precision_cue_studio_review(
+        remapped_request, reviewed, studio_sources, no_references).rows.empty());
+    remapped_request = request;
+    remapped_request.reviewed_physical_index_by_disc.clear();
+    CHECK(prepare_precision_cue_studio_review(
+        remapped_request, reviewed, studio_sources, no_references).rows.empty());
+    remapped_request = request;
+    remapped_request.candidates[0].tracks[1].title =
+        "Mix Track 2 (Original Mix)";
+    CHECK(prepare_precision_cue_studio_review(
+        remapped_request, reviewed, studio_sources, no_references).rows.empty());
+    remapped_request = request;
+    remapped_request.candidates[0].tracks[1].duration_ms += 1;
+    CHECK(prepare_precision_cue_studio_review(
+        remapped_request, reviewed, studio_sources, no_references).rows.empty());
+    remapped_request = request;
+    remapped_request.physical_discs[0].mp3_basename = "Wrong.mp3";
+    CHECK(prepare_precision_cue_studio_review(
+        remapped_request, reviewed, studio_sources, no_references).rows.empty());
     reference_cue_timeline_regressions(reviewed.discs[0]);
     batch_reviewed_external_cue_regressions(reviewed.discs, apple);
     batch_midflight_external_race_regressions(reviewed.discs, apple);
