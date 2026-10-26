@@ -67,8 +67,13 @@ def main() -> None:
             "github.event.pull_request.head.repo.full_name != github.repository", 1),
         CONFIG.replace("github.event.pull_request.base.ref == 'main'",
                        "github.event.pull_request.base.ref == 'develop'", 1),
-        CONFIG.replace("platform: [Win32, x64]",
-                       "platform: [x64]", 1),
+        CONFIG.replace(
+            "    timeout-minutes: 25\n    permissions:\n      contents: read\n"
+            "    strategy:\n      fail-fast: false\n      matrix:\n"
+            "        platform: [Win32, x64]",
+            "    timeout-minutes: 25\n    permissions:\n      contents: read\n"
+            "    strategy:\n      fail-fast: false\n      matrix:\n"
+            "        platform: [x64]", 1),
         CONFIG.replace("./scripts/qa-physical-writer-host.ps1",
                        "./scripts/fake-writer-qa.ps1", 1),
         CONFIG.replace(
