@@ -56,6 +56,8 @@ jobs:
         run: python tests/physical_sdk_qa_workflow_contract.py
       - name: Verify internal exact-SHA ephemeral package qualification
         run: python tests/private_package_qa_workflow_contract.py
+      - name: Verify protected internal Discogs native automatic QA rules
+        run: python tests/discogs_protected_native_automatic_contract.py
       - name: Verify immutable shared foobar SDK Git-tree source and cache safety
         run: python3 tests/sdk_source_pin_contract.py
       - name: Enforce repository-wide public artifact hold
@@ -235,11 +237,19 @@ jobs:
   # GitHub environment. Ordinary PR workflows receive NO Discogs token.
   # This job neither uploads nor packages the DLL and NEVER runs for forks.
   discogs-authorized-native:
+    # Secrets remain in the protected discogs-qa environment. Automatically
+    # exercise ONLY canonical same-repository PR #45 after normal host gates.
+    # Forks/unrelated PRs and pull_request_target are never eligible.
     if: >-
-      github.event_name == 'workflow_dispatch' &&
-      inputs.discogs_live == true &&
-      github.ref == 'refs/heads/feature/online-metadata-discovery-foundation-20261009'
-    needs: static-audit
+      (github.event_name == 'workflow_dispatch' &&
+       inputs.discogs_live == true &&
+       github.ref == 'refs/heads/feature/online-metadata-discovery-foundation-20261009') ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.number == 45 &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.event.pull_request.head.ref == 'feature/online-metadata-discovery-foundation-20261009' &&
+       github.event.pull_request.base.ref == 'main')
+    needs: [static-audit, host-gate-script, windows-build]
     environment: discogs-qa
     runs-on: windows-2022
     timeout-minutes: 20
@@ -250,7 +260,11 @@ jobs:
       matrix:
         platform: [Win32, x64]
     steps:
+      # Exact PR HEAD, not GitHub's synthetic merge commit.
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - uses: actions/checkout@v7
         with:
           repository: lxsdd/foobar2000_component_template
@@ -266,7 +280,8 @@ jobs:
         shell: pwsh
         env:
           MMS_DISCOGS_QA_TOKEN: ${{ secrets.MMS_DISCOGS_QA_TOKEN }}
-        run: ./scripts/qa-discogs-discovery.ps1 -Mode Live -ReleaseId '${{ inputs.discogs_release_id }}'
+          MMS_DISCOGS_QA_RELEASE_ID: ${{ github.event_name == 'pull_request' && '37332711' || inputs.discogs_release_id }}
+        run: ./scripts/qa-discogs-discovery.ps1 -Mode Live -ReleaseId $env:MMS_DISCOGS_QA_RELEASE_ID
       - name: Authorized official Discogs native exact-edition gate
         uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@31930d4fca571f449f2c57044bea5ba2e01f0ca7
         env:
@@ -278,8 +293,8 @@ jobs:
           expected-window-title: 'Music Metadata Studio - Prepare Tracks (Read-only)'
           required-control-ids: '270,273,271,291,292,293,294,299,301,303,304,305'
           authorized-discogs-probe: 'true'
-          authorized-discogs-full-artist-probe: ${{ inputs.discogs_release_id == '37332711' && 'true' || 'false' }}
-          discogs-release-id: ${{ inputs.discogs_release_id }}
+          authorized-discogs-full-artist-probe: ${{ (github.event_name == 'pull_request' || inputs.discogs_release_id == '37332711') && 'true' || 'false' }}
+          discogs-release-id: ${{ github.event_name == 'pull_request' && '37332711' || inputs.discogs_release_id }}
 
   # One-shot source-to-component package qualification on disposable CI only.
   # No binaries are uploaded, retained or exposed as GitHub artifacts.
