@@ -2404,7 +2404,8 @@ for token in ("review_musicbrainz_physical_batch(", "align_release(local,edition
               "source.physical_qualified"):
     if token not in batch_header:
         raise SystemExit("STATIC MUSICBRAINZ PHYSICAL BATCH FAIL: "+token)
-for token in ("state.entries.size()>1 && state.entries.size()<=128",
+for token in ("if(state.entries.size()>1) {",
+              "const auto scope=djmeta::online::review_physical_album_batch_scope(",
               "verify_online_source_snapshot(state,source);",
               "review_musicbrainz_physical_batch(",
               "physical_batch_compared=true;"):
@@ -2444,3 +2445,12 @@ for marker in ('scope_sources,"musicbrainz",release.edition_id',
                "state.entries.size()<=128"):
     if marker not in workspace_dialog:
         raise SystemExit("STATIC NATIVE ALBUM SCOPE WIRING FAIL: "+marker)
+
+# Album eligibility is a local-source preflight, never forged official
+# API evidence or a successful online edition match.
+native_candidate_labels=(root / "include" / "djmeta" / "native_candidate_labels.h").read_text(encoding="utf-8")
+for token in ('row.reason.starts_with("album_batch_scope_")',
+              '"Local batch selection (read-only)"',
+              '"local_selection_scope_group"'):
+    if token not in native_candidate_labels and token not in workspace_dialog:
+        raise SystemExit("STATIC ALBUM SCOPE SOURCE LABEL FAIL: "+token)

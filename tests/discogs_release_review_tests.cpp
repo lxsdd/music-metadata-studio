@@ -565,6 +565,8 @@ int main() {
         {{0,true,true,false},{1,false,true,false},{2,true,false,false}},
         "discogs",exact.edition_id);
     require(!disc_scope_mixed.eligible && disc_scope_mixed.rows.size()==3 &&
+            native_candidate_source_label(disc_scope_mixed.rows[1])==
+                "Local batch selection (read-only)" &&
             disc_scope_mixed.rows.front().state==FieldReviewState::Blocked &&
             disc_scope_mixed.rows[1].reason=="album_batch_scope_NOT_PHYSICAL" &&
             disc_scope_mixed.rows[2].reason=="album_batch_scope_VIRTUAL_SUBSONG" &&

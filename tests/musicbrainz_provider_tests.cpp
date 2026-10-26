@@ -1432,12 +1432,17 @@ int main() {
         "musicbrainz",first);
     check(!mixed.eligible && mixed.rows.size()==3 &&
           mixed.rows[0].field=="Batch / MATCH" &&
+          online_evidence_scope_label(mixed.rows[0].candidate.scope)=="exact edition" &&
           mixed.rows[0].state==FieldReviewState::Blocked &&
           mixed.rows[1].reason=="album_batch_scope_VIRTUAL_SUBSONG" &&
           mixed.rows[2].reason=="album_batch_scope_EXTERNAL_CUE_CARRIER" &&
           mixed.rows[2].candidate.provider=="musicbrainz" &&
           mixed.rows[2].candidate.field=="MATCH_DIAGNOSTIC",
           "mixed physical/CUE selection produces bounded, nonstageable source reasons");
+    check(mixed.rows[0].candidate.provider=="musicbrainz" &&
+          mixed.rows[0].reason=="album_batch_scope_UNQUALIFIED_SELECTION" &&
+          mixed.rows[1].candidate.field=="MATCH_DIAGNOSTIC",
+          "scope explanation is local evidence, not an online tag suggestion");
     const auto oversized=review_physical_album_batch_scope(
         54129,{},"musicbrainz",first);
     check(!oversized.eligible && oversized.rows.size()==1 &&

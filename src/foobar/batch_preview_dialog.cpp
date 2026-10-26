@@ -1591,6 +1591,8 @@ MusicBrainzBrowseRows group_musicbrainz_release_rows(
             summary.state=row.state;
             summary.reason=physical ? "local_physical_group" :
                 local_cue ? "local_cue_group" :
+                row.reason.starts_with("album_batch_scope_")
+                    ? "local_selection_scope_group" :
                 row.field.starts_with("Pasted ")
                     ? "manual_pasted_candidate_group"
                     : row.candidate.provider=="discogs"

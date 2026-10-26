@@ -13,7 +13,8 @@ inline bool native_candidate_group(const FieldReviewRow& row) {
         row.reason=="discogs_live_release_group" ||
         row.reason=="beatport_public_webpage_group" ||
         row.reason=="local_physical_group" ||
-        row.reason=="local_cue_group";
+        row.reason=="local_cue_group" ||
+        row.reason=="local_selection_scope_group";
 }
 
 inline bool native_candidate_cue_inventory(const FieldReviewRow& row) {
@@ -26,6 +27,9 @@ inline std::string native_candidate_source_label(const FieldReviewRow& row) {
         return "Local filesystem (read-only)";
     if(row.reason=="local_cue_group" || native_candidate_cue_inventory(row))
         return row.candidate.provider;
+    if(row.reason=="local_selection_scope_group" ||
+       row.reason.starts_with("album_batch_scope_"))
+        return "Local batch selection (read-only)";
     return online_evidence_origin_label(row);
 }
 
@@ -35,6 +39,7 @@ inline std::string native_candidate_status_label(const FieldReviewRow& row) {
             return row.candidate.field;
         if(row.reason=="local_physical_group") return "Keep original";
         if(row.reason=="local_cue_group") return "Keep original CUE";
+        if(row.reason=="local_selection_scope_group") return "Unqualified";
         return row.state==FieldReviewState::Blocked ? "Unmatched" : "Review";
     }
     if(row.reason=="cue_reference_preflight_only")
