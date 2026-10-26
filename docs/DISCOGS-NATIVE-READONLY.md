@@ -201,3 +201,17 @@ FAIL, not silently skipped or reclassified as host success.
 The separate `core`, build and ordinary PR host gates stay independent.
 The default `workflow_dispatch` input `discogs_live=false` cannot access
 this secret-bearing job. Manual QA does not upload or package draft DLLs.
+
+## Whole physical album against exact Discogs edition (MMS-SRC-02)
+
+On an explicit exact-release Load, a 2–128-track selection of qualified
+physical audio files now receives a whole-album read-only comparison in the
+existing native workspace. It reuses the shared one-to-one edition aligner,
+per-track Discogs provenance and host snapshot checks. Batch detail displays
+matched/total, per-source originals including multivalues/ReplayGain/custom
+fields, and exact provider-track evidence. No network request or second
+normalizer is introduced; batch rows cannot enter the selected track's
+explicit staging. Missing ALBUM tags are permitted; duplicate/blank/mixed
+album identities, wrong remix, conflicting barcode/catalogue, unqualified
+physical/virtual source, missing duration, forged track evidence and partial
+editions block full qualification. No writer or FileOps is activated.

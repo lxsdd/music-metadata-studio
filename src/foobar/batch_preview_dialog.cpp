@@ -32,6 +32,7 @@
 #include "djmeta/musicbrainz_search_review.h"
 #include "djmeta/musicbrainz_physical_review.h"
 #include "djmeta/musicbrainz_batch_review.h"
+#include "djmeta/discogs_batch_review.h"
 #include "djmeta/online_field_staging.h"
 #include "djmeta/online_physical_postimage.h"
 #include "djmeta/online_field_ui_selection.h"
@@ -5890,6 +5891,41 @@ void publish_discogs_release(HWND dialog, PreviewState& state,
     auto flat=cue?discogs_cue_release_rows(*cue,edition):
         djmeta::online::review_discogs_physical_edition(
             originals,edition,physical_duration_ms);
+    // Keep batch diagnostics OUT of the selected track's staging inventory.
+    std::vector<djmeta::online::FieldEvidence> stageable;
+    if(!cue && entry.input.physical_source_qualified &&
+       entry.handle->get_subsong_index()==0)
+        stageable=djmeta::online::physical_discogs_stageable_evidence(
+            edition,originals,physical_duration_ms,flat);
+    std::optional<std::pair<std::size_t,std::size_t>> batch_counts;
+    if(!cue && state.entries.size()>1 && state.entries.size()<=128) {
+        const bool all_physical=std::all_of(
+            state.entries.begin(),state.entries.end(),[](const auto& source) {
+                return source.input.physical_source_qualified &&
+                    source.handle->get_subsong_index()==0 &&
+                    !is_external_cue_locator(source.input.source_path);
+            });
+        if(all_physical) {
+            std::vector<djmeta::online::PhysicalBatchTrack> sources;
+            sources.reserve(state.entries.size());
+            for(std::size_t i=0;i<state.entries.size();++i) {
+                const auto& source=state.entries[i];
+                verify_online_source_snapshot(state,source);
+                const auto observed=source.handle->get_info_ref();
+                const double duration=observed->info().get_length();
+                const std::int64_t ms=duration>0.0 && duration<=36000.0
+                    ? static_cast<std::int64_t>(duration*1000.0+0.5):-1;
+                sources.push_back({i,metadata_from_file_info(observed->info()),
+                                   ms,true});
+            }
+            const auto batch=djmeta::online::review_discogs_physical_batch(
+                sources,edition);
+            batch_counts=std::pair{batch.matched,sources.size()};
+            flat.insert(flat.end(),batch.rows.begin(),batch.rows.end());
+            for(const auto& source:state.entries)
+                verify_online_source_snapshot(state,source);
+        }
+    }
     // The exact official edition and original physical CUE text have both
     // passed the source recheck; create a detached in-memory field preview.
     std::optional<djmeta::online::CuePostimageReviewSnapshot> cue_preview;
@@ -5911,8 +5947,6 @@ void publish_discogs_release(HWND dialog, PreviewState& state,
     std::optional<djmeta::online::OnlineFieldReviewSnapshot> physical_review;
     if(!cue && entry.input.physical_source_qualified &&
        entry.handle->get_subsong_index()==0) {
-        const auto stageable=djmeta::online::physical_discogs_stageable_evidence(
-            edition,originals,physical_duration_ms,flat);
         if(!stageable.empty())
             physical_review=djmeta::online::capture_online_field_review(
                 originals,stageable,true,true);
@@ -5943,6 +5977,11 @@ void publish_discogs_release(HWND dialog, PreviewState& state,
     state.search_attempt_notice=L"Exact Discogs edition "+
         std::to_wstring(request.release_id)+
         L" loaded. Unverified track fields remain blocked. Read-only.";
+    if(batch_counts)
+        state.search_attempt_notice+=L" Album selection: "+
+            std::to_wstring(batch_counts->first)+L"/"+
+            std::to_wstring(batch_counts->second)+
+            L" uniquely matched; see Batch details (no bulk approval).";
     ListView_SetItemState(state.metadata_list,-1,0,LVIS_SELECTED);
     update_metadata_table(state);
     // Master lookup is a distinct official GET, initiated only as part of
