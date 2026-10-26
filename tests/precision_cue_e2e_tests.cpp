@@ -443,6 +443,23 @@ void cross_provider_release_and_cue() {
     auto review = capture_precision_cue_external_review(
         reviewed.discs[0], physical, "Disc 1.mp3", *selected);
     CHECK(review.has_value());
+    // Single-disc Create must now enforce the SAME full Apple edition,
+    // exact canonical CUE and integer-ms / 75fps model as Create All.
+    CHECK(validate_precision_cue_selected_disc(*review, apple, 0) == nullptr);
+    CHECK(validate_precision_cue_selected_disc(*review, apple, 1) != nullptr);
+    CHECK(validate_precision_cue_selected_disc(*review, deezer, 0) != nullptr);
+    auto unrelated = apple;
+    unrelated.tracks[1].title = "Mix Track 2 (Original Mix)";
+    CHECK(validate_precision_cue_selected_disc(*review, unrelated, 0) != nullptr);
+    unrelated = apple;
+    unrelated.tracks[1].duration_ms += 1;
+    CHECK(validate_precision_cue_selected_disc(*review, unrelated, 0) != nullptr);
+    auto mutated_plan = *review;
+    mutated_plan.request.plan.boundaries[1].cue_frame++;
+    CHECK(validate_precision_cue_selected_disc(
+        mutated_plan, apple, 0) != nullptr);
+    CHECK(create_confirmed_precision_cue_selected_disc(
+        *review, apple, 0).status == PrecisionCueExternalCreateStatus::Rejected);
     CHECK(create_confirmed_precision_cue_external(*review).status ==
           PrecisionCueExternalCreateStatus::Rejected);
     const auto before = inspect_precision_cue_existing_target(
@@ -450,13 +467,18 @@ void cross_provider_release_and_cue() {
     CHECK(before.state == PrecisionCueExistingTargetState::Absent);
     review->request.explicitly_approved_for_external_create = true;
     review->request.reviewed_preflight.explicit_user_approval = true;
-    const auto created = create_confirmed_precision_cue_external(*review);
+    CHECK(create_confirmed_precision_cue_selected_disc(
+        *review, unrelated, 0).status == PrecisionCueExternalCreateStatus::Rejected);
+    CHECK(precision_cue_target_is_absent(temporary.path / "Disc 1.cue"));
+    const auto created = create_confirmed_precision_cue_selected_disc(
+        *review, apple, 0);
     CHECK(created.status == PrecisionCueExternalCreateStatus::Created);
     const auto after = inspect_precision_cue_existing_target(
         reviewed.discs[0], physical, "Disc 1.mp3");
     CHECK(after.state == PrecisionCueExistingTargetState::Identical);
     // An old reviewed snapshot must not overwrite an already published CUE.
-    const auto repeated = create_confirmed_precision_cue_external(*review);
+    const auto repeated = create_confirmed_precision_cue_selected_disc(
+        *review, apple, 0);
     CHECK(repeated.status != PrecisionCueExternalCreateStatus::Created);
     CHECK(inspect_precision_cue_existing_target(
         reviewed.discs[0], physical, "Disc 1.mp3").state ==
@@ -483,8 +505,8 @@ void cross_provider_release_and_cue() {
         reviewed.discs[0], *conflict.observed_different_cue, "Disc 1.mp3");
     CHECK(conflicting_timeline.state ==
           PrecisionCueReferenceDiffState::WithinOneFramePreviewOnly);
-    CHECK(create_confirmed_precision_cue_external(*review).status !=
-          PrecisionCueExternalCreateStatus::Created);
+    CHECK(create_confirmed_precision_cue_selected_disc(
+        *review, apple, 0).status != PrecisionCueExternalCreateStatus::Created);
     {
         std::ifstream in(cue_path, std::ios::binary);
         const std::string persisted((std::istreambuf_iterator<char>(in)),
