@@ -17,6 +17,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <stdexcept>
 #include <vector>
 
 #define CHECK(x) do { if (!(x)) { \
@@ -367,6 +368,97 @@ void batch_reviewed_external_cue_regressions(
     }
 }
 
+// These tests use the actual create-only backend, not a mocked filesystem.
+// The internal deterministic callback runs AFTER successful all-disc review
+// and immediately BEFORE an individual writer, forcing the otherwise rare
+// windows where external activity could make one disc stale.
+void batch_midflight_external_race_regressions(
+    const std::vector<PrecisionCuePlan>& plans,
+    const PrecisionCueRelease& edition) {
+    using State = PrecisionCueExternalBatchState;
+    using Existing = PrecisionCueExistingTargetState;
+    CHECK(plans.size() == 2);
+
+    const auto scenario = [&](int mode) {
+        SyntheticDirectory temporary;
+        const auto a = temporary.path / "Disc 1.mp3";
+        const auto b = temporary.path / "Disc 2.mp3";
+        const auto cue_a = temporary.path / "Disc 1.cue";
+        const auto cue_b = temporary.path / "Disc 2.cue";
+        synthetic_file(a, 'A');
+        synthetic_file(b, 'B');
+        const auto ia = precision_cue_external_detail::
+            physical_source_snapshot(a, temporary.path, "Disc 1.mp3");
+        const auto ib = precision_cue_external_detail::
+            physical_source_snapshot(b, temporary.path, "Disc 2.mp3");
+        CHECK(ia && ib);
+        const auto ra = capture_precision_cue_external_review(
+            plans[0], a, "Disc 1.mp3", *ia);
+        const auto rb = capture_precision_cue_external_review(
+            plans[1], b, "Disc 2.mp3", *ib);
+        CHECK(ra && rb);
+        const std::vector<PrecisionCueReviewedExternalCreate> reviews{*ra, *rb};
+        CHECK(preflight_precision_cue_external_batch(reviews, edition).state ==
+              State::ReadyForConfirmation);
+
+        const auto raced = precision_cue_batch_detail::
+            create_confirmed_batch_with_probe(
+                reviews, edition, true, [&](std::size_t index) {
+                    if (mode == 1 && index == 1) {
+                        const auto timestamp = fs::last_write_time(b);
+                        synthetic_file(b, 'X'); // identical size, inode, restored time
+                        std::error_code ec;
+                        fs::last_write_time(b, timestamp, ec);
+                        CHECK(!ec);
+                    }
+                    if (mode == 2 && index == 1) {
+                        std::ofstream external(cue_b, std::ios::binary);
+                        CHECK(external.good());
+                        external << "another process created this .cue";
+                    }
+                    if (mode == 3 && index == 0) {
+                        std::ofstream external(cue_a, std::ios::binary);
+                        CHECK(external.good());
+                        external << "other process created disc 1";
+                    }
+                    if (mode == 4 && index == 0)
+                        throw std::runtime_error("injected before first writer");
+                    if (mode == 5 && index == 1)
+                        throw std::runtime_error("injected after first writer");
+                });
+        CHECK(raced.state == (mode == 3 || mode == 4
+            ? State::RejectedBeforeCreate : State::PartialNeedsReview));
+        CHECK(raced.created_count == (mode == 3 || mode == 4 ? 0u : 1u));
+        CHECK(raced.failed_disc_index == (mode == 3 || mode == 4 ? 0u : 1u));
+        CHECK(raced.target_paths.size() == 2);
+        CHECK(raced.target_paths[0] == cue_a &&
+              raced.target_paths[1] == cue_b);
+        if (mode == 3 || mode == 4) {
+            CHECK(inspect_precision_cue_existing_target(
+                plans[1], b, "Disc 2.mp3").state == Existing::Absent);
+            if (mode == 4) CHECK(precision_cue_target_is_absent(cue_a));
+        } else {
+            CHECK(inspect_precision_cue_existing_target(
+                plans[0], a, "Disc 1.mp3").state == Existing::Identical);
+        }
+        if (mode == 1 || mode == 5)
+            CHECK(precision_cue_target_is_absent(cue_b));
+        if (mode == 2 || mode == 3) {
+            const auto target = mode == 2 ? cue_b : cue_a;
+            std::ifstream file(target, std::ios::binary);
+            const std::string actual((std::istreambuf_iterator<char>(file)),
+                                      std::istreambuf_iterator<char>());
+            CHECK(actual == (mode == 2
+                ? "another process created this .cue"
+                : "other process created disc 1"));
+        }
+        // Stage must never be present after a rejected or failed publish.
+        for (const auto& entry : fs::directory_iterator(temporary.path))
+            CHECK(entry.path().filename().string().find(".precision-cue-") != 0);
+    };
+    for (int mode = 1; mode <= 5; ++mode) scenario(mode);
+}
+
 void cross_provider_release_and_cue() {
     const auto deezer = parse_deezer_precision_cue_album(
         deezer_fixture(), "123456");
@@ -402,6 +494,7 @@ void cross_provider_release_and_cue() {
         "FILE \"Disc 2.mp3\" WAVE") != std::string::npos);
     reference_cue_timeline_regressions(reviewed.discs[0]);
     batch_reviewed_external_cue_regressions(reviewed.discs, apple);
+    batch_midflight_external_race_regressions(reviewed.discs, apple);
 
     std::vector<PrecisionCueReferenceBoundary> references;
     for (const auto& b : reviewed.discs[0].boundaries)
