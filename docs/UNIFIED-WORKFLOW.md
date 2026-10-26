@@ -966,3 +966,18 @@ groups, never searches or approves automatically, and preserves selected
 online field evidence. Global final foobar File Operations and CUE checks
 remain explicitly unqualified and cannot be presented as a successful
 per-source raw filename check. No productive writes are enabled.
+
+
+### File locations: native filtered raw issue queue (read-only)
+
+The third tab offers All, Raw collisions, Unsafe/unqualified raw, Existing,
+Not inspected, Missing, Pending metadata, and No raw findings queues. The
+complete source batch is always scanned for collisions **before** filtering;
+source IDs remain stable under sorting, selection and route previews.
+**Preview selected** applies only to explicitly selected visible rows;
+**Preview all**, **Audit** and **Copy audit** still cover every captured source.
+**Next issue** reveals a hidden raw-route source by restoring the All queue.
+No raw findings is *not* a final destination approval: foobar File Operations
+sanitization/identity and external CUE references remain unqualified.
+Core negative/54,129-source fixtures and original Win32 resource tests guard
+the native workflow. Nothing is written, and no approval is persisted.

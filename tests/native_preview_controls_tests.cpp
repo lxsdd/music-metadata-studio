@@ -1225,6 +1225,17 @@ int main() {
         check(command_notifications == before + 1 && last_command == button.expected,
               "production review command routes to the intended action");
     }
+    HWND file_queue=GetDlgItem(dialog,IDC_BATCH_LOCATION_FILTER);
+    HWND file_table=GetDlgItem(dialog,IDC_BATCH_LIST);
+    check(file_queue!=nullptr && file_table!=nullptr &&
+          (static_cast<DWORD>(GetWindowLongPtrW(file_queue,GWL_STYLE))&0x3u)
+              ==CBS_DROPDOWNLIST,
+          "native File locations queue must be non-editable");
+    RECT queue_rect{},table_rect{};
+    check(GetWindowRect(file_queue,&queue_rect) &&
+          GetWindowRect(file_table,&table_rect) &&
+          queue_rect.bottom<=table_rect.top,
+          "native File locations filter must not overlap its table");
     HWND track_filter = GetDlgItem(dialog, IDC_METADATA_TRACK_FILTER);
     check(track_filter != nullptr &&
           (static_cast<DWORD>(GetWindowLongPtrW(track_filter, GWL_STYLE)) & 0x3u) == CBS_DROPDOWNLIST,

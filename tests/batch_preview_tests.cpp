@@ -267,5 +267,69 @@ int main() {
     check(qualified.rows[0].issues.empty(), "fully qualified hints should clear");
     check(batch[0].physical_id == "a.mp3" && batch[1].physical_id == "b.mp3",
           "preview generation must not mutate original input");
+    // Complete-batch collision detection precedes display-only filtering.
+    const auto all_collide=djmeta::describe_batch_preview({
+        sample("queue-a.mp3"),sample("queue-b.mp3"),sample("queue-c.mp3")});
+    const std::vector<std::size_t> sorted{2,0,1};
+    check(djmeta::filter_batch_location_view(
+        all_collide,sorted,djmeta::BatchLocationQueue::RawCollisions)==sorted,
+        "sorted raw collisions preserve exact source identities");
+    auto qa=sample("queue-safe.mp3"),qb=sample("queue-unsafe.mp3");
+    qa.raw_relative_path="Different/Unique.mp3";
+    qa.raw_target_presence=djmeta::RawTargetPresence::Missing;
+    qa.raw_target_host_canonical="file:///Z:/Music/missing.mp3";
+    qb.raw_relative_path="NUL.mp3";
+    qb.semantic_proposals_pending=true;
+    qb.raw_target_presence=djmeta::RawTargetPresence::Existing;
+    qb.raw_target_host_canonical="file:///Z:/Music/existing.mp3";
+    qb.raw_target_physical_key="volume:target";
+    qb.raw_target_guard="version";
+    const auto queues=djmeta::describe_batch_preview({qa,qb});
+    const std::vector<std::size_t> reverse{1,0};
+    const auto filtered=[&](djmeta::BatchLocationQueue q) {
+        return djmeta::filter_batch_location_view(queues,reverse,q);
+    };
+    check(filtered(djmeta::BatchLocationQueue::RawCollisions).empty(),
+          "distinct raw targets must not collide");
+    check(filtered(djmeta::BatchLocationQueue::RawUnsafe)==
+          std::vector<std::size_t>{1},"unsafe queue excludes global final gates");
+    check(filtered(djmeta::BatchLocationQueue::ExistingRaw)==
+          std::vector<std::size_t>{1} &&
+          filtered(djmeta::BatchLocationQueue::MissingRaw)==
+          std::vector<std::size_t>{0},"raw observations remain advisory");
+    check(filtered(djmeta::BatchLocationQueue::PendingMetadata)==
+          std::vector<std::size_t>{1} &&
+          filtered(djmeta::BatchLocationQueue::NoRawFindings)==
+          std::vector<std::size_t>{0},"pending and no-raw-finding queues");
+    check(contains(queues.rows[0],"FILESYSTEM_TARGET_UNCHECKED") &&
+          contains(queues.rows[0],"CUE_DEPENDENCIES_UNCHECKED"),
+          "no raw finding must not imply final FileOps/CUE approval");
+    bool rejected=false;
+    try {(void)djmeta::filter_batch_location_view(
+        queues,{0,0},djmeta::BatchLocationQueue::All);}
+    catch(const std::invalid_argument&){rejected=true;}
+    check(rejected,"duplicate source identity rejected");
+    rejected=false;
+    try {(void)djmeta::filter_batch_location_view(
+        queues,{2},djmeta::BatchLocationQueue::All);}
+    catch(const std::invalid_argument&){rejected=true;}
+    check(rejected,"out-of-range source identity rejected");
+    rejected=false;
+    try {(void)djmeta::filter_batch_location_view(
+        queues,reverse,static_cast<djmeta::BatchLocationQueue>(99));}
+    catch(const std::invalid_argument&){rejected=true;}
+    check(rejected,"invalid queue rejected");
+    djmeta::BatchPreviewTable large;
+    large.rows.resize(54129);
+    std::vector<std::size_t> order;
+    order.reserve(large.rows.size());
+    for(std::size_t i=large.rows.size();i>0;--i) {
+        order.push_back(i-1);
+        if((i-1)%11==0) large.rows[i-1].has_raw_target_collision=true;
+    }
+    const auto large_view=djmeta::filter_batch_location_view(
+        large,order,djmeta::BatchLocationQueue::RawCollisions);
+    check(large_view.size()==4921 && large_view.front()==54120 &&
+          large_view.back()==0,"54,129-source queue keeps sorted source IDs");
     std::cout << "PASS: read-only batch preview statuses and raw collisions\n";
 }

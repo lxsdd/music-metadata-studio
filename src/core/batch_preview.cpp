@@ -3,6 +3,7 @@
 
 #include <map>
 #include <set>
+#include <stdexcept>
 #include <string_view>
 #include <string>
 #include <vector>
@@ -261,4 +262,61 @@ BatchPreviewTable describe_batch_preview(
     return out;
 }
 
+bool batch_location_queue_matches(
+    const BatchPreviewRow& row, BatchLocationQueue queue) noexcept {
+    const auto has=[&](std::string_view code) {
+        for(const auto& issue:row.issues) if(issue==code) return true;
+        return false;
+    };
+    switch(queue) {
+    case BatchLocationQueue::All: return true;
+    case BatchLocationQueue::RawCollisions: return row.has_raw_target_collision;
+    case BatchLocationQueue::RawUnsafe:
+        return has("PHYSICAL_SOURCE_UNQUALIFIED") ||
+            has("TARGET_EXPRESSION_EMPTY") ||
+            has("UNSAFE_RAW_DESTINATION_ROOT") ||
+            has("UNSAFE_RAW_RELATIVE_TARGET") ||
+            has("RAW_TARGET_OBSERVATION_CONTRADICTORY") ||
+            has("RAW_TARGET_PROBE_UNQUALIFIED") ||
+            has("RAW_TARGET_HOST_CANONICAL_UNQUALIFIED") ||
+            has("RAW_TARGET_ALIASES_SOURCE") ||
+            has("RAW_TARGET_IS_BATCH_SOURCE") ||
+            has("RAW_TARGET_SHARED_PHYSICAL_ID") ||
+            has("RAW_TARGET_SHARED_HOST_CANONICAL");
+    case BatchLocationQueue::ExistingRaw:
+        return row.raw_target_presence==RawTargetPresence::Existing;
+    case BatchLocationQueue::UninspectedRaw:
+        return row.raw_target_presence==RawTargetPresence::NotInspected;
+    case BatchLocationQueue::MissingRaw:
+        return row.raw_target_presence==RawTargetPresence::Missing;
+    case BatchLocationQueue::PendingMetadata:
+        return has("UNAPPROVED_METADATA_PROPOSALS");
+    case BatchLocationQueue::NoRawFindings:
+        if(row.has_raw_target_collision) return false;
+        for(const auto& issue:row.issues)
+            if(issue!="FILESYSTEM_TARGET_UNCHECKED" &&
+               issue!="CUE_DEPENDENCIES_UNCHECKED" &&
+               issue!="UNAPPROVED_METADATA_PROPOSALS") return false;
+        return true;
+    default: return false;
+    }
+}
+std::vector<std::size_t> filter_batch_location_view(
+    const BatchPreviewTable& complete_table,
+    const std::vector<std::size_t>& sorted_source_ids,
+    BatchLocationQueue queue) {
+    if(queue<BatchLocationQueue::All || queue>BatchLocationQueue::NoRawFindings)
+        throw std::invalid_argument("Unknown File locations queue.");
+    std::vector<unsigned char> seen(complete_table.rows.size(),0);
+    std::vector<std::size_t> visible;
+    visible.reserve(sorted_source_ids.size());
+    for(const auto index:sorted_source_ids) {
+        if(index>=seen.size() || seen[index])
+            throw std::invalid_argument("File locations source view is invalid.");
+        seen[index]=1;
+        if(batch_location_queue_matches(complete_table.rows[index],queue))
+            visible.push_back(index);
+    }
+    return visible;
+}
 } // namespace djmeta

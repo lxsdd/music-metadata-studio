@@ -58,4 +58,17 @@ bool raw_destination_root_lexically_safe(std::string_view root);
 BatchPreviewTable describe_batch_preview(
     const std::vector<BatchPreviewInputRow>& items);
 
+// Display-only filtering of the COMPLETE raw route table; never grants
+// File Operations/CUE approval or removes hidden rows from collision scans.
+enum class BatchLocationQueue {
+    All=0, RawCollisions, RawUnsafe, ExistingRaw, UninspectedRaw,
+    MissingRaw, PendingMetadata, NoRawFindings
+};
+bool batch_location_queue_matches(
+    const BatchPreviewRow& row, BatchLocationQueue queue) noexcept;
+std::vector<std::size_t> filter_batch_location_view(
+    const BatchPreviewTable& complete_table,
+    const std::vector<std::size_t>& sorted_source_ids,
+    BatchLocationQueue queue);
+
 } // namespace djmeta

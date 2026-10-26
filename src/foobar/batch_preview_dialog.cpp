@@ -331,6 +331,7 @@ struct PreviewState {
     djmeta::BatchTableLayout layout = djmeta::default_batch_table_layout();
     // Visible ListView item index -> underlying input row identity.
     std::vector<std::size_t> view_order;
+    djmeta::BatchLocationQueue location_queue=djmeta::BatchLocationQueue::All;
 };
 
 // Owned only by foobar's main UI thread. g_pending_state protects the rare
@@ -505,7 +506,9 @@ void update_workflow_audit_hint(PreviewState& state) {
     if(!state.dialog || state.show_metadata) return;
     const auto audit=djmeta::audit_workflow_preview(
         state.table,state.analyses,state.review_decisions);
-    const std::wstring hint=L"Batch "+std::to_wstring(audit.tracks)+
+    const std::wstring hint=L"File queue "+std::to_wstring(state.view_order.size())+
+        L"/"+std::to_wstring(state.table.rows.size())+
+        L" visible (whole batch audited). Batch "+std::to_wstring(audit.tracks)+
         L": local explicit changes "+std::to_wstring(audit.explicit_changed_values)+
         L" in "+std::to_wstring(audit.normalizer_changed_tracks)+
         L" tracks; "+std::to_wstring(audit.normalizer_unchanged_tracks)+
@@ -585,14 +588,18 @@ void update_table(PreviewState& state) {
         inputs.push_back(std::move(input));
     }
     state.table = djmeta::describe_batch_preview(inputs);
-    state.view_order = djmeta::sort_batch_table_view(
+    const auto sorted=djmeta::sort_batch_table_view(
         inputs, state.table, state.layout.sort_column, state.layout.sort_descending);
+    state.view_order=djmeta::filter_batch_location_view(
+        state.table,sorted,state.location_queue);
 
     if (state.list) {
-        ListView_SetItemCountEx(state.list, static_cast<int>(state.entries.size()),
+        ListView_SetItemCountEx(state.list, static_cast<int>(state.view_order.size()),
             LVSICF_NOINVALIDATEALL | LVSICF_NOSCROLL);
+        // Owner-data selections are VIEW positions; never let hidden rows
+        // inherit a stale selection after a filter or sort.
+        ListView_SetItemState(state.list, -1, 0, LVIS_SELECTED);
         if (!selected_entries.empty()) {
-            ListView_SetItemState(state.list, -1, 0, LVIS_SELECTED);
             for (std::size_t i = 0; i < state.view_order.size(); ++i)
                 if (selected_entries.count(state.view_order[i]))
                     ListView_SetItemState(state.list, static_cast<int>(i),
@@ -2386,6 +2393,9 @@ void show_preview_page(HWND dialog, PreviewState& state,
     ShowWindow(GetDlgItem(dialog, IDC_METADATA_FILTER_LABEL),
         metadata && !candidate ? SW_SHOW : SW_HIDE);
     ShowWindow(state.list, metadata ? SW_HIDE : SW_SHOW);
+    for(const int id:{IDC_BATCH_LOCATION_FILTER,
+                      IDC_BATCH_LOCATION_FILTER_LABEL,IDC_BATCH_LOCATION_NOTE})
+        ShowWindow(GetDlgItem(dialog,id),metadata?SW_HIDE:SW_SHOW);
     ShowWindow(GetDlgItem(dialog,IDC_BATCH_AUDIT),
         metadata ? SW_HIDE : SW_SHOW);
     ShowWindow(GetDlgItem(dialog,IDC_BATCH_COPY_AUDIT),
@@ -2438,6 +2448,10 @@ void navigate_next_workflow_issue(HWND dialog,PreviewState& state) {
         invalidate_online_request(state);
     state.next_issue_cursor=(next.source_index+1)%state.entries.size();
     if(next.kind==Kind::RawRouteConflict || next.kind==Kind::RawRouteBlocker) {
+        // Guided navigation reveals hidden source IDs without weakening audit.
+        state.location_queue=djmeta::BatchLocationQueue::All;
+        SendDlgItemMessageW(dialog,IDC_BATCH_LOCATION_FILTER,CB_SETCURSEL,0,0);
+        update_table(state);
         TabCtrl_SetCurSel(state.tabs,2);
         show_preview_page(dialog,state,false,false);
         const auto it=std::find(state.view_order.begin(),state.view_order.end(),
@@ -4213,6 +4227,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_METADATA_USE_VALUE,L"Use the manually entered value for one selected proposal in the read-only preview."},
         {IDC_METADATA_VISIBLE_WHITESPACE,L"Display tabs, spaces and other invisible characters visibly; original tags remain unchanged."},
         {IDC_BATCH_LIST,L"Proposed source-to-target rows. Destination paths have not passed the final foobar File Operations safety checks."},
+        {IDC_BATCH_LOCATION_FILTER,L"Display-only filter of full-batch raw route findings. Selected preview uses selected visible source IDs; Preview all and Audit still cover every source. No final FileOps/CUE approval."},
         {IDC_BATCH_PROFILE_PICKER,L"Select an existing foobar routing template or enter a custom display name; no file operation is performed."},
         {IDC_BATCH_DESTINATION,L"Destination root for the preview only. No folder is created."},
         {IDC_BATCH_PATTERN,L"foobar Title Formatting pattern for preview file names only. Actual paths are not yet validated."},
@@ -5879,6 +5894,13 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         add_column(state->list, 1, L"Profile", 82);
         add_column(state->list, 2, L"Proposed path (unverified)", 275);
         add_column(state->list, 3, L"Status", 160);
+        for(const wchar_t* choice:{L"All file rows",L"Raw collisions",
+            L"Unsafe / unqualified raw",L"Existing raw target",
+            L"Raw target not inspected",L"Missing raw target",
+            L"Pending metadata",L"No raw findings (NOT approved)"})
+            SendDlgItemMessageW(dialog,IDC_BATCH_LOCATION_FILTER,CB_ADDSTRING,
+                0,reinterpret_cast<LPARAM>(choice));
+        SendDlgItemMessageW(dialog,IDC_BATCH_LOCATION_FILTER,CB_SETCURSEL,0,0);
         state->layout = load_batch_table_layout();
         apply_column_layout(*state);
         const HWND batch_header = ListView_GetHeader(state->list);
@@ -7637,6 +7659,15 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 ? djmeta::ReviewAction::Pending
                 : djmeta::ReviewAction::ManualValue;
             apply_review_action(dialog, *state, action);
+            return TRUE;
+        }
+        if(id==IDC_BATCH_LOCATION_FILTER && HIWORD(wp)==CBN_SELCHANGE) {
+            const auto selected=SendDlgItemMessageW(
+                dialog,IDC_BATCH_LOCATION_FILTER,CB_GETCURSEL,0,0);
+            if(selected<0 || selected>7)
+                throw std::invalid_argument("Unknown File locations filter.");
+            state->location_queue=static_cast<djmeta::BatchLocationQueue>(selected);
+            update_table(*state);
             return TRUE;
         }
         if (native_command == PreviewCommand::TrackFilterChanged) {
