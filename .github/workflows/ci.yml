@@ -9,6 +9,7 @@ on:
       - 'src/core/**'
       - 'src/interop/**'
       - 'tests/**'
+      - 'scripts/**'
       - 'src/foobar/native_preview_controls.h'
       - 'src/foobar/component.rc'
       - 'src/foobar/batch_preview_dialog.cpp'
@@ -53,6 +54,9 @@ jobs:
       - name: Validate persisted rules
         shell: bash
         run: python tests/validate_rules.py
+
+      - name: Enforce source-pinned public artifact hold
+        run: python scripts/verify-public-artifact-hold.py
 
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
