@@ -60,15 +60,20 @@ int main() {
           summary.rows[2].rejected==1 &&
           summary.rows[2].raw_collision && summary.rows[2].file_plan_blocked,
           "local explicit decisions and raw FileOps blockers remain independent");
-    auto next=next_workflow_issue(summary,table,analyses,decisions,0);
+    check(next_workflow_issue(summary,table,analyses,decisions,0).source_index==3,
+          "already accepted semantic proposal is not pending");
+    auto navigation=decisions;
+    navigation[0][1]={ReviewAction::Pending,{}};
+    const auto navigation_audit=audit_workflow_preview(table,analyses,navigation);
+    auto next=next_workflow_issue(navigation_audit,table,analyses,navigation,0);
     check(next.kind==WorkflowNextIssueKind::PendingReview &&
           next.source_index==0 && next.proposal_index==1,
           "first semantic REVIEW selected by physical source identity");
-    next=next_workflow_issue(summary,table,analyses,decisions,1);
+    next=next_workflow_issue(navigation_audit,table,analyses,navigation,1);
     check(next.kind==WorkflowNextIssueKind::PendingReview &&
           next.source_index==3 && next.proposal_index==0,
           "next cursor advances in source order regardless of UI sorting");
-    auto resolved=decisions;
+    auto resolved=navigation;
     resolved[0][1]={ReviewAction::Reject,{}};
     resolved[3][0]={ReviewAction::Reject,{}};
     auto audited=audit_workflow_preview(table,analyses,resolved);
@@ -106,7 +111,7 @@ int main() {
     auto stale_audit=summary;stale_audit.tracks=3;
     rejects([&]{(void)next_workflow_issue(stale_audit,table,analyses,decisions,0);},
             "stale audit source count rejected");
-    next=next_workflow_issue(summary,table,analyses,decisions,999999);
+    next=next_workflow_issue(navigation_audit,table,analyses,navigation,999999);
     check(next.source_index==0 &&
           next.kind==WorkflowNextIssueKind::PendingReview,
           "invalid cursor resets without overflow");
