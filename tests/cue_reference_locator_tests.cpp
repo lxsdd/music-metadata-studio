@@ -341,6 +341,8 @@ int main() {
     queue.record(32,all_copy_impact,kept);
     require(queue.stage(32)==CueQueueStage::OriginalKept,
             "CUE kept original on audio Copy remains advisory");
+    require(queue.next_attention(cues,32)==queue.plan.size(),
+            "Next CUE must not endlessly revisit previously inspected RAW-only CUEs");
     auto tsv=queue.export_tsv(cues);
     require(tsv.find("#9\tRAW_ONLY_FINAL_CUE_UNQUALIFIED")!=std::string::npos &&
             tsv.find("#33\tORIGINAL_CUE_KEPT")!=std::string::npos &&
@@ -363,6 +365,8 @@ int main() {
     require(tsv.find("#9\tSTALE_REINSPECT")!=std::string::npos &&
             tsv.find("#33\tSTALE_REINSPECT")!=std::string::npos,
             "stale CUEs included in privacy-safe Copy issues");
+    require(queue.next_attention(cues,32)==8,
+            "stale earlier CUE carrier is found after queue wrap");
     try { (void)queue.counts({32,8}); require(false,"invalid order"); }
     catch(const std::invalid_argument&) {}
     std::cout << "PASS: action-aware CUE FILE and source-identity navigation dry-run qualification\n";

@@ -1302,3 +1302,8 @@ Sorting/filtering with no actual changed evidence retains receipts.
 Revisiting one CUE updates that source only. Reports never qualify final
 foobar File Operations targets or relative CUE FILE token postimages.
 Synthetic 54,129-source tests and native Win32/x64 UI checks cover the path.
+
+Next CUE prioritizes missing, stale and blocked inspections, not already
+inspected RAW-only candidates. A CUE receipt is recorded only after all
+source-coverage rows have been constructed successfully; a failed or
+truncated inspection cannot appear as complete in the batch ledger.

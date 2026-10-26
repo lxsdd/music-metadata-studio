@@ -86,10 +86,14 @@ struct CueInspectionQueue {
     std::size_t next_attention(const std::vector<std::size_t>& carriers,
                                std::size_t cursor) const {
         (void)counts(carriers);
-        for(auto id:carriers)
-            if(id>cursor && stage(id)!=CueQueueStage::OriginalKept)return id;
-        for(auto id:carriers)
-            if(stage(id)!=CueQueueStage::OriginalKept)return id;
+        const auto pending=[&](std::size_t id) {
+            const auto value=stage(id);
+            return value==CueQueueStage::Missing ||
+                   value==CueQueueStage::Stale ||
+                   value==CueQueueStage::Blocked;
+        };
+        for(auto id:carriers)if(id>cursor && pending(id))return id;
+        for(auto id:carriers)if(pending(id))return id;
         return plan.size();
     }
     std::string export_tsv(const std::vector<std::size_t>& carriers,

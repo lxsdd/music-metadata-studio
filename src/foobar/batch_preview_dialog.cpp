@@ -4293,11 +4293,6 @@ void append_external_cue_file_reference_evidence(
     sidecar_row.state=djmeta::online::FieldReviewState::Blocked;
     sidecar_row.reason="cue_carrier_action_not_final_approval";
     rows.push_back(std::move(sidecar_row));
-    // Commit the diagnostic receipt only after the real CUE FILE inventory,
-    // physical audio matching and sidecar cross-check all completed.
-    state.cue_inspections.observe(current_cue_plan_rows(
-        state,current_batch_route_inputs(state)));
-    state.cue_inspections.record(state.selected_track_index,impact,sidecar);
     if(rows.size()>=10000)
         throw std::invalid_argument("CUE physical audit display limit reached.");
     djmeta::online::FieldReviewRow coverage;
@@ -4315,6 +4310,10 @@ void append_external_cue_file_reference_evidence(
     coverage.state=djmeta::online::FieldReviewState::Blocked;
     coverage.reason="cue_physical_source_only_not_fileops_approval";
     rows.push_back(std::move(coverage));
+    // Failed or truncated CUE inventory must never be recorded as inspected.
+    state.cue_inspections.observe(current_cue_plan_rows(
+        state,current_batch_route_inputs(state)));
+    state.cue_inspections.record(state.selected_track_index,impact,sidecar);
 }
 
 // Always independently derive the literal joint target from the current
