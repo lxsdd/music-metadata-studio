@@ -78,6 +78,84 @@ inline bool same_target(const std::filesystem::path& a,
 }
 } // namespace precision_cue_batch_detail
 
+// Common RELEASE-BOUND gate for single-disc and multi-disc external creation.
+// Validation is pure and never grants user approval. Both native create paths
+// must re-derive the exact text and all frame boundaries from ONE reviewed
+// high-resolution Apple release, not a caller-supplied/edited CUE plan.
+inline const char* validate_precision_cue_selected_disc(
+    const PrecisionCueReviewedExternalCreate& review,
+    const PrecisionCueRelease& selected_edition,
+    std::size_t zero_based_disc_index) {
+    if (selected_edition.provider != "apple" ||
+        !precision_cue_consensus_detail::valid_release_structure(
+            selected_edition) ||
+        selected_edition.tracks.empty())
+        return "CUE_SELECTED_EDITION_INVALID";
+    const auto disc_count = selected_edition.tracks.back().disc_number;
+    if (disc_count == 0 || disc_count > 8 ||
+        zero_based_disc_index >= disc_count)
+        return "CUE_SELECTED_DISC_INDEX_INVALID";
+    const auto& request = review.request;
+    const auto& plan = request.plan;
+    const auto proposal = plan_precision_cue_external_export(
+        plan, request.mp3_basename);
+    if (!proposal.eligible ||
+        request.reviewed_cue_sha256 != precision_cue_sha256(
+            plan.external_cue_utf8))
+        return "CUE_SELECTED_PLAN_INVALID";
+
+    PrecisionCueDisc canonical;
+    canonical.album_title = selected_edition.album_title;
+    canonical.album_performer = selected_edition.album_performer;
+    canonical.genre = selected_edition.genre;
+    canonical.release_date = selected_edition.release_date;
+    canonical.audio_file_basename = request.mp3_basename;
+    canonical.disc_number =
+        static_cast<unsigned>(zero_based_disc_index + 1);
+    canonical.total_discs = disc_count;
+    for (const auto& track : selected_edition.tracks) {
+        if (track.disc_number == canonical.disc_number)
+            canonical.tracks.push_back({
+                track.title, track.performer, track.duration_ms
+            });
+    }
+    if (canonical.tracks.empty())
+        return "CUE_SELECTED_DISC_MISSING";
+    try {
+        const auto expected = make_precision_cue(canonical);
+        if (plan.external_cue_utf8 != expected.external_cue_utf8 ||
+            plan.total_duration_ms != expected.total_duration_ms ||
+            plan.boundaries.size() != expected.boundaries.size())
+            return "CUE_SELECTED_TRACKLIST_OR_TIMING_CONFLICT";
+        for (std::size_t i = 0; i < expected.boundaries.size(); ++i) {
+            if (plan.boundaries[i].track_number !=
+                    expected.boundaries[i].track_number ||
+                plan.boundaries[i].elapsed_ms !=
+                    expected.boundaries[i].elapsed_ms ||
+                plan.boundaries[i].cue_frame !=
+                    expected.boundaries[i].cue_frame)
+                return "CUE_SELECTED_TRACKLIST_OR_TIMING_CONFLICT";
+        }
+    } catch (const std::exception&) {
+        return "CUE_SELECTED_TRACKLIST_OR_TIMING_CONFLICT";
+    }
+    return nullptr;
+}
+
+// Use only after the actual separate native user confirmation has populated
+// both approved flags on the temporary request copy. A byte-identical
+// but WRONG-edition plan must not reach the create-only writer.
+inline PrecisionCueExternalCreateResult
+create_confirmed_precision_cue_selected_disc(
+    PrecisionCueReviewedExternalCreate reviewed,
+    const PrecisionCueRelease& selected_edition,
+    std::size_t zero_based_disc_index) {
+    if (const auto* reason = validate_precision_cue_selected_disc(
+            reviewed, selected_edition, zero_based_disc_index))
+        return {PrecisionCueExternalCreateStatus::Rejected, reason};
+    return create_confirmed_precision_cue_external(std::move(reviewed));
+}
+
 // Single shared fail-closed review over the COMPLETE numbered disc set.
 // This does not grant write permission, does not create files, and requires
 // fresh physical source content SHA + absent target evidence for every disc.
@@ -147,47 +225,10 @@ preflight_precision_cue_external_batch(
             out.diagnostic = "CUE_BATCH_DISC_IDENTITY_INVALID";
             return out;
         }
-        // Reconstruct the EXACT canonical CUE for each disc using one
-        // qualified edition. Prevent interleaving tracks from different
-        // releases even when album titles, total time and disc counts agree.
-        PrecisionCueDisc canonical_disc;
-        canonical_disc.album_title = selected_edition.album_title;
-        canonical_disc.album_performer = selected_edition.album_performer;
-        canonical_disc.genre = selected_edition.genre;
-        canonical_disc.release_date = selected_edition.release_date;
-        canonical_disc.audio_file_basename = request.mp3_basename;
-        canonical_disc.disc_number = static_cast<unsigned>(index + 1);
-        canonical_disc.total_discs = static_cast<unsigned>(reviews.size());
-        for (const auto& track : selected_edition.tracks) {
-            if (track.disc_number == index + 1)
-                canonical_disc.tracks.push_back({
-                    track.title, track.performer, track.duration_ms
-                });
-        }
-        if (canonical_disc.tracks.empty()) {
-            out.diagnostic = "CUE_BATCH_SELECTED_DISC_MISSING";
-            return out;
-        }
-        try {
-            const auto expected = make_precision_cue(canonical_disc);
-            if (plan.external_cue_utf8 != expected.external_cue_utf8 ||
-                plan.total_duration_ms != expected.total_duration_ms ||
-                plan.boundaries.size() != expected.boundaries.size()) {
-                out.diagnostic = "CUE_BATCH_EDITION_TRACKLIST_CONFLICT";
-                return out;
-            }
-            for (std::size_t pos = 0; pos < plan.boundaries.size(); ++pos) {
-                if (plan.boundaries[pos].track_number !=
-                        expected.boundaries[pos].track_number ||
-                    plan.boundaries[pos].elapsed_ms !=
-                        expected.boundaries[pos].elapsed_ms ||
-                    plan.boundaries[pos].cue_frame !=
-                        expected.boundaries[pos].cue_frame) {
-                    out.diagnostic = "CUE_BATCH_EDITION_TRACKLIST_CONFLICT";
-                    return out;
-                }
-            }
-        } catch (const std::exception&) {
+        // Share the exact same full-release gate with the single-disc
+        // native create action; no weaker edition or timing acceptance.
+        if (validate_precision_cue_selected_disc(
+                review, selected_edition, index) != nullptr) {
             out.diagnostic = "CUE_BATCH_EDITION_TRACKLIST_CONFLICT";
             return out;
         }
