@@ -79,6 +79,41 @@ for token in (
     if token not in precision:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: precision CUE copy review gate missing " + token)
 
+# The multi-disc create action is separate from search, preview, copy and
+# single-disc create. It must remain impossible to dispatch without a real
+# BN_CLICKED command, a whole-batch preflight and an independent modal YES.
+# Static checks complement, never replace, the Windows host HWND/resource gate.
+batch_click = (
+    "LOWORD(wp) == IDC_PRECISION_SAVE_ALL_CUES && HIWORD(wp) == BN_CLICKED"
+)
+if batch_click not in precision or (
+        precision.count("save_all_reviewed_disc_cues(*state)") != 1):
+    raise SystemExit(
+        "STATIC FOOBAR AUDIT FAIL: reviewed multi-disc create must require one real button click")
+batch_handler = precision.split(
+    "void save_all_reviewed_disc_cues(Workspace& state) {", 1
+)[-1].split("void start_search(Workspace& state) {", 1)[0]
+for token in (
+    "IsDlgButtonChecked(state.dialog, IDC_PRECISION_EDITION_CONFIRMED)",
+    "preflight_precision_cue_external_batch(batch)",
+    "before.target_paths[i].wstring()",
+    "MessageBoxW(state.dialog, question.c_str()",
+    "MB_DEFBUTTON2",
+    "create_confirmed_precision_cue_external_batch(",
+    "invalidate_cue_copy(state)",
+):
+    if token not in batch_handler:
+        raise SystemExit(
+            "STATIC FOOBAR AUDIT FAIL: native multi-disc preflight/confirmation missing: " + token)
+if (batch_handler.find("preflight_precision_cue_external_batch(batch)") >
+        batch_handler.find("MessageBoxW(state.dialog, question.c_str()") or
+        batch_handler.find("MessageBoxW(state.dialog, question.c_str()") >
+        batch_handler.find("create_confirmed_precision_cue_external_batch(")):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: batch consent/preflight order changed")
+resources_for_batch = (foobar / "component.rc").read_text(encoding="utf-8")
+if "IDC_PRECISION_SAVE_ALL_CUES" not in resources_for_batch:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: batch create lacks a native control")
+
 preview = (foobar / "preview.cpp").read_text(encoding="utf-8")
 for token in [
     "item.result.input_fingerprint",
