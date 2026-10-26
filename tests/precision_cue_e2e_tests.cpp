@@ -216,6 +216,33 @@ void batch_reviewed_external_cue_regressions(
     CHECK(precision_cue_target_is_absent(cue_a) &&
           precision_cue_target_is_absent(cue_b));
 
+    // Two independent filenames may be hardlinks of one physical MP3.
+    // Never treat duplicate underlying file IDs as a valid two-disc source.
+    const auto alias = temporary.path / "Disc 2 alias.mp3";
+    std::error_code hardlink_ec;
+    fs::create_hard_link(source_a, alias, hardlink_ec);
+    if (!hardlink_ec) {
+        const auto alias_identity =
+            precision_cue_external_detail::physical_source_snapshot(
+                alias, temporary.path, "Disc 2 alias.mp3");
+        CHECK(alias_identity);
+        CHECK(alias_identity->volume_id == identity_a->volume_id);
+        CHECK(alias_identity->file_id == identity_a->file_id);
+        auto alias_plan = plans[1];
+        replace_once(alias_plan.external_cue_utf8,
+            "FILE \"Disc 2.mp3\" WAVE", "FILE \"Disc 2 alias.mp3\" WAVE");
+        const auto alias_review = capture_precision_cue_external_review(
+            alias_plan, alias, "Disc 2 alias.mp3", *alias_identity);
+        CHECK(alias_review);
+        const auto duplicate = preflight_precision_cue_external_batch(
+            {*review_a, *alias_review});
+        CHECK(duplicate.state == State::RejectedBeforeCreate);
+        CHECK(duplicate.diagnostic == "CUE_BATCH_DUPLICATE_PHYSICAL_SOURCE");
+        CHECK(precision_cue_target_is_absent(cue_a));
+        CHECK(precision_cue_target_is_absent(
+            temporary.path / "Disc 2 alias.cue"));
+    }
+
     // A valid preflight is never implicit batch authorization.
     auto forbidden = create_confirmed_precision_cue_external_batch(
         reviewed, false);
