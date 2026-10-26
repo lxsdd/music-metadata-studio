@@ -1042,3 +1042,26 @@ truncation. Exceeding the limit fails before changing the clipboard. Native
 read-only summary and independently verified exact-edition field counts are
 included in both exports. Final sanitized destinations, external CUE FILE
 references and production writes remain unqualified and disabled.
+
+## Selected physical CUE FILE → staged RAW destination impact (read-only)
+
+The native **Inspect CUE** action now appends a paired "FILE # / RAW routing
+impact" row for each independently observed external FILE source and a complete
+summary. The mapping uses physical file identity, stable source guards and
+captured source-row indices; it is not inferred from CUE filenames, subsong
+indices or the current visible/sorted grid. A matched row displays its current
+explicitly staged foobar Title Formatting **RAW ONLY** candidate. Unselected
+FILE sources, stale/ambiguous source versions, unaccepted metadata, unsafe
+relative paths and whole-batch raw target collisions are explicitly BLOCKED.
+Nested relative names are retained as preliminary evidence, not silently
+flattened. Positive and negative synthetic identity/version/collision/unsafe
+fixtures accompany the native display.
+
+This joins the original external-CUE source inspection with the current
+normalizer/online selection and File locations planning for user inspection.
+It is **not** an SDK File Operations sanitizer: actual final destination
+identity, correct relative FILE token postimage after relocation, complete
+source/target/sidecar rechecks and one final execution confirmation still need
+independent host qualification. No raw candidate ever sets
+`filesystem_target_checked` or `cue_dependencies_checked`, and neither the
+physical writer nor foobar File Operations is enabled.

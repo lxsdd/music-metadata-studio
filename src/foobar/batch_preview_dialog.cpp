@@ -50,6 +50,7 @@
 #include "djmeta/cue_online_bridge.h"
 #include "djmeta/cue_reference_locator.h"
 #include "djmeta/cue_physical_selection_audit.h"
+#include "djmeta/cue_raw_route_impact.h"
 #include "djmeta/physical_selection.h"
 #include "djmeta/physical_sdk_postimage.h"
 #if defined(MMS_ENABLE_PHYSICAL_WRITES)
@@ -3777,6 +3778,76 @@ void append_external_cue_file_reference_evidence(
                     "; MATCHED selected physical audio row #"+
                     std::to_string(selected+1)+" (source only)";
         }
+    // Show which *selected physical audio* a verified FILE depends on AND
+    // what the currently staged Title Formatting would propose. This is a
+    // user-visible impact assessment, not a new filename engine, and no RAW
+    // spelling is ever promoted to a final foobar FileOps/CUE destination.
+    std::vector<djmeta::CueRawRouteTrack> route_tracks(state.entries.size());
+    for(std::size_t i=0;i<state.entries.size();++i) {
+        const auto& source=state.entries[i];
+        auto& target=route_tracks[i];
+        target.host_physical_key=source.observed_physical_key;
+        target.source_guard=source.observed_source_guard;
+        target.qualified_physical=source.input.physical_source_qualified &&
+            source.handle->get_subsong_index()==0 &&
+            !is_external_cue_locator(source.input.source_path);
+        target.destination_root=source.input.destination_root;
+        const bool online=native_recheck_preserved_online_selection(
+            state.online_field_snapshot.has_value(),
+            state.online_edition_source,i,state.online_included_fields.size());
+        target.raw_relative_path=online
+            ? (state.online_raw_route_valid ? state.online_raw_route_after
+                                             : std::string{})
+            : source.input.raw_relative_path;
+        target.pending_metadata_review=source.input.semantic_proposals_pending ||
+            (online && !state.online_raw_route_valid);
+        if(i<state.table.rows.size())
+            target.raw_batch_collision=state.table.rows[i].has_raw_target_collision;
+    }
+    const auto impact=djmeta::inspect_cue_raw_route_impact(
+        file_sources,matched,route_tracks);
+    std::size_t shown=0;
+    for(const auto& route:impact.references) {
+        if(shown>=appended_file_rows.size()) break;
+        if(rows.size()>=10000)
+            throw std::invalid_argument("CUE RAW routing impact display limit reached.");
+        djmeta::online::FieldReviewRow row;
+        row.field="FILE #"+std::to_string(route.reference_index+1)+
+            " / RAW routing impact";
+        row.original_values=rows.at(appended_file_rows[shown]).original_values;
+        row.candidate.field="Staged audio routing (NOT final FileOps/CUE)";
+        row.candidate.provider="Local foobar Title Formatting (read-only)";
+        row.candidate.scope=djmeta::online::EvidenceScope::Edition;
+        row.candidate.source_id="cue-raw-route:"+std::to_string(shown+1);
+        std::string explanation=route.code;
+        if(route.selected_source_row!=djmeta::cue_unselected_source_row)
+            explanation+="; selected physical row #"+
+                std::to_string(route.selected_source_row+1);
+        if(!route.raw_candidate.empty())
+            explanation+="; RAW ONLY: "+route.raw_candidate;
+        explanation+="; final FileOps target / relative CUE FILE unchecked";
+        row.candidate.values.push_back(std::move(explanation));
+        row.state=djmeta::online::FieldReviewState::Blocked;
+        row.reason="cue_raw_routing_impact_not_final_approval";
+        rows.push_back(std::move(row));
+        ++shown;
+    }
+    if(rows.size()>=10000)
+        throw std::invalid_argument("CUE RAW impact summary display limit reached.");
+    djmeta::online::FieldReviewRow impact_summary;
+    impact_summary.field="CUE / RAW relocation impact (entire captured batch)";
+    impact_summary.candidate.field="Source-linked preview; no FileOps approval";
+    impact_summary.candidate.provider="Local foobar Title Formatting (read-only)";
+    impact_summary.candidate.scope=djmeta::online::EvidenceScope::Edition;
+    impact_summary.candidate.source_id="cue-raw-route-summary";
+    impact_summary.candidate.values.push_back(
+        std::to_string(impact.raw_candidates)+" selected RAW-only candidates, "+
+        std::to_string(impact.selected_blocked)+" blocked/unqualified, "+
+        std::to_string(impact.unselected)+" unselected physical FILE dependencies; "+
+        "actual foobar-sanitized targets, CUE rewrites and writes NOT qualified");
+    impact_summary.state=djmeta::online::FieldReviewState::Blocked;
+    impact_summary.reason="cue_raw_routing_impact_not_final_approval";
+    rows.push_back(std::move(impact_summary));
     if(rows.size()>=10000)
         throw std::invalid_argument("CUE physical audit display limit reached.");
     djmeta::online::FieldReviewRow coverage;
