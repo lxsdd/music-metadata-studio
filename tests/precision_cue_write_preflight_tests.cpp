@@ -41,6 +41,20 @@ PrecisionCuePlan synthetic_plan(std::string_view basename = "Disc Über 東京.m
     return make_precision_cue(disc);
 }
 
+void physical_file_identity_sentinel_regressions() {
+    using djmeta::precision_cue_external_detail::
+        precision_cue_physical_file_id_qualified;
+    // Exact owner Studio host policy: a zero volume or zero/all-ones
+    // index cannot distinguish two selected MP3s or prove hardlink identity.
+    VERIFY(precision_cue_physical_file_id_qualified(1, 1));
+    VERIFY(precision_cue_physical_file_id_qualified(123456, 987654321));
+    VERIFY(!precision_cue_physical_file_id_qualified(0, 1));
+    VERIFY(!precision_cue_physical_file_id_qualified(1, 0));
+    VERIFY(!precision_cue_physical_file_id_qualified(0, 0));
+    VERIFY(!precision_cue_physical_file_id_qualified(1, UINT64_MAX));
+    VERIFY(!precision_cue_physical_file_id_qualified(UINT64_MAX, 1));
+}
+
 void export_planning_positive_and_negative() {
     const auto cue = synthetic_plan();
     const auto good = plan_precision_cue_external_export(cue, "Disc Über 東京.mp3");
@@ -734,6 +748,7 @@ int main() {
         sha256_exact_byte_regressions();
         commit_revalidation_fail_closed_matrix();
         foobar_local_windows_path_regressions();
+        physical_file_identity_sentinel_regressions();
         create_only_external_writer_regressions();
         native_host_review_and_create_regressions();
         embedded_textual_cuesheet_readonly_inventory_regressions();
