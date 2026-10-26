@@ -126,7 +126,7 @@ jobs:
           component-dll: out/foobar/${{ matrix.platform }}/Release/foo_music_metadata_studio.dll
           context-command: 'Music Metadata Studio/Prepare Tracks (Preview)...'
           expected-window-title: 'Music Metadata Studio - Prepare Tracks (Read-only)'
-          required-control-ids: '270,273,271,291,292,293,294,299,303,304,305'
+          required-control-ids: '270,273,271,291,292,293,294,299,303,304,305,345'
           offline-clipboard-test: |
             @provider=discogs
             @id=release:123456
