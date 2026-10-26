@@ -1251,7 +1251,7 @@ if workflow.count("repository: lxsdd/foobar2000_component_template") != 3 or (
 if (workflow.count("repository: lxsdd/dev-infrastructure-public") != 1 or
     workflow.count("ref: 31930d4fca571f449f2c57044bea5ba2e01f0ca7") != 1 or
     (
-        "  physical-sdk-runtime-qa:\\n" not in workflow or
+        "  physical-sdk-runtime-qa:\n" not in workflow or
         "github.event.pull_request.head.repo.full_name == github.repository" not in workflow or
         "github.event.pull_request.head.ref == 'feature/online-metadata-discovery-foundation-20261009'" not in workflow or
         "github.event.pull_request.base.ref == 'main'" not in workflow or
