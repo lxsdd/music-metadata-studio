@@ -1238,8 +1238,9 @@ for function in (
     if "verify_snapshot(entry);" in section:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: metadb-only provider publish " + function)
 
-# Only the explicitly invoked, environment-gated canonical Studio branch may
-# receive the Discogs QA secret; PR, fork, push, and regular workflow runs
+# Only an explicitly invoked, environment-gated canonical Studio worker
+# OR its narrowly allowlisted Precision integration branch may receive the
+# Discogs QA secret. PR, fork, push and regular workflow runs
 # must remain credential-free. No manual run may publish a draft artifact.
 workflow = (root / ".github" / "workflows" / "foobar.yml").read_text(encoding="utf-8")
 # The third pinned SDK checkout is exclusively for isolated synthetic
@@ -1289,6 +1290,7 @@ for token in (
     "github.event_name == 'workflow_dispatch'",
     "inputs.discogs_live == true",
     "github.ref == 'refs/heads/feature/online-metadata-discovery-foundation-20261009'",
+    "github.ref == 'refs/heads/feature/studio-precision-cue-integration-20261026'",
     "environment: discogs-qa",
     "FB2K_DISCOGS_QA_TOKEN:",
     "secrets.MMS_DISCOGS_QA_TOKEN",
@@ -1297,6 +1299,17 @@ for token in (
 ):
     if token not in protected_job:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing protected live QA guard: " + token)
+# The integration branch is an ALTERNATIVE ONLY after a deliberate
+# workflow_dispatch and protected environment approval. Do not broaden this
+# allowlist into ordinary push/PR, or include wildcard ref conditions.
+protected_if = protected_job.split("    needs: static-audit", 1)[0]
+if (protected_if.count("github.ref == 'refs/heads/") != 2 or
+    protected_if.count("github.event_name == 'workflow_dispatch'") != 1 or
+    "github.event_name == 'push'" in protected_if or
+    "github.event_name == 'pull_request'" in protected_if or
+    "refs/heads/*" in protected_if or
+    "environment: discogs-qa" not in protected_job):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: protected native QA branch boundary broadened")
 if workflow.count(
     "lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@"
     "31930d4fca571f449f2c57044bea5ba2e01f0ca7"

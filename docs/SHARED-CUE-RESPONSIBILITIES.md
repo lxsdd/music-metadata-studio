@@ -292,3 +292,15 @@ physical-tag writes are disabled. This declaration does **not** activate
 the separate Studio physical writer, embedded CUE mutation or FileOps
 executor; genuine application-side source identity/approval/absent-target
 gates remain mandatory.
+
+## One protected live-Discogs qualification on the integrated candidate
+
+The authenticated Discogs Search → Release → Edition → Compare runner now
+accepts a **manual** `workflow_dispatch` on exactly the canonical Studio
+worker or the isolated Studio/Precision CUE integration branch. It still
+requires explicit `discogs_live=true`, the allowlisted public release ID,
+the protected `discogs-qa` GitHub environment and step-scoped token
+injection. Ordinary pushes, PRs, forks, public releases and package runners
+cannot access that secret. This is **preparation only**: unless the
+protected workflow has actually run and the exact commit's Win32/x64
+native results are recorded, do NOT mark live Discogs acceptance passed.

@@ -237,10 +237,13 @@ jobs:
   # GitHub environment. Ordinary PR workflows receive NO Discogs token.
   # This job neither uploads nor packages the DLL and NEVER runs for forks.
   discogs-authorized-native:
+    # No push/PR receives protected tokens. A manually approved run may
+    # qualify either the Studio worker or its separately reviewed integration.
     if: >-
       github.event_name == 'workflow_dispatch' &&
       inputs.discogs_live == true &&
-      github.ref == 'refs/heads/feature/online-metadata-discovery-foundation-20261009'
+      (github.ref == 'refs/heads/feature/online-metadata-discovery-foundation-20261009' ||
+       github.ref == 'refs/heads/feature/studio-precision-cue-integration-20261026')
     needs: static-audit
     environment: discogs-qa
     runs-on: windows-2022

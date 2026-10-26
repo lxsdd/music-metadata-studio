@@ -48,3 +48,24 @@ Issue #51, coordinated with #46/#50. Discovery and preview are read-only. Only a
 ## Qualification
 
 Use synthetic 2-disc/30-track fixtures and negative URL, malformed metadata, ambiguous mix, wrong edition, missing track, Unicode, Windows reserved filename, +/-1 frame and no-write tests. Compile with C++20 strict warnings, ASan/UBSan where available, then exact-head Windows Win32/x64 GitHub Actions and one final installed-host acceptance. Public repository must contain no private original CUE, personal music or credentials.
+
+## Third-party provider authorization boundary — 26 October 2026
+
+Official-format public Deezer and Apple catalogue parsing, exact album/edition
+comparison and the deterministic offline synthetic 30-track test are software
+evidence only. They do **not** establish a right to operate a new third-party
+Deezer application or guarantee live API requests will be accepted.
+Deezer's developer Terms require an accepted developer relationship and
+app approval when applicable (official terms:
+https://developers.deezer.com/termsofuse).
+Public Deezer staff explanations in 2025–26 describe restrictions on new
+individual API registrations. For permission to deploy this integrated
+application, request guidance/approval directly via
+https://developers.deezer.com/; do not borrow credentials, scrape content
+or bypass errors. Catalog HTTP 403/429/outage remains fail-closed and does not
+authorize substitute full-track downloads or inaccurate CUE boundaries.
+
+A validated *Apple-only* timing comparison may still be reviewed as a
+separate evidence path when the official edition and high-resolution
+durations are sufficient. A missing Deezer authorization cannot be silently
+converted into a fabricated Deezer consensus or sample-exact promise.
