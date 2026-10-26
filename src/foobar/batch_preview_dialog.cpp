@@ -2532,6 +2532,7 @@ void navigate_preview_history(HWND dialog,PreviewState& state,int visible_row) {
                      event.kind==PreviewHistoryKind::UndoRoute;
     if(route) {
         state.location_queue=djmeta::BatchLocationQueue::All;
+        state.selected_track_index=*source;
         SendDlgItemMessageW(dialog,IDC_BATCH_LOCATION_FILTER,CB_SETCURSEL,0,0);
         update_table(state);
         TabCtrl_SetCurSel(state.tabs,2);
@@ -3470,7 +3471,7 @@ void apply_to_rows(HWND dialog, PreviewState& state, bool all) {
                  state.last_preview_undo ? TRUE : FALSE);
     update_table(state);
     record_preview_history(state,PreviewHistoryKind::Route,
-        selected.size(),candidate.size(),all?2u:1u,
+        selected.size(),selected.size(),all?2u:1u,
         selected.size()==1 ? selected.front() : static_cast<std::size_t>(-1));
 }
 
