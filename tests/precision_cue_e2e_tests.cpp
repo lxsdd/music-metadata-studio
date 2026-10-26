@@ -9,11 +9,13 @@
 #include "djmeta/precision_cue_reference_diff.h"
 #include "djmeta/precision_cue_external_host_review.h"
 #include "djmeta/precision_cue_external_inspect.h"
+#include "djmeta/precision_cue_external_batch.h"
 
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -180,6 +182,139 @@ void reference_cue_timeline_regressions(const PrecisionCuePlan& plan) {
         plan, std::string(1024 * 1024 + 1, 'X'), basename).state == State::Unqualified);
 }
 
+void batch_reviewed_external_cue_regressions(
+    const std::vector<PrecisionCuePlan>& plans) {
+    using State = PrecisionCueExternalBatchState;
+    using TargetState = PrecisionCueExistingTargetState;
+    CHECK(plans.size() == 2);
+    SyntheticDirectory temporary;
+    const auto source_a = temporary.path / "Disc 1.mp3";
+    const auto source_b = temporary.path / "Disc 2.mp3";
+    synthetic_file(source_a, 'a');
+    synthetic_file(source_b, 'b');
+    const auto identity_a =
+        precision_cue_external_detail::physical_source_snapshot(
+            source_a, temporary.path, "Disc 1.mp3");
+    const auto identity_b =
+        precision_cue_external_detail::physical_source_snapshot(
+            source_b, temporary.path, "Disc 2.mp3");
+    CHECK(identity_a && identity_b);
+    const auto review_a = capture_precision_cue_external_review(
+        plans[0], source_a, "Disc 1.mp3", *identity_a);
+    const auto review_b = capture_precision_cue_external_review(
+        plans[1], source_b, "Disc 2.mp3", *identity_b);
+    CHECK(review_a && review_b);
+    const std::vector<PrecisionCueReviewedExternalCreate> reviewed{
+        *review_a, *review_b
+    };
+    const auto cue_a = temporary.path / "Disc 1.cue";
+    const auto cue_b = temporary.path / "Disc 2.cue";
+    auto qualified = preflight_precision_cue_external_batch(reviewed);
+    CHECK(qualified.state == State::ReadyForConfirmation);
+    CHECK(qualified.target_paths.size() == 2);
+    CHECK(qualified.created_count == 0);
+    CHECK(precision_cue_target_is_absent(cue_a) &&
+          precision_cue_target_is_absent(cue_b));
+
+    // A valid preflight is never implicit batch authorization.
+    auto forbidden = create_confirmed_precision_cue_external_batch(
+        reviewed, false);
+    CHECK(forbidden.state == State::RejectedBeforeCreate);
+    CHECK(forbidden.created_count == 0);
+    CHECK(precision_cue_target_is_absent(cue_a) &&
+          precision_cue_target_is_absent(cue_b));
+
+    // No filename order or arbitrary vector permutation may silently
+    // relabel a disc; duplicate disc references also fail closed.
+    CHECK(preflight_precision_cue_external_batch(
+        {*review_b, *review_a}).state == State::RejectedBeforeCreate);
+    CHECK(preflight_precision_cue_external_batch(
+        {*review_a, *review_a}).state == State::RejectedBeforeCreate);
+    CHECK(preflight_precision_cue_external_batch(
+        {*review_a}).state == State::RejectedBeforeCreate);
+
+    // Even if both plans have a valid physical source and matching disc
+    // count, two album editions must never be grouped as one release.
+    auto mixed_editions = reviewed;
+    replace_once(mixed_editions[1].request.plan.external_cue_utf8,
+        "Synthetic Continuous Mix (DJ Mix)",
+        "Synthetic Continuous Mix (Another Edition)");
+    mixed_editions[1].request.reviewed_cue_sha256 =
+        precision_cue_sha256(mixed_editions[1].request.plan.external_cue_utf8);
+    const auto edition_mismatch =
+        preflight_precision_cue_external_batch(mixed_editions);
+    CHECK(edition_mismatch.state == State::RejectedBeforeCreate);
+    CHECK(edition_mismatch.diagnostic == "CUE_BATCH_ALBUM_EDITION_CONFLICT");
+
+    // A pre-existing DIFFERENT sibling on the second disc prevents
+    // publication of the first disc: whole-batch preflight is mandatory.
+    {
+        std::ofstream existing(cue_b, std::ios::binary);
+        CHECK(existing.good());
+        existing << "existing second-disc CUE";
+    }
+    const auto blocked = create_confirmed_precision_cue_external_batch(
+        reviewed, true);
+    CHECK(blocked.state == State::RejectedBeforeCreate);
+    CHECK(blocked.created_count == 0);
+    CHECK(precision_cue_target_is_absent(cue_a));
+    CHECK(fs::exists(cue_b));
+    fs::remove(cue_b);
+
+    // Content-change with equal size/inode/mtime cannot be hidden by a
+    // metadata-only source snapshot; revalidate full source digest.
+    const auto old_mtime = fs::last_write_time(source_b);
+    synthetic_file(source_b, 'c');
+    std::error_code ec;
+    fs::last_write_time(source_b, old_mtime, ec);
+    CHECK(!ec);
+    auto stale = create_confirmed_precision_cue_external_batch(reviewed, true);
+    CHECK(stale.state == State::RejectedBeforeCreate);
+    CHECK(stale.created_count == 0);
+    CHECK(precision_cue_target_is_absent(cue_a));
+    CHECK(precision_cue_target_is_absent(cue_b));
+
+    // Restore a fresh, separately reviewed source snapshot, then create
+    // both external targets through their actual create-only backend.
+    const auto fresh_b =
+        precision_cue_external_detail::physical_source_snapshot(
+            source_b, temporary.path, "Disc 2.mp3");
+    CHECK(fresh_b);
+    const auto rereview_b = capture_precision_cue_external_review(
+        plans[1], source_b, "Disc 2.mp3", *fresh_b);
+    CHECK(rereview_b);
+    std::vector<PrecisionCueReviewedExternalCreate> renewed{
+        *review_a, *rereview_b
+    };
+    CHECK(preflight_precision_cue_external_batch(renewed).state ==
+          State::ReadyForConfirmation);
+    const auto complete = create_confirmed_precision_cue_external_batch(
+        renewed, true);
+    CHECK(complete.state == State::CreatedAll);
+    CHECK(complete.created_count == 2);
+    CHECK(inspect_precision_cue_existing_target(
+        plans[0], source_a, "Disc 1.mp3").state == TargetState::Identical);
+    CHECK(inspect_precision_cue_existing_target(
+        plans[1], source_b, "Disc 2.mp3").state == TargetState::Identical);
+
+    // Second invocation must not overwrite either CUE, even if consent
+    // is supplied again; exact target bytes remain unchanged.
+    const auto again = create_confirmed_precision_cue_external_batch(
+        renewed, true);
+    CHECK(again.state == State::RejectedBeforeCreate);
+    CHECK(again.created_count == 0);
+    {
+        std::ifstream a(cue_a, std::ios::binary);
+        std::ifstream b(cue_b, std::ios::binary);
+        const std::string bytes_a(
+            (std::istreambuf_iterator<char>(a)), std::istreambuf_iterator<char>());
+        const std::string bytes_b(
+            (std::istreambuf_iterator<char>(b)), std::istreambuf_iterator<char>());
+        CHECK(bytes_a == plans[0].external_cue_utf8);
+        CHECK(bytes_b == plans[1].external_cue_utf8);
+    }
+}
+
 void cross_provider_release_and_cue() {
     const auto deezer = parse_deezer_precision_cue_album(
         deezer_fixture(), "123456");
@@ -214,6 +349,7 @@ void cross_provider_release_and_cue() {
     CHECK(reviewed.discs[1].external_cue_utf8.find(
         "FILE \"Disc 2.mp3\" WAVE") != std::string::npos);
     reference_cue_timeline_regressions(reviewed.discs[0]);
+    batch_reviewed_external_cue_regressions(reviewed.discs);
 
     std::vector<PrecisionCueReferenceBoundary> references;
     for (const auto& b : reviewed.discs[0].boundaries)
