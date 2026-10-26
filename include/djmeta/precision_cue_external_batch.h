@@ -289,11 +289,16 @@ preflight_precision_cue_external_batch(
 // the native UI. The batch is revalidated again immediately before any write.
 // Every file still executes the existing independent, atomic no-replace and
 // postimage gate. Once any file is created, no implicit rollback is attempted.
-inline PrecisionCueExternalBatchResult
-create_confirmed_precision_cue_external_batch(
+namespace precision_cue_batch_detail {
+// Only internal deterministic fixture tests supply a callback here. The
+// shipped native create action uses a strict no-op callback. A race after
+// the whole-set preflight must still be rejected at each per-file writer.
+template <class BeforeDisc>
+PrecisionCueExternalBatchResult create_confirmed_batch_with_probe(
     std::vector<PrecisionCueReviewedExternalCreate> reviews,
     const PrecisionCueRelease& selected_edition,
-    bool explicit_batch_confirmation) {
+    bool explicit_batch_confirmation,
+    BeforeDisc before_disc) {
     using State = PrecisionCueExternalBatchState;
     PrecisionCueExternalBatchResult result;
     if (!explicit_batch_confirmation) {
@@ -304,29 +309,57 @@ create_confirmed_precision_cue_external_batch(
     if (result.state != State::ReadyForConfirmation)
         return result;
     for (std::size_t index = 0; index < reviews.size(); ++index) {
-        auto& reviewed = reviews[index];
-        // A single batch consent is materialized only on this local copy.
-        reviewed.request.explicitly_approved_for_external_create = true;
-        reviewed.request.reviewed_preflight.explicit_user_approval = true;
-        const auto created = create_confirmed_precision_cue_external(
-            std::move(reviewed));
-        if (created.status != PrecisionCueExternalCreateStatus::Created) {
-            result.failed_disc_index = index;
-            result.diagnostic = "CUE_BATCH_DISC_" +
-                std::to_string(index + 1) + "_" + created.diagnostic;
-            // Never assume filesystem rollback after successful publication.
-            result.state = created.status ==
-                    PrecisionCueExternalCreateStatus::PublishedNeedsReview
-                ? State::PublishedNeedsReview
+        result.failed_disc_index = index;
+        // A hook throwing before the writer starts has no ambiguous current
+        // publish. An unexpected exception FROM the writer might have
+        // happened after publication: never misreport "nothing created".
+        bool entered_writer = false;
+        try {
+            before_disc(index);
+            auto& reviewed = reviews[index];
+            // One batch consent is materialized only on this local copy.
+            reviewed.request.explicitly_approved_for_external_create = true;
+            reviewed.request.reviewed_preflight.explicit_user_approval = true;
+            entered_writer = true;
+            const auto created = create_confirmed_precision_cue_external(
+                std::move(reviewed));
+            if (created.status != PrecisionCueExternalCreateStatus::Created) {
+                result.diagnostic = "CUE_BATCH_DISC_" +
+                    std::to_string(index + 1) + "_" + created.diagnostic;
+                // Never assume filesystem rollback after successful publish.
+                result.state = created.status ==
+                        PrecisionCueExternalCreateStatus::PublishedNeedsReview
+                    ? State::PublishedNeedsReview
+                    : result.created_count > 0 ? State::PartialNeedsReview
+                                               : State::RejectedBeforeCreate;
+                return result;
+            }
+            ++result.created_count;
+        } catch (...) {
+            result.diagnostic = entered_writer
+                ? "CUE_BATCH_WRITER_EXCEPTION_PUBLISHED_TARGET_UNCERTAIN"
+                : "CUE_BATCH_INTERRUPTED_BEFORE_NEXT_CREATE";
+            result.state = entered_writer ? State::PublishedNeedsReview
                 : result.created_count > 0 ? State::PartialNeedsReview
                                            : State::RejectedBeforeCreate;
             return result;
         }
-        ++result.created_count;
     }
     result.state = State::CreatedAll;
+    result.failed_disc_index = 0;
     result.diagnostic = "CUE_BATCH_ALL_CREATED_AND_VERIFIED";
     return result;
+}
+} // namespace precision_cue_batch_detail
+
+inline PrecisionCueExternalBatchResult
+create_confirmed_precision_cue_external_batch(
+    std::vector<PrecisionCueReviewedExternalCreate> reviews,
+    const PrecisionCueRelease& selected_edition,
+    bool explicit_batch_confirmation) {
+    return precision_cue_batch_detail::create_confirmed_batch_with_probe(
+        std::move(reviews), selected_edition, explicit_batch_confirmation,
+        [](std::size_t) noexcept {});
 }
 
 } // namespace djmeta
