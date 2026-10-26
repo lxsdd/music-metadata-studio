@@ -1379,3 +1379,21 @@ initiated by an ordinary source switch; only an explicit Find-tab activation
 may perform its existing guarded search. Single-click selection stays
 non-destructive and does not show modal prompts. Neither choice authorizes a
 writer or a foobar File Operations destination.
+
+### 2026-10-26 — visible native album-batch selection qualification
+
+The official user-clicked MusicBrainz or Discogs exact-edition Load now uses
+one shared **read-only** source-scope gate before its existing one-to-one album
+matcher. A 2–128 selection of separate, qualified physical subsong-0 files
+continues through the exact existing edition matcher, with full original tag
+vectors and per-track source checks. A mixed selection that includes an
+external CUE carrier, virtual subsong or other nonphysical source instead
+shows a blocked **Batch / MATCH** explanation and captured **Batch / Source
+#N** blockers in the same native detail view. A selection above 128 exposes
+one bounded blocked explanation without iterating 54k sources or starting a
+library scan. No implicit alternate provider search, virtual writer, source
+reassignment, or bulk field acceptance is introduced. The original selected
+source's individually qualified fields remain separate from these pure
+nonstageable batch diagnostics. Positive and negative tests cover both official
+providers, ordinal tampering and invalid/oversize selections. The final foobar
+File Operations target and CUE relative postimages remain unqualified.

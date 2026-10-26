@@ -2,6 +2,7 @@
 #include "djmeta/musicbrainz_search_review.h"
 #include "djmeta/musicbrainz_physical_review.h"
 #include "djmeta/musicbrainz_batch_review.h"
+#include "djmeta/physical_album_batch_scope.h"
 #include "djmeta/cue_online_bridge.h"
 
 #include <algorithm>
@@ -1419,5 +1420,37 @@ int main() {
     check(!musicbrainz_has_next_page(
               parse_search(truncated,SearchKind::Recording),1),
           "unbounded provider count cannot drive navigation");
+    // Cross-provider physical batch eligibility is independent of
+    // online exact-release matching and never inspects source metadata.
+    const auto two_physical=review_physical_album_batch_scope(2,
+        {{0,true,true,false},{1,true,true,false}},
+        "musicbrainz",first);
+    check(two_physical.eligible && two_physical.rows.empty(),
+          "two captured physical files are eligible for exact album alignment");
+    const auto mixed=review_physical_album_batch_scope(3,
+        {{0,true,true,false},{1,true,false,false},{2,false,true,true}},
+        "musicbrainz",first);
+    check(!mixed.eligible && mixed.rows.size()==3 &&
+          mixed.rows[0].field=="Batch / MATCH" &&
+          mixed.rows[0].state==FieldReviewState::Blocked &&
+          mixed.rows[1].reason=="album_batch_scope_VIRTUAL_SUBSONG" &&
+          mixed.rows[2].reason=="album_batch_scope_EXTERNAL_CUE_CARRIER" &&
+          mixed.rows[2].candidate.provider=="musicbrainz" &&
+          mixed.rows[2].candidate.field=="MATCH_DIAGNOSTIC",
+          "mixed physical/CUE selection produces bounded, nonstageable source reasons");
+    const auto oversized=review_physical_album_batch_scope(
+        54129,{},"musicbrainz",first);
+    check(!oversized.eligible && oversized.rows.size()==1 &&
+          oversized.rows[0].reason=="album_batch_scope_SELECTION_TOO_LARGE",
+          "54k-file selection is rejected without source enumeration");
+    rejects([&]{(void)review_physical_album_batch_scope(
+        2,{{1,true,true,false},{0,true,true,false}},"musicbrainz",first);},
+        "reordered captured source identity must not be interpreted as a visible row");
+    rejects([&]{(void)review_physical_album_batch_scope(
+        2,{{0,true,true,false}},"musicbrainz",first);},
+        "missing source coverage fails closed");
+    rejects([&]{(void)review_physical_album_batch_scope(
+        129,{{0,true,true,false}},"musicbrainz",first);},
+        "oversized scope refuses partial source inspection");
     std::cout << "PASS: official MusicBrainz query encoding, bounded JSON, artist roles and release alignment\n";
 }

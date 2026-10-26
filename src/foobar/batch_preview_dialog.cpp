@@ -33,6 +33,7 @@
 #include "djmeta/musicbrainz_physical_review.h"
 #include "djmeta/musicbrainz_batch_review.h"
 #include "djmeta/discogs_batch_review.h"
+#include "djmeta/physical_album_batch_scope.h"
 #include "djmeta/online_field_staging.h"
 #include "djmeta/online_physical_postimage.h"
 #include "djmeta/online_field_ui_selection.h"
@@ -5959,14 +5960,26 @@ void publish_discogs_release(HWND dialog, PreviewState& state,
         stageable=djmeta::online::physical_discogs_stageable_evidence(
             edition,originals,physical_duration_ms,flat);
     std::optional<std::pair<std::size_t,std::size_t>> batch_counts;
-    if(!cue && state.entries.size()>1 && state.entries.size()<=128) {
-        const bool all_physical=std::all_of(
-            state.entries.begin(),state.entries.end(),[](const auto& source) {
-                return source.input.physical_source_qualified &&
-                    source.handle->get_subsong_index()==0 &&
-                    !is_external_cue_locator(source.input.source_path);
-            });
-        if(all_physical) {
+    if(!cue && state.entries.size()>1) {
+        // A mixed physical/CUE/virtual or oversized album must explain WHY
+        // the 2-128 physical match was skipped, never silently disappear.
+        // No 54k-source enumeration for an oversized online selection.
+        std::vector<djmeta::online::PhysicalAlbumBatchSourceScope> scope_sources;
+        if(state.entries.size()<=128) {
+            scope_sources.reserve(state.entries.size());
+            for(std::size_t i=0;i<state.entries.size();++i) {
+                const auto& source=state.entries[i];
+                scope_sources.push_back({i,source.input.physical_source_qualified,
+                    source.handle->get_subsong_index()==0,
+                    is_external_cue_locator(source.input.source_path)});
+            }
+        }
+        const auto scope=djmeta::online::review_physical_album_batch_scope(
+            state.entries.size(),scope_sources,"discogs",edition.edition_id);
+        if(!scope.eligible) {
+            batch_counts=std::pair{std::size_t{0},state.entries.size()};
+            flat.insert(flat.end(),scope.rows.begin(),scope.rows.end());
+        } else {
             std::vector<djmeta::online::PhysicalBatchTrack> sources;
             sources.reserve(state.entries.size());
             for(std::size_t i=0;i<state.entries.size();++i) {
@@ -6415,14 +6428,24 @@ void publish_musicbrainz_release(
         // An explicitly selected small album batch gets a whole-selection
         // exact-edition alignment, not one independent title-only guess per
         // file. Never bulk-scan a 54k library during an online lookup.
-        if(state.entries.size()>1 && state.entries.size()<=128) {
-            bool all_physical=true;
-            for(const auto& source:state.entries)
-                if(!source.input.physical_source_qualified ||
-                   source.handle->get_subsong_index()!=0 ||
-                   is_external_cue_locator(source.input.source_path))
-                    all_physical=false;
-            if(all_physical) {
+        if(state.entries.size()>1) {
+            // One common explicit physical-selection scope contract for
+            // MusicBrainz and Discogs; never infer host identity from tags.
+            std::vector<djmeta::online::PhysicalAlbumBatchSourceScope> scope_sources;
+            if(state.entries.size()<=128) {
+                scope_sources.reserve(state.entries.size());
+                for(std::size_t i=0;i<state.entries.size();++i) {
+                    const auto& source=state.entries[i];
+                    scope_sources.push_back({i,source.input.physical_source_qualified,
+                        source.handle->get_subsong_index()==0,
+                        is_external_cue_locator(source.input.source_path)});
+                }
+            }
+            const auto scope=djmeta::online::review_physical_album_batch_scope(
+                state.entries.size(),scope_sources,"musicbrainz",release.edition_id);
+            if(!scope.eligible) {
+                compared.insert(compared.end(),scope.rows.begin(),scope.rows.end());
+            } else {
                 std::vector<djmeta::online::PhysicalBatchTrack> sources;
                 sources.reserve(state.entries.size());
                 for(std::size_t i=0;i<state.entries.size();++i) {

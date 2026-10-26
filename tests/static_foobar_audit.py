@@ -2428,3 +2428,19 @@ for entry, detail, kind in (
         "mark_stale_workspace(*state);" not in following or detail not in following or
         kind not in batch_dialog):
         raise SystemExit("STATIC SOURCE NAVIGATION NOT FAIL-CLOSED: " + entry)
+
+# Provider-exact album batch must explain skipped mixed/CUE/virtual or >128
+# selected sources via the SAME bounded read-only qualification helper.
+batch_scope=(root / "include" / "djmeta" / "physical_album_batch_scope.h").read_text(encoding="utf-8")
+for marker in ("review_physical_album_batch_scope(", "selected_count>128",
+               "external_cue_locator", "VIRTUAL_SUBSONG",
+               "SELECTION_TOO_LARGE", 'row.state=FieldReviewState::Blocked;'):
+    if marker not in batch_scope:
+        raise SystemExit("STATIC ALBUM BATCH SCOPE CONTRACT FAIL: "+marker)
+for marker in ('scope_sources,"musicbrainz",release.edition_id',
+               'scope_sources,"discogs",edition.edition_id',
+               "flat.insert(flat.end(),scope.rows.begin(),scope.rows.end());",
+               "compared.insert(compared.end(),scope.rows.begin(),scope.rows.end());",
+               "state.entries.size()<=128"):
+    if marker not in workspace_dialog:
+        raise SystemExit("STATIC NATIVE ALBUM SCOPE WIRING FAIL: "+marker)

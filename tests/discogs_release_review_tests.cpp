@@ -1,5 +1,6 @@
 #include "djmeta/discogs_release_review.h"
 #include "djmeta/discogs_batch_review.h"
+#include "djmeta/physical_album_batch_scope.h"
 #include "djmeta/online_field_ui_selection.h"
 #include "djmeta/online_field_staging.h"
 #include "djmeta/native_candidate_labels.h"
@@ -555,5 +556,24 @@ int main() {
                 ->candidate.values.front().find("title/mix/number/duration")!=
                     std::string::npos,
             "qualified physical source with wrong remix reports edition mismatch");
+    const auto disc_scope_valid=review_physical_album_batch_scope(2,
+        {{0,true,true,false},{1,true,true,false}},
+        "discogs",exact.edition_id);
+    require(disc_scope_valid.eligible && disc_scope_valid.rows.empty(),
+            "Discogs scope preserves exact two-track physical album comparison");
+    const auto disc_scope_mixed=review_physical_album_batch_scope(3,
+        {{0,true,true,false},{1,false,true,false},{2,true,false,false}},
+        "discogs",exact.edition_id);
+    require(!disc_scope_mixed.eligible && disc_scope_mixed.rows.size()==3 &&
+            disc_scope_mixed.rows.front().state==FieldReviewState::Blocked &&
+            disc_scope_mixed.rows[1].reason=="album_batch_scope_NOT_PHYSICAL" &&
+            disc_scope_mixed.rows[2].reason=="album_batch_scope_VIRTUAL_SUBSONG" &&
+            disc_scope_mixed.rows[1].candidate.source_id==exact.edition_id,
+            "Discogs mixed batch reports physical source ordinal and provenance");
+    const auto disc_scope_large=review_physical_album_batch_scope(
+        129,{},"discogs",exact.edition_id);
+    require(!disc_scope_large.eligible && disc_scope_large.rows.size()==1 &&
+            disc_scope_large.rows.front().state==FieldReviewState::Blocked,
+            "Discogs selection above 128 never silently attempts a whole-library scan");
     std::cout<<"Discogs read-only physical edition review PASS\n";
 }
