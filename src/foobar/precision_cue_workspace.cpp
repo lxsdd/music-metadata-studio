@@ -1072,23 +1072,38 @@ void save_all_reviewed_disc_cues(Workspace& state) {
             L"to re-inspect the new files. No physical media/tags changed.");
         return;
     }
-    if (result.state == BatchState::PartialNeedsReview ||
-        result.state == BatchState::PublishedNeedsReview) {
-        SetDlgItemTextW(state.dialog, IDC_PRECISION_SOURCE_HINT,
-            L"PARTIAL/UNCERTAIN CUE batch: preserve published targets and review.");
-        show_text(state.dialog,
-            L"WARNING: external CUE batch did not finish.\r\n" +
-            std::to_wstring(result.created_count) +
-            L" disc CUEs were created before the failure; the next disc MAY "
-            L"also have been published if its verification failed.\r\n"
-            L"DO NOT delete, overwrite or automatically restore CUEs. "
-            L"Inspect all target paths manually.\r\n"
-            L"No MP3, physical ID3, ReplayGain or embedded CUE was modified.");
-        return;
+    // Keep the exact path/creation history visible even after approval
+    // invalidation. A blanket "nothing happened" report is unsafe when
+    // earlier discs were published or a postimage check failed.
+    std::wstring outcome = L"EXTERNAL CUE BATCH DID NOT COMPLETE.\r\n";
+    outcome += L"Diagnostic: " + from_utf8(result.diagnostic) + L"\r\n";
+    outcome += L"Verified newly created: " +
+        std::to_wstring(result.created_count) + L" of " +
+        std::to_wstring(before.target_paths.size()) + L"\r\n\r\n";
+    for (std::size_t i = 0; i < before.target_paths.size(); ++i) {
+        const wchar_t* status = L"NOT ATTEMPTED";
+        if (i < result.created_count)
+            status = L"CREATED AND VERIFIED - RETAIN";
+        else if (result.state == BatchState::PublishedNeedsReview &&
+                 i == result.failed_disc_index)
+            status = L"MAY BE PUBLISHED - INSPECT AND RETAIN";
+        else if (i == result.failed_disc_index &&
+                 result.state != BatchState::RejectedBeforeCreate)
+            status = L"CREATE FAILED / BLOCKED - INSPECT";
+        else if (result.state == BatchState::RejectedBeforeCreate)
+            status = L"NOT CREATED (BATCH PREFLIGHT REJECTED)";
+        outcome += L"Disc " + std::to_wstring(i + 1) + L": " + status +
+            L"\r\n" + before.target_paths[i].wstring() + L"\r\n";
     }
-    throw std::runtime_error(
-        "No batch CUE created: " + result.diagnostic +
-        ". All existing sibling CUEs have been preserved; refresh the preview");
+    outcome += L"\r\nDo NOT delete, overwrite or automatically restore targets. "
+               L"Inspect all listed paths before a fresh review.\r\n"
+               L"No MP3, ID3, ReplayGain or embedded CUE was modified.";
+    SetDlgItemTextW(state.dialog, IDC_PRECISION_SOURCE_HINT,
+        result.state == BatchState::RejectedBeforeCreate
+            ? L"CUE batch blocked before creation; inspect targets and refresh."
+            : L"PARTIAL / UNCERTAIN CUE batch: preserve files and inspect.");
+    show_text(state.dialog, outcome);
+
 }
 
 void start_search(Workspace& state) {
