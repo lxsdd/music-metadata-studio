@@ -916,11 +916,25 @@ int main() {
           "unqualified physical source blocks batch album identity");
     auto wrong_album=second_tags;
     wrong_album.fields.push_back({"ALBUM",{"Different Edition"}});
+    auto album_first=physical_tags;
+    album_first.fields.push_back({"ALBUM",{"Synthetic Edition"}});
     const auto mixed=review_musicbrainz_physical_batch({
-        {0,physical_tags,420000,true},
+        {0,album_first,420000,true},
         {1,wrong_album,240000,true}},physical_release);
     check(!mixed.complete && mixed.matched==0,
           "mixed/ambiguous album identity cannot certify batch edition");
+    auto duplicate_album=wrong_album;
+    duplicate_album.fields.push_back({"ALBUM",{"Synthetic Edition"}});
+    const auto ambiguous_album=review_musicbrainz_physical_batch({
+        {0,physical_tags,420000,true},
+        {1,duplicate_album,240000,true}},physical_release);
+    check(!ambiguous_album.complete && ambiguous_album.matched==0,
+          "duplicate physical ALBUM field blocks entire batch");
+    auto oversized_sources=std::vector<PhysicalBatchTrack>(129,
+        {0,physical_tags,420000,true});
+    rejects([&]{(void)review_musicbrainz_physical_batch(
+        oversized_sources,physical_release);
+    },"physical album selection over 128 cannot scan unbounded library");
     auto disputed_batch=second_tags;
     disputed_batch.fields[4].values={"different barcode"};
     const auto conflict=review_musicbrainz_physical_batch({

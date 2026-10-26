@@ -2351,3 +2351,21 @@ for marker in ("explicit_physical_album_term(entered)",
 if ("qualified_online_field_preview(const PreviewState& state)" not in workspace_dialog or
     'state.online_physical_edition->provider=="discogs"' not in workspace_dialog):
     raise SystemExit("STATIC MB PHYSICAL MUST NOT ENABLE TAG STAGING")
+
+# The exact-release physical album feature must stay on the existing native
+# read-only network result path, with whole-batch source/version checks.
+batch_header=(root / "include" / "djmeta" / "musicbrainz_batch_review.h").read_text(encoding="utf-8")
+batch_dialog=(foobar / "batch_preview_dialog.cpp").read_text(encoding="utf-8")
+for token in ("review_musicbrainz_physical_batch(", "align_release(local,edition)",
+              "musicbrainz_physical_track_provenance_trusted(",
+              "musicbrainz_physical_edition_identifier_conflict(",
+              "make_local_physical_original(", "sources.size()>128",
+              "source.physical_qualified"):
+    if token not in batch_header:
+        raise SystemExit("STATIC MUSICBRAINZ PHYSICAL BATCH FAIL: "+token)
+for token in ("state.entries.size()>1 && state.entries.size()<=128",
+              "verify_online_source_snapshot(state,source);",
+              "review_musicbrainz_physical_batch(",
+              "physical_batch_compared=true;"):
+    if token not in batch_dialog:
+        raise SystemExit("STATIC MUSICBRAINZ NATIVE BATCH FAIL: "+token)

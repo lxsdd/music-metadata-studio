@@ -166,3 +166,9 @@ single-source comparison without a bulk media scan. A source or rules change
 during network lookup discards the batch audit. The existing search/edition
 transport and normalizer remain unchanged. This is **comparison only**: no
 batch acceptance, no tag/file/CUE writes, and no persisted approval.
+
+**Missing ALBUM is supported:** An absent physical ALBUM tag does not
+contradict a fully verified exact-edition tracklist; this permits read-only
+comparison before the user has tagged the album. Supplied nonempty ALBUM
+values must agree across the batch; duplicate or blank physical ALBUM tags
+fail closed. Tests cover both missing ALBUM and conflicting/duplicate ALBUM.

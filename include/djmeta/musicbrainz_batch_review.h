@@ -42,10 +42,19 @@ inline PhysicalBatchEditionReview review_musicbrainz_physical_batch(
             throw std::invalid_argument("MusicBrainz duplicate/oversize batch source");
         const auto album=unique_discogs_physical_tag(source.originals,"ALBUM");
         const auto artist=unique_discogs_physical_tag(source.originals,"ALBUM ARTIST");
-        if(!album || album->empty() ||
-           (common_album && *album!=*common_album))
+        // Missing ALBUM is a valid metadata-discovery use case, not a
+        // contradictory edition identifier. Duplicate/blank ALBUM fields
+        // are ambiguous; supplied nonempty album identities must agree.
+        const bool tagged_album=std::any_of(
+            source.originals.fields.begin(),source.originals.fields.end(),
+            [](const auto& f){return ascii_upper_field(f.name)=="ALBUM";});
+        if(tagged_album && (!album || album->empty()))
             qualified=false;
-        if(!common_album)common_album=album;
+        if(album && !album->empty()) {
+            if(common_album && *album!=*common_album)
+                qualified=false;
+            if(!common_album)common_album=album;
+        }
         if(artist && !artist->empty()) {
             if(common_album_artist && *artist!=*common_album_artist)
                 qualified=false;
