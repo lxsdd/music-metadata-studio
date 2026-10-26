@@ -1023,7 +1023,8 @@ void save_all_reviewed_disc_cues(Workspace& state) {
             "Every disc must have an absent, reviewed sibling CUE target");
         batch.push_back(*item);
     }
-    const auto before = djmeta::preflight_precision_cue_external_batch(batch);
+    const auto before = djmeta::preflight_precision_cue_external_batch(
+        batch, *state.release);
     using BatchState = djmeta::PrecisionCueExternalBatchState;
     if (before.state != BatchState::ReadyForConfirmation) {
         invalidate_cue_copy(state);
@@ -1050,7 +1051,7 @@ void save_all_reviewed_disc_cues(Workspace& state) {
                     MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES)
         return;
     const auto result = djmeta::create_confirmed_precision_cue_external_batch(
-        std::move(batch), true);
+        std::move(batch), *state.release, true);
     invalidate_cue_copy(state);
     if (result.state == BatchState::CreatedAll) {
         SetDlgItemTextW(state.dialog, IDC_PRECISION_SOURCE_HINT,
