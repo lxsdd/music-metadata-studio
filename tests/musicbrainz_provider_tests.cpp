@@ -905,6 +905,19 @@ int main() {
               batch.rows.end() &&
           second_tags==batch_before && physical_tags==originals_copy,
           "whole physical album comparison preserves all original vectors");
+    // The same exact edition also qualifies when both original ALBUM
+    // fields are already populated; neither path mutates existing tags.
+    auto first_tagged=physical_tags;
+    auto second_tagged=second_tags;
+    first_tagged.fields.push_back({"ALBUM",{"Synthetic Edition"}});
+    second_tagged.fields.push_back({"ALBUM",{"Synthetic Edition"}});
+    const auto already_tagged=review_musicbrainz_physical_batch({
+        {0,first_tagged,420000,true},
+        {1,second_tagged,240000,true}},physical_release);
+    check(already_tagged.complete && already_tagged.matched==2 &&
+          get_row(already_tagged.rows,"Batch / ALBUM")->state==
+              FieldReviewState::Unchanged,
+          "already tagged exact physical album is an immutable no-op comparison");
     const auto partial=review_musicbrainz_physical_batch({
         {0,physical_tags,420000,true},
         {1,second_tags,240000,false}},physical_release);
