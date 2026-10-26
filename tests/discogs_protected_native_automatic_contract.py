@@ -44,7 +44,7 @@ def problems(value: str) -> list[str]:
     expected_native=(
         native+
         "        uses: lxsdd/dev-infrastructure-public/.github/actions/"
-        "foobar-host-smoke@a71edfa479ba478611e32086e41665e80eb305a2\n"
+        "foobar-host-smoke@5c8c71aa1b24e4c6cb84af06cd4608fafb0f7c56\n"
     )
     if secured.count(native)!=1 or expected_native not in secured:
         issues.append("protected native E2E action missing its reviewed exact source pin")
@@ -87,11 +87,11 @@ def main() -> None:
        "authorized-discogs-probe: 'false'"),
       ("      - name: Authorized official Discogs native exact-edition gate\n"
        "        uses: lxsdd/dev-infrastructure-public/.github/actions/"
-       "foobar-host-smoke@a71edfa479ba478611e32086e41665e80eb305a2\n",
+       "foobar-host-smoke@5c8c71aa1b24e4c6cb84af06cd4608fafb0f7c56\n",
        "      - name: Authorized official Discogs native exact-edition gate\n"
        "        if: github.event_name == 'workflow_dispatch'\n"
        "        uses: lxsdd/dev-infrastructure-public/.github/actions/"
-       "foobar-host-smoke@a71edfa479ba478611e32086e41665e80eb305a2\n")
+       "foobar-host-smoke@5c8c71aa1b24e4c6cb84af06cd4608fafb0f7c56\n")
     ]
     for prior, next_value in pairs:
         assert problems(mutation(prior,next_value)), "unsafe mutation escaped"

@@ -130,7 +130,7 @@ a successful native Search → Edition → Compare or installed owner acceptance
 ## 2026-10-26 — approved exact-PR automatic authenticated native Discogs host QA
 
 An independently owner-approved change to the shared action has been staged
-as infrastructure **Draft PR #56** at immutable commit `a71edfa479ba478611e32086e41665e80eb305a2`.
+as infrastructure **Draft PR #56** at immutable commit `5c8c71aa1b24e4c6cb84af06cd4608fafb0f7c56`.
 Its source-only static mutations, Windows positive/negative real GitHub PR
 fixture admission and disposable Win32/x64 original foobar host-boot tests
 passed in the infrastructure repository. Only the **protected**
