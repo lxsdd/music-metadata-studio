@@ -18,7 +18,9 @@ on:
       - 'VERSION'
       - '.github/workflows/foobar.yml'
   pull_request:
-    branches: [ main ]
+    # Qualify the isolated integration PR against the current Studio worker,
+    # not just PRs targeting main. This does NOT enable releases or writers.
+    branches: [ main, feature/online-metadata-discovery-foundation-20261009 ]
   workflow_dispatch:
     inputs:
       discogs_live:
@@ -358,3 +360,73 @@ jobs:
             candidate-output/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14
+
+# Private exact-source acceptance packaging for the one qualified
+  # Studio x Precision CUE worker branch. Never use secrets, user profiles,
+  # cloud uploads, or any physical-tag / embedded CUE writer.
+  precision-integration-package-qa:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'feature/studio-precision-cue-integration-20261026' &&
+      github.event.pull_request.base.ref == 'feature/online-metadata-discovery-foundation-20261009'
+    needs: [static-audit, host-gate-script, windows-build]
+    runs-on: windows-2022
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: microsoft/setup-msbuild@v2
+      - name: Build and audit private SHA-pinned Win32/x64 Studio plus Precision CUE package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sha = '${{ github.event.pull_request.head.sha }}'
+          if ($sha -cnotmatch '^[a-f0-9]{40}$') { throw 'Invalid exact integration commit SHA' }
+          if (-not (Test-Path -LiteralPath $env:RUNNER_TEMP -PathType Container)) {
+            throw 'Synthetic runner scratch directory is unavailable'
+          }
+          $target = Join-Path $env:RUNNER_TEMP ('mms-precision-package-' + $sha.Substring(0, 12))
+          try {
+            & ./scripts/local-acceptance-build.ps1 -SourceSha $sha -OutputDirectory $target
+            if (-not $?) { throw 'Exact SHA source-to-package helper did not pass' }
+            $folder = Join-Path $target ('MMS-local-' + $sha)
+            $manifest = Join-Path $folder 'BUILD-MANIFEST.txt'
+            $sidecar = Join-Path $folder 'SHA256SUMS.txt'
+            $packages = @(Get-ChildItem -LiteralPath $folder -Filter '*.fb2k-component' -File)
+            if ($packages.Count -ne 1 -or -not (Test-Path -LiteralPath $manifest -PathType Leaf) -or
+                -not (Test-Path -LiteralPath $sidecar -PathType Leaf)) {
+              throw 'Incomplete, unexpected or missing private package layout'
+            }
+            $proof = Get-Content -LiteralPath $manifest -Raw
+            foreach ($required in @(
+                "commit=$sha", 'status=PASS', 'root_dll_machine=0x014C',
+                'x64_dll_machine=0x8664', 'analysis_only=false',
+                'write_mode=readonly',
+                'physical_tags_write_enabled=false',
+                'studio_existing_cue_value_writer_enabled=false',
+                'external_cue_write_enabled=true',
+                'external_cue_write_scope=precision-new-sibling-create-only',
+                'precision_cue_create_only_enabled=true',
+                'precision_cue_create_scope=reviewed-new-sibling-only-explicit-confirmation-no-replace',
+                'embedded_cue_write_enabled=false',
+                'file_operations_write_enabled=false'
+            )) {
+              if (-not $proof.Contains($required)) {
+                throw "Missing honest integrated permission manifest: $required"
+              }
+            }
+            $hash = (Get-FileHash -LiteralPath $packages[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            $check = (Get-Content -LiteralPath $sidecar -Raw).Trim()
+            if (-not $check.StartsWith($hash + '  ')) { throw 'Integrated private package SHA256 mismatch' }
+            if (@(Get-ChildItem -LiteralPath $folder -File).Count -ne 3) {
+              throw 'Private package directory contains unexpected files'
+            }
+            Write-Host "MMS_PRECISION_PRIVATE_PACKAGE=PASS SOURCE_SHA=$sha SHA256=$hash WIN32_X64=PASS MANIFEST=PASS NO_PUBLIC_ARTIFACTS=PASS"
+          } finally {
+            Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue
+          }
+

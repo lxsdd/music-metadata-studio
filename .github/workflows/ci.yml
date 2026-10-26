@@ -40,7 +40,9 @@ on:
       - 'docs/REQUIREMENTS-IDS.lock'
       - '.github/workflows/ci.yml'
   pull_request:
-    branches: [ main ]
+    # Qualify the isolated integration PR against the current Studio worker,
+    # not just PRs targeting main. This does NOT enable releases or writers.
+    branches: [ main, feature/online-metadata-discovery-foundation-20261009 ]
   workflow_dispatch:
 
 concurrency:

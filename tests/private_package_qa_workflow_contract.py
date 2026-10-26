@@ -61,5 +61,77 @@ def main() -> None:
         assert failures(changed), "unsafe internal package workflow mutation escaped"
     print("PASS: trusted PR exact-source ephemeral package, SDK QA dependency, fork exclusion, no publish, no writer activation")
 
+
+
+# Independently protect the integration's ephemeral real Win32/x64 package
+# qualification. No new GitHub artifact upload, public DLL, secrets, writes,
+# fork PR or unrelated branch can trigger this job.
+INTEGRATION_START="  precision-integration-package-qa:\n"
+
+def integration_block(content: str) -> str:
+    if content.count(INTEGRATION_START)!=1:
+        raise ValueError("missing or duplicate integration package job")
+    return content.split(INTEGRATION_START,1)[1]
+
+def integration_failures(content: str) -> list[str]:
+    try:
+        block=integration_block(content)
+    except ValueError as error:
+        return [str(error)]
+    required=(
+        "github.event_name == 'pull_request'",
+        "github.event.pull_request.head.repo.full_name == github.repository",
+        "github.event.pull_request.head.ref == 'feature/studio-precision-cue-integration-20261026'",
+        "github.event.pull_request.base.ref == 'feature/online-metadata-discovery-foundation-20261009'",
+        "needs: [static-audit, host-gate-script, windows-build]",
+        "runs-on: windows-2022",
+        "permissions:\n      contents: read",
+        "github.event.pull_request.head.sha",
+        "Join-Path $env:RUNNER_TEMP",
+        "scripts/local-acceptance-build.ps1 -SourceSha $sha -OutputDirectory $target",
+        "precision_cue_create_only_enabled=true",
+        "studio_existing_cue_value_writer_enabled=false",
+        "external_cue_write_scope=precision-new-sibling-create-only",
+        "Get-FileHash -LiteralPath $packages[0].FullName -Algorithm SHA256",
+        "Remove-Item -LiteralPath $target -Recurse -Force",
+        "MMS_PRECISION_PRIVATE_PACKAGE=PASS",
+    )
+    issues=["Missing guarded integrated package feature: "+x for x in required if x not in block]
+    for forbidden in (
+        "uses: actions/upload-artifact@", "uses: actions/create-release@",
+        "environment: discogs-qa", "secrets.", "-EnablePhysicalWrites",
+        "MMS_DISCOGS_QA_TOKEN", "github.event_name == 'push'",
+    ):
+        if forbidden in block:
+            issues.append("Integrated package has an unsafe feature: "+forbidden)
+    return issues
+
+def tamper_integration(needle: str, replacement: str) -> str:
+    prefix, block=YAML.split(INTEGRATION_START,1)
+    assert block.count(needle)==1, "ambiguous integration QA mutation"
+    return prefix+INTEGRATION_START+block.replace(needle,replacement,1)
+
+def check_integration_mutations() -> None:
+    assert not integration_failures(YAML), integration_failures(YAML)
+    for mutated in (
+        tamper_integration("github.event.pull_request.head.repo.full_name == github.repository",
+                           "github.event.pull_request.head.repo.full_name != github.repository"),
+        tamper_integration("github.event.pull_request.base.ref == 'feature/online-metadata-discovery-foundation-20261009'",
+                           "github.event.pull_request.base.ref == 'main'"),
+        tamper_integration("github.event.pull_request.head.ref == 'feature/studio-precision-cue-integration-20261026'",
+                           "github.event.pull_request.head.ref == 'other-branch'"),
+        tamper_integration("needs: [static-audit, host-gate-script, windows-build]",
+                           "needs: []"),
+        tamper_integration("Join-Path $env:RUNNER_TEMP",
+                           "Join-Path $env:USERPROFILE"),
+        tamper_integration("precision_cue_create_only_enabled=true",
+                           "precision_cue_create_only_enabled=false"),
+        tamper_integration("Remove-Item -LiteralPath $target -Recurse -Force",
+                           "Write-Host 'leaving package'"),
+    ):
+        assert integration_failures(mutated), "unsafe integration package mutation escaped"
+
 if __name__=="__main__":
     main()
+    check_integration_mutations()
+    print("PASS: private integrated Precision CUE package restricted to trusted worker, with truthful manifest, SHA256 and cleanup")
