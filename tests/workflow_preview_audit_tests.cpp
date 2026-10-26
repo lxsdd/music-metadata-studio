@@ -211,12 +211,49 @@ int main() {
           stress.tracks_with_pending==500 && stress.tracks_without_proposals==0,
           "500 pending SAFE rows are not implicit physical writes");
     const auto large_export=format_workflow_audit_tsv(large,stress);
+    check(large_export.find("Export scope\tALL\tIncluded rows\t500")!=std::string::npos,
+          "full audit declares its exact scope and row count");
     check(large_export.find("#500\t0\t0\t0\t1\t0\tNO\tNO")!=std::string::npos &&
           large_export.find("#1\t")!=std::string::npos &&
           large_export.find("music.mp3")==std::string::npos,
           "all 500 source-order audit rows exported without truncation or paths");
-    auto too_many=stress;too_many.tracks=5001;
+    // Actual DJ library scale, including full-batch and filtered export.
+    constexpr std::size_t catalog_size=54129;
+    large.rows.resize(catalog_size);
+    many.resize(catalog_size);
+    choices.resize(catalog_size);
+    for(std::size_t i=500;i<catalog_size;++i) {
+        many[i].input_fingerprint="sensitive-synthetic-fingerprint";
+        many[i].ruleset_revision="v1";
+        many[i].proposals.push_back(proposal(0,SafetyClass::Safe," x ","x"));
+        choices[i].push_back({ReviewAction::Pending,{}});
+    }
+    const auto catalog=audit_workflow_preview(large,many,choices);
+    const auto full_catalog=format_workflow_audit_tsv(large,catalog);
+    check(full_catalog.find("Included rows\t54129")!=std::string::npos &&
+          full_catalog.find("#54129\t")!=std::string::npos &&
+          full_catalog.find("sensitive-synthetic-fingerprint")==std::string::npos &&
+          full_catalog.size()<16u*1024u*1024u,
+          "54,129 source full audit is complete, bounded and privacy-safe");
+    choices[0][0]={ReviewAction::Reject,{}};
+    const auto catalog_with_resolved=audit_workflow_preview(large,many,choices);
+    const auto attention=format_workflow_audit_tsv(large,catalog_with_resolved,
+        std::nullopt,WorkflowAuditExportScope::AttentionRows);
+    check(attention.find("Export scope\tATTENTION\tIncluded rows\t54128")!=std::string::npos &&
+          attention.find("#1\t")==std::string::npos &&
+          attention.find("#2\t")!=std::string::npos &&
+          attention.find("#54129\t")!=std::string::npos,
+          "attention export omits resolved rows without changing source IDs");
+    auto hidden_injection=large;
+    hidden_injection.rows[0].issues={"BAD\tINJECTION"};
+    rejects([&]{(void)format_workflow_audit_tsv(hidden_injection,
+        catalog_with_resolved,std::nullopt,WorkflowAuditExportScope::AttentionRows);},
+        "attention export rejects unsafe hidden source evidence");
+    rejects([&]{(void)format_workflow_audit_tsv(large,catalog_with_resolved,
+        std::nullopt,static_cast<WorkflowAuditExportScope>(99));},
+        "unknown export scope fails closed");
+    auto too_many=stress;too_many.tracks=100001;
     rejects([&]{(void)format_workflow_audit_tsv(large,too_many);},
-            "oversized export fails explicitly, never silently truncates");
+            "over 100k sources fails explicitly, never silently truncates");
     std::cout<<"PASS: read-only workflow audit 500 rows and negative guards\n";
 }

@@ -1022,3 +1022,21 @@ no-op counts, followed by revalidation of physical sources, rules, route
 controls and the exact selected source scope after modal return. Only changed
 rows invalidate raw destination/CUE evidence. Final FileOps-sanitized targets,
 CUE references, overwrite and physical writes remain unqualified and disabled.
+
+
+## Library-scale full audit and attention-only export (read-only)
+
+The File locations toolbar has **Copy audit** (all captured physical source
+rows) and **Copy issues** (staged changes, pending decisions, raw conflicts,
+unqualified FileOps/CUE, and the exact verified online source). Both actions
+recheck the **entire** captured batch, including hidden/filtered rows, before
+copying a source-order TSV. The attention filter is output-only: it never
+reduces global collision checks or qualifies final foobar File Operations.
+The TSV declares scope and included-row count and retains original source
+row numbers, without private paths, tag values, credentials, physical guards
+or write permissions. A bounded 16 MiB UTF-8 / 16M-character Unicode
+clipboard contract supports 54,129-source collections without silent
+truncation. Exceeding the limit fails before changing the clipboard. Native
+read-only summary and independently verified exact-edition field counts are
+included in both exports. Final sanitized destinations, external CUE FILE
+references and production writes remain unqualified and disabled.

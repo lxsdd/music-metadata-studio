@@ -253,6 +253,7 @@ inline constexpr NativeWorkspaceCheckScope native_workspace_command_check_scope(
     case IDC_BATCH_APPLY_ALL:
     case IDC_BATCH_AUDIT:
     case IDC_BATCH_COPY_AUDIT:
+    case IDC_BATCH_COPY_ISSUES:
     case IDC_BATCH_NEXT_ISSUE:
     case IDC_BATCH_UNDO:
         return NativeWorkspaceCheckScope::FullBatch;
@@ -270,7 +271,7 @@ inline constexpr NativeWorkspaceCheckScope native_workspace_command_check_scope(
 
 // The local audit export contains no music paths, tags or credentials.
 inline bool native_audit_clipboard_text_is_safe(std::wstring_view text) noexcept {
-    return !text.empty() && text.size()<=512u*1024u &&
+    return !text.empty() && text.size()<=16u*1024u*1024u &&
            text.find(L'\0')==std::wstring_view::npos;
 }
 inline void native_copy_audit_text_to_clipboard(HWND owner,

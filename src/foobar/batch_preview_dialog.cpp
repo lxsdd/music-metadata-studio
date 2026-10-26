@@ -2467,6 +2467,8 @@ void show_preview_page(HWND dialog, PreviewState& state,
         metadata ? SW_HIDE : SW_SHOW);
     ShowWindow(GetDlgItem(dialog,IDC_BATCH_COPY_AUDIT),
         metadata ? SW_HIDE : SW_SHOW);
+    ShowWindow(GetDlgItem(dialog,IDC_BATCH_COPY_ISSUES),
+        metadata ? SW_HIDE : SW_SHOW);
     ShowWindow(GetDlgItem(dialog,IDC_BATCH_NEXT_ISSUE),
         candidate ? SW_HIDE : SW_SHOW);
     EnableWindow(GetDlgItem(dialog,IDC_BATCH_NEXT_ISSUE),
@@ -2494,7 +2496,7 @@ void show_history_page(HWND dialog,PreviewState& state) {
         IDC_BATCH_ROUTE_LABEL,IDC_BATCH_DEST_LABEL,IDC_BATCH_PATTERN_LABEL,
         IDC_BATCH_PROFILE_PICKER,IDC_BATCH_DESTINATION,IDC_BATCH_PATTERN,
         IDC_BATCH_APPLY_SELECTED, IDC_BATCH_APPLY_VISIBLE, IDC_BATCH_APPLY_ALL,IDC_BATCH_AUDIT,
-        IDC_BATCH_COPY_AUDIT,IDC_BATCH_NEXT_ISSUE})
+        IDC_BATCH_COPY_AUDIT,IDC_BATCH_COPY_ISSUES,IDC_BATCH_NEXT_ISSUE})
         ShowWindow(GetDlgItem(dialog,id),SW_HIDE);
     refresh_preview_history_list(state);
     ShowWindow(state.history_list,SW_SHOW);
@@ -4177,7 +4179,7 @@ void mark_stale_workspace(PreviewState& state) {
                    IDC_METADATA_RESET, IDC_METADATA_USE_VALUE,
                    IDC_BATCH_APPLY_SELECTED, IDC_BATCH_APPLY_VISIBLE, IDC_BATCH_APPLY_ALL,
                    IDC_BATCH_UNDO, IDC_BATCH_COPY_AUDIT,
-                    IDC_BATCH_NEXT_ISSUE,
+                   IDC_BATCH_COPY_ISSUES, IDC_BATCH_NEXT_ISSUE,
                    IDC_METADATA_MB_SEARCH, IDC_METADATA_MB_LOAD_RELEASE,
                    IDC_METADATA_DISCOGS_NEXT_PAGE,
                    IDC_ONLINE_INCLUDE_FIELDS,IDC_ONLINE_IGNORE_FIELDS,
@@ -4458,7 +4460,8 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_BATCH_HELP,L"Open the three-stage walkthrough and explain what each tab can and cannot do."},
         {IDC_BATCH_AUDIT,L"Recheck every selected source, then show local explicit/no-op/pending decisions and raw FileOps blockers. Read-only; no approval."},
         {IDC_BATCH_NEXT_ISSUE,L"Navigate to pending REVIEW/CONFIDENT/SAFE proposals and raw route blockers; never searches, approves or writes."},
-        {IDC_BATCH_COPY_AUDIT,L"Recheck the full captured selection and copy a complete source-order TSV audit (including all 500+ rows) to your clipboard. No file paths, tag values, credentials, or write authorization."},
+        {IDC_BATCH_COPY_AUDIT,L"Recheck every captured physical source and copy all source-order audit rows, including 54k+ libraries. No paths, tags, tokens or write approval."},
+        {IDC_BATCH_COPY_ISSUES,L"Recheck the WHOLE batch, then copy only source rows needing attention: staged changes, pending decisions, raw conflicts or unqualified FileOps/CUE. Hidden rows are still validated. No writes."},
         {IDC_BATCH_UNDO,L"Undo the last local Accept/Reject/Manual or file route preview in memory. Up to 4096 affected tracks; no file writes or persisted approvals."},
         {IDCANCEL,L"Close the workspace without writing tags, CUE data or music files."}
     };
@@ -4627,17 +4630,22 @@ void copy_crates_search_text(HWND dialog,std::wstring_view query) {
 // Explicit, read-only clipboard action. Verify the online/local source
 // postimage exactly as Audit batch does before copying the entire source-order
 // report. No disk, tags, CUE, or FileOps writer is reachable here.
-void copy_workflow_audit(HWND dialog,const PreviewState& state) {
+void copy_workflow_audit(HWND dialog,const PreviewState& state,
+                         bool attention_only=false) {
     std::optional<djmeta::WorkflowOnlineSourceCounts> verified_online;
     const auto verified_summary=workflow_audit_summary(state,&verified_online);
     const auto audit=djmeta::audit_workflow_preview(
         state.table,state.analyses,state.review_decisions);
-    const auto tsv=djmeta::format_workflow_audit_tsv(
-        state.table,audit,verified_online);
+    const auto tsv=attention_only
+        ? djmeta::format_workflow_audit_tsv(state.table,audit,verified_online,
+              djmeta::WorkflowAuditExportScope::AttentionRows)
+        : djmeta::format_workflow_audit_tsv(
+              state.table,audit,verified_online);
     const auto report=verified_summary+L"\r\n\r\n"+from_utf8(tsv);
     native_copy_audit_text_to_clipboard(dialog,report);
-    SetDlgItemTextW(dialog,IDC_BATCH_HINT,
-        L"Full read-only batch audit copied (source order, all rows). No music paths or tag values exported; no files changed.");
+    SetDlgItemTextW(dialog,IDC_BATCH_HINT,attention_only
+        ? L"Read-only attention queue copied (whole batch verified; source-order IDs). No paths, tags or writes."
+        : L"Full read-only batch audit copied (source order, all rows). No music paths or tag values exported; no files changed.");
 }
 
 void open_crates_for_selected_physical_track(
@@ -8208,6 +8216,11 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         if (id == IDC_BATCH_COPY_AUDIT && HIWORD(wp) == BN_CLICKED) {
             // Same full-batch guard as Audit. No implicit clipboard access.
             copy_workflow_audit(dialog,*state);
+            return TRUE;
+        }
+        if (id == IDC_BATCH_COPY_ISSUES && HIWORD(wp) == BN_CLICKED) {
+            // Filtered report only; global source and route checks are intact.
+            copy_workflow_audit(dialog,*state,true);
             return TRUE;
         }
         if (id == IDC_BATCH_APPLY_SELECTED && HIWORD(wp) == BN_CLICKED) {

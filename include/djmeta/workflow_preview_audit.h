@@ -220,14 +220,16 @@ struct WorkflowOnlineSourceCounts {
     std::string verified_source_guard;
 };
 
-// Full, bounded per-track export: no music paths, tag values, tokens or
-// persisted approval. Row numbers are original source-selection order.
-// Explicit errors replace silent truncation when a batch is too large.
+// Full-library and attention-only exports retain original source row IDs.
+// A display filter never weakens global collision or stale-evidence checks.
+// No music paths, tag values, source guards, tokens or approval are exported.
+enum class WorkflowAuditExportScope { AllRows, AttentionRows };
 inline std::string format_workflow_audit_tsv(
     const BatchPreviewTable& table,const WorkflowPreviewAudit& audit,
-    const std::optional<WorkflowOnlineSourceCounts>& online=std::nullopt) {
+    const std::optional<WorkflowOnlineSourceCounts>& online=std::nullopt,
+    WorkflowAuditExportScope scope=WorkflowAuditExportScope::AllRows) {
     if(table.rows.size()!=audit.tracks || audit.rows.size()!=audit.tracks ||
-       audit.tracks>5000)
+       audit.tracks>100000)
         throw std::invalid_argument("WORKFLOW_AUDIT_EXPORT_SHAPE_OR_LIMIT");
     if(online &&
        (online->source_index>=audit.tracks ||
@@ -239,6 +241,19 @@ inline std::string format_workflow_audit_tsv(
         online->selected_online_changed_fields>online->selected_online_fields ||
         online->mutually_agreed_fields>online->selected_online_fields))
         throw std::invalid_argument("WORKFLOW_AUDIT_ONLINE_SOURCE_EVIDENCE_INVALID");
+    if(scope!=WorkflowAuditExportScope::AllRows &&
+       scope!=WorkflowAuditExportScope::AttentionRows)
+        throw std::invalid_argument("WORKFLOW_AUDIT_EXPORT_SCOPE_INVALID");
+    const auto needs_attention=[&](std::size_t i) {
+        const auto& row=audit.rows[i];
+        return row.explicit_changes!=0 || row.pending_safe!=0 ||
+            row.pending_semantic!=0 || row.raw_collision ||
+            row.file_plan_blocked || (online && i==online->source_index);
+    };
+    std::size_t included=0;
+    for(std::size_t i=0;i<audit.tracks;++i)
+        if(scope==WorkflowAuditExportScope::AllRows || needs_attention(i))
+            ++included;
     std::string out="Music Metadata Studio\tREAD-ONLY batch audit; no write approval\r\n";
     out+="Tracks\t"+std::to_string(audit.tracks)+
          "\tLocal staged changed tracks\t"+
@@ -249,8 +264,11 @@ inline std::string format_workflow_audit_tsv(
          "\tVerified joint source\t"+
          (online ? "#"+std::to_string(online->source_index+1) : "NONE")+
          "\r\n";
+    out+="Export scope\t"+
+        std::string(scope==WorkflowAuditExportScope::AllRows ? "ALL" : "ATTENTION")+
+        "\tIncluded rows\t"+std::to_string(included)+"\r\n";
     out+="Source row\tLocal proposal changes\tExact no-ops\tRejected fields\tPending SAFE\tPending semantic\tRaw collision\tFileOps unqualified\tFindings\tVerified combined changed fields\tSelected Discogs changed fields\tLocal changed fields\tMutually agreed fields\tJoint field evidence\r\n";
-    out.reserve(out.size()+audit.tracks*160);
+    out.reserve(out.size()+included*160);
     for(std::size_t i=0;i<audit.tracks;++i) {
         const auto& row=audit.rows[i];
         const auto& issues=table.rows[i].issues;
@@ -258,6 +276,16 @@ inline std::string format_workflow_audit_tsv(
            row.raw_collision!=table.rows[i].has_raw_target_collision ||
            row.file_plan_blocked!=!issues.empty())
             throw std::invalid_argument("WORKFLOW_AUDIT_EXPORT_ROW_STALE");
+        // Hidden rows are validated too; attention filtering is output-only.
+        for(const auto& issue:issues) {
+            if(issue.empty() || issue.size()>80)
+                throw std::invalid_argument("WORKFLOW_AUDIT_EXPORT_UNSAFE_CODE");
+            for(const unsigned char ch:issue)
+                if(!((ch>='A'&&ch<='Z')||(ch>='0'&&ch<='9')||ch=='_'))
+                    throw std::invalid_argument("WORKFLOW_AUDIT_EXPORT_UNSAFE_CODE");
+        }
+        if(scope==WorkflowAuditExportScope::AttentionRows &&
+           !needs_attention(i)) continue;
         out+="#"+std::to_string(i+1)+"\t"+
              std::to_string(row.explicit_changes)+"\t"+
              std::to_string(row.exact_noops)+"\t"+
@@ -268,11 +296,6 @@ inline std::string format_workflow_audit_tsv(
              (row.file_plan_blocked?"YES":"NO")+"\t";
         bool first=true;
         for(const auto& issue:issues) {
-            if(issue.empty() || issue.size()>80)
-                throw std::invalid_argument("WORKFLOW_AUDIT_EXPORT_UNSAFE_CODE");
-            for(const unsigned char ch:issue)
-                if(!((ch>='A'&&ch<='Z')||(ch>='0'&&ch<='9')||ch=='_'))
-                    throw std::invalid_argument("WORKFLOW_AUDIT_EXPORT_UNSAFE_CODE");
             if(!first) out+=';';
             out+=issue;
             first=false;
@@ -285,7 +308,7 @@ inline std::string format_workflow_audit_tsv(
                  "\tSOURCE_VERIFIED_POSTIMAGE_ONLY";
         } else out+="\tN/A\tN/A\tN/A\tN/A\tNOT_APPLICABLE";
         out+="\r\n";
-        if(out.size()>2u*1024u*1024u)
+        if(out.size()>16u*1024u*1024u)
             throw std::invalid_argument("WORKFLOW_AUDIT_EXPORT_TOO_LARGE");
     }
     return out;
