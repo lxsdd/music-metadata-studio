@@ -124,6 +124,52 @@ std::vector<std::size_t> native_candidate_view_order(
     return order;
 }
 
+// Prevent silent loss of exact-source online Include decisions BEFORE a
+// native owner-data ListView changes its selected captured physical source.
+inline bool native_online_source_selection_veto(
+    const NMLISTVIEW& change,const std::vector<std::size_t>& source_order,
+    std::size_t current_source,bool has_included_fields,
+    bool rebuilding) noexcept {
+    if(!has_included_fields || rebuilding ||
+       !(change.uChanged & LVIF_STATE) ||
+       ((change.uOldState ^ change.uNewState)&LVIS_SELECTED)==0)
+        return false;
+    if(change.iItem<0 ||
+       static_cast<std::size_t>(change.iItem)>=source_order.size())
+        return true;
+    const auto source=source_order[static_cast<std::size_t>(change.iItem)];
+    if(source==current_source)
+        return (change.uOldState & LVIS_SELECTED)!=0 &&
+               (change.uNewState & LVIS_SELECTED)==0;
+    return (change.uNewState & LVIS_SELECTED)!=0;
+}
+
+// Only an internally produced Physical #N summary from an explicitly loaded
+// official exact-edition album may navigate to the captured source ordinal.
+// Provider tags, pasted labels, sorted UI indices and partial strings cannot.
+inline std::optional<std::size_t> native_verified_album_source_target(
+    std::string_view group,std::string_view reason,
+    bool edition_loaded,bool current_source_snapshot,
+    std::size_t total_sources) noexcept {
+    if(!edition_loaded || !current_source_snapshot ||
+       total_sources<2 || total_sources>128 ||
+       (reason!="discogs_live_release_group" &&
+        reason!="musicbrainz_live_release_group" &&
+        reason!="local_physical_group") ||
+       !group.starts_with("Physical #"))
+        return std::nullopt;
+    const auto digits=group.substr(sizeof("Physical #")-1);
+    if(digits.empty() || digits.size()>3 || digits.front()=='0')
+        return std::nullopt;
+    std::size_t number=0;
+    for(const char digit:digits) {
+        if(digit<'0' || digit>'9') return std::nullopt;
+        number=number*10+static_cast<std::size_t>(digit-'0');
+    }
+    if(number==0 || number>total_sources) return std::nullopt;
+    return number-1;
+}
+
 // A track activation only dispatches an online request from Find & compare.
 // Review/File locations use the same gesture as navigation to Find, not as
 // implicit network consent. Beatport + Crates has no licensed catalog-search

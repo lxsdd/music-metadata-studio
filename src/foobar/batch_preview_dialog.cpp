@@ -7200,9 +7200,17 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             // The original tab is the user's gesture context. Capture it
             // before switching the visible page to Find & compare.
             const int originating_tab=TabCtrl_GetCurSel(state->tabs);
+            const auto next_source=state->track_view_order[
+                static_cast<std::size_t>(row)];
+            if(next_source!=state->selected_track_index &&
+               !state->online_included_fields.empty()) {
+                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                    L"Reset included online fields before opening a "
+                    L"different physical track. Choices are preserved.");
+                return TRUE;
+            }
             invalidate_online_request(*state);
-            state->selected_track_index =
-                state->track_view_order[static_cast<std::size_t>(row)];
+            state->selected_track_index=next_source;
             TabCtrl_SetCurSel(state->tabs,0);
             show_preview_page(dialog,*state,true,true);
             if(originating_tab != 0) {
@@ -7282,6 +7290,21 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 show_review_grid_sort_arrow(state->metadata_track_list, state->track_grid);
             }
             return TRUE;
+        }
+        if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&
+            header->code == LVN_ITEMCHANGING) {
+            const auto* changing=reinterpret_cast<const NMLISTVIEW*>(lp);
+            if(changing && native_online_source_selection_veto(
+                *changing,state->track_view_order,state->selected_track_index,
+                !state->online_included_fields.empty(),
+                state->updating_track_selection)) {
+                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                    L"Included Discogs fields belong to this source. Reset "
+                    L"online choices before selecting another track; nothing "
+                    L"was discarded.");
+                SetWindowLongPtrW(dialog,DWLP_MSGRESULT,TRUE);
+                return TRUE; // veto BEFORE owner-data selection changes
+            }
         }
         if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&
             header->code == LVN_ITEMCHANGED) {
@@ -7457,6 +7480,103 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             SetDlgItemTextW(dialog,IDC_BATCH_HINT,hint.c_str());
             return TRUE;
         }
+        // Exact-edition album source drill-down: authoritative captured
+        // physical source identity, never a sorted candidate ListView row,
+        // user tag, external provider label or bulk approval.
+        if(header && header->idFrom==IDC_METADATA_LIST &&
+           (header->code==NM_DBLCLK ||
+            (header->code==LVN_KEYDOWN &&
+             reinterpret_cast<const NMLVKEYDOWN*>(lp)->wVKey==VK_RETURN)) &&
+           state->show_candidate && state->musicbrainz_live_view &&
+           state->musicbrainz_release_loaded &&
+           (state->discogs_live_view ||
+            state->musicbrainz_kind==
+                djmeta::online::musicbrainz::SearchKind::Release) &&
+           !state->stale && !state->refreshing &&
+           !state->musicbrainz_request && !state->discogs_request &&
+           !state->beatport_public_request &&
+           state->candidate_source_index==state->selected_track_index) {
+            const int clicked=header->code==NM_DBLCLK
+                ? reinterpret_cast<const NMITEMACTIVATE*>(lp)->iItem:-1;
+            const int focused=ListView_GetNextItem(
+                state->metadata_list,-1,LVNI_FOCUSED);
+            const bool click_selected=clicked>=0 &&
+                (ListView_GetItemState(state->metadata_list,clicked,
+                    LVIS_SELECTED)&LVIS_SELECTED)!=0;
+            const bool focus_selected=focused>=0 &&
+                (ListView_GetItemState(state->metadata_list,focused,
+                    LVIS_SELECTED)&LVIS_SELECTED)!=0;
+            const int activated=native_selected_release_activation_row(
+                header->code,clicked,focused,click_selected,
+                focus_selected,header->code==LVN_KEYDOWN?VK_RETURN:0);
+            if(activated>=0 &&
+               static_cast<std::size_t>(activated)<state->candidate_view_order.size()) {
+                const auto row_id=state->candidate_view_order[
+                    static_cast<std::size_t>(activated)];
+                if(row_id<state->candidate_rows.size()) {
+                    const auto& row=state->candidate_rows[row_id];
+                    const auto target=native_verified_album_source_target(
+                        row.field,row.reason,true,true,state->entries.size());
+                    if(target) {
+                        if(*target!=state->selected_track_index &&
+                           !state->online_included_fields.empty()) {
+                            SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                                L"Reset included online fields before "
+                                L"opening a different physical album track. "
+                                L"The field choices remain unchanged.");
+                            return TRUE;
+                        }
+                        // All selected sources, including hidden rows,
+                        // still require independent host/rules freshness.
+                        revalidate_workspace(*state,true);
+                        if(state->stale) return TRUE;
+                        for(const auto& source:state->entries)
+                            verify_online_source_snapshot(*state,source);
+                        verify_rules_snapshot(state->captured_rules);
+                        const auto& physical=state->entries.at(*target);
+                        if(!physical.input.physical_source_qualified ||
+                           physical.handle->get_subsong_index()!=0 ||
+                           is_external_cue_locator(physical.input.source_path))
+                            throw std::runtime_error(
+                                "Album row no longer targets qualified physical audio.");
+                        invalidate_online_request(*state);
+                        state->selected_track_index=*target;
+                        state->track_discovery=djmeta::TrackDiscovery::All;
+                        state->focused_track_index=
+                            (std::numeric_limits<std::size_t>::max)();
+                        SendDlgItemMessageW(dialog,IDC_METADATA_TRACK_FILTER,
+                            CB_SETCURSEL,0,0);
+                        update_master_table(*state);
+                        TabCtrl_SetCurSel(state->tabs,1);
+                        show_preview_page(dialog,*state,true,false);
+                        const auto where=std::find(
+                            state->track_view_order.begin(),
+                            state->track_view_order.end(),*target);
+                        if(where==state->track_view_order.end())
+                            throw std::runtime_error(
+                                "Exact album physical source not in Review queue.");
+                        const int position=static_cast<int>(
+                            where-state->track_view_order.begin());
+                        state->updating_track_selection=true;
+                        ListView_SetItemState(state->metadata_track_list,
+                            -1,0,LVIS_SELECTED);
+                        ListView_SetItemState(state->metadata_track_list,
+                            position,LVIS_SELECTED|LVIS_FOCUSED,
+                            LVIS_SELECTED|LVIS_FOCUSED);
+                        state->updating_track_selection=false;
+                        ListView_EnsureVisible(state->metadata_track_list,
+                            position,FALSE);
+                        SetFocus(state->metadata_track_list);
+                        const std::wstring hint=L"Physical album source #"+
+                            std::to_wstring(*target+1)+
+                            L" opened in Review. Read-only; no bulk field "
+                            L"approval or network request.";
+                        SetDlgItemTextW(dialog,IDC_BATCH_HINT,hint.c_str());
+                        return TRUE;
+                    }
+                }
+            }
+        }
         const bool release_activation=header &&
             header->idFrom==IDC_METADATA_LIST &&
             (header->code==NM_DBLCLK ||
@@ -7608,6 +7728,22 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                         const auto idx = state->candidate_view_order[row];
                         if (idx < state->candidate_rows.size()) {
                             const auto& item = state->candidate_rows[idx];
+                            const auto album_target=native_verified_album_source_target(
+                                item.field,item.reason,state->musicbrainz_release_loaded,
+                                state->candidate_source_index==state->selected_track_index,
+                                state->entries.size());
+                            if(album_target && state->musicbrainz_live_view) {
+                                const std::wstring guidance=
+                                    L"Verified read-only physical album source #"+
+                                    std::to_wstring(*album_target+1)+
+                                    L". Double-click or Enter to inspect this "
+                                    L"captured source in Review. Included online "
+                                    L"fields must be reset before switching. "
+                                    L"No bulk approval.";
+                                lstrcpynW(tip->pszText,guidance.c_str(),
+                                    tip->cchTextMax);
+                                return TRUE;
+                            }
                             const bool is_cue_inventory =
                                 item.reason == "cue_inventory_read_only" ||
                                 item.reason == "cue_inventory_unqualified";
@@ -7987,6 +8123,16 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             return TRUE;
         }
         if(id==IDC_METADATA_ONLINE_PROVIDER && HIWORD(wp)==CBN_SELCHANGE) {
+            if(!state->online_included_fields.empty()) {
+                const int original=state->beatport_offline_selected?2:
+                    state->discogs_provider_selected?1:0;
+                SendDlgItemMessageW(dialog,IDC_METADATA_ONLINE_PROVIDER,
+                    CB_SETCURSEL,original,0);
+                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                    L"Reset included Discogs field choices before switching "
+                    L"providers. The comparison was not discarded.");
+                return TRUE;
+            }
             invalidate_online_request(*state);
             const auto selected_provider=SendDlgItemMessageW(
                 dialog,IDC_METADATA_ONLINE_PROVIDER,CB_GETCURSEL,0,0);
@@ -8257,6 +8403,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             return TRUE;
         }
         if (id == IDC_METADATA_MB_SEARCH && HIWORD(wp) == BN_CLICKED) {
+            if(!state->online_included_fields.empty())
+                throw std::runtime_error(
+                    "Reset included Discogs fields before starting another search. "
+                    "The selected field choices remain intact.");
             if(state->beatport_offline_selected) {
                 // Crates hand-off can place one exact track URL on clipboard.
                 // Read clipboard ONLY after this explicit click, and ONLY when
@@ -8555,6 +8705,9 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             return TRUE;
         }
         if (id == IDC_METADATA_INSPECT_CUE && HIWORD(wp) == BN_CLICKED) {
+            if(!state->online_included_fields.empty())
+                throw std::runtime_error(
+                    "Reset included online fields before replacing this view with CUE evidence.");
             invalidate_online_request(*state);
             if (!state->show_candidate ||
                 state->selected_track_index >= state->entries.size())
@@ -8621,6 +8774,9 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             return TRUE;
         }
         if (id == IDC_METADATA_IMPORT_CANDIDATE && HIWORD(wp) == BN_CLICKED) {
+            if(!state->online_included_fields.empty())
+                throw std::runtime_error(
+                    "Reset included online fields before replacing this view with clipboard evidence.");
             invalidate_online_request(*state);
             if (!state->show_candidate ||
                 state->selected_track_index >= state->entries.size())

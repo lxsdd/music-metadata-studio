@@ -1326,3 +1326,25 @@ comparison fields belonging to another source. This preserves the explicit
 review workflow; no network search or file write runs when a filter changes.
 Synthetic tests include a reversed 54,129-source selection and fail-closed
 duplicate, truncated and invalid source permutations.
+
+### 2026-10-26 — Exact album source drill-down and protected online field choices
+
+- An explicitly loaded official MusicBrainz/Discogs exact release may present
+  read-only **Physical #N** groups for a 2–128-source physical album. Double-click
+  or Enter on a verified group opens that exact captured physical source in the
+  existing Review page. Group names are internally generated and tightly parsed;
+  source identity never comes from a sorted display row, imported provider
+  field, filename, tag or pasted candidate. The whole captured batch and rules
+  are independently rechecked before moving focus. No search, staged field
+  choice, physical tag edit, FileOps action, CUE edit or external request occurs.
+- Previously explicitly **included online fields** now survive ordinary
+  provider switching, new Search, CUE inspection, clipboard import and
+  physical-track changes: any attempt to replace their exact-source comparison
+  is rejected until Reset has been explicitly chosen. The native ListView uses
+  LVN_ITEMCHANGING to veto source rebinding before the old choice is lost;
+  double-click/Enter also checks it. Harmless focus/column changes do not
+  invalidate the selected source. This protects *in-memory review choices*,
+  not a persistent approval or an activated writer.
+- Positive/negative native Win32 policy tests, static production wiring and
+  real original-foobar Win32/x64 build/host gates qualify these interactions
+  in CI; installed owner DPI/theme/keyboard acceptance remains separate.

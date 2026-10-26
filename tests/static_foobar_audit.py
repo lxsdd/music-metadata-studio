@@ -102,6 +102,25 @@ for token in (
     if token not in batch_writer_ui:
         raise SystemExit("STATIC LOCAL REVIEW GROUP GATE FAIL: " + token)
 
+# Real native source switches and exact-edition physical album drill-down
+# must be connected to both ListView notifications and destructive actions.
+for token in (
+    "native_online_source_selection_veto(",
+    "header->code == LVN_ITEMCHANGING",
+    "SetWindowLongPtrW(dialog,DWLP_MSGRESULT,TRUE)",
+    "native_verified_album_source_target(",
+    "for(const auto& source:state->entries)",
+    "state->track_discovery=djmeta::TrackDiscovery::All;",
+    "Reset included Discogs field choices before switching",
+    "Reset included Discogs fields before starting another search",
+    "Reset included online fields before replacing this view with CUE evidence",
+    "Reset included online fields before replacing this view with clipboard evidence",
+    "L\"no bulk field \"",
+    "L\"approval or network request.\"",
+):
+    if token not in batch_writer_ui:
+        raise SystemExit("STATIC ONLINE REVIEW NAVIGATION GATE FAIL: "+token)
+
 # A single captured shared rules snapshot must be checked at each
 # transactional UI edit and during initial loading, in addition to
 # per-track metadata fingerprints.

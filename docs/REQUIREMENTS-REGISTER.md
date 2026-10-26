@@ -56,7 +56,7 @@
 | ID | Status | Verbindliches Verhalten und Abnahme | Detail |
 |---|---|---|---|
 | MMS-UI-01 | PARTIAL | Native text baselines: search **Edit and Search** button, scope selector and adjacent actions align visually at DPI 100/125/150/200%; no clipping, truncation or overlapping elements. | #48, #33 |
-| MMS-UI-02 | PARTIAL | Double-click/Enter on a source track triggers guarded explicit search in Find view; elsewhere navigates to Find without a network request. Double-click/Enter on release loads inspected edition. | #48 |
+| MMS-UI-02 | PARTIAL | Double-click/Enter on a source track triggers guarded explicit search in Find view; elsewhere navigates to Find without a network request. Double-click/Enter on release loads inspected edition; verified Physical #N album groups navigate to the exact captured source's read-only Review. Online Include choices cannot be silently lost by switching source/provider/search/clipboard/CUE. | #48 |
 | MMS-UI-03 | PARTIAL | Hover tooltips explain icons, controls, stage and consequences, disappear at correct lifetime; no lingering tooltip over other windows or after switching stages. | #48 |
 | MMS-UI-04 | PARTIAL | Persist window position, logical size, maximized state, per-grid column width/order/visibility/sort; custom widths survive track changes/restarts; initial auto-fit only before customization. | #33, #47, #49 |
 | MMS-UI-05 | PARTIAL | Native modeless focus/keyboard/Tab/Escape/Alt-Tab and light/dark theme; no forced foobar owner blocking; minimize/maximize/repeated open/close robust. | #47, #33 |
@@ -100,7 +100,7 @@
 | ID | Status | Verbindliches Verhalten und Abnahme | Detail |
 |---|---|---|---|
 | MMS-SRC-01 | PARTIAL | User-initiated MusicBrainz and authenticated Discogs discovery; title/artist/version plus fallback ISRC/catalog/barcode/release IDs and exact provider-ID dedup; no silent network requests. | #50, #48 |
-| MMS-SRC-02 | PARTIAL | Exact release/master/edition/tracklist matching, manual URL input, double-click load, read-only exact-MBID **and Discogs exact-edition** 2–128 physical-track batch album alignment with per-source album/artist/physical/identifier blocker diagnostics, bounded user-clicked MusicBrainz/Discogs result pagination, confidence and source attribution, preserve disputed mix identities. Installed GUI and authenticated native Discogs E2E remain OPEN. | #50 |
+| MMS-SRC-02 | PARTIAL | Exact release/master/edition/tracklist matching, manual URL input, double-click load, read-only exact-MBID **and Discogs exact-edition** 2–128 physical-track batch album alignment with per-source blocker diagnostics and guarded native Physical #N → Review source drill-down, bounded user-clicked MusicBrainz/Discogs result pagination, confidence and source attribution, preserve disputed mix identities. Installed GUI and authenticated native Discogs E2E remain OPEN. | #50 |
 | MMS-SRC-03 | PARTIAL | Discogs documented API and its authentication/license/attribution policies; use central protected QA evidence without exposing personal tokens. | #50 |
 | MMS-SRC-04 | PARTIAL | Beatport + Crates lawful public URL/clipboard workflow; unsupported/deprecated/credential-gated Beatport, Deezer or Spotify endpoints clearly disabled instead of simulated. | #50 |
 | MMS-SRC-05 | PARTIAL | Compare full available original fields with provider evidence, including label/catalog/edition, credits, genre/style, remixers, ISRC, release dates, custom fields and multivalues. Unknown/absent never means delete. | #49 |

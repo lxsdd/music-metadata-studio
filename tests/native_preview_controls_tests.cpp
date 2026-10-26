@@ -99,8 +99,69 @@ bool centers_match(HWND dialog, int label_id, int control_id) {
 }
 
 int main() {
+    using djmeta_foobar::native_verified_album_source_target;
+    using djmeta_foobar::native_online_source_selection_veto;
     using djmeta_foobar::NativeRoutePreviewScope;
     using djmeta_foobar::native_route_preview_source_ids;
+    // Captured source indices survive native grid sorting and review jumps.
+    check(native_verified_album_source_target(
+          "Physical #2","discogs_live_release_group",true,true,3)==
+          std::optional<std::size_t>{1},
+          "exact Discogs group navigates captured physical ID");
+    check(native_verified_album_source_target(
+          "Physical #128","musicbrainz_live_release_group",true,true,128)==
+          std::optional<std::size_t>{127},
+          "MusicBrainz last album source is still addressable");
+    check(native_verified_album_source_target(
+          "Physical #1","local_physical_group",true,true,2)==
+          std::optional<std::size_t>{0},
+          "local physical original summary resolves first source");
+    for(const char* invalid:{"Physical #0","Physical #01","Physical #-1",
+                             "Physical #2 / TITLE","Physical #999",
+                             "Physical #2tail","Physical #2 "}) {
+        check(!native_verified_album_source_target(
+            invalid,"discogs_live_release_group",true,true,3),
+            "malformed album source label cannot navigate");
+    }
+    check(!native_verified_album_source_target(
+              "Physical #2","manual_pasted_candidate_group",true,true,3) &&
+          !native_verified_album_source_target(
+              "Physical #2","discogs_live_release_group",false,true,3) &&
+          !native_verified_album_source_target(
+              "Physical #2","discogs_live_release_group",true,false,3) &&
+          !native_verified_album_source_target(
+              "Physical #2","discogs_live_release_group",true,true,129),
+          "unverified, unloaded, stale and oversized groups cannot navigate");
+    const std::vector<std::size_t> sorted_track_ids={2,0,1};
+    NMLISTVIEW switching{};
+    switching.iItem=2; switching.uChanged=LVIF_STATE;
+    switching.uOldState=0; switching.uNewState=LVIS_SELECTED;
+    check(native_online_source_selection_veto(
+              switching,sorted_track_ids,0,true,false),
+          "included online choices block another physical source selection");
+    switching.iItem=1; switching.uOldState=LVIS_SELECTED;
+    switching.uNewState=0;
+    check(native_online_source_selection_veto(
+              switching,sorted_track_ids,0,true,false),
+          "included online choices veto deselection of original source");
+    switching.uOldState=0; switching.uNewState=LVIS_SELECTED;
+    check(!native_online_source_selection_veto(
+              switching,sorted_track_ids,0,true,false),
+          "reselecting same captured source never blocks");
+    switching.iItem=-1;
+    check(native_online_source_selection_veto(
+              switching,sorted_track_ids,0,true,false),
+          "unknown selected source cannot drop included choices");
+    switching.iItem=2;
+    check(!native_online_source_selection_veto(
+              switching,sorted_track_ids,0,false,false) &&
+          !native_online_source_selection_veto(
+              switching,sorted_track_ids,0,true,true),
+          "empty included choices and guarded UI rebuild permit selection");
+    switching.uOldState=0; switching.uNewState=LVIS_FOCUSED;
+    check(!native_online_source_selection_veto(
+              switching,sorted_track_ids,0,true,false),
+          "focus-only event does not alter included field identity");
     const std::vector<std::size_t> visible_routes_fixture={4,1,3};
     check(native_route_preview_source_ids(NativeRoutePreviewScope::Visible,
           5,visible_routes_fixture,{})==visible_routes_fixture,"visible route scope keeps sorted source IDs");
