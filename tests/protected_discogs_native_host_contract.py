@@ -4,7 +4,7 @@ protected live native foobar QA; no Secret escapes into ordinary jobs.
 from pathlib import Path
 SOURCE=(Path(__file__).resolve().parents[1]/".github/workflows/foobar.yml").read_text(encoding="utf-8")
 OLD="31930d4fca571f449f2c57044bea5ba2e01f0ca7"
-NEW="4bafa96d1a5a21e4561c2c2adf23f755817c3057"
+NEW="e408a32f176c9f14d55a009afde81cf000820db2"
 PREFIX="  discogs-authorized-native:\n"
 END="  # One-shot source-to-component package qualification"
 
