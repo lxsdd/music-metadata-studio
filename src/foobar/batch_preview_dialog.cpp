@@ -3403,7 +3403,7 @@ void apply_review_action(HWND dialog, PreviewState& state,
 }
 
 void revalidate_workspace(PreviewState& state,bool full_source_check);
-void apply_to_rows(HWND dialog,PreviewState& state,NativeRoutePreviewScope scope) {
+void apply_to_rows(HWND dialog, PreviewState& state, NativeRoutePreviewScope scope) {
     if(state.stale || state.refreshing || TabCtrl_GetCurSel(state.tabs)!=2)
         throw std::invalid_argument("File locations requires a fresh source snapshot.");
     verify_rules_snapshot(state.captured_rules);
