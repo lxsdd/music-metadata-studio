@@ -367,6 +367,58 @@ int main() {
             "stale CUEs included in privacy-safe Copy issues");
     require(queue.next_attention(cues,32)==8,
             "stale earlier CUE carrier is found after queue wrap");
+    // A reversed 54,129-source ListView must retain original source IDs.
+    std::vector<std::size_t> all_sorted(54129);
+    for(std::size_t i=0;i<all_sorted.size();++i)
+        all_sorted[i]=all_sorted.size()-i-1;
+    auto visible=filter_cue_queue_view(
+        queue,cues,all_sorted,BatchLocationQueue::CueAll);
+    require(visible==std::vector<std::size_t>({32,8}),
+            "all CUE carriers preserve sorted view but physical source IDs");
+    visible=filter_cue_queue_view(
+        queue,cues,all_sorted,BatchLocationQueue::CueAttention);
+    require(visible==std::vector<std::size_t>({32,8}),
+            "changed hidden source exposes every stale CUE");
+    visible=filter_cue_queue_view(
+        queue,cues,all_sorted,BatchLocationQueue::CueRawOnly);
+    require(visible.empty(),
+            "stale CUE cannot appear as a currently inspected RAW-only source");
+    queue.record(8,all_move_impact,moved);
+    queue.record(32,all_copy_impact,kept);
+    visible=filter_cue_queue_view(
+        queue,cues,all_sorted,BatchLocationQueue::CueRawOnly);
+    require(visible==std::vector<std::size_t>({8}),
+            "RAW-only CUE filter preserves source identity");
+    visible=filter_cue_queue_view(
+        queue,cues,all_sorted,BatchLocationQueue::CueOriginalKept);
+    require(visible==std::vector<std::size_t>({32}),
+            "original-kept CUE filter uses same inspected source graph");
+    visible=filter_cue_queue_view(
+        queue,cues,all_sorted,BatchLocationQueue::CueAttention);
+    require(visible.empty(),
+            "completed CUE inspection is not repeatedly queued as missing");
+    auto duplicate=all_sorted;
+    duplicate[0]=duplicate[1];
+    try {
+        (void)filter_cue_queue_view(queue,cues,duplicate,
+                                    BatchLocationQueue::CueAll);
+        require(false,"duplicate visible ID");
+    } catch(const std::invalid_argument&) {}
+    try {
+        (void)filter_cue_queue_view(queue,cues,{8,32},
+                                    BatchLocationQueue::CueRawOnly);
+        require(false,"truncated physical source permutation");
+    } catch(const std::invalid_argument&) {}
+    try {
+        (void)filter_cue_queue_view(queue,{32,8},all_sorted,
+                                    BatchLocationQueue::CueAll);
+        require(false,"out of order carrier list");
+    } catch(const std::invalid_argument&) {}
+    try {
+        (void)filter_cue_queue_view(queue,cues,all_sorted,
+                                    BatchLocationQueue::FileActionBlocked);
+        require(false,"non-CUE filter");
+    } catch(const std::invalid_argument&) {}
     try { (void)queue.counts({32,8}); require(false,"invalid order"); }
     catch(const std::invalid_argument&) {}
     std::cout << "PASS: action-aware CUE FILE and source-identity navigation dry-run qualification\n";

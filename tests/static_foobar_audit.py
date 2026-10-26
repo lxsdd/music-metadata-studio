@@ -2283,3 +2283,20 @@ for marker in ("state.cue_inspections.observe(", "state.cue_inspections.record("
                "IDC_BATCH_NEXT_CUE", "revalidate_workspace(*state,true);"):
     if marker not in workspace_dialog:
         raise SystemExit("STATIC NATIVE CUE INSPECTION QUEUE FAIL: "+marker)
+
+
+# Physical CUE File locations stages project the original full-batch source
+# permutation; never silently change metadata decisions or enable writers.
+cue_filter=(root / "include" / "djmeta" / "cue_inspection_queue.h").read_text(encoding="utf-8")
+for marker in ("filter_cue_queue_view(", "CUE_QUEUE_FILTER_SORTED_ID",
+               "BatchLocationQueue::CueAttention",
+               "BatchLocationQueue::CueRawOnly",
+               "BatchLocationQueue::CueOriginalKept"):
+    if marker not in cue_filter:
+        raise SystemExit("STATIC CUE FILTER MODEL FAIL: "+marker)
+for marker in ("state.view_order=djmeta::filter_cue_queue_view(",
+               'L"CUE: inspect / blocked"',
+               "selected>static_cast<int>(djmeta::BatchLocationQueue::CueOriginalKept)",
+               "Selected online fields belong to the current source."):
+    if marker not in workspace_dialog:
+        raise SystemExit("STATIC CUE FILTER NATIVE SAFETY FAIL: "+marker)

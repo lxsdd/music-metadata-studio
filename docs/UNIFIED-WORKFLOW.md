@@ -1307,3 +1307,22 @@ Next CUE prioritizes missing, stale and blocked inspections, not already
 inspected RAW-only candidates. A CUE receipt is recorded only after all
 source-coverage rows have been constructed successfully; a failed or
 truncated inspection cannot appear as complete in the batch ledger.
+
+
+### CUE status views in File locations
+
+The existing File locations drop-down now also offers **CUE: all carriers**,
+**CUE: inspect / blocked**, **CUE: RAW only**, and **CUE: original kept**.
+Each projects the *same* complete original physical CUE inspection queue
+through the current sort order; no new normalization engine, writer or
+path resolver is introduced. An unseen source changing its physical guard,
+staged Move/Copy/Skip, metadata review, or raw target invalidates the entire
+queue's previous evidence. Filtered views never weaken whole-batch collision
+audits or broaden the scope of a selected-row preview. A RAW-only carrier
+has still NOT obtained final foobar File Operations or CUE FILE postimages.
+
+The user-triggered **Next CUE** refuses to abandon selected online
+comparison fields belonging to another source. This preserves the explicit
+review workflow; no network search or file write runs when a filter changes.
+Synthetic tests include a reversed 54,129-source selection and fail-closed
+duplicate, truncated and invalid source permutations.
