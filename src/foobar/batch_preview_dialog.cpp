@@ -5343,8 +5343,8 @@ void copy_workflow_audit(HWND dialog,const PreviewState& state,
         L"\r\n"+from_utf8(ledger)+L"\r\n"+from_utf8(cue_ledger);
     native_copy_audit_text_to_clipboard(dialog,report);
     SetDlgItemTextW(dialog,IDC_BATCH_HINT,attention_only
-        ? L"Read-only attention queue copied (whole batch verified; source-order IDs). No paths, tags or writes."
-        : L"Full read-only batch audit copied (source order, all rows). No music paths or tag values exported; no files changed.");
+        ? L"Read-only attention audit copied, including current CUE FILE action/risk codes by captured source row. No paths, tags or writes."
+        : L"Full read-only audit copied, including per-FILE CUE source/action risks. No music paths, tag values or writes.");
 }
 
 void open_crates_for_selected_physical_track(
