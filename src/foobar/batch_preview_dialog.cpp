@@ -1370,9 +1370,12 @@ void update_pending_review_summaries(
     for(const auto track:affected_tracks) {
         if(track>=state.entries.size())
             throw std::invalid_argument("Changed track is outside captured review.");
-        state.track_summaries[track].review_required=
-            djmeta::count_pending_review_proposals(
-                state.analyses[track],state.review_decisions[track]);
+        const auto progress=djmeta::summarize_track_review_progress(
+            state.analyses[track],state.review_decisions[track]);
+        auto& summary=state.track_summaries[track];
+        summary.review_required=progress.pending_review;
+        summary.pending_proposals=progress.pending_proposals;
+        summary.staged_changes=progress.staged_changes;
     }
 }
 
@@ -1382,10 +1385,14 @@ void refresh_review_summaries(PreviewState& state) {
     if(state.analyses.size()!=state.entries.size() ||
        state.review_decisions.size()!=state.entries.size())
         throw std::invalid_argument("Track review summary snapshot is stale.");
-    for(std::size_t track=0;track<state.entries.size();++track)
-        state.track_summaries[track].review_required=
-            djmeta::count_pending_review_proposals(
-                state.analyses[track],state.review_decisions[track]);
+    for(std::size_t track=0;track<state.entries.size();++track) {
+        const auto progress=djmeta::summarize_track_review_progress(
+            state.analyses[track],state.review_decisions[track]);
+        auto& summary=state.track_summaries[track];
+        summary.review_required=progress.pending_review;
+        summary.pending_proposals=progress.pending_proposals;
+        summary.staged_changes=progress.staged_changes;
+    }
 }
 
 std::wstring show_field_values(const std::vector<std::string>& values) {
@@ -1899,10 +1906,13 @@ void update_local_review_hint(PreviewState& state) {
     }
     const auto& summary=state.track_summaries[state.selected_track_index];
     const auto count=ListView_GetSelectedCount(state.metadata_track_list);
-    const auto notice=native_review_scope_hint(
+    std::wstring notice=native_review_scope_hint(
         static_cast<std::size_t>(count),
         summary.music_changes,summary.extended_changes,
         summary.review_required,state.focused_metadata_rows.empty());
+    notice+=L" Staged edits: "+std::to_wstring(summary.staged_changes)+
+            L"; pending proposals: "+std::to_wstring(summary.pending_proposals)+
+            L". Filter changes only the visible review queue.";
     SetDlgItemTextW(state.dialog,IDC_BATCH_HINT,
         native_workspace_display_hint(state.stale,notice.c_str()));
 }
@@ -3044,8 +3054,8 @@ void apply_review_action(HWND dialog, PreviewState& state,
         state.online_raw_route_after=refreshed_online_route
             ? std::move(refreshed_online_route->second):std::string{};
     }
-    // Source metadata, proposal types and field counts are snapshot-immutable.
-    // A single decision changes only these tracks' Pending/Review counters.
+    // Source metadata and proposal types are snapshot-immutable. A decision
+    // changes only the touched tracks' pending/staged/REVIEW queue counts.
     update_pending_review_summaries(state,affected_tracks);
     update_table(state);
     update_master_table(state);
@@ -4033,7 +4043,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_ONLINE_DATE_TARGET_LABEL,L"Do not infer an edition date from your current physical DATE."},
         {IDC_ONLINE_DATE_TARGET,L"Choose a tag for each verified release date. DATE keeps only the four-digit year (YYYY); RELEASEDATE and DATE_RAW keep the full ISO date. PAIR stages Master -> ORIGINALDATE (or year-only DATE) plus Edition -> RELEASEDATE. Memory-only preview, no file write."},
         {IDC_METADATA_FILTER,L"Limit the local normalization review to music, extended or all tags."},
-        {IDC_METADATA_TRACK_FILTER,L"Filter original tracks by whether they have rule proposals. This never removes files."},
+        {IDC_METADATA_TRACK_FILTER,L"Review queue: all, proposals, pending REVIEW, pending any, staged edits, completed review, or no proposals. Filtering never changes source files or approvals."},
         {IDC_METADATA_REVIEW_SCOPE,L"Choose whether to review selected change rows, selected tracks or all tracks. Review decisions are preview-only."},
         {IDC_METADATA_ACCEPT,L"Mark chosen rule proposals as accepted in memory. No music file is written."},
         {IDC_METADATA_REJECT,L"Reject chosen local rule proposals in memory, without changing source files."},
@@ -5642,7 +5652,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             SendDlgItemMessageW(dialog, IDC_METADATA_FILTER, CB_ADDSTRING,
                 0, reinterpret_cast<LPARAM>(focus));
         SendDlgItemMessageW(dialog, IDC_METADATA_FILTER, CB_SETCURSEL, 0, 0);
-        for (const wchar_t* status : {L"All tracks", L"Changed tracks", L"Review required"})
+        for (const wchar_t* status : {L"All tracks", L"With proposals",
+                                      L"Pending REVIEW", L"Pending any",
+                                      L"Staged edits", L"Review completed",
+                                      L"No proposals"})
             SendDlgItemMessageW(dialog, IDC_METADATA_TRACK_FILTER, CB_ADDSTRING,
                 0, reinterpret_cast<LPARAM>(status));
         SendDlgItemMessageW(dialog, IDC_METADATA_TRACK_FILTER, CB_SETCURSEL, 0, 0);
@@ -6120,8 +6133,17 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 if (row < state->track_view_order.size()) {
                     const auto index = state->track_view_order[row];
                     if (index < state->source_labels.size()) {
-                        const auto text = from_utf8(
+                        std::wstring text = from_utf8(
                             display_file_path(state->source_labels[index]));
+                        if(index<state->track_summaries.size()) {
+                            const auto& progress=state->track_summaries[index];
+                            text+=L"\nStaged edits: "+
+                                  std::to_wstring(progress.staged_changes)+
+                                  L" | Pending proposals: "+
+                                  std::to_wstring(progress.pending_proposals)+
+                                  L" | Pending REVIEW: "+
+                                  std::to_wstring(progress.review_required);
+                        }
                         lstrcpynW(tip->pszText, text.c_str(), tip->cchTextMax);
                     }
                 }
@@ -7457,9 +7479,16 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         if (native_command == PreviewCommand::TrackFilterChanged) {
             const auto choice = SendDlgItemMessageW(
                 dialog, IDC_METADATA_TRACK_FILTER, CB_GETCURSEL, 0, 0);
-            state->track_discovery = choice == 1 ? djmeta::TrackDiscovery::Changed :
-                choice == 2 ? djmeta::TrackDiscovery::NeedsReview :
-                djmeta::TrackDiscovery::All;
+            switch(choice) {
+                case 0: state->track_discovery=djmeta::TrackDiscovery::All; break;
+                case 1: state->track_discovery=djmeta::TrackDiscovery::Changed; break;
+                case 2: state->track_discovery=djmeta::TrackDiscovery::NeedsReview; break;
+                case 3: state->track_discovery=djmeta::TrackDiscovery::PendingAny; break;
+                case 4: state->track_discovery=djmeta::TrackDiscovery::StagedEdits; break;
+                case 5: state->track_discovery=djmeta::TrackDiscovery::Reviewed; break;
+                case 6: state->track_discovery=djmeta::TrackDiscovery::Unchanged; break;
+                default: throw std::invalid_argument("Unknown track filter selection.");
+            }
             update_master_table(*state);
             update_metadata_table(*state);
             return TRUE;

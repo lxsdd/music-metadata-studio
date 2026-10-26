@@ -191,6 +191,88 @@ int main(){
           filter_track_view(all,{999,1},TrackDiscovery::Changed)==
             std::vector<std::size_t>{1},
           "discovery retains sort identity and handles empty/invalid views");
+    // End-user review queue: only explicit non-noop decisions count as staged.
+    AnalysisResult queue_analysis;
+    queue_analysis.proposals.resize(4);
+    queue_analysis.proposals[0].safety=SafetyClass::Safe;
+    queue_analysis.proposals[0].original_value=" a ";
+    queue_analysis.proposals[0].proposed_value="a";
+    queue_analysis.proposals[1].safety=SafetyClass::Review;
+    queue_analysis.proposals[1].original_value="Original Version";
+    queue_analysis.proposals[1].proposed_value="Extended Mix";
+    queue_analysis.proposals[2].safety=SafetyClass::Confident;
+    queue_analysis.proposals[2].original_value="same";
+    queue_analysis.proposals[2].proposed_value="same";
+    queue_analysis.proposals[3].safety=SafetyClass::Review;
+    queue_analysis.proposals[3].original_value="old";
+    queue_analysis.proposals[3].proposed_value="new";
+    std::vector<ReviewDecision> queue_decisions(4);
+    auto progress=summarize_track_review_progress(queue_analysis,queue_decisions);
+    check(progress.pending_proposals==4 && progress.pending_review==2 &&
+          progress.staged_changes==0,
+          "unreviewed SAFE/CONFIDENT/REVIEW are pending, never staged");
+    queue_decisions[0].action=ReviewAction::Accept;
+    queue_decisions[1].action=ReviewAction::Reject;
+    queue_decisions[2].action=ReviewAction::Accept;
+    queue_decisions[3]={ReviewAction::ManualValue,"new manual mix"};
+    progress=summarize_track_review_progress(queue_analysis,queue_decisions);
+    check(progress.pending_proposals==0 && progress.pending_review==0 &&
+          progress.staged_changes==2,
+          "accepted and manual changes count, rejected and exact no-op do not");
+    auto queue=all;
+    queue[0].pending_proposals=4;
+    queue[0].review_required=2;
+    queue[1].pending_proposals=0;
+    queue[1].review_required=0;
+    queue[1].staged_changes=2;
+    const auto pending=filter_track_view(queue,by_name,TrackDiscovery::PendingAny);
+    const auto staged=filter_track_view(queue,by_name,TrackDiscovery::StagedEdits);
+    const auto completed=filter_track_view(queue,by_name,TrackDiscovery::Reviewed);
+    const auto untouched=filter_track_view(queue,by_name,TrackDiscovery::Unchanged);
+    check(pending==std::vector<std::size_t>{0} &&
+          staged==std::vector<std::size_t>{1} &&
+          completed==std::vector<std::size_t>{1} &&
+          untouched==std::vector<std::size_t>{2},
+          "review queue preserves sorted source IDs across pending/staged/completed/empty");
+    queue[0].pending_proposals=0;
+    queue[0].staged_changes=1;
+    check(filter_track_view(queue,by_name,TrackDiscovery::Reviewed)==
+          std::vector<std::size_t>({1,0}),
+          "final explicit decision moves a source into completed queue");
+    queue_decisions[1].action=ReviewAction::Pending;
+    progress=summarize_track_review_progress(queue_analysis,queue_decisions);
+    check(progress.pending_proposals==1 && progress.pending_review==1,
+          "Reset reopens only the touched REVIEW proposal");
+    queue_decisions.pop_back();
+    bool queue_rejected=false;
+    try {(void)summarize_track_review_progress(queue_analysis,queue_decisions);}
+    catch(const std::invalid_argument&) {queue_rejected=true;}
+    check(queue_rejected,"stale per-track decision vector refuses a false queue");
+    queue_decisions.push_back({ReviewAction::Pending,{}});
+    queue_decisions[3].action=static_cast<ReviewAction>(99);
+    queue_rejected=false;
+    try {(void)summarize_track_review_progress(queue_analysis,queue_decisions);}
+    catch(const std::invalid_argument&) {queue_rejected=true;}
+    check(queue_rejected,"unknown decision never masquerades as completed review");
+    std::vector<TrackReviewSummary> queue_stress(kLargeBatch);
+    for(std::size_t i=0;i<kLargeBatch;++i) {
+        queue_stress[i].source_index=i;
+        queue_stress[i].music_changes=1;
+        queue_stress[i].pending_proposals=(i%2==0 ? 1 : 0);
+        queue_stress[i].staged_changes=(i%2==1 ? 1 : 0);
+    }
+    std::vector<std::size_t> stress_order(kLargeBatch);
+    for(std::size_t i=0;i<kLargeBatch;++i)stress_order[i]=i;
+    const auto pending_stress=filter_track_view(
+        queue_stress,stress_order,TrackDiscovery::PendingAny);
+    const auto completed_stress=filter_track_view(
+        queue_stress,stress_order,TrackDiscovery::Reviewed);
+    check(pending_stress.size()==(kLargeBatch+1)/2 &&
+          completed_stress.size()==kLargeBatch/2 &&
+          pending_stress.front()==0 && completed_stress.front()==1 &&
+          completed_stress.back()==kLargeBatch-2,
+          "54k review queue retains exact identity and stable source order");
+
     check(proposals[0].field=="DISCOGS_RELEASE_CREDITS" &&
           proposals[4].field=="X_CUSTOM_FIELD",
           "no mutation or loss of secondary metadata");

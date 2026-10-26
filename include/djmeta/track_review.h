@@ -11,7 +11,9 @@
 namespace djmeta {
 
 enum class MetadataFocus { Music, Extended, All };
-enum class TrackDiscovery { All, Changed, NeedsReview };
+// Presentation-only queue states; never staging or write authorization.
+enum class TrackDiscovery { All, Changed, NeedsReview, PendingAny,
+                            StagedEdits, Reviewed, Unchanged };
 
 struct TrackReviewSummary {
     std::size_t source_index = 0;
@@ -20,7 +22,21 @@ struct TrackReviewSummary {
     std::size_t review_required = 0;
     std::size_t safe_changes = 0;
     std::size_t confident_changes = 0;
+    std::size_t pending_proposals = 0;
+    std::size_t staged_changes = 0;
 };
+
+struct TrackReviewProgress {
+    std::size_t pending_proposals = 0;
+    std::size_t pending_review = 0;
+    std::size_t staged_changes = 0;
+};
+
+// Exact captured analysis + explicit in-memory decisions. Accepted or manual
+// values equal to the original are no-ops, not staged edits.
+TrackReviewProgress summarize_track_review_progress(
+    const AnalysisResult& analysis,
+    const std::vector<ReviewDecision>& decisions);
 
 // One-time source-to-row index for an immutable, flattened review snapshot.
 // Offsets identify contiguous ranges of original row positions, irrespective

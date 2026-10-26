@@ -920,3 +920,18 @@ explicitly flagged. A manually edited title still tries the selected source's
 qualified artist before title-only fallback; original ISRC/barcode is used
 only with the unchanged automatic query. Failed requests do not consume the
 next strategy. No provider hit or field becomes an approved writer action.
+
+
+### Live review queue (read-only, MMS-WF-03/05/08/09, MMS-UI-07)
+
+The native **Tracks** filter in Find/Review now offers All tracks, With proposals,
+Pending REVIEW, Pending any (including SAFE and CONFIDENT), Staged edits,
+Review completed, and No proposals. Counts follow the current **explicit**
+Accept/Reject/Manual/Reset decisions, including Undo; a staged edit counts
+only if its postimage differs from the original. Review completed means a
+track had proposals and none remain pending (rejections and exact no-ops
+are legitimate decisions). The selected source identity and current sort
+order survive queue changes. Tooltip and review hint expose the current
+track's staged and pending counts. These are **in-memory navigation states**:
+no provider match, SAFE suggestion, filter selection or completed queue
+implies approval to write. Physical, CUE and FileOps gates remain disabled.

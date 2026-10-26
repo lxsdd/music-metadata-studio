@@ -65,6 +65,35 @@ std::vector<TrackReviewSummary> summarize_track_changes(
     }
     return result;
 }
+TrackReviewProgress summarize_track_review_progress(
+    const AnalysisResult& analysis,
+    const std::vector<ReviewDecision>& decisions) {
+    if(analysis.proposals.size()!=decisions.size())
+        throw std::invalid_argument("Review decision count does not match captured proposals.");
+    TrackReviewProgress result;
+    for(std::size_t i=0;i<analysis.proposals.size();++i) {
+        const auto& proposal=analysis.proposals[i];
+        const auto& decision=decisions[i];
+        switch(decision.action) {
+            case ReviewAction::Pending:
+                ++result.pending_proposals;
+                if(proposal.safety==SafetyClass::Review) ++result.pending_review;
+                break;
+            case ReviewAction::Reject: break;
+            case ReviewAction::Accept:
+                if(proposal.proposed_value!=proposal.original_value)
+                    ++result.staged_changes;
+                break;
+            case ReviewAction::ManualValue:
+                if(decision.manual_value!=proposal.original_value)
+                    ++result.staged_changes;
+                break;
+            default: throw std::invalid_argument("Unknown review decision.");
+        }
+    }
+    return result;
+}
+
 std::size_t count_pending_review_proposals(
     const AnalysisResult& analysis,
     const std::vector<ReviewDecision>& decisions) {
@@ -140,10 +169,19 @@ std::vector<std::size_t> filter_track_view(
         if (index >= summaries.size()) continue;
         const auto& track = summaries[index];
         const bool changed = track.music_changes + track.extended_changes > 0;
-        if (discovery == TrackDiscovery::All ||
-            (discovery == TrackDiscovery::Changed && changed) ||
-            (discovery == TrackDiscovery::NeedsReview && track.review_required > 0))
-            visible.push_back(index);
+        bool include=false;
+        switch(discovery) {
+            case TrackDiscovery::All: include=true; break;
+            case TrackDiscovery::Changed: include=changed; break;
+            case TrackDiscovery::NeedsReview: include=track.review_required>0; break;
+            case TrackDiscovery::PendingAny: include=track.pending_proposals>0; break;
+            case TrackDiscovery::StagedEdits: include=track.staged_changes>0; break;
+            case TrackDiscovery::Reviewed:
+                include=changed && track.pending_proposals==0; break;
+            case TrackDiscovery::Unchanged: include=!changed; break;
+            default: throw std::invalid_argument("Unknown track review filter.");
+        }
+        if(include) visible.push_back(index);
     }
     return visible;
 }
