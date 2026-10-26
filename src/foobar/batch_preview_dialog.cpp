@@ -3258,6 +3258,11 @@ void apply_review_action(HWND dialog, PreviewState& state,
            row.proposal_index>=state.analyses[row.source_index].proposals.size() ||
            row.source_index>=state.entries.size() ||
            !state.entries[row.source_index].input.physical_source_qualified ||
+           state.entries[row.source_index].handle->get_subsong_index()!=0 ||
+           is_external_cue_locator(
+               state.entries[row.source_index].input.source_path) ||
+           state.entries[row.source_index].observed_physical_key.empty() ||
+           state.entries[row.source_index].observed_source_guard.empty() ||
            row.field!=state.analyses[row.source_index]
                          .proposals[row.proposal_index].field)
             throw std::invalid_argument(

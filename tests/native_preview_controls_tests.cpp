@@ -264,10 +264,10 @@ int main() {
     HWND dialog = CreateDialogParamW(GetModuleHandleW(nullptr),
         MAKEINTRESOURCEW(IDD_BATCH_PREVIEW), nullptr, test_dialog_proc, 0);
     check(dialog != nullptr, "actual production dialog template instantiation");
-    const HWND review_scope=GetDlgItem(dialog,IDC_METADATA_REVIEW_SCOPE);
-    check(review_scope!=nullptr &&
-          (GetWindowLongPtrW(review_scope,GWL_STYLE)&CBS_DROPDOWNLIST)==CBS_DROPDOWNLIST &&
-          (GetWindowLongPtrW(review_scope,GWL_STYLE)&WS_TABSTOP)!=0,
+    const HWND field_scope_control=GetDlgItem(dialog,IDC_METADATA_REVIEW_SCOPE);
+    check(field_scope_control!=nullptr &&
+          (GetWindowLongPtrW(field_scope_control,GWL_STYLE)&CBS_DROPDOWNLIST)==CBS_DROPDOWNLIST &&
+          (GetWindowLongPtrW(field_scope_control,GWL_STYLE)&WS_TABSTOP)!=0,
           "field-specific review uses keyboard-accessible native scope picker");
     const HWND visible_route=GetDlgItem(dialog,IDC_BATCH_APPLY_VISIBLE);
     check(visible_route!=nullptr &&

@@ -1645,6 +1645,12 @@ if ('djmeta::stage_safe_only(' in route_preview or
 
 
 # Field-scoped review remains in the native normalizer decision path.
+anchor_block=workspace_dialog.split(
+    'const auto selected_field_anchor=[&]() {',1)[1].split(
+    'const auto field_scope_sources=[&]',1)[0]
+if ('is_external_cue_locator(' not in anchor_block or
+    'get_subsong_index()!=0' not in anchor_block):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: CUE/virtual field anchor accepted")
 for marker in (
     'L"Field: visible"', 'L"Field: all"',
     'same_field_review_proposal_targets(',
