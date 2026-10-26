@@ -9,6 +9,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 
 namespace djmeta {
 
@@ -24,6 +25,17 @@ struct PrecisionCueExistingTargetInspection {
     // Optional bounded bytes of a different existing reference, for a
     // read-only timing diff only. Not a stable snapshot or write approval.
     std::optional<std::string> observed_different_cue;
+
+    PrecisionCueExistingTargetInspection() = default;
+    // Avoid -Wmissing-field-initializers in strict C++20 Linux CI while
+    // keeping a missing advisory text snapshot explicit and non-authoritative.
+    PrecisionCueExistingTargetInspection(
+        PrecisionCueExistingTargetState observed_state,
+        std::string observed_diagnostic,
+        std::optional<std::string> observed_bytes = std::nullopt)
+        : state(observed_state),
+          diagnostic(std::move(observed_diagnostic)),
+          observed_different_cue(std::move(observed_bytes)) {}
 };
 
 inline PrecisionCueExistingTargetInspection inspect_precision_cue_existing_target(
