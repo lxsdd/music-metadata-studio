@@ -940,6 +940,15 @@ void save_reviewed_disc_cue(Workspace& state) {
         throw std::invalid_argument(
             "Only a reviewed disc with an absent sibling CUE can be saved");
     const auto& original = *state.reviewed_exports[static_cast<std::size_t>(chosen)];
+    // The same full-release, every-index 75fps gate applies to a single
+    // selected disc and to the previously qualified all-disc batch.
+    if (const auto* diagnostic = djmeta::validate_precision_cue_selected_disc(
+            original, *state.release, static_cast<std::size_t>(chosen))) {
+        invalidate_cue_copy(state);
+        throw std::invalid_argument(
+            std::string("Selected album/disc CUE changed after preview: ") +
+            diagnostic);
+    }
     // The preview and target-absence evidence must still be current BEFORE
     // showing a confirmation containing the final fully qualified path.
     const auto fresh = djmeta::observe_precision_cue_external_review(original);
@@ -971,8 +980,9 @@ void save_reviewed_disc_cue(Workspace& state) {
     auto confirmed = original;
     confirmed.request.explicitly_approved_for_external_create = true;
     confirmed.request.reviewed_preflight.explicit_user_approval = true;
-    const auto created = djmeta::create_confirmed_precision_cue_external(
-        std::move(confirmed));
+    const auto created = djmeta::create_confirmed_precision_cue_selected_disc(
+        std::move(confirmed), *state.release,
+        static_cast<std::size_t>(chosen));
     using Status = djmeta::PrecisionCueExternalCreateStatus;
     switch (created.status) {
     case Status::Created:
