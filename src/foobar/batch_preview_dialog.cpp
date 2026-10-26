@@ -2843,6 +2843,57 @@ void show_history_page(HWND dialog,PreviewState& state) {
         L"Session only (last 256 actions). Multi-track actions are summaries. Refresh clears history.");
 }
 
+// A deliberate double-click/Enter, Next issue/CUE, history jump, album
+// drilldown or provider switch may leave a source-bound online preview.
+// Offer ONE default-No choice rather than silently losing explicit Include
+// and date mappings or trapping the user in the current source forever.
+// Ordinary single-click selection still uses LVN_ITEMCHANGING veto.
+bool confirm_online_preview_navigation(HWND dialog,PreviewState& state,
+    std::size_t next_source,bool changing_provider=false) {
+    if(!native_online_preview_requires_explicit_discard(
+           state.selected_track_index,next_source,
+           state.online_included_fields.size(),changing_provider))
+        return true;
+    if(state.stale || state.refreshing ||
+       state.selected_track_index>=state.entries.size() ||
+       (!changing_provider && next_source>=state.entries.size()))
+        throw std::runtime_error(
+            "Source-bound online preview cannot be switched from a stale workspace.");
+    verify_snapshot(state.entries[state.selected_track_index]);
+    verify_rules_snapshot(state.captured_rules);
+    const std::wstring prompt=L"The current physical source has "+
+        std::to_wstring(state.online_included_fields.size())+
+        L" explicitly included online field(s).\n\n"
+        L"Switching to "+std::wstring(changing_provider
+            ? L"another provider" : L"another track")+
+        L" will discard ONLY these in-memory Include/date choices and "
+        L"their raw naming overlay. Original tags, CUE data, local review "
+        L"decisions and saved profiles remain unchanged.\n\n"
+        L"Discard this preview and continue? (Default: No)";
+    if(MessageBoxW(dialog,prompt.c_str(),L"Switch online preview source?",
+                   MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2)!=IDYES) {
+        SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+            L"Online field choices preserved; source/provider unchanged. "
+            L"Double-click/Enter again to switch, or Reset online preview.");
+        return false;
+    }
+    invalidate_online_request(state);
+    state.online_included_fields.clear();
+    state.online_date_targets.clear();
+    state.online_field_preview.reset();
+    state.online_physical_edition.reset();
+    state.online_field_snapshot.reset();
+    state.online_raw_target_observation.reset();
+    state.online_edition_source=(std::numeric_limits<std::size_t>::max)();
+    state.online_raw_route_valid=false;
+    state.online_raw_route_before.clear();
+    state.online_raw_route_after.clear();
+    // Rebuild the complete source-order collision and CUE queue from the
+    // local staged metadata, never from a now-discarded provider overlay.
+    update_table(state);
+    return true;
+}
+
 // Inspect one historical source without replaying an action, starting a
 // network request, or treating the session history as write authorization.
 void navigate_preview_history(HWND dialog,PreviewState& state,int visible_row) {
@@ -2859,9 +2910,7 @@ void navigate_preview_history(HWND dialog,PreviewState& state,int visible_row) {
             L"Multiple sources: inspect the current Review/File locations queue instead.");
         return;
     }
-    if(*source!=state.selected_track_index && !state.online_included_fields.empty())
-        throw std::invalid_argument(
-            "Current source has selected online fields. Review or reset before navigating.");
+    if(!confirm_online_preview_navigation(dialog,state,*source)) return;
     verify_snapshot(state.entries[*source]);
     verify_rules_snapshot(state.captured_rules);
     if(*source!=state.selected_track_index) invalidate_online_request(state);
@@ -2927,11 +2976,7 @@ void navigate_next_workflow_issue(HWND dialog,PreviewState& state) {
     }
     if(next.source_index>=state.entries.size())
         throw std::runtime_error("Next issue source identity stale.");
-    if(next.source_index!=state.selected_track_index &&
-       !state.online_included_fields.empty())
-        throw std::runtime_error(
-            "Current source has selected online fields. Review or reset "
-            "them before navigating; they will not be silently discarded.");
+    if(!confirm_online_preview_navigation(dialog,state,next.source_index)) return;
     if(next.source_index!=state.selected_track_index)
         invalidate_online_request(state);
     state.next_issue_cursor=(next.source_index+1)%state.entries.size();
@@ -7202,13 +7247,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             const int originating_tab=TabCtrl_GetCurSel(state->tabs);
             const auto next_source=state->track_view_order[
                 static_cast<std::size_t>(row)];
-            if(next_source!=state->selected_track_index &&
-               !state->online_included_fields.empty()) {
-                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
-                    L"Reset included online fields before opening a "
-                    L"different physical track. Choices are preserved.");
+            if(!confirm_online_preview_navigation(dialog,*state,next_source))
                 return TRUE;
-            }
             invalidate_online_request(*state);
             state->selected_track_index=next_source;
             TabCtrl_SetCurSel(state->tabs,0);
@@ -7299,9 +7339,9 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 !state->online_included_fields.empty(),
                 state->updating_track_selection)) {
                 SetDlgItemTextW(dialog,IDC_BATCH_HINT,
-                    L"Included Discogs fields belong to this source. Reset "
-                    L"online choices before selecting another track; nothing "
-                    L"was discarded.");
+                    L"Included online fields belong to this source. "
+                    L"Double-click/Enter to switch with confirmation, or "
+                    L"Reset online preview. Nothing was discarded.");
                 SetWindowLongPtrW(dialog,DWLP_MSGRESULT,TRUE);
                 return TRUE; // veto BEFORE owner-data selection changes
             }
@@ -7432,6 +7472,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                     L"Inspect the missing source before planning relocation; no writes.");
                 return TRUE;
             }
+            if(!confirm_online_preview_navigation(
+                   dialog,*state,target->source_index)) return TRUE;
             const auto& cue=state->entries.at(state->selected_track_index);
             verify_snapshot(cue);
             verify_rules_snapshot(state->captured_rules);
@@ -7519,14 +7561,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                         row.field,row.reason,true,true,state->entries.size());
                     if(target) {
                         try {
-                        if(*target!=state->selected_track_index &&
-                           !state->online_included_fields.empty()) {
-                            SetDlgItemTextW(dialog,IDC_BATCH_HINT,
-                                L"Reset included online fields before "
-                                L"opening a different physical album track. "
-                                L"The field choices remain unchanged.");
-                            return TRUE;
-                        }
+                        if(!confirm_online_preview_navigation(
+                               dialog,*state,*target)) return TRUE;
                         // All selected sources, including hidden rows,
                         // still require independent host/rules freshness.
                         revalidate_workspace(*state,true);
@@ -8136,14 +8172,12 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             return TRUE;
         }
         if(id==IDC_METADATA_ONLINE_PROVIDER && HIWORD(wp)==CBN_SELCHANGE) {
-            if(!state->online_included_fields.empty()) {
+            if(!confirm_online_preview_navigation(
+                   dialog,*state,state->selected_track_index,true)) {
                 const int original=state->beatport_offline_selected?2:
                     state->discogs_provider_selected?1:0;
                 SendDlgItemMessageW(dialog,IDC_METADATA_ONLINE_PROVIDER,
                     CB_SETCURSEL,original,0);
-                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
-                    L"Reset included Discogs field choices before switching "
-                    L"providers. The comparison was not discarded.");
                 return TRUE;
             }
             invalidate_online_request(*state);
@@ -9355,11 +9389,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             }
             // Preserve uncommitted online comparison choices for their
             // original source, just like the existing Next issue action.
-            if(next!=state->selected_track_index &&
-               !state->online_included_fields.empty())
-                throw std::runtime_error(
-                    "Selected online fields belong to the current source. "
-                    "Review or reset them before Next CUE.");
+            if(!confirm_online_preview_navigation(dialog,*state,next))
+                return TRUE;
             verify_snapshot(state->entries[next]);
             verify_rules_snapshot(state->captured_rules);
             revalidate_workspace(*state,true);
@@ -9407,6 +9438,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                carrier.observed_physical_key!=saved.physical_key ||
                carrier.observed_source_guard!=saved.source_guard)
                 throw std::runtime_error("CUE carrier version changed. Refresh.");
+            if(!confirm_online_preview_navigation(
+                   dialog,*state,saved.source_index)) return TRUE;
             verify_snapshot(carrier);
             verify_rules_snapshot(state->captured_rules);
             revalidate_workspace(*state,true);

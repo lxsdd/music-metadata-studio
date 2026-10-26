@@ -1586,6 +1586,16 @@ int main() {
              reinterpret_cast<LPARAM>(&source_change_notice))==FALSE &&
           blocked_online_rebind_notifications==blocked_before+2,
           "native same-source reselect is allowed without losing decisions");
+    check(djmeta_foobar::native_online_preview_requires_explicit_discard(
+              9,5,2) &&
+          !djmeta_foobar::native_online_preview_requires_explicit_discard(
+              9,9,2) &&
+          !djmeta_foobar::native_online_preview_requires_explicit_discard(
+              9,5,0) &&
+          djmeta_foobar::native_online_preview_requires_explicit_discard(
+              9,9,1,true),
+          "explicit source/provider switch needs default-No discard only when "
+          "in-memory online choices would otherwise be lost");
     live_included_online_fields=false;
     source_change_notice.iItem=2;
     check(SendMessageW(dialog,WM_NOTIFY,IDC_METADATA_TRACK_LIST,

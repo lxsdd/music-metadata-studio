@@ -111,7 +111,7 @@ for token in (
     "native_verified_album_source_target(",
     "for(const auto& source:state->entries)",
     "state->track_discovery=djmeta::TrackDiscovery::All;",
-    "Reset included Discogs field choices before switching",
+    "confirm_online_preview_navigation(",
     "Reset included Discogs fields before starting another search",
     "Reset included online fields before replacing this view with CUE evidence",
     "Reset included online fields before replacing this view with clipboard evidence",
@@ -119,6 +119,18 @@ for token in (
 ):
     if token not in batch_writer_ui:
         raise SystemExit("STATIC ONLINE REVIEW NAVIGATION GATE FAIL: "+token)
+
+# Explicit user navigation must never silently lose included Discogs fields;
+# the default-No confirmation clears ONLY source-bound in-memory evidence,
+# and every source-navigation path uses the same guard.
+for token in ("MB_DEFBUTTON2", "state.online_included_fields.clear();",
+              "state.online_field_snapshot.reset();",
+              "state.online_raw_route_valid=false;",
+              "update_table(state);"):
+    if token not in batch_writer_ui:
+        raise SystemExit("STATIC EXPLICIT ONLINE DISCARD GATE FAIL: "+token)
+if batch_writer_ui.count("confirm_online_preview_navigation(")<8:
+    raise SystemExit("STATIC ONLINE SOURCE NAVIGATION NOT FULLY WIRED")
 
 # A failed host reprobe or native row mapping in the generated physical
 # album drill-down must never unwind across an unmanaged Win32 notification.

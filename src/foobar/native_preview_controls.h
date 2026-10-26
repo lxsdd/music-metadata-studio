@@ -124,6 +124,16 @@ std::vector<std::size_t> native_candidate_view_order(
     return order;
 }
 
+// Explicit user gestures may discard a source-bound online field preview,
+// but only after a default-No confirmation. A normal ListView click is
+// separately vetoed and can never silently drop Include/date decisions.
+inline constexpr bool native_online_preview_requires_explicit_discard(
+    std::size_t current_source,std::size_t target_source,
+    std::size_t included_fields,bool changing_provider=false) noexcept {
+    return included_fields!=0 &&
+        (changing_provider || current_source!=target_source);
+}
+
 // Prevent silent loss of exact-source online Include decisions BEFORE a
 // native owner-data ListView changes its selected captured physical source.
 inline bool native_online_source_selection_veto(

@@ -1361,3 +1361,21 @@ duplicate, truncated and invalid source permutations.
   asserts veto/allow semantics for included online fields, deselection,
   same-source reselect and explicit reset. This complements portable policy
   negative tests; it does **not** replace installed end-user DPI/UI checks.
+
+## Explicit source/provider switch with included online fields
+
+An ordinary native track-list click never discards included Discogs edition
+fields or their DATE mappings. The source-bound ListView selection is vetoed
+before it changes. A deliberate double-click/Enter, Next issue, Next CUE,
+history jump, verified album-source drilldown, CUE return or provider change
+instead offers a **default-No** confirmation when a different source/provider
+would invalidate those selections. No keeps the existing source and all
+choices. Yes discards **only** that source's in-memory online Include/date
+choices and its raw Title Formatting overlay, then recomputes the complete
+file/CUE collision preview from local staged values. It does not discard
+local normalizer decisions, original physical tags, custom/multivalue fields,
+ReplayGain, CUE bytes, route profiles or user files. No network request is
+initiated by an ordinary source switch; only an explicit Find-tab activation
+may perform its existing guarded search. Single-click selection stays
+non-destructive and does not show modal prompts. Neither choice authorizes a
+writer or a foobar File Operations destination.
