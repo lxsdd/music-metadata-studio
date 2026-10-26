@@ -12,8 +12,6 @@ def failures(content: str) -> list[str]:
         return ["missing unambiguous private packaging job"]
     block=content.split(START,1)[1].split(END,1)[0]
     required=[
-        "github.event_name == 'push'",
-        "github.ref == 'refs/heads/feature/studio-precision-cue-integration-20261026'",
         "github.event_name == 'pull_request'",
         "github.event.pull_request.head.repo.full_name == github.repository",
         "github.event.pull_request.head.ref == 'feature/online-metadata-discovery-foundation-20261009'",
@@ -81,6 +79,8 @@ def integration_failures(content: str) -> list[str]:
     except ValueError as error:
         return [str(error)]
     required=(
+        "github.event_name == 'push'",
+        "github.ref == 'refs/heads/feature/studio-precision-cue-integration-20261026'",
         "github.event_name == 'pull_request'",
         "github.event.pull_request.head.repo.full_name == github.repository",
         "github.event.pull_request.head.ref == 'feature/studio-precision-cue-integration-20261026'",
