@@ -42,12 +42,18 @@ permissions:
   contents: read
 
 jobs:
+  portable:
+    uses: lxsdd/dev-infrastructure-public/.github/workflows/portable-core.yml@1fd8aa0693472d3d7ba2f5821571c1804c1550d5
+    permissions:
+      contents: read
+    with:
+      language: cmake
+      source-directory: .
+      python-scripts: tests/validate_rules.py,scripts/verify-public-artifact-hold.py
+
   core:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-2022]
-    runs-on: ${{ matrix.os }}
+    needs: portable
+    runs-on: windows-2022
     timeout-minutes: 15
 
     steps:
