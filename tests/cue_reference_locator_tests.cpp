@@ -93,14 +93,14 @@ int main() {
     require(matched.eligible && matched.unselected_files==1,
             "host source graph with an unselected FILE");
     std::vector<CueRawRouteTrack> routes(5);
-    routes[4]={"phys-A","version-A","Z:\\\\Library","CD1/01.wav",true,false,false};
-    routes[1]={"phys-B","version-B","Z:\\\\Library","CD2/02.wav",true,false,false};
+    routes[4]={"phys-A","version-A","Z:\\Library","CD1/01.wav",true,false,false};
+    routes[1]={"phys-B","version-B","Z:\\Library","CD2/02.wav",true,false,false};
     auto impact=inspect_cue_raw_route_impact(files,matched,routes);
     require(impact.source_graph_qualified && impact.raw_candidates==2 &&
             impact.unselected==1 && impact.selected_blocked==0 &&
             impact.references[0].selected_source_row==4 &&
             impact.references[0].code=="CUE_ROUTE_RAW_CANDIDATE_ONLY" &&
-            impact.references[0].raw_candidate=="Z:\\\\Library\\\\CD1/01.wav" &&
+            impact.references[0].raw_candidate=="Z:\\Library\\CD1/01.wav" &&
             impact.references[2].code=="CUE_FILE_AUDIO_NOT_SELECTED",
             "stable physical identities projected to RAW-only CUE routing impact");
     routes[4].pending_metadata_review=true;
