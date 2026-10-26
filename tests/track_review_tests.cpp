@@ -327,6 +327,67 @@ int main(){
               std::pair<std::size_t,std::size_t>{kLargeBatch-1,0},
           "54k-track filtered bulk scope preserves source identity and excludes hidden rows");
 
+    // Same-field scopes preserve all values of a field, not other fields.
+    std::vector<AnalysisResult> field_analyses(4);
+    auto add_field=[&](std::size_t source,const char* name) {
+        Proposal p;p.field=name;
+        field_analyses[source].proposals.push_back(std::move(p));
+    };
+    add_field(0,"TITLE"); add_field(0,"title"); add_field(0,"ARTIST");
+    add_field(1,"X_CUSTOM"); add_field(1,"Title");
+    add_field(2,"TITLE"); add_field(2,"CUESHEET");
+    add_field(3,"ARTIST");
+    const auto field_visible=same_field_review_proposal_targets(
+        field_analyses,{2,0},"TITLE");
+    const auto field_all=same_field_review_proposal_targets(
+        field_analyses,{0,1,2,3},"title");
+    check(field_visible==std::vector<std::pair<std::size_t,std::size_t>>({
+              {2,0},{0,0},{0,1}}) &&
+          field_all==std::vector<std::pair<std::size_t,std::size_t>>({
+              {0,0},{0,1},{1,1},{2,0}}),
+          "field scope keeps all multivalue indices and excludes other tags");
+    check(same_review_field_name("TITLE","title") &&
+          !same_review_field_name("TITLE","TITLES") &&
+          !same_review_field_name("DATE_RAW","DATE"),
+          "field names match with ASCII case only");
+    std::vector<std::vector<ReviewDecision>> field_decisions{
+        {{}, {}, {}}, {{}, {}}, {{}, {}}, {{}}};
+    check(count_visible_review_action_changes(
+              field_all,field_decisions,ReviewAction::Accept)==4,
+          "field-only bulk counts exact changing decisions");
+    field_decisions[0][0].action=ReviewAction::Accept;
+    field_decisions[0][1].action=ReviewAction::Accept;
+    field_decisions[1][1].action=ReviewAction::Accept;
+    field_decisions[2][0].action=ReviewAction::Accept;
+    check(count_visible_review_action_changes(
+              field_all,field_decisions,ReviewAction::Accept)==0 &&
+          field_decisions[0][2].action==ReviewAction::Pending &&
+          field_decisions[2][1].action==ReviewAction::Pending,
+          "repeat field Accept is no-op; other tags remain pending");
+    auto bad_field_scope=[&](std::vector<std::size_t> ids,std::string field) {
+        try {(void)same_field_review_proposal_targets(field_analyses,ids,field);}
+        catch(const std::invalid_argument&) {return true;}
+        return false;
+    };
+    check(bad_field_scope({0,0},"TITLE") &&
+          bad_field_scope({4},"TITLE") &&
+          bad_field_scope({0},"") &&
+          bad_field_scope({0},"TITLE\\nINJECT") &&
+          bad_field_scope({0},std::string(256,'A')),
+          "duplicate/stale sources and malformed field identities fail closed");
+    field_analyses[3].proposals.resize(10001);
+    check(bad_field_scope({3},"ARTIST"),
+          "oversized field review source is refused");
+    for(std::size_t i=0;i<scope_large.size();++i)
+        scope_large[i].proposals[0].field=(i%2==0)?"TITLE":"ARTIST";
+    const auto large_field=same_field_review_proposal_targets(
+        scope_large,stress_order,"TITLE");
+    check(large_field.size()==(kLargeBatch+1)/2 &&
+          large_field.front()==std::pair<std::size_t,std::size_t>{0,0} &&
+          large_field.back()==
+              std::pair<std::size_t,std::size_t>{kLargeBatch-1,0},
+          "54k-source same-field batch preserves source/proposal coordinates");
+
     check(proposals[0].field=="DISCOGS_RELEASE_CREDITS" &&
           proposals[4].field=="X_CUSTOM_FIELD",
           "no mutation or loss of secondary metadata");

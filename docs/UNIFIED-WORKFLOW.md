@@ -957,6 +957,25 @@ provider evidence remain unchanged; Undo covers up to 4096 touched sources.
 The scope is neither batch execution approval nor a host FileOps destination.
 
 
+### Same-field batch review (2026-10-26; MMS-WF-05/09, MMS-UI-07, MMS-NRM-08)
+
+On **2. Review proposals**, select exactly one field proposal in the right
+detail table, then choose **Field: visible** or **Field: all** in the scope
+selector. Accept, Reject or Reset affects only matching proposals of that
+one field name across the Tracks-filtered queue or all captured physical
+audio sources. All duplicate/multivalue proposals retain their exact
+indices; field-name matching folds ASCII case only. Unrelated tags and
+CUE/virtual sources are excluded. Manual still requires one selected change.
+
+The default-No confirmation names the field, exact matching proposal and
+changed-decision counts and physical source scope. On return, the native
+workspace rechecks the selected field anchor, visible source IDs, exact
+proposal coordinate set, decisions, all source snapshots and ruleset.
+Stale/ambiguous scope fails closed; repeat identical decisions are no-ops.
+The existing normalizer and detached physical postimage/RAW Title Formatting
+path are reused. No FileOps final target, CUE rewrite, writer, or installed
+owner acceptance is implied.
+
 ### Guided read-only Next issue
 
 **Next issue** on Review and File locations validates the captured batch and

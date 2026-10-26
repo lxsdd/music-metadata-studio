@@ -109,6 +109,50 @@ inline std::vector<std::pair<std::size_t,std::size_t>> visible_review_proposal_t
     return targets;
 }
 
+// Same-field review is a read-only scope over captured physical source IDs.
+// All values/duplicate field proposals keep their exact indices; ASCII case
+// folds only field names, never user values or non-ASCII bytes.
+inline bool same_review_field_name(std::string_view a,std::string_view b) noexcept {
+    if(a.size()!=b.size()) return false;
+    for(std::size_t i=0;i<a.size();++i) {
+        const auto lower=[](unsigned char c) {
+            return c>='A' && c<='Z'
+                ? static_cast<unsigned char>(c-'A'+'a') : c;
+        };
+        if(lower(static_cast<unsigned char>(a[i]))!=
+           lower(static_cast<unsigned char>(b[i]))) return false;
+    }
+    return true;
+}
+inline std::vector<std::pair<std::size_t,std::size_t>>
+same_field_review_proposal_targets(
+    const std::vector<AnalysisResult>& analyses,
+    const std::vector<std::size_t>& source_ids,
+    std::string_view field) {
+    if(analyses.size()>100000 || source_ids.size()>analyses.size() ||
+       field.empty() || field.size()>255)
+        throw std::invalid_argument("FIELD_REVIEW_SCOPE_SHAPE_INVALID");
+    for(unsigned char c:field)
+        if(c<0x20u || c==0x7fu)
+            throw std::invalid_argument("FIELD_REVIEW_FIELD_INVALID");
+    std::set<std::size_t> seen;
+    std::vector<std::pair<std::size_t,std::size_t>> targets;
+    for(const auto source:source_ids) {
+        if(source>=analyses.size() || !seen.insert(source).second)
+            throw std::invalid_argument("FIELD_REVIEW_SOURCE_ID_INVALID");
+        const auto& proposals=analyses[source].proposals;
+        if(proposals.size()>10000)
+            throw std::invalid_argument("FIELD_REVIEW_SOURCE_PROPOSALS_EXCESSIVE");
+        for(std::size_t i=0;i<proposals.size();++i) {
+            if(!same_review_field_name(proposals[i].field,field)) continue;
+            if(targets.size()>=1000000)
+                throw std::invalid_argument("FIELD_REVIEW_TARGET_LIMIT");
+            targets.emplace_back(source,i);
+        }
+    }
+    return targets;
+}
+
 // Count only decisions that would actually change. The filtered bulk scope
 // must not prompt for an already accepted/rejected/reset exact no-op, and
 // must reject stale proposal coordinates before presenting consent.

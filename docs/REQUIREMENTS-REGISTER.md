@@ -148,6 +148,11 @@
 
 ## Last register checkpoint
 
+- 2026-10-26: MMS-WF-05/09, MMS-UI-07, MMS-NRM-08: native
+  same-field visible/all physical batch review with default-No exact-scope
+  confirmation and full source/rules recheck. PARTIAL pending exact-SHA CI;
+  no writer, CUE or FileOps activation.
+
 - 2026-10-24: Initial consolidation of previous user feedback, proposed final
   workflow, configuration hierarchy and earlier open issues #33, #46–#51.
 - Code milestone `67bb646`: Workspace Preferences defaults persisted in foobar.

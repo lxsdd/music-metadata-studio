@@ -3241,8 +3241,57 @@ void apply_review_action(HWND dialog, PreviewState& state,
                          djmeta::ReviewAction action) {
     const auto scope = SendDlgItemMessageW(dialog, IDC_METADATA_REVIEW_SCOPE,
                                            CB_GETCURSEL, 0, 0);
-    if (scope < 0 || scope > 3)
+    if (scope < 0 || scope > 5)
         throw std::invalid_argument("Choose a review scope.");
+
+    // Resolve the one selected detail row to its immutable source/proposal
+    // identity, not a sorted ListView coordinate or CUE virtual subsong.
+    const auto selected_field_anchor=[&]() {
+        const auto rows=selected_native_proposal_ids(
+            state.metadata_list,state.metadata_view_order,
+            state.focused_metadata_rows.size());
+        if(rows.size()!=1)
+            throw std::invalid_argument(
+                "Select exactly one field proposal for field-scoped review.");
+        const auto& row=state.focused_metadata_rows.at(rows.front());
+        if(row.source_index>=state.analyses.size() ||
+           row.proposal_index>=state.analyses[row.source_index].proposals.size() ||
+           row.source_index>=state.entries.size() ||
+           !state.entries[row.source_index].input.physical_source_qualified ||
+           row.field!=state.analyses[row.source_index]
+                         .proposals[row.proposal_index].field)
+            throw std::invalid_argument(
+                "Selected field or physical source is stale or unqualified.");
+        return std::pair<std::size_t,std::size_t>{
+            row.source_index,row.proposal_index};
+    };
+    const auto field_scope_sources=[&](int requested_scope) {
+        std::vector<std::size_t> ids;
+        if(requested_scope==4) ids=state.track_view_order;
+        else if(requested_scope==5) {
+            ids.reserve(state.entries.size());
+            for(std::size_t i=0;i<state.entries.size();++i) ids.push_back(i);
+        } else throw std::invalid_argument("Unknown field review scope.");
+        if(state.entries.size()!=state.analyses.size())
+            throw std::invalid_argument("Field review batch snapshot stale.");
+        std::vector<std::size_t> physical;
+        physical.reserve(ids.size());
+        for(const auto source:ids) {
+            if(source>=state.entries.size())
+                throw std::invalid_argument("Field review source identity stale.");
+            const auto& entry=state.entries[source];
+            if(entry.input.physical_source_qualified &&
+               entry.handle->get_subsong_index()==0 &&
+               !is_external_cue_locator(entry.input.source_path) &&
+               !entry.observed_physical_key.empty() &&
+               !entry.observed_source_guard.empty())
+                physical.push_back(source);
+        }
+        return physical;
+    };
+    std::pair<std::size_t,std::size_t> field_anchor{};
+    std::string field_name;
+    std::vector<std::size_t> field_sources;
 
     // The selected identity always refers to analysis.proposals; neither
     // a sorted UI row nor a filtered field name is an edit target.
@@ -3268,12 +3317,19 @@ void apply_review_action(HWND dialog, PreviewState& state,
         for (std::size_t track = 0; track < state.analyses.size(); ++track)
             for (std::size_t j = 0; j < state.analyses[track].proposals.size(); ++j)
                 targets.emplace(track, j);
-    } else {
-        // This is the currently filtered, source-identity-preserving queue,
-        // NOT the current selection or all 54k original source rows.
+    } else if(scope==3) {
+        // Filtered source IDs, not all selected tracks or visible row offsets.
         const auto visible=djmeta::visible_review_proposal_targets(
             state.analyses,state.track_view_order);
         targets.insert(visible.begin(),visible.end());
+    } else {
+        field_anchor=selected_field_anchor();
+        field_name=state.analyses[field_anchor.first]
+                        .proposals[field_anchor.second].field;
+        field_sources=field_scope_sources(scope);
+        const auto matching=djmeta::same_field_review_proposal_targets(
+            state.analyses,field_sources,field_name);
+        targets.insert(matching.begin(),matching.end());
     }
     if (targets.empty()) {
         MessageBoxW(dialog, L"Select changes or tracks with proposals first.",
@@ -3288,32 +3344,49 @@ void apply_review_action(HWND dialog, PreviewState& state,
         throw std::invalid_argument(
             "Manual replacement requires exactly one selected change.");
 
-    // A filtered bulk decision can include custom fields hidden by the
-    // current Music/Extended detail filter. Require informed, one-shot
-    // consent to this exact visible source set, not silent mass acceptance.
-    // The modal confirmation pumps Windows messages; validate HWND lifetime,
-    // generation, filter and all captured sources again after it returns.
-    if(scope==3) {
+    // Bulk scope is always default-No. A modal dialog pumps Windows messages:
+    // validate the exact source/proposal set, selected field, rules and all
+    // physical snapshots again before staging a single in-memory decision.
+    if(scope>=3) {
+        const std::vector<std::pair<std::size_t,std::size_t>> captured_targets{
+            targets.begin(),targets.end()};
         const auto changed=djmeta::count_visible_review_action_changes(
-            {targets.begin(),targets.end()},state.review_decisions,action);
-        if(changed==0) return; // true no-op; retain previous Undo state
+            captured_targets,state.review_decisions,action);
+        if(changed==0) return;
         const auto visible_sources=state.track_view_order;
         const auto filter=state.track_discovery;
+        const auto focus=state.metadata_focus;
         const auto generation=state.workspace_generation;
+        const auto selected_source=state.selected_track_index;
         const wchar_t* verb=action==djmeta::ReviewAction::Accept?L"ACCEPT":
             action==djmeta::ReviewAction::Reject?L"REJECT":
             action==djmeta::ReviewAction::Pending?L"RESET":L"EDIT";
-        const std::wstring confirmation=L"Apply "+std::wstring(verb)+
-            L" to all "+std::to_wstring(targets.size())+
-            L" proposals in "+std::to_wstring(visible_sources.size())+
-            L" currently visible tracks? "+std::to_wstring(changed)+
-            L" decisions will actually change.\n\nThe Tracks filter selects sources; "+
-            L"ALL proposal fields for those sources are included, even if "+
-            L"the Music/Extended detail filter hides some.\n\n"+
-            L"Only in-memory review decisions and raw filename previews "+
-            L"change. No tags, CUE or audio files are written.";
+        std::wstring confirmation;
+        if(scope==3) {
+            confirmation=L"Apply "+std::wstring(verb)+
+                L" to all "+std::to_wstring(targets.size())+
+                L" proposals in "+std::to_wstring(visible_sources.size())+
+                L" currently visible tracks? "+std::to_wstring(changed)+
+                L" decisions will actually change.\n\nThe Tracks filter selects sources; "+
+                L"ALL proposal fields for those sources are included, even if "+
+                L"the Music/Extended detail filter hides some.";
+        } else {
+            confirmation=L"Apply "+std::wstring(verb)+
+                L" to the exact field '"+from_utf8(field_name)+L"' across "+
+                std::to_wstring(field_sources.size())+
+                L" qualified physical tracks ("+
+                std::to_wstring(targets.size())+L" proposals, "+
+                std::to_wstring(changed)+L" decisions changing)?\n\n"+
+                (scope==4
+                    ? L"Only the currently visible filtered source queue is in scope."
+                    : L"ALL captured physical source tracks are in scope, including hidden rows.")+
+                std::wstring(L"\nOnly this field (all its existing proposal values) is selected. ")+
+                L"Other tags and CUE/virtual tracks are excluded.";
+        }
+        confirmation+=L"\n\nOnly in-memory review decisions and raw filename previews "+
+                      std::wstring(L"change. No tags, CUE or audio files are written.");
         if(MessageBoxW(dialog,confirmation.c_str(),
-                       L"Confirm filtered review scope",
+                       L"Confirm bulk metadata review",
                        MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2)!=IDYES)
             return;
         if(!IsWindow(dialog) || g_workspace!=dialog ||
@@ -3322,16 +3395,34 @@ void apply_review_action(HWND dialog, PreviewState& state,
                reinterpret_cast<LONG_PTR>(&state))
             return;
         if(state.stale || !state.show_metadata || state.show_candidate ||
-           state.track_discovery!=filter ||
+           state.existing_tags_view ||
+           state.track_discovery!=filter || state.metadata_focus!=focus ||
+           state.selected_track_index!=selected_source ||
            state.track_view_order!=visible_sources ||
            SendDlgItemMessageW(dialog,IDC_METADATA_REVIEW_SCOPE,
-                               CB_GETCURSEL,0,0)!=3 ||
-           djmeta::visible_review_proposal_targets(
-               state.analyses,state.track_view_order).size()!=targets.size() ||
-           djmeta::count_visible_review_action_changes(
-               {targets.begin(),targets.end()},state.review_decisions,action)!=changed)
+                               CB_GETCURSEL,0,0)!=scope)
             throw std::invalid_argument(
-                "Filtered review queue changed during confirmation. Retry.");
+                "Bulk review selection changed during confirmation. Retry.");
+        std::vector<std::pair<std::size_t,std::size_t>> fresh_targets;
+        if(scope==3) {
+            fresh_targets=djmeta::visible_review_proposal_targets(
+                state.analyses,state.track_view_order);
+        } else {
+            if(selected_field_anchor()!=field_anchor ||
+               state.analyses[field_anchor.first]
+                   .proposals[field_anchor.second].field!=field_name ||
+               field_scope_sources(scope)!=field_sources)
+                throw std::invalid_argument(
+                    "Field review anchor or physical source scope changed.");
+            fresh_targets=djmeta::same_field_review_proposal_targets(
+                state.analyses,field_sources,field_name);
+        }
+        std::sort(fresh_targets.begin(),fresh_targets.end());
+        if(fresh_targets!=captured_targets ||
+           djmeta::count_visible_review_action_changes(
+               captured_targets,state.review_decisions,action)!=changed)
+            throw std::invalid_argument(
+                "Bulk review proposal identities or decisions changed.");
         for(const auto& entry:state.entries) verify_snapshot(entry);
         verify_rules_snapshot(state.captured_rules);
     }
@@ -4648,7 +4739,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_ONLINE_DATE_TARGET,L"Choose a tag for each verified release date. DATE keeps only the four-digit year (YYYY); RELEASEDATE and DATE_RAW keep the full ISO date. PAIR stages Master -> ORIGINALDATE (or year-only DATE) plus Edition -> RELEASEDATE. Memory-only preview, no file write."},
         {IDC_METADATA_FILTER,L"Limit the local normalization review to music, extended or all tags."},
         {IDC_METADATA_TRACK_FILTER,L"Review queue: all, proposals, pending REVIEW, pending any, staged edits, completed review, or no proposals. Filtering never changes source files or approvals."},
-        {IDC_METADATA_REVIEW_SCOPE,L"Review selected changes, selected tracks, all tracks, or the current visible filtered queue. Visible queue requires confirmation and includes hidden custom proposal fields. Preview only."},
+        {IDC_METADATA_REVIEW_SCOPE,L"Review selected changes/tracks, all tracks, visible queue, or one selected field across visible/all qualified physical tracks. Field scope preserves other tags and excludes CUE/virtual sources. Bulk actions require default-No confirmation. Preview only."},
         {IDC_METADATA_ACCEPT,L"Mark chosen rule proposals as accepted in memory. No music file is written."},
         {IDC_METADATA_REJECT,L"Reject chosen local rule proposals in memory, without changing source files."},
         {IDC_METADATA_RESET,L"Restore pending decisions for selected local proposals, preview only."},
@@ -6294,9 +6385,11 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 0, reinterpret_cast<LPARAM>(status));
         SendDlgItemMessageW(dialog, IDC_METADATA_TRACK_FILTER, CB_SETCURSEL, 0, 0);
         for (const wchar_t* scope : {L"Selected changes", L"Selected tracks",
-                                     L"All tracks", L"Visible queue"})
+                                     L"All tracks", L"Visible queue",
+                                      L"Field: visible", L"Field: all"})
             SendDlgItemMessageW(dialog, IDC_METADATA_REVIEW_SCOPE, CB_ADDSTRING,
                 0, reinterpret_cast<LPARAM>(scope));
+        SendDlgItemMessageW(dialog, IDC_METADATA_REVIEW_SCOPE, CB_SETDROPPEDWIDTH, 175, 0);
         SendDlgItemMessageW(dialog, IDC_METADATA_REVIEW_SCOPE, CB_SETCURSEL, 0, 0);
         SendDlgItemMessageW(dialog, IDC_METADATA_MANUAL_INPUT, EM_LIMITTEXT, 16384, 0);
         // Do not truncate long, valid Beatport track slugs at the old MB text cap.

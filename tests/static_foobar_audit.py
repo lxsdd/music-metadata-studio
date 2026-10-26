@@ -1644,6 +1644,17 @@ if ('djmeta::stage_safe_only(' in route_preview or
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: legacy filename route auto-accepted SAFE")
 
 
+# Field-scoped review remains in the native normalizer decision path.
+for marker in (
+    'L"Field: visible"', 'L"Field: all"',
+    'same_field_review_proposal_targets(',
+    'selected_field_anchor()', 'field_scope_sources(scope)',
+    'fresh_targets!=captured_targets',
+    'MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2',
+):
+    if marker not in workspace_dialog:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: field-scoped review lost: "+marker)
+
 # MMS-WF-09 / MMS-OPS-03: keep 50k+ source batches interactive.
 # A single native metadata Accept or a selected route override must stage
 # only touched source rows; global full-batch source/rules revalidation stays.
