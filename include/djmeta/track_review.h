@@ -109,6 +109,27 @@ inline std::vector<std::pair<std::size_t,std::size_t>> visible_review_proposal_t
     return targets;
 }
 
+// Count only decisions that would actually change. The filtered bulk scope
+// must not prompt for an already accepted/rejected/reset exact no-op, and
+// must reject stale proposal coordinates before presenting consent.
+inline std::size_t count_visible_review_action_changes(
+    const std::vector<std::pair<std::size_t,std::size_t>>& targets,
+    const std::vector<std::vector<ReviewDecision>>& decisions,
+    ReviewAction action) {
+    if(action!=ReviewAction::Accept && action!=ReviewAction::Reject &&
+       action!=ReviewAction::Pending)
+        throw std::invalid_argument("VISIBLE_REVIEW_ACTION_INVALID");
+    std::size_t changes=0;
+    for(const auto& [source,proposal]:targets) {
+        if(source>=decisions.size() || proposal>=decisions[source].size())
+            throw std::invalid_argument("VISIBLE_REVIEW_DECISIONS_STALE");
+        if(decisions[source][proposal].action!=action ||
+           !decisions[source][proposal].manual_value.empty())
+            ++changes;
+    }
+    return changes;
+}
+
 // Sorting changes presentation only; source index identity remains stable.
 std::vector<std::size_t> sort_track_summaries(
     const std::vector<TrackReviewSummary>& summaries,

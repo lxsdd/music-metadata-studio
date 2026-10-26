@@ -2871,12 +2871,22 @@ void apply_review_action(HWND dialog, PreviewState& state,
         return;
     }
 
+    // Manual replacement is a single-field edit; never show a misleading
+    // filtered bulk confirmation before rejecting an ineligible manual scope.
+    if(action==djmeta::ReviewAction::ManualValue &&
+       (scope!=0 || targets.size()!=1))
+        throw std::invalid_argument(
+            "Manual replacement requires exactly one selected change.");
+
     // A filtered bulk decision can include custom fields hidden by the
     // current Music/Extended detail filter. Require informed, one-shot
     // consent to this exact visible source set, not silent mass acceptance.
     // The modal confirmation pumps Windows messages; validate HWND lifetime,
     // generation, filter and all captured sources again after it returns.
     if(scope==3) {
+        const auto changed=djmeta::count_visible_review_action_changes(
+            {targets.begin(),targets.end()},state.review_decisions,action);
+        if(changed==0) return; // true no-op; retain previous Undo state
         const auto visible_sources=state.track_view_order;
         const auto filter=state.track_discovery;
         const auto generation=state.workspace_generation;
@@ -2886,7 +2896,8 @@ void apply_review_action(HWND dialog, PreviewState& state,
         const std::wstring confirmation=L"Apply "+std::wstring(verb)+
             L" to all "+std::to_wstring(targets.size())+
             L" proposals in "+std::to_wstring(visible_sources.size())+
-            L" currently visible tracks?\n\nThe Tracks filter selects sources; "+
+            L" currently visible tracks? "+std::to_wstring(changed)+
+            L" decisions will actually change.\n\nThe Tracks filter selects sources; "+
             L"ALL proposal fields for those sources are included, even if "+
             L"the Music/Extended detail filter hides some.\n\n"+
             L"Only in-memory review decisions and raw filename previews "+
@@ -2903,8 +2914,12 @@ void apply_review_action(HWND dialog, PreviewState& state,
         if(state.stale || !state.show_metadata || state.show_candidate ||
            state.track_discovery!=filter ||
            state.track_view_order!=visible_sources ||
+           SendDlgItemMessageW(dialog,IDC_METADATA_REVIEW_SCOPE,
+                               CB_GETCURSEL,0,0)!=3 ||
            djmeta::visible_review_proposal_targets(
-               state.analyses,state.track_view_order).size()!=targets.size())
+               state.analyses,state.track_view_order).size()!=targets.size() ||
+           djmeta::count_visible_review_action_changes(
+               {targets.begin(),targets.end()},state.review_decisions,action)!=changed)
             throw std::invalid_argument(
                 "Filtered review queue changed during confirmation. Retry.");
         for(const auto& entry:state.entries) verify_snapshot(entry);
@@ -2913,9 +2928,6 @@ void apply_review_action(HWND dialog, PreviewState& state,
 
     std::string manual_value;
     if (action == djmeta::ReviewAction::ManualValue) {
-        if (scope != 0 || targets.size() != 1)
-            throw std::invalid_argument(
-                "Manual replacement requires exactly one selected change.");
         manual_value = to_utf8(read_control(dialog, IDC_METADATA_MANUAL_INPUT));
     }
 

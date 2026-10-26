@@ -280,6 +280,28 @@ int main(){
     scope_analyses[1].proposals.resize(1);
     const auto scope_targets=visible_review_proposal_targets(
         scope_analyses,{1,0});
+    std::vector<std::vector<ReviewDecision>> scope_decisions{{{},{}},{{}}, {}};
+    check(count_visible_review_action_changes(
+              scope_targets,scope_decisions,ReviewAction::Accept)==3,
+          "filtered bulk counts only pending decisions");
+    scope_decisions[1][0].action=ReviewAction::Accept;
+    scope_decisions[0][0].action=ReviewAction::Accept;
+    scope_decisions[0][1].action=ReviewAction::Accept;
+    check(count_visible_review_action_changes(
+              scope_targets,scope_decisions,ReviewAction::Accept)==0 &&
+          count_visible_review_action_changes(
+              scope_targets,scope_decisions,ReviewAction::Reject)==3,
+          "repeat Accept is a true no-op, Reject still changes the exact queue");
+    bool stale_scope_decision=false;
+    try {(void)count_visible_review_action_changes(
+        {{0,2}},scope_decisions,ReviewAction::Accept);}
+    catch(const std::invalid_argument&) {stale_scope_decision=true;}
+    check(stale_scope_decision,"stale filtered proposal coordinate blocks consent");
+    bool manual_scope_rejected=false;
+    try {(void)count_visible_review_action_changes(
+        scope_targets,scope_decisions,ReviewAction::ManualValue);}
+    catch(const std::invalid_argument&) {manual_scope_rejected=true;}
+    check(manual_scope_rejected,"bulk manual edit is not a valid queue action");
     check(scope_targets==std::vector<std::pair<std::size_t,std::size_t>>({
               {1,0},{0,0},{0,1}}) &&
           visible_review_proposal_targets(scope_analyses,{2}).empty() &&

@@ -946,8 +946,10 @@ Extended detail filter only changes presentation: the confirmation explicitly
 warns that all proposal fields of visible tracks, including hidden custom
 fields, are in scope. Manual replacement still requires one selected change.
 
-Before a visible-queue action, the native workspace shows an exact track and
-proposal count and defaults to **No**. After the dialog returns, it verifies
+Before a visible-queue action, the native workspace shows exact track,
+proposal and actually changing decision counts and defaults to **No**. An
+identical repeated Accept/Reject/Reset is a true no-op without a prompt;
+Manual remains restricted to exactly one selected proposal. After the dialog returns, it verifies
 window generation, queue identity, filter, all source snapshots and ruleset
 again; a changed queue aborts without publishing a partial decision. Preview
 staging is transactional and only changed tracks are recomputed. Source and
