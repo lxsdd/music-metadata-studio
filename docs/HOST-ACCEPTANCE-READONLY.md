@@ -91,3 +91,18 @@ eligibility has been withdrawn; the existing explicit `workflow_dispatch`
 path on the canonical Studio branch retains its original environment and
 credentials. Green ordinary Core/host/API-health results are not a substitute
 for this separate native protected gate.
+
+## Environment rule corrected and automatic protected Discogs check restored (2026-10-26)
+
+The initial automatic internal PR #45 native Discogs Win32/x64 QA was
+rejected before runner startup by the `discogs-qa` environment deployment
+branch pattern. The owner subsequently approved the **exact PR ref only**,
+`refs/pull/45/merge`; a retried run reached real Windows host runners.
+That retry was cancelled when a concurrent Studio CUE commit superseded its
+head. The temporary manual-only rollback is therefore no longer the right
+state: the original **exact-PR #45 / same-repo / main-base / protected
+`discogs-qa` / step-local-secret-only** automation is restored with
+negative static tests. No published binaries or production writes.
+
+A successful workflow must still show actual protected host-probe output for
+both architectures; job eligibility alone is not native API acceptance.

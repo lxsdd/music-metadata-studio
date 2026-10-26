@@ -1261,8 +1261,8 @@ if (workflow.count("repository: lxsdd/dev-infrastructure-public") != 1 or
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: synthetic SDK writer QA not isolated and pinned")
 # Exactly two *step-scoped* references are now allowed: one for the
 # authenticated staged-search probe and one for the actual native host gate.
-# Both belong exclusively to the same manually approved discogs-qa job.
-# NEVER move the secret into job-global env or an unprotected PR job.
+# Both belong exclusively to the environment-protected internal PR #45 or
+# explicitly dispatched QA job. No unprotected PR/fork job gets this token.
 if "pull_request_target:" in workflow or workflow.count(
     "secrets.MMS_DISCOGS_QA_TOKEN"
 ) != 2:
@@ -1293,7 +1293,14 @@ for token in (
     "FB2K_DISCOGS_QA_TOKEN:",
     "secrets.MMS_DISCOGS_QA_TOKEN",
     "authorized-discogs-probe: 'true'",
-    "authorized-discogs-full-artist-probe: ${{ inputs.discogs_release_id == '37332711' && 'true' || 'false' }}",
+    "authorized-discogs-full-artist-probe: ${{ (github.event_name == 'pull_request' || inputs.discogs_release_id == '37332711') && 'true' || 'false' }}",
+    "github.event.pull_request.number == 45",
+    "github.event.pull_request.head.repo.full_name == github.repository",
+    "github.event.pull_request.head.ref == 'feature/online-metadata-discovery-foundation-20261009'",
+    "github.event.pull_request.base.ref == 'main'",
+    "needs: [static-audit, host-gate-script, windows-build]",
+    "ref: ${{ github.event.pull_request.head.sha || github.sha }}",
+    "MMS_DISCOGS_QA_RELEASE_ID: ${{ github.event_name == 'pull_request' && '37332711' || inputs.discogs_release_id }}",
 ):
     if token not in protected_job:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing protected live QA guard: " + token)
