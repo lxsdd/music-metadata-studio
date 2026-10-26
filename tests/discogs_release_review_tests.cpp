@@ -493,5 +493,67 @@ int main() {
         std::vector<PhysicalBatchTrack>(129,{0,physical,242000,true}),exact);}
     catch(const std::invalid_argument&){album_case_rejected=true;}
     require(album_case_rejected,"over-128 selection album_case_rejected before analysis");
+    // Native grouped read-only diagnostics must identify the *captured*
+    // physical source responsible for a blocked batch. No field may stage.
+    const auto* album_conflict_row=field(
+        album_case_mixed.rows,"Physical #2 / MATCH");
+    require(album_conflict_row &&
+            album_conflict_row->reason=="discogs_batch_CONFLICTING_ALBUM" &&
+            album_conflict_row->candidate.values.front().find(
+                "CONFLICTING_ALBUM")!=std::string::npos,
+            "Discogs conflicting second album identifies exact physical source");
+    const auto album_duplicate_review=review_discogs_physical_batch({
+        {0,album_case_duplicate,242000,true},
+        {1,album_case_second,242000,true}},exact);
+    require(field(album_duplicate_review.rows,"Physical #1 / MATCH") &&
+            field(album_duplicate_review.rows,"Physical #1 / MATCH")->reason==
+                "discogs_batch_AMBIGUOUS_ALBUM",
+            "duplicate case-insensitive ALBUM tags identify first physical source");
+    require(field(album_case_conflict.rows,"Physical #2 / MATCH") &&
+            field(album_case_conflict.rows,"Physical #2 / MATCH")->reason==
+                "discogs_batch_EDITION_IDENTIFIER_CONFLICT",
+            "wrong hidden BARCODE is source-specific, never approved");
+    const auto unqualified_source=review_discogs_physical_batch({
+        {0,physical,242000,true},{1,album_case_second,242000,false}},exact);
+    const auto bad_duration=review_discogs_physical_batch({
+        {0,physical,242000,true},{1,album_case_second,-1,true}},exact);
+    require(field(unqualified_source.rows,"Physical #2 / MATCH") &&
+            field(unqualified_source.rows,"Physical #2 / MATCH")->reason==
+                "discogs_batch_NOT_PHYSICAL_SOURCE" &&
+            field(bad_duration.rows,"Physical #2 / MATCH") &&
+            field(bad_duration.rows,"Physical #2 / MATCH")->reason==
+                "discogs_batch_DURATION_UNQUALIFIED",
+            "virtual and invalid duration blockers cannot become release matches");
+    auto album_artist_disagreement_first=physical;
+    auto album_artist_disagreement_second=album_case_second;
+    album_artist_disagreement_first.fields.push_back(
+        {"ALBUM ARTIST",{"Artist One"}});
+    album_artist_disagreement_second.fields.push_back(
+        {"ALBUM ARTIST",{"Artist Two"}});
+    const auto album_artist_disagreement=review_discogs_physical_batch({
+        {0,album_artist_disagreement_first,242000,true},
+        {1,album_artist_disagreement_second,242000,true}},exact);
+    require(!album_artist_disagreement.complete &&
+            field(album_artist_disagreement.rows,"Physical #2 / MATCH") &&
+            field(album_artist_disagreement.rows,"Physical #2 / MATCH")->reason==
+                "discogs_batch_CONFLICTING_ALBUM_ARTIST",
+            "contradictory album artist is not flattened across tracks");
+    auto album_invalid_title=album_case_second;
+    album_invalid_title.fields[0].values.clear();
+    const auto no_track_identity=review_discogs_physical_batch({
+        {0,physical,242000,true},{1,album_invalid_title,242000,true}},exact);
+    require(field(no_track_identity.rows,"Physical #2 / MATCH") &&
+            field(no_track_identity.rows,"Physical #2 / MATCH")->reason==
+                "discogs_batch_TRACK_IDENTITY_UNQUALIFIED",
+            "missing local title blocks exact-edition comparison with reason");
+    const auto wrong_mix_review=review_discogs_physical_batch({
+        {0,physical,242000,true},{1,album_case_remix,242000,true}},exact);
+    require(field(wrong_mix_review.rows,"Physical #2 / MATCH") &&
+            field(wrong_mix_review.rows,"Physical #2 / MATCH")->reason==
+                "discogs_batch_track_unverified" &&
+            field(wrong_mix_review.rows,"Physical #2 / MATCH")
+                ->candidate.values.front().find("title/mix/number/duration")!=
+                    std::string::npos,
+            "qualified physical source with wrong remix reports edition mismatch");
     std::cout<<"Discogs read-only physical edition review PASS\n";
 }

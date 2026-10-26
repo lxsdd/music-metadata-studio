@@ -36,30 +36,43 @@ inline DiscogsPhysicalBatchReview review_discogs_physical_batch(
     std::vector<LocalReleaseTrack> local;
     local.reserve(sources.size());
     bool qualified=true;
+    // Report blockers against captured source IDs, not display row ordinals.
+    // A source-specific reason is diagnostic evidence only, never approval.
+    std::map<std::size_t,std::string> source_problems;
     for(const auto& source:sources) {
         if(!ids.insert(source.source_index).second ||
            source.originals.fields.size()>10000)
             throw std::invalid_argument("Duplicate/oversize Discogs batch source");
+        const auto block=[&](std::string reason) {
+            qualified=false;
+            source_problems.try_emplace(source.source_index,std::move(reason));
+        };
         for(const auto* key:{"ALBUM","ALBUM ARTIST"}) {
+            const auto type=std::string_view(key)=="ALBUM"
+                ? "ALBUM" : "ALBUM_ARTIST";
             const bool present=std::any_of(source.originals.fields.begin(),
                 source.originals.fields.end(),[&](const auto& f) {
                     return ascii_upper_field(f.name)==key;
                 });
             const auto value=unique_discogs_physical_tag(source.originals,key);
-            if(present && (!value || value->empty())) qualified=false;
+            if(present && (!value || value->empty()))
+                block(std::string("AMBIGUOUS_")+type);
             if(value && !value->empty()) {
                 auto& common=std::string_view(key)=="ALBUM"
                     ?common_album:common_artist;
-                if(common && *common!=*value) qualified=false;
+                if(common && *common!=*value)
+                    block(std::string("CONFLICTING_")+type);
                 if(!common)common=*value;
             }
         }
-        if(!source.physical_qualified || source.duration_ms<=0 ||
-           source.duration_ms>36000000 ||
-           discogs_edition_identifier_conflict(source.originals,edition))
-            qualified=false;
+        if(!source.physical_qualified)
+            block("NOT_PHYSICAL_SOURCE");
+        if(source.duration_ms<=0 || source.duration_ms>36000000)
+            block("DURATION_UNQUALIFIED");
+        if(discogs_edition_identifier_conflict(source.originals,edition))
+            block("EDITION_IDENTIFIER_CONFLICT");
         auto identity=discogs_physical_identity(source.originals,source.duration_ms);
-        if(!identity) qualified=false;
+        if(!identity) block("TRACK_IDENTITY_UNQUALIFIED");
         else {
             identity->source_index=source.source_index;
             local.push_back(std::move(*identity));
@@ -117,14 +130,25 @@ inline DiscogsPhysicalBatchReview review_discogs_physical_batch(
         match.candidate.scope=EvidenceScope::Edition;
         match.candidate.source_id=matched
             ? edition.tracks[it->second].source_track_id:edition.edition_id;
+        const auto problem=source_problems.find(source.source_index);
         match.candidate.values={matched
-            ? "Unique edition occurrence; read-only"
-            : "No uniquely verified edition occurrence"};
+            ? out.complete
+                ? "Unique edition occurrence; read-only"
+                : "Track occurrence matches, but full edition selection is incomplete"
+            : problem!=source_problems.end()
+                ? "Physical source blocker: "+problem->second
+                : qualified
+                    ? "No unique edition-track occurrence (title/mix/number/duration)"
+                    : "Whole-batch qualification blocked; inspect other physical sources"};
         match.state=matched && out.complete
             ? FieldReviewState::Unchanged:FieldReviewState::Blocked;
         match.reason=matched && out.complete
             ? "discogs_batch_track_verified_readonly"
-            : "discogs_batch_track_unverified";
+            : matched
+                ? "discogs_batch_partial_edition_not_complete"
+                : problem!=source_problems.end()
+                    ? "discogs_batch_"+problem->second
+                    : "discogs_batch_track_unverified";
         out.rows.push_back(std::move(match));
         for(const auto& original:source.originals.fields) {
             auto row=make_local_physical_original(
