@@ -3239,8 +3239,8 @@ void save_batch_dialog_window_size(const PreviewState& state) {
 
 void apply_review_action(HWND dialog, PreviewState& state,
                          djmeta::ReviewAction action) {
-    const auto scope = SendDlgItemMessageW(dialog, IDC_METADATA_REVIEW_SCOPE,
-                                           CB_GETCURSEL, 0, 0);
+    const int scope = static_cast<int>(SendDlgItemMessageW(
+        dialog, IDC_METADATA_REVIEW_SCOPE, CB_GETCURSEL, 0, 0));
     if (scope < 0 || scope > 5)
         throw std::invalid_argument("Choose a review scope.");
 

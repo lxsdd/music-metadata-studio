@@ -372,7 +372,7 @@ int main(){
     check(bad_field_scope({0,0},"TITLE") &&
           bad_field_scope({4},"TITLE") &&
           bad_field_scope({0},"") &&
-          bad_field_scope({0},"TITLE\\nINJECT") &&
+          bad_field_scope({0},std::string("TITLE")+char(10)+"INJECT") &&
           bad_field_scope({0},std::string(256,'A')),
           "duplicate/stale sources and malformed field identities fail closed");
     field_analyses[3].proposals.resize(10001);
