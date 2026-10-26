@@ -2843,6 +2843,10 @@ void show_history_page(HWND dialog,PreviewState& state) {
         L"Session only (last 256 actions). Multi-track actions are summaries. Refresh clears history.");
 }
 
+// Fail closed on stale source/rules/route evidence even when invoked from
+// unmanaged WM_NOTIFY: no C++ exception may escape a native window proc.
+void mark_stale_workspace(PreviewState& state);
+
 // A deliberate double-click/Enter, Next issue/CUE, history jump, album
 // drilldown or provider switch may leave a source-bound online preview.
 // Offer ONE default-No choice rather than silently losing explicit Include
@@ -2856,11 +2860,18 @@ bool confirm_online_preview_navigation(HWND dialog,PreviewState& state,
         return true;
     if(state.stale || state.refreshing ||
        state.selected_track_index>=state.entries.size() ||
-       (!changing_provider && next_source>=state.entries.size()))
-        throw std::runtime_error(
-            "Source-bound online preview cannot be switched from a stale workspace.");
-    verify_snapshot(state.entries[state.selected_track_index]);
-    verify_rules_snapshot(state.captured_rules);
+       (!changing_provider && next_source>=state.entries.size())) {
+        SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+            L"Online source switch refused: stale or invalid source identity.");
+        return false;
+    }
+    try {
+        verify_snapshot(state.entries[state.selected_track_index]);
+        verify_rules_snapshot(state.captured_rules);
+    } catch (...) {
+        mark_stale_workspace(state);
+        return false;
+    }
     const std::wstring prompt=L"The current physical source has "+
         std::to_wstring(state.online_included_fields.size())+
         L" explicitly included online field(s).\n\n"
@@ -2890,7 +2901,12 @@ bool confirm_online_preview_navigation(HWND dialog,PreviewState& state,
     state.online_raw_route_after.clear();
     // Rebuild the complete source-order collision and CUE queue from the
     // local staged metadata, never from a now-discarded provider overlay.
-    update_table(state);
+    try {
+        update_table(state);
+    } catch (...) {
+        mark_stale_workspace(state);
+        return false;
+    }
     return true;
 }
 
