@@ -80,26 +80,14 @@ production-writer activation and installed owner GUI acceptance. The new
 negative static workflow contract prevents accidental fork eligibility,
 secret use, architecture loss and upload enablement.
 
-## Automatic protected native Discogs QA on the canonical Studio PR
+## Protected native Discogs PR execution failure (2026-10-26)
 
-The existing `discogs-authorized-native` Win32/x64 real-foobar read-only
-Search → exact edition → track comparison is now eligible **automatically
-only** on same-repository Draft PR #45 from
-`feature/online-metadata-discovery-foundation-20261009` to `main`.
-Static, offline host and both normal Win32/x64 host-build checks must
-succeed first. The protected job checks out the actual PR HEAD SHA, not
-GitHub's temporary merge SHA. The bounded automatic test uses public
-Discogs release `37332711` for exact collaboration/artist/version discovery.
-The existing manually dispatched selection of other regression release IDs
-remains supported.
-
-The existing `discogs-qa` GitHub environment exclusively supplies its
-previously provisioned `MMS_DISCOGS_QA_TOKEN` to the two native test steps.
-No fork or arbitrary PR receives it, no credential reaches public logs or
-artifacts, and all ordinary static/host/build/package steps remain secret
-free. This is a **Studio token-authenticated test**, distinct from the
-already scheduled **central OAuth1 API health**; central OAuth credentials
-are never copied into the Studio repository. GitHub environment protection
-rules may still require approval before the protected job starts. These
-automated runner tests do not certify installed owner GUI acceptance or
-authorize production tag/CUE/FileOps writes, merges or releases.
+At source SHA `58c7e01606b475e748b8b8fca7fab31b288f5176`, both
+experimental protected PR Win32/x64 Discogs jobs failed before receiving
+any runner steps. Therefore **no** native authenticated Search → Edition →
+Compare was executed. The protected environment's policy must not be bypassed
+by weakening secret, deployment or permission controls. The automatic PR
+eligibility has been withdrawn; the existing explicit `workflow_dispatch`
+path on the canonical Studio branch retains its original environment and
+credentials. Green ordinary Core/host/API-health results are not a substitute
+for this separate native protected gate.

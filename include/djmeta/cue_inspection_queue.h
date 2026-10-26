@@ -14,9 +14,18 @@ struct CueQueuePlanRow {
     bool pending_review=false,raw_collision=false;
     bool operator==(const CueQueuePlanRow&) const = default;
 };
+// Path-free FILE evidence only; never retain private raw candidates or IDs.
+struct CueQueueFileReceipt {
+    std::size_t file_index=0;
+    std::size_t selected_source_row=cue_unselected_source_row;
+    FileAction action=FileAction::None;
+    std::string code;
+};
 struct CueQueueReceipt {
     std::size_t epoch=0,files=0,unselected=0,blocked=0;
     bool qualified_graph=false,raw_only=false,original_kept=false;
+    std::vector<CueQueueFileReceipt> references;
+    std::string sidecar_code;
 };
 enum class CueQueueStage { Missing, Stale, Blocked, RawOnly, OriginalKept };
 inline const char* cue_queue_label(CueQueueStage s) {
@@ -47,10 +56,41 @@ struct CueInspectionQueue {
                 const CueSidecarRawImpact& sidecar) {
         if(id>=plan.size() || graph.references.size()>128)
             throw std::invalid_argument("CUE_QUEUE_RECEIPT_INVALID");
-        receipts[id]={epoch,graph.references.size(),graph.unselected,
-            graph.selected_blocked,graph.source_graph_qualified,
-            sidecar.raw_only_candidate,
-            sidecar.code=="CUE_SIDECAR_AND_ORIGINAL_FILE_LINKS_UNCHANGED"};
+        const auto safe_code=[](std::string_view code) {
+            if(code.empty() || code.size()>96) return false;
+            for(unsigned char ch:code)
+                if(!((ch>='A'&&ch<='Z') ||
+                     (ch>='0'&&ch<='9') || ch=='_')) return false;
+            return true;
+        };
+        if(!safe_code(sidecar.code))
+            throw std::invalid_argument("CUE_QUEUE_UNSAFE_SIDECAR_CODE");
+        CueQueueReceipt receipt;
+        receipt.epoch=epoch;
+        receipt.files=graph.references.size();
+        receipt.unselected=graph.unselected;
+        receipt.blocked=graph.selected_blocked;
+        receipt.qualified_graph=graph.source_graph_qualified;
+        receipt.raw_only=sidecar.raw_only_candidate;
+        receipt.original_kept=
+            sidecar.code=="CUE_SIDECAR_AND_ORIGINAL_FILE_LINKS_UNCHANGED";
+        receipt.sidecar_code=sidecar.code;
+        receipt.references.reserve(graph.references.size());
+        // Validate the entire FILE graph before replacing an earlier receipt.
+        for(std::size_t i=0;i<graph.references.size();++i) {
+            const auto& file=graph.references[i];
+            if(file.reference_index!=i || !safe_code(file.code) ||
+               (file.selected_source_row!=cue_unselected_source_row &&
+                file.selected_source_row>=plan.size()) ||
+               (file.requested_action!=FileAction::None &&
+                file.requested_action!=FileAction::Move &&
+                file.requested_action!=FileAction::Copy &&
+                file.requested_action!=FileAction::Rename))
+                throw std::invalid_argument("CUE_QUEUE_FILE_FINDING_INVALID");
+            receipt.references.push_back({i,file.selected_source_row,
+                file.requested_action,file.code});
+        }
+        receipts[id]=std::move(receipt);
     }
     CueQueueStage stage(std::size_t id) const {
         if(id>=plan.size())throw std::invalid_argument("CUE_QUEUE_SOURCE_INVALID");
@@ -112,6 +152,35 @@ struct CueInspectionQueue {
             if(issues_only && state==CueQueueStage::OriginalKept)continue;
             out+="#"+std::to_string(id+1)+"\t"+cue_queue_label(state)+
                  "\tNOT_QUALIFIED\r\n";
+            // Never export stale FILE detail after a hidden source changed.
+            const auto found=receipts.find(id);
+            if(found!=receipts.end() && found->second.epoch==epoch) {
+                const auto& receipt=found->second;
+                if(receipt.references.size()!=receipt.files)
+                    throw std::invalid_argument("CUE_QUEUE_FILE_RECEIPT_STALE");
+                out+="FILE reference\tCaptured audio row\tFile action\tRisk code\tFinal foobar FILE target\r\n";
+                for(std::size_t j=0;j<receipt.references.size();++j) {
+                    const auto& file=receipt.references[j];
+                    if(file.file_index!=j || file.code.empty() ||
+                       file.code.size()>96 ||
+                       (file.selected_source_row!=cue_unselected_source_row &&
+                        file.selected_source_row>=plan.size()))
+                        throw std::invalid_argument("CUE_QUEUE_FILE_RECEIPT_INVALID");
+                    for(unsigned char ch:file.code)
+                        if(!((ch>='A'&&ch<='Z') ||
+                             (ch>='0'&&ch<='9') || ch=='_'))
+                            throw std::invalid_argument("CUE_QUEUE_FILE_CODE_UNSAFE");
+                    out+="#"+std::to_string(id+1)+"/FILE#"+
+                        std::to_string(j+1)+"\t"+
+                        (file.selected_source_row==cue_unselected_source_row
+                            ? std::string("NOT_SELECTED")
+                            : "#"+std::to_string(file.selected_source_row+1))+
+                        "\t"+std::string(file_action_label(file.action))+
+                        "\t"+file.code+"\tNOT_RESOLVED\r\n";
+                }
+                out+="Sidecar finding\t"+receipt.sidecar_code+
+                    "\tFinal CUE references\tNOT_QUALIFIED\r\n";
+            }
             if(out.size()>8u*1024u*1024u)
                 throw std::invalid_argument("CUE_QUEUE_EXPORT_TOO_LARGE");
         }

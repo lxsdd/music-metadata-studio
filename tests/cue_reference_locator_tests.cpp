@@ -349,8 +349,33 @@ int main() {
             tsv.find("PRIVATE")==std::string::npos &&
             tsv.find("private-id")==std::string::npos,
             "whole-batch CUE audit exports no source keys or paths");
+    require(tsv.find("#9/FILE#1\t#5\tMove\t"
+                "CUE_AUDIO_MOVE_RAW_ONLY_REWRITE_UNQUALIFIED\tNOT_RESOLVED")!=
+                std::string::npos &&
+            tsv.find("#33/FILE#1\t#5\tCopy\t"
+                "CUE_AUDIO_COPY_RAW_ONLY_SOURCE_CUE_UNCHANGED\tNOT_RESOLVED")!=
+                std::string::npos &&
+            tsv.find("Sidecar finding\tCUE_SIDECAR_")!=std::string::npos,
+            "native CUE clipboard audit shows exact FILE ordinal, captured source and risk");
+    auto forged=all_move_impact;
+    forged.references[0].code="CUE\\tINJECTED";
+    try { queue.record(8,forged,moved); require(false,"unsafe FILE code"); }
+    catch(const std::invalid_argument&) {}
+    forged=all_move_impact;
+    forged.references[0].reference_index=1;
+    try { queue.record(8,forged,moved); require(false,"reordered FILE"); }
+    catch(const std::invalid_argument&) {}
+    forged=all_move_impact;
+    forged.references[0].selected_source_row=queue.plan.size();
+    try { queue.record(8,forged,moved); require(false,"forged source row"); }
+    catch(const std::invalid_argument&) {}
+    require(queue.stage(8)==CueQueueStage::RawOnly &&
+            queue.export_tsv(cues).find("#9/FILE#1\t#5\tMove")!=
+                std::string::npos,
+            "rejected FILE evidence preserves last qualified receipt");
     tsv=queue.export_tsv(cues,true);
-    require(tsv.find("#33\tORIGINAL_CUE_KEPT")==std::string::npos,
+    require(tsv.find("#33\tORIGINAL_CUE_KEPT")==std::string::npos &&
+            tsv.find("#33/FILE#")==std::string::npos,
             "Copy issues excludes unchanged original CUE FILEs");
     const auto epoch=queue.epoch;
     queue.observe(snapshot);
@@ -363,7 +388,8 @@ int main() {
             "changing hidden source invalidates ALL prior CUE inspections");
     tsv=queue.export_tsv(cues,true);
     require(tsv.find("#9\tSTALE_REINSPECT")!=std::string::npos &&
-            tsv.find("#33\tSTALE_REINSPECT")!=std::string::npos,
+            tsv.find("#33\tSTALE_REINSPECT")!=std::string::npos &&
+            tsv.find("/FILE#")==std::string::npos,
             "stale CUEs included in privacy-safe Copy issues");
     require(queue.next_attention(cues,32)==8,
             "stale earlier CUE carrier is found after queue wrap");

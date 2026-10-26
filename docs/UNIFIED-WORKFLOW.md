@@ -1436,3 +1436,7 @@ writer, provider approval or File Operations/CUE target authorization. Large
 batch Undo retains its existing 4,096-source memory bound; Refresh resets
 in-memory decisions without changing user files. Installed GUI acceptance
 remains separate from Win32/x64 CI host-load qualification.
+
+## Native CUE FILE dependency audit: per-FILE evidence (2026-10-26)
+
+The existing **Copy CUE audit / Copy CUE issues** native clipboard actions now include each currently inspected external CUE's bounded FILE ordinal, exact captured physical audio row (or NOT_SELECTED), staged file action, stable risk code and explicitly unresolved final foobar destination, plus the sidecar risk code. This reuses the one existing source-identity CUE inspection and full-batch epoch; it does not add a matcher, persistent database, destination sanitizer, second writer or automatic operation. Receipts never retain or export raw target paths, private file IDs/guards, tag values or secrets. Changing a hidden source invalidates all previous FILE findings and omits them from the stale export until reinspection. These are diagnostic RAW-only results, not final foobar File Operations/CUE FILE postimages or write approval.
