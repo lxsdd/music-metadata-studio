@@ -249,3 +249,35 @@ original CUE. Mixed actions, partial FILE sets, Rename or unknown source
 guards fail closed. The preview and static regression tests make no change
 to the separate Precision CUE PR #52 timing/generation ownership, and grant
 no final FileOps or CUE write authorization.
+
+## Integration candidate – Draft PR #63 (26 October 2026)
+
+The **separate, protected integration branch** `feature/studio-precision-cue-integration-20261026`
+is rooted in a fixed Studio PR #45 commit. It imports the exact reviewed
+Precision CUE generator core and regression sources from PR #52 *without*
+changing either independent development PR or `main`. This is a **candidate**,
+not a merge authorization for Studio or Precision CUE.
+
+The Studio **Find & compare** tab owns one **Generate CUE** native action.
+Its source list is copied from the immutable selected Studio input; every
+source must have a current physical foobar snapshot, a real qualified physical
+MP3 and subsong 0, and the selection must contain 1–8 files. The native
+generator retains its OWN subsequent full-file SHA-256, album edition,
+75fps boundary, disc mapping, fresh-target and separately confirmed create-only
+gates. No Precision CUE context-menu factory remains and no second DLL is
+built. The existing Studio read-only normalization, CUE inspection and
+FileOps preview are not turned into an implicit writer.
+
+Exact Studio+Precision linked builds and portable/noop regressions now run
+together. On Windows the **real foobar host** must expose the new launcher
+control ID 345, while an independent production-resource CTest verifies the
+full CUE dialog's controls and that both create actions are disabled until
+review. Public DLL/package/release artifacts remain disabled. CI synthetic
+fixtures never contain private recordings or personal CUE metadata.
+
+**Not certified by this integration:** real user's mix edition correctness,
+sample-level audio boundaries, owner-installed visual acceptance, Deezer
+third-party usage authorization, productive embedded CUE/physical tag mutation,
+final Studio FileOps plan writes, or acceptance/merge of either original Draft
+PR. The Studio and Precision branches may continue independently; changes
+after the fixed import require an explicit conflict-aware qualification update.

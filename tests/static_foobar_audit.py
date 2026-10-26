@@ -2463,3 +2463,29 @@ for token in ('row.reason.starts_with("album_batch_scope_")',
               '"local_selection_scope_group"'):
     if token not in native_candidate_labels and token not in workspace_dialog:
         raise SystemExit("STATIC ALBUM SCOPE SOURCE LABEL FAIL: "+token)
+
+# PR #63 unified-component integration: the native Studio command is the ONLY
+# host entry point. No standalone second context-menu/factory or silent write.
+precision_native = (foobar / "precision_cue_workspace.cpp").read_text(encoding="utf-8")
+studio_native = (foobar / "batch_preview_dialog.cpp").read_text(encoding="utf-8")
+precision_resource = (foobar / "component.rc").read_text(encoding="utf-8")
+precision_ids = (foobar / "resource.h").read_text(encoding="utf-8")
+for name, file_text, token in (
+    ("shared native CUE template", precision_resource, "IDD_PRECISION_CUE_PREVIEW DIALOGEX"),
+    ("single Studio Generate CUE control", precision_resource, "Generate CUE"),
+    ("distinct native launcher resource ID", precision_ids, "IDC_METADATA_GENERATE_CUE 345"),
+    ("Studio-only launcher declaration", studio_native, "open_studio_precision_cue_generator(selected)"),
+    ("Studio stale-selection check", studio_native, "state->stale || state->entries.empty()"),
+    ("Studio fresh physical source check", studio_native, "verify_snapshot(entry)"),
+    ("reject foobar virtual subsongs", studio_native, "entry.handle->get_subsong_index() != 0"),
+    ("reject unqualified physical MP3", studio_native, "!entry.input.physical_source_qualified"),
+    ("integrated generator dispatch", precision_native, "void open_studio_precision_cue_generator("),
+    ("generator reuse checks original MP3s", precision_native, "active->files = capture_files(handles)"),
+):
+    if token not in file_text:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: Precision CUE integration missing " + name)
+if "g_precision_context_factory" in precision_native or (
+        "contextmenu_item_factory_t<precision_context_menu>" in precision_native):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: duplicate standalone Precision CUE menu")
+if studio_native.count("open_studio_precision_cue_generator(selected)") != 1:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: ambiguous Studio generator dispatch")

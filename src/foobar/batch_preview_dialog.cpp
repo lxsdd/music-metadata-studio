@@ -4,6 +4,7 @@
 #include <SDK/modeless_dialog.h>
 
 #include "batch_preview_dialog.h"
+#include "precision_cue_workspace.h"
 #include "host_file_probe.h"
 #include "cue_readonly_source.h"
 #include "musicbrainz_http.h"
@@ -2727,6 +2728,8 @@ void show_preview_page(HWND dialog, PreviewState& state,
         candidate ? SW_SHOW : SW_HIDE);
     ShowWindow(GetDlgItem(dialog, IDC_METADATA_INSPECT_CUE),
         candidate ? SW_SHOW : SW_HIDE);
+    ShowWindow(GetDlgItem(dialog, IDC_METADATA_GENERATE_CUE),
+        candidate ? SW_SHOW : SW_HIDE);
     ShowWindow(GetDlgItem(dialog, IDC_METADATA_MB_QUERY),
         candidate ? SW_SHOW : SW_HIDE);
     ShowWindow(GetDlgItem(dialog, IDC_METADATA_MB_SEARCH),
@@ -4864,7 +4867,8 @@ void mark_stale_workspace(PreviewState& state) {
                    IDC_ONLINE_INCLUDE_FIELDS,IDC_ONLINE_IGNORE_FIELDS,
                    IDC_ONLINE_RESET_FIELDS, IDC_ONLINE_DATE_TARGET_LABEL,
                    IDC_ONLINE_DATE_TARGET, IDC_ONLINE_WRITE_SELECTED,
-                   IDC_METADATA_INSPECT_CUE, IDC_METADATA_IMPORT_CANDIDATE})
+                   IDC_METADATA_INSPECT_CUE, IDC_METADATA_GENERATE_CUE,
+                   IDC_METADATA_IMPORT_CANDIDATE})
         EnableWindow(GetDlgItem(state.dialog,id), FALSE);
     SetWindowTextW(state.dialog,L"Music Metadata Studio - STALE snapshot (Read-only)");
     SetDlgItemTextW(state.dialog,IDC_BATCH_HINT,kNativeStaleWorkspaceHint);
@@ -8341,6 +8345,22 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             // ESC/Cancel follows the same modeless close lifecycle as the
             // caption X. Never join a live WinHTTP worker on the UI thread.
             SendMessageW(dialog,WM_CLOSE,0,0);
+            return TRUE;
+        }
+        if (id == IDC_METADATA_GENERATE_CUE && HIWORD(wp) == BN_CLICKED) {
+            if (state->stale || state->entries.empty() || state->entries.size() > 8)
+                throw std::runtime_error(
+                    "Precision CUE requires 1-8 freshly qualified local MP3s.");
+            metadb_handle_list selected;
+            for (const auto& entry : state->entries) {
+                verify_snapshot(entry);
+                if (!entry.handle || entry.handle->get_subsong_index() != 0 ||
+                    !entry.input.physical_source_qualified)
+                    throw std::runtime_error(
+                        "Precision CUE rejects virtual or unqualified sources.");
+                selected.add_item(entry.handle);
+            }
+            open_studio_precision_cue_generator(selected);
             return TRUE;
         }
         if (id == IDC_BATCH_REFRESH && HIWORD(wp) == BN_CLICKED) {
