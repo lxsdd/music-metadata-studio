@@ -112,3 +112,28 @@ SHA-256, and deletes the entire runner temporary output afterward. No
 component DLL, package, token, user path or media is uploaded or publicly
 released. This tests technical reproducibility, **not** installation into
 the owner's foobar or authorization of productive tag/CUE/FileOps writes.
+
+## Integrated Precision CUE package disclosure (PR #63)
+
+**Do not treat `-WriteMode readonly` as a promise that *no external files*
+can ever be created.** It only disables Studio's productive physical ID3
+and existing-external-CUE value writer. The combined normal Studio DLL
+includes a **separately user-confirmed** Precision CUE action that can
+create *previously absent* sibling `.cue` files, including one per disc.
+It cannot overwrite existing `.cue` files, modify audio or physical tags,
+create an embedded CUE, or approve arbitrary foobar File Operations.
+
+The package manifest therefore reports `analysis_only=false`,
+`external_cue_write_enabled=true`,
+`external_cue_write_scope=precision-new-sibling-create-only` (or the
+explicit additional Studio value writer in opt-in private QA), plus
+`precision_cue_create_only_enabled=true`,
+`studio_existing_cue_value_writer_enabled=false` in the default DLL,
+`physical_tags_write_enabled=false`, and
+`embedded_cue_write_enabled=false`. Preserve the existing
+`write_mode=readonly` value solely for compatibility and bind its meaning
+through `write_mode_scope=physical-tags-and-studio-existing-cue-writer`.
+Any unknown/missing flag or manifest/actual-binary divergence blocks
+candidate acceptance. The synthetically packaged PE test verifies these
+semantics offline for both declared variants; real foobar host/CUE creation
+tests independently verify behavior.

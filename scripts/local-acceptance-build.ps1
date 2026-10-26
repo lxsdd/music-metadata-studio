@@ -76,16 +76,24 @@ try {
         if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { throw 'Incomplete package.' }
     }
     $proof = Get-Content -LiteralPath $manifest -Raw
-    $analysisOnly = if ($EnablePhysicalWrites) { 'false' } else { 'true' }
+    # Create-only Precision external CUE is always enabled in the integrated
+    # DLL; the optional QA variant additionally allows Studio physical writes.
+    $analysisOnly = 'false'
     $physicalWriteEnabled = if ($EnablePhysicalWrites) { 'true' } else { 'false' }
-    $externalCueWriteEnabled = $physicalWriteEnabled
-    $externalCueScope = if ($externalCueWriteEnabled -eq 'true') { 'value-only-exact-edition' } else { 'none' }
+    $externalCueScope = if ($EnablePhysicalWrites) {
+        'precision-new-sibling-create-only+studio-value-only-exact-edition'
+    } else { 'precision-new-sibling-create-only' }
     foreach ($value in @("commit=$SourceSha",'root_dll_machine=0x014C',
                          'x64_dll_machine=0x8664',"write_mode=$mode",
                          "analysis_only=$analysisOnly",
                          "physical_tags_write_enabled=$physicalWriteEnabled",
-                         "external_cue_write_enabled=$externalCueWriteEnabled",
+                         'write_mode_scope=physical-tags-and-studio-existing-cue-writer',
+                         'external_cue_write_enabled=true',
                          "external_cue_write_scope=$externalCueScope",
+                         "studio_existing_cue_value_writer_enabled=$physicalWriteEnabled",
+                         'precision_cue_create_only_enabled=true',
+                         'precision_cue_create_scope=reviewed-new-sibling-only-explicit-confirmation-no-replace',
+                         'precision_cue_multi_disc_create_enabled=true',
                          'embedded_cue_write_enabled=false',
                          'file_operations_write_enabled=false','status=PASS')) {
         if (-not $proof.Contains($value)) { throw "Missing manifest proof: $value" }
@@ -102,7 +110,7 @@ try {
     Write-Host "LOCAL_ACCEPTANCE_BUILD=PASS PATH=$destination SOURCE_SHA=$SourceSha SHA256=$hash WRITE_MODE=$mode"
     Write-Host 'No installation, tag/database/music writes or public GitHub binary artifacts.'
     if ($EnablePhysicalWrites) {
-        Write-Warning 'Private opt-in physical tag writer: use only after review and on backed-up files. CUE and FileOps writing remain disabled.'
+        Write-Warning 'Private opt-in physical tag/existing-CUE value writer: use only after review and on backed-up files. Embedded CUE and FileOps writing remain disabled.'
     }
 } finally {
     if (Test-Path -LiteralPath $temp) {

@@ -34,10 +34,15 @@ try {
     }
     $proof = Get-Content -LiteralPath $manifest -Raw
     foreach ($expected in @("commit=$sha",'root_dll_machine=0x014C','x64_dll_machine=0x8664',
-                              'analysis_only=true','write_mode=readonly',
+                              'analysis_only=false','write_mode=readonly',
+                              'write_mode_scope=physical-tags-and-studio-existing-cue-writer',
                               'physical_tags_write_enabled=false',
-                              'external_cue_write_enabled=false',
-                              'external_cue_write_scope=none',
+                              'external_cue_write_enabled=true',
+                              'external_cue_write_scope=precision-new-sibling-create-only',
+                              'studio_existing_cue_value_writer_enabled=false',
+                              'precision_cue_create_only_enabled=true',
+                              'precision_cue_create_scope=reviewed-new-sibling-only-explicit-confirmation-no-replace',
+                              'precision_cue_multi_disc_create_enabled=true',
                               'embedded_cue_write_enabled=false',
                               'file_operations_write_enabled=false','status=PASS')) {
         if (-not $proof.Contains($expected)) { throw "Manifest missing $expected" }
@@ -66,7 +71,11 @@ try {
     foreach ($expected in @('analysis_only=false','write_mode=physical-tags',
                               'physical_tags_write_enabled=true',
                               'external_cue_write_enabled=true',
-                              'external_cue_write_scope=value-only-exact-edition',
+                              'external_cue_write_scope=precision-new-sibling-create-only+studio-value-only-exact-edition',
+                              'studio_existing_cue_value_writer_enabled=true',
+                              'precision_cue_create_only_enabled=true',
+                              'precision_cue_create_scope=reviewed-new-sibling-only-explicit-confirmation-no-replace',
+                              'precision_cue_multi_disc_create_enabled=true',
                               'embedded_cue_write_enabled=false',
                               'file_operations_write_enabled=false','status=PASS')) {
         if (-not $writeManifest.Contains($expected)) { throw "Write-mode manifest missing $expected" }

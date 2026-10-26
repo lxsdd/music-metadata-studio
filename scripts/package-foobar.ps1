@@ -36,10 +36,15 @@ Move-Item -LiteralPath $zip -Destination $component
 $win32Hash = (Get-FileHash -LiteralPath (Join-Path $stage 'foo_music_metadata_studio.dll') -Algorithm SHA256).Hash.ToLowerInvariant()
 $x64Hash = (Get-FileHash -LiteralPath (Join-Path $stage 'x64\foo_music_metadata_studio.dll') -Algorithm SHA256).Hash.ToLowerInvariant()
 $componentHash = (Get-FileHash -LiteralPath $component -Algorithm SHA256).Hash.ToLowerInvariant()
-$analysisOnly = if ($WriteMode -eq 'readonly') { 'true' } else { 'false' }
+# The integrated generator is linked in BOTH normal Studio and QA DLLs.
+# "readonly" means *physical tag / existing-CUE metadata writes disabled*,
+# NOT that confirmed creation of a previously nonexistent sibling .cue is absent.
+$analysisOnly = 'false'
 $physicalTagsEnabled = if ($WriteMode -eq 'physical-tags') { 'true' } else { 'false' }
-$externalCueWriteEnabled = $physicalTagsEnabled # same opt-in private QA binary
-$externalCueScope = if ($externalCueWriteEnabled -eq 'true') { 'value-only-exact-edition' } else { 'none' }
+$studioExistingCueWriterEnabled = $physicalTagsEnabled
+$externalCueScope = if ($studioExistingCueWriterEnabled -eq 'true') {
+    'precision-new-sibling-create-only+studio-value-only-exact-edition'
+} else { 'precision-new-sibling-create-only' }
 @(
     "version=$Version",
     "commit=$Commit",
@@ -51,9 +56,14 @@ $externalCueScope = if ($externalCueWriteEnabled -eq 'true') { 'value-only-exact
     "layout=root:foo_music_metadata_studio.dll;x64:x64/foo_music_metadata_studio.dll",
     "analysis_only=$analysisOnly",
     "write_mode=$WriteMode",
+    "write_mode_scope=physical-tags-and-studio-existing-cue-writer",
     "physical_tags_write_enabled=$physicalTagsEnabled",
-    "external_cue_write_enabled=$externalCueWriteEnabled",
+    "external_cue_write_enabled=true",
     "external_cue_write_scope=$externalCueScope",
+    "studio_existing_cue_value_writer_enabled=$studioExistingCueWriterEnabled",
+    "precision_cue_create_only_enabled=true",
+    "precision_cue_create_scope=reviewed-new-sibling-only-explicit-confirmation-no-replace",
+    "precision_cue_multi_disc_create_enabled=true",
     "embedded_cue_write_enabled=false",
     "file_operations_write_enabled=false",
     "status=PASS"

@@ -281,3 +281,14 @@ third-party usage authorization, productive embedded CUE/physical tag mutation,
 final Studio FileOps plan writes, or acceptance/merge of either original Draft
 PR. The Studio and Precision branches may continue independently; changes
 after the fixed import require an explicit conflict-aware qualification update.
+
+## Integrated package permission reconciliation
+
+**Precision CUE create-only was misrepresented by the inherited Studio
+`analysis_only=true` / `external_cue_write_enabled=false` manifest.**
+The integrated candidate now advertises its separately confirmed
+new-sibling external `.cue` create ability explicitly even when Studio
+physical-tag writes are disabled. This declaration does **not** activate
+the separate Studio physical writer, embedded CUE mutation or FileOps
+executor; genuine application-side source identity/approval/absent-target
+gates remain mandatory.
