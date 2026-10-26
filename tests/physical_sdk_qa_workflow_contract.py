@@ -11,8 +11,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = (ROOT / ".github/workflows/foobar.yml").read_text(encoding="utf-8")
 SCRIPT = (ROOT / "scripts/qa-physical-writer-host.ps1").read_text(encoding="utf-8")
-START = "  physical-sdk-runtime-qa:\\n"
-END = "  discogs-authorized-native:\\n"
+START = "  physical-sdk-runtime-qa:\n"
+END = "  discogs-authorized-native:\n"
 
 def violations(config: str, script: str) -> list[str]:
     issues: list[str] = []
@@ -29,7 +29,7 @@ def violations(config: str, script: str) -> list[str]:
         "runs-on: windows-2022",
         "platform: [Win32, x64]",
         "needs: static-audit",
-        "permissions:\\n      contents: read",
+        "permissions:\n      contents: read",
         "./scripts/qa-physical-writer-host.ps1",
         "if: always()",
         "Remove-Item -LiteralPath 'out/physical-write-qa','build/physical-write-qa'",
@@ -71,7 +71,10 @@ def main() -> None:
                        "platform: [x64]", 1),
         CONFIG.replace("./scripts/qa-physical-writer-host.ps1",
                        "./scripts/fake-writer-qa.ps1", 1),
-        CONFIG.replace("needs: static-audit", "needs: []", 1),
+        CONFIG.replace(
+            "  physical-sdk-runtime-qa:", "  physical-sdk-runtime-qa:", 1)
+            .replace("    needs: static-audit\\n    runs-on: windows-2022",
+                     "    needs: []\\n    runs-on: windows-2022", 1),
     ):
         assert violations(altered, SCRIPT), "negative workflow mutation escaped"
     for mutated in (
