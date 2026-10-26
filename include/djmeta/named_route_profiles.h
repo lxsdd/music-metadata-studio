@@ -150,4 +150,59 @@ inline bool erase_named_route(std::vector<NamedRouteProfile>& profiles,
     profiles.erase(it);
     return true;
 }
+
+inline constexpr std::string_view named_route_transfer_prefix =
+    "MMS-NAMED-ROUTES/1\n";
+
+// Explicit clipboard transfer of templates only. No approval, media metadata,
+// provider credentials or user files are included. Destination roots are
+// user-supplied configuration and must not be logged or sent to public CI.
+inline std::string export_named_routes_transfer(
+    const std::vector<NamedRouteProfile>& profiles) {
+    return std::string(named_route_transfer_prefix) +
+           serialize_named_routes(profiles);
+}
+inline std::optional<std::vector<NamedRouteProfile>>
+parse_named_routes_transfer(std::string_view transfer) {
+    if(!transfer.starts_with(named_route_transfer_prefix) ||
+       transfer.size()>131072+named_route_transfer_prefix.size())
+        return std::nullopt;
+    return parse_named_routes(transfer.substr(named_route_transfer_prefix.size()));
+}
+
+struct NamedRouteImportPlan {
+    std::vector<NamedRouteProfile> merged;
+    std::size_t added=0, replaced=0, unchanged=0;
+    bool changed() const noexcept { return added!=0 || replaced!=0; }
+};
+
+// Atomic in-memory all-or-nothing merge; caller owns the one confirmation
+// and the final profile-local cfg_string update. Never stages a file route.
+inline NamedRouteImportPlan plan_named_routes_import(
+    const std::vector<NamedRouteProfile>& existing,
+    const std::vector<NamedRouteProfile>& incoming) {
+    (void)serialize_named_routes(existing);
+    (void)serialize_named_routes(incoming);
+    NamedRouteImportPlan plan;
+    plan.merged=existing;
+    for(const auto& candidate:incoming) {
+        auto it=std::find_if(plan.merged.begin(),plan.merged.end(),
+            [&](const auto& old) {
+                return route_name_equal(old.name,candidate.name);
+            });
+        if(it==plan.merged.end()) {
+            if(plan.merged.size()>=max_named_route_profiles)
+                throw std::invalid_argument("Import exceeds named route limit");
+            plan.merged.push_back(candidate);
+            ++plan.added;
+        } else if(*it==candidate) {
+            ++plan.unchanged;
+        } else {
+            *it=candidate;
+            ++plan.replaced;
+        }
+    }
+    (void)serialize_named_routes(plan.merged);
+    return plan;
+}
 } // namespace djmeta

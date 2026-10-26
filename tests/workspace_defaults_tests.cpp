@@ -88,4 +88,47 @@ int main() {
     catch(const std::invalid_argument&) { blocked=true; }
     CHECK(blocked);
     CHECK(djmeta::parse_named_routes(djmeta::serialize_named_routes(saved))==saved);
+    // Clipboard transfer: exact schema, UTF-8, complete atomic merge,
+    // conflicting names, 24-profile capacity and true no-op.
+    const std::vector<NamedRouteProfile> portable{first,second};
+    const auto transfer=djmeta::export_named_routes_transfer(portable);
+    CHECK(transfer.starts_with("MMS-NAMED-ROUTES/1\n"));
+    CHECK(djmeta::parse_named_routes_transfer(transfer)==portable);
+    CHECK(transfer.find("Fixture")==std::string::npos);
+    CHECK(!djmeta::parse_named_routes_transfer(encoded));
+    CHECK(!djmeta::parse_named_routes_transfer("MMS-NAMED-ROUTES/2\nv1|0"));
+    CHECK(!djmeta::parse_named_routes_transfer(transfer+"|extra"));
+    CHECK(!djmeta::parse_named_routes_transfer(transfer+"\n"));
+    CHECK(!djmeta::parse_named_routes_transfer(
+        "MMS-NAMED-ROUTES/1\nv1|1|41|42|43|extra"));
+    CHECK(!djmeta::parse_named_routes_transfer(
+        std::string(131072+djmeta::named_route_transfer_prefix.size()+1,'A')));
+    const auto imported=djmeta::plan_named_routes_import({},portable);
+    CHECK(imported.added==2 && imported.replaced==0 &&
+          imported.unchanged==0 && imported.changed());
+    CHECK(imported.merged==portable);
+    const auto repeated=djmeta::plan_named_routes_import(portable,portable);
+    CHECK(!repeated.changed() && repeated.unchanged==2 &&
+          repeated.merged==portable);
+    const NamedRouteProfile revised{"LIVE MIXES",R"(E:\Portable\Mixes)","%title%"};
+    const auto merged=djmeta::plan_named_routes_import(
+        portable,{revised,first});
+    CHECK(merged.added==0 && merged.replaced==1 &&
+          merged.unchanged==1 && merged.changed());
+    CHECK(merged.merged.size()==2 && merged.merged[1]==revised);
+    CHECK(portable[1]==second); // never mutate input
+    blocked=false;
+    try { (void)djmeta::plan_named_routes_import(saved,{{"Extra","C:","%title%"}}); }
+    catch(const std::invalid_argument&) { blocked=true; }
+    CHECK(blocked);
+    CHECK(saved.size()==24);
+    blocked=false;
+    try { (void)djmeta::plan_named_routes_import({},{{"Singles","C:","%title%"}}); }
+    catch(const std::invalid_argument&) { blocked=true; }
+    CHECK(blocked);
+    blocked=false;
+    try { (void)djmeta::plan_named_routes_import({first},{{"my | dj Ω","C:","%title%"},{"MY | DJ Ω","D:","%title%"}}); }
+    catch(const std::invalid_argument&) { blocked=true; }
+    CHECK(blocked);
+
 }

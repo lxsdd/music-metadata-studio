@@ -1081,3 +1081,23 @@ write rights or approvals are persisted. Save/Delete never run FileOps or
 recompute existing route previews; explicitly Preview again. Final sanitized
 FileOps destinations and CUE references are still unqualified. Import/export
 and execution remain OPEN.
+
+
+### Portable named File locations templates (read-only clipboard transfer)
+
+**Copy** exports all saved *custom* templates (not immutable built-in presets)
+using a bounded, versioned `MMS-NAMED-ROUTES/1` UTF-8 clipboard envelope.
+This explicitly includes custom destination roots: do not paste the clipboard
+into public issue reports, CI logs or untrusted applications. No track paths,
+provider credentials, tags, CUE content or media bytes are exported.
+**Paste** validates the complete envelope, every Unicode/name/field and the
+24-template maximum *before* changing any configuration. It reports new and
+replaced counts, asks once with **No** as default, rechecks the original
+profile-local configuration after the modal dialog, and commits the merged
+collection as a single cfg_string update. Duplicate/invalid/oversized or
+unknown-version data, a full destination profile, or a stale confirmation
+reject the entire import without partial changes. Identical imports are no-ops.
+
+Import/export never chooses a route for a track, stages a preview, approves a
+postimage or calls File Operations. Select an imported name and rerun Preview
+for fresh RAW paths; host-sanitized final targets/CUE references remain BLOCKED.

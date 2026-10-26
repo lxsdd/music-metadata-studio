@@ -412,7 +412,7 @@ std::string to_utf8(std::wstring_view text) {
     return out;
 }
 
-std::string read_manual_clipboard_text(HWND dialog) {
+std::string read_manual_clipboard_text(HWND dialog, SIZE_T max_bytes=131074) {
     if (!OpenClipboard(dialog))
         throw std::runtime_error("Cannot open clipboard.");
     struct CloseClipboardGuard {
@@ -423,7 +423,7 @@ std::string read_manual_clipboard_text(HWND dialog) {
         throw std::invalid_argument(
             "Copy a plain-text candidate first. Clipboard has no Unicode text.");
     const SIZE_T bytes = GlobalSize(value);
-    if (!bytes || bytes > 131074 || bytes % sizeof(wchar_t) != 0)
+    if (!bytes || bytes > max_bytes || bytes % sizeof(wchar_t) != 0)
         throw std::invalid_argument("Clipboard candidate exceeds size limit.");
     const wchar_t* text = static_cast<const wchar_t*>(GlobalLock(value));
     if (!text) throw std::runtime_error("Cannot read clipboard text.");
@@ -557,6 +557,56 @@ void delete_route_template(HWND window) {
     rebuild_route_picker(window,from_utf8(name));
     SetDlgItemTextW(window,IDC_BATCH_HINT,
         L"Saved route deleted. Current RAW preview and all source files unchanged.");
+}
+
+
+void copy_named_route_templates(HWND window) {
+    const auto saved=load_named_routes();
+    if(saved.empty()) {
+        SetDlgItemTextW(window,IDC_BATCH_HINT,
+            L"No custom profiles to copy. Built-in presets are never exported.");
+        return;
+    }
+    const auto transfer=djmeta::export_named_routes_transfer(saved);
+    native_copy_audit_text_to_clipboard(window,from_utf8(transfer));
+    SetDlgItemTextW(window,IDC_BATCH_HINT,
+        L"Copied custom route templates to Windows clipboard (including "
+        L"destination roots). No source, CUE, tags or files changed.");
+}
+
+void paste_named_route_templates(HWND window) {
+    const SIZE_T max_bytes=2*(131072+
+        djmeta::named_route_transfer_prefix.size()+1);
+    const auto clipboard=read_manual_clipboard_text(window,max_bytes);
+    const auto incoming=djmeta::parse_named_routes_transfer(clipboard);
+    if(!incoming || incoming->empty())
+        throw std::invalid_argument(
+            "Clipboard has no valid MMS-NAMED-ROUTES/1 custom templates.");
+    const auto before=load_named_routes();
+    const auto selected=read_control(window,IDC_BATCH_PROFILE_PICKER);
+    const auto plan=djmeta::plan_named_routes_import(before,*incoming);
+    if(!plan.changed()) {
+        SetDlgItemTextW(window,IDC_BATCH_HINT,
+            L"All imported templates already match; no settings changed.");
+        return;
+    }
+    std::wstring question=
+        L"Import "+std::to_wstring(plan.added)+L" new and replace "+
+        std::to_wstring(plan.replaced)+L" existing named route(s)?\n\n"
+        L"Replacements affect future previews only. Clipboard templates "
+        L"may contain local destination paths. Built-in presets and "
+        L"current RAW plans remain unchanged. No files are moved or written.";
+    if(MessageBoxW(window,question.c_str(),L"Import named routes",
+        MB_YESNO|MB_ICONWARNING|MB_DEFBUTTON2)!=IDYES) return;
+    if(load_named_routes()!=before ||
+       read_control(window,IDC_BATCH_PROFILE_PICKER)!=selected)
+        throw std::invalid_argument(
+            "Named route settings changed during import confirmation.");
+    store_named_routes(plan.merged);
+    rebuild_route_picker(window,selected);
+    SetDlgItemTextW(window,IDC_BATCH_HINT,
+        L"Imported templates to this foobar profile. Select a template "
+        L"and Preview again; FileOps/CUE approval remains unavailable.");
 }
 
 void verify_rules_snapshot(const djmeta::RulesTextSnapshot& captured) {
@@ -2557,7 +2607,8 @@ void show_preview_page(HWND dialog, PreviewState& state,
     for (int id : {IDC_BATCH_ROUTE_LABEL,
                    IDC_BATCH_DEST_LABEL, IDC_BATCH_PATTERN_LABEL,
                    IDC_BATCH_PROFILE_PICKER, IDC_BATCH_PROFILE_SAVE,
-                   IDC_BATCH_PROFILE_DELETE,
+                   IDC_BATCH_PROFILE_DELETE, IDC_BATCH_PROFILE_COPY,
+                   IDC_BATCH_PROFILE_PASTE,
                    IDC_BATCH_DESTINATION, IDC_BATCH_PATTERN,
                    IDC_BATCH_APPLY_SELECTED, IDC_BATCH_APPLY_VISIBLE, IDC_BATCH_APPLY_ALL}) {
         ShowWindow(GetDlgItem(dialog,id), metadata ? SW_HIDE : SW_SHOW);
@@ -2577,7 +2628,8 @@ void show_history_page(HWND dialog,PreviewState& state) {
         IDC_BATCH_LOCATION_FILTER_LABEL,IDC_BATCH_LOCATION_NOTE,
         IDC_BATCH_ROUTE_LABEL,IDC_BATCH_DEST_LABEL,IDC_BATCH_PATTERN_LABEL,
         IDC_BATCH_PROFILE_PICKER,IDC_BATCH_PROFILE_SAVE,
-        IDC_BATCH_PROFILE_DELETE,IDC_BATCH_DESTINATION,IDC_BATCH_PATTERN,
+        IDC_BATCH_PROFILE_DELETE,IDC_BATCH_PROFILE_COPY,
+        IDC_BATCH_PROFILE_PASTE,IDC_BATCH_DESTINATION,IDC_BATCH_PATTERN,
         IDC_BATCH_APPLY_SELECTED, IDC_BATCH_APPLY_VISIBLE, IDC_BATCH_APPLY_ALL,IDC_BATCH_AUDIT,
         IDC_BATCH_COPY_AUDIT,IDC_BATCH_COPY_ISSUES,IDC_BATCH_NEXT_ISSUE})
         ShowWindow(GetDlgItem(dialog,id),SW_HIDE);
@@ -3042,6 +3094,8 @@ void capture_resize_layout(PreviewState& state) {
                              id == IDC_METADATA_USE_VALUE ||
                              id == IDC_BATCH_PROFILE_SAVE ||
                              id == IDC_BATCH_PROFILE_DELETE ||
+                             id == IDC_BATCH_PROFILE_COPY ||
+                             id == IDC_BATCH_PROFILE_PASTE ||
                              id == IDC_BATCH_APPLY_SELECTED ||
                               id == IDC_BATCH_APPLY_VISIBLE ||
                               id == IDC_BATCH_APPLY_ALL || id == IDCANCEL;
@@ -4608,6 +4662,8 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_BATCH_PROFILE_PICKER,L"Choose a built-in or saved route, or type a new name. Saved templates do not approve files."},
         {IDC_BATCH_PROFILE_SAVE,L"Save this name, destination and Title Formatting expression in the foobar profile. Existing names require default-No confirmation. Preview again for RAW routes."},
         {IDC_BATCH_PROFILE_DELETE,L"Delete only a saved custom route after default-No confirmation. Built-in Singles/Alben/Livesets are immutable."},
+        {IDC_BATCH_PROFILE_COPY,L"Copy all saved custom templates to Windows clipboard for another foobar profile. Includes destination roots; never share publicly."},
+        {IDC_BATCH_PROFILE_PASTE,L"Paste a versioned template collection from Windows clipboard; validate every route and confirm all changes (default No). No files are changed."},
         {IDC_BATCH_DESTINATION,L"Destination root for the preview only. No folder is created."},
         {IDC_BATCH_PATTERN,L"foobar Title Formatting pattern for preview file names only. Actual paths are not yet validated."},
         {IDC_BATCH_APPLY_SELECTED,L"Preview selected visible physical sources only; full-batch recheck, no writes."},
@@ -8130,6 +8186,14 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         }
         if(id==IDC_BATCH_PROFILE_DELETE && HIWORD(wp)==BN_CLICKED) {
             delete_route_template(dialog);
+            return TRUE;
+        }
+        if(id==IDC_BATCH_PROFILE_COPY && HIWORD(wp)==BN_CLICKED) {
+            copy_named_route_templates(dialog);
+            return TRUE;
+        }
+        if(id==IDC_BATCH_PROFILE_PASTE && HIWORD(wp)==BN_CLICKED) {
+            paste_named_route_templates(dialog);
             return TRUE;
         }
         if (id == IDC_BATCH_PROFILE_PICKER && HIWORD(wp) == CBN_SELCHANGE) {

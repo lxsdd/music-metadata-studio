@@ -2168,3 +2168,19 @@ for token in (
 ):
     if token not in mb_provider:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: MusicBrainz URL allowlist missing: "+token)
+
+# Named route clipboard transfer must remain an explicit native UI action,
+# never a writer, a hidden provider upload or an automatic startup import.
+for marker in (
+    'IDC_BATCH_PROFILE_COPY', 'IDC_BATCH_PROFILE_PASTE',
+    'copy_named_route_templates(dialog);',
+    'paste_named_route_templates(dialog);',
+    'plan_named_routes_import(before,*incoming)',
+    'MB_YESNO|MB_ICONWARNING|MB_DEFBUTTON2',
+    'store_named_routes(plan.merged);',
+):
+    if marker not in workspace_dialog:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: native route clipboard transfer missing "+marker)
+for marker in ('"Copy", IDC_BATCH_PROFILE_COPY', '"Paste", IDC_BATCH_PROFILE_PASTE'):
+    if marker not in resources:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: route clipboard button absent "+marker)
