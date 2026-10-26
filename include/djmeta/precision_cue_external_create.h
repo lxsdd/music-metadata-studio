@@ -184,6 +184,15 @@ struct PhysicalSourceFingerprint {
     std::uint64_t volume_id = 0;
     std::uint64_t file_id = 0; // Reject replaced files even with same size/mtime.
 };
+// Some filesystems / provider adapters report zero or sentinel IDs for
+// EVERY opened file. Those values cannot identify physical audio safely:
+// both reviewed source identity and hardlink collision checks would be
+// misleading. Match the Studio read-only host gate without sharing a writer.
+inline bool precision_cue_physical_file_id_qualified(
+    std::uint64_t volume_id, std::uint64_t file_id) noexcept {
+    return volume_id != 0 && volume_id != UINT64_MAX &&
+           file_id != 0 && file_id != UINT64_MAX;
+}
 inline std::optional<PhysicalSourceFingerprint> physical_source_snapshot(
     const std::filesystem::path& path, const std::filesystem::path& parent,
     std::string_view mp3_basename) {
@@ -221,6 +230,8 @@ inline std::optional<PhysicalSourceFingerprint> physical_source_snapshot(
     volume = static_cast<std::uint64_t>(info.st_dev);
     identity = static_cast<std::uint64_t>(info.st_ino);
 #endif
+    if (!precision_cue_physical_file_id_qualified(volume, identity))
+        return std::nullopt;
     if (length == 0 || fs::file_size(path, ec) != length || ec)
         return std::nullopt;
     const auto modified = fs::last_write_time(path, ec);
