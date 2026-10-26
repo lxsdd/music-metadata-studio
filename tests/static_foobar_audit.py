@@ -2324,3 +2324,30 @@ for marker in ("const bool next_musicbrainz=", "request.page_one_path=path;",
                "state->musicbrainz_results.size()>"):
     if marker not in workspace_dialog:
         raise SystemExit("STATIC MUSICBRAINZ NATIVE PAGING FAIL: "+marker)
+
+
+# Physical MusicBrainz release discovery and comparison must be native UI
+# wired to a direct exact-edition source and never enable tag staging.
+mb_physical=(root / "include" / "djmeta" /
+             "musicbrainz_physical_review.h").read_text(encoding="utf-8")
+for marker in ("review_musicbrainz_physical_edition(",
+               "musicbrainz_physical_track_provenance_trusted(",
+               "musicbrainz_physical_edition_identifier_conflict(",
+               'match.candidate.field="MATCH_DIAGNOSTIC"',
+               "musicbrainz_local_only_no_provider_value"):
+    if marker not in mb_physical:
+        raise SystemExit("STATIC MB PHYSICAL EVIDENCE FAIL: "+marker)
+for marker in ("explicit_physical_album_term(entered)",
+               "request.kind=exact_url->kind;",
+               "state->musicbrainz_page_cue_mode",
+               "request.originals=state->musicbrainz_page_originals;",
+               "if(original!=request.originals)",
+               "review_musicbrainz_physical_edition(",
+               "state.online_field_snapshot.reset();",
+               "state.cue_postimage_snapshot=std::move(cue_preview);",
+               "MusicBrainz edition and physical tracklist compared"):
+    if marker not in workspace_dialog:
+        raise SystemExit("STATIC MB PHYSICAL NATIVE WIRING FAIL: "+marker)
+if ("qualified_online_field_preview(const PreviewState& state)" not in workspace_dialog or
+    'state.online_physical_edition->provider=="discogs"' not in workspace_dialog):
+    raise SystemExit("STATIC MB PHYSICAL MUST NOT ENABLE TAG STAGING")
