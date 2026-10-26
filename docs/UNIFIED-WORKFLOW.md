@@ -1240,3 +1240,21 @@ the native host independently verifies the CUE snapshot, selected audio
 source and captured rules, then revalidates the whole workspace. Stale
 evidence requires Refresh. The jump only navigates; the writer, CUE
 serializer, File Operations execution and final postimage gates stay disabled.
+
+
+### Return from File locations to rechecked original CUE evidence
+
+After jumping to a linked physical audio row from Inspect CUE, a keyboard-
+accessible **Back to CUE** button appears at the bottom of File locations.
+It is hidden during unrelated file workflows, Review, Find, and History.
+The original carrier's source index, real physical key and source version
+are retained only in memory and discarded when the snapshot is replaced.
+
+Returning verifies the original physical carrier, its version and rules,
+reprobes the whole captured batch and selects that exact CUE source in Find.
+The existing Inspect CUE command is invoked again, so its CUE bytes, FILE
+dependencies and current staged Move/Copy/No-action impacts are reread;
+old evidence is never replayed as if still qualified. No online search,
+file operation or physical audio/tag/CUE writer is initiated. The original
+Win32/x64 native GUI tests assert keyboard access and non-overlap with
+Preview selected; source/rule integrity still needs installed owner testing.

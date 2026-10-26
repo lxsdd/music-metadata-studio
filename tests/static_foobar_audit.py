@@ -2256,3 +2256,16 @@ for marker in ('row.reason!="cue_raw_routing_impact_not_final_approval"',
                "target->source_index", "SetFocus(state->list);"):
     if marker not in workspace_dialog:
         raise SystemExit("STATIC NATIVE CUE NAVIGATION FAIL: "+marker)
+
+
+# Physical CUE drilldown return is a native same-window user action, bound
+# to the original physical carrier and fresh source evidence, never a write.
+for marker in ("IDC_BATCH_BACK_TO_CUE",
+               "state->cue_return=PreviewState::CueReturnIdentity{",
+               "carrier.observed_physical_key!=saved.physical_key",
+               "carrier.observed_source_guard!=saved.source_guard",
+               "revalidate_workspace(*state,true);",
+               "TabCtrl_SetCurSel(state->tabs,1);",
+               "MAKEWPARAM(IDC_METADATA_INSPECT_CUE,BN_CLICKED)"):
+    if marker not in workspace_dialog:
+        raise SystemExit("STATIC CUE RETURN WORKFLOW FAIL: "+marker)

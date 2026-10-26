@@ -243,6 +243,12 @@ struct PreviewState {
     bool show_metadata = true;
     bool show_candidate = false; // third tab, never a write path
     bool cue_inspection_mode = false; // exact CUE source view, no online proposal
+    struct CueReturnIdentity {
+        std::size_t source_index=0;
+        std::string physical_key;
+        std::string source_guard;
+    };
+    std::optional<CueReturnIdentity> cue_return; // transient, reset on batch refresh
     bool cue_candidate_comparison_mode = false; // evidence-only CUE field diff
     // Qualified exact-edition CUE fields can be previewed ONLY in memory
     // from a selected detail row; never physical, never a writer.
@@ -2660,6 +2666,8 @@ void show_preview_page(HWND dialog, PreviewState& state,
     for(const int id:{IDC_BATCH_LOCATION_FILTER,IDC_BATCH_FILE_ACTION,
                       IDC_BATCH_LOCATION_FILTER_LABEL,IDC_BATCH_LOCATION_NOTE})
         ShowWindow(GetDlgItem(dialog,id),metadata?SW_HIDE:SW_SHOW);
+    ShowWindow(GetDlgItem(dialog,IDC_BATCH_BACK_TO_CUE),
+        !metadata && state.cue_return.has_value() ? SW_SHOW : SW_HIDE);
     ShowWindow(GetDlgItem(dialog,IDC_BATCH_AUDIT),
         metadata ? SW_HIDE : SW_SHOW);
     ShowWindow(GetDlgItem(dialog,IDC_BATCH_COPY_AUDIT),
@@ -2691,7 +2699,8 @@ void show_history_page(HWND dialog,PreviewState& state) {
     // window, persistent history database or clipboard access.
     show_preview_page(dialog,state,false,false);
     for(const int id:{IDC_BATCH_LIST,IDC_BATCH_LOCATION_FILTER,
-        IDC_BATCH_FILE_ACTION,IDC_BATCH_LOCATION_FILTER_LABEL,IDC_BATCH_LOCATION_NOTE,
+        IDC_BATCH_FILE_ACTION,IDC_BATCH_BACK_TO_CUE,
+        IDC_BATCH_LOCATION_FILTER_LABEL,IDC_BATCH_LOCATION_NOTE,
         IDC_BATCH_ROUTE_LABEL,IDC_BATCH_DEST_LABEL,IDC_BATCH_PATTERN_LABEL,
         IDC_BATCH_PROFILE_PICKER,IDC_BATCH_PROFILE_SAVE,
         IDC_BATCH_PROFILE_DELETE,IDC_BATCH_PROFILE_COPY,
@@ -4883,6 +4892,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_BATCH_HISTORY_FILTER,L"Filter session actions; source order and original event identities remain unchanged."},
         {IDC_BATCH_LOCATION_FILTER,L"Display-only filter of full-batch raw route findings. Selected preview uses selected visible source IDs; Preview all and Audit still cover every source. No final FileOps/CUE approval."},
         {IDC_BATCH_FILE_ACTION,L"Explicit action intent for the next selected/visible/all preview: Move, Copy, Rename or No file action. Each track retains its own intent; Rename awaits verified same-parent host destination. Nothing is executed."},
+        {IDC_BATCH_BACK_TO_CUE,L"Return to the original CUE carrier and reread its full physical FILE reference and sidecar action evidence. Rechecks all sources; never writes files."},
         {IDC_BATCH_PROFILE_PICKER,L"Choose a built-in or saved route, or type a new name. Saved templates do not approve files."},
         {IDC_BATCH_PROFILE_SAVE,L"Save this name, destination and Title Formatting expression in the foobar profile. Existing names require default-No confirmation. Preview again for RAW routes."},
         {IDC_BATCH_PROFILE_DELETE,L"Delete only a saved custom route after default-No confirmation. Built-in Singles/Alben/Livesets are immutable."},
@@ -7122,6 +7132,9 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                     "CUE linked source changed; refresh the read-only workspace.");
             // Re-evaluate the full batch AFTER re-probing, preserving all
             // mixed Move/Copy/Skip intents and whole-batch raw collisions.
+            state->cue_return=PreviewState::CueReturnIdentity{
+                state->selected_track_index,cue.observed_physical_key,
+                cue.observed_source_guard};
             state->location_queue=djmeta::BatchLocationQueue::All;
             SendDlgItemMessageW(dialog,IDC_BATCH_LOCATION_FILTER,CB_SETCURSEL,0,0);
             update_table(*state);
@@ -8780,6 +8793,54 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         if (id == IDC_BATCH_COPY_ISSUES && HIWORD(wp) == BN_CLICKED) {
             // Filtered report only; global source and route checks are intact.
             copy_workflow_audit(dialog,*state,true);
+            return TRUE;
+        }
+        if(id==IDC_BATCH_BACK_TO_CUE && HIWORD(wp)==BN_CLICKED) {
+            if(state->stale || state->refreshing || !state->cue_return ||
+               TabCtrl_GetCurSel(state->tabs)!=2)
+                throw std::invalid_argument(
+                    "Back to CUE requires an intact File locations drilldown.");
+            const auto saved=*state->cue_return;
+            if(saved.source_index>=state->entries.size())
+                throw std::runtime_error("CUE source identity changed. Refresh.");
+            const auto& carrier=state->entries.at(saved.source_index);
+            if(!is_external_cue_locator(carrier.input.source_path) ||
+               carrier.observed_physical_key!=saved.physical_key ||
+               carrier.observed_source_guard!=saved.source_guard)
+                throw std::runtime_error("CUE carrier version changed. Refresh.");
+            verify_snapshot(carrier);
+            verify_rules_snapshot(state->captured_rules);
+            revalidate_workspace(*state,true);
+            if(state->stale)
+                throw std::runtime_error("CUE source changed. Refresh.");
+            // Discard the old displayed FILE evidence by invoking Inspect
+            // CUE again on the exact original carrier; no network/writes.
+            state->track_discovery=djmeta::TrackDiscovery::All;
+            state->metadata_focus=djmeta::MetadataFocus::All;
+            SendDlgItemMessageW(dialog,IDC_METADATA_TRACK_FILTER,CB_SETCURSEL,0,0);
+            SendDlgItemMessageW(dialog,IDC_METADATA_FILTER,CB_SETCURSEL,2,0);
+            state->selected_track_index=saved.source_index;
+            TabCtrl_SetCurSel(state->tabs,1);
+            show_preview_page(dialog,*state,true,true);
+            update_master_table(*state);
+            const auto it=std::find(state->track_view_order.begin(),
+                                    state->track_view_order.end(),saved.source_index);
+            if(it==state->track_view_order.end())
+                throw std::runtime_error("CUE carrier no longer selectable.");
+            const auto row=static_cast<int>(it-state->track_view_order.begin());
+            state->updating_track_selection=true;
+            ListView_SetItemState(state->metadata_track_list,-1,0,LVIS_SELECTED);
+            ListView_SetItemState(state->metadata_track_list,row,
+                                  LVIS_SELECTED|LVIS_FOCUSED,
+                                  LVIS_SELECTED|LVIS_FOCUSED);
+            state->updating_track_selection=false;
+            ListView_EnsureVisible(state->metadata_track_list,row,FALSE);
+            if(!IsWindowEnabled(GetDlgItem(dialog,IDC_METADATA_INSPECT_CUE)))
+                throw std::runtime_error("CUE source is no longer inspectable. Refresh.");
+            SendMessageW(dialog,WM_COMMAND,
+                MAKEWPARAM(IDC_METADATA_INSPECT_CUE,BN_CLICKED),
+                reinterpret_cast<LPARAM>(GetDlgItem(dialog,IDC_METADATA_INSPECT_CUE)));
+            SetFocus(state->metadata_list);
             return TRUE;
         }
         if (id == IDC_BATCH_APPLY_SELECTED && HIWORD(wp) == BN_CLICKED) {

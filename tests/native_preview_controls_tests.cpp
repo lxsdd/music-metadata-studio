@@ -282,6 +282,21 @@ int main() {
           SendMessageW(file_action,CB_SETCURSEL,3,0)==3 &&
           SendMessageW(file_action,CB_GETCURSEL,0,0)==3,
           "No file action is deliberately selectable and never auto-executes");
+    const HWND cue_return=GetDlgItem(dialog,IDC_BATCH_BACK_TO_CUE);
+    check(cue_return!=nullptr &&
+          (GetWindowLongPtrW(cue_return,GWL_STYLE)&WS_TABSTOP)!=0,
+          "Back to CUE action is keyboard accessible in the original dialog");
+    wchar_t back_text[64]{};
+    GetWindowTextW(cue_return,back_text,64);
+    check(std::wstring(back_text)==L"Back to CUE",
+          "native physical CUE drilldown has explicit return action");
+    RECT back_rect{},route_rect{};
+    GetWindowRect(cue_return,&back_rect);
+    GetWindowRect(GetDlgItem(dialog,IDC_BATCH_APPLY_SELECTED),&route_rect);
+    check(back_rect.right<route_rect.left &&
+          back_rect.top<route_rect.bottom &&
+          route_rect.top<back_rect.bottom,
+          "CUE return does not overlap scoped file preview at default DPI");
     const HWND visible_route=GetDlgItem(dialog,IDC_BATCH_APPLY_VISIBLE);
     check(visible_route!=nullptr &&
           (GetWindowLongPtrW(visible_route,GWL_STYLE)&WS_TABSTOP)!=0,
