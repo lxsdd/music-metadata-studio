@@ -1560,36 +1560,36 @@ int main() {
     // mutation before previously included field choices are removed.
     live_included_online_fields=true;
     current_included_physical_source=9;
-    NMLISTVIEW navigation{};
-    navigation.hdr.hwndFrom=master;
-    navigation.hdr.idFrom=IDC_METADATA_TRACK_LIST;
-    navigation.hdr.code=LVN_ITEMCHANGING;
-    navigation.iItem=2; // sorted physical source 5, not source 9
-    navigation.uChanged=LVIF_STATE;
-    navigation.uOldState=0;
-    navigation.uNewState=LVIS_SELECTED;
+    NMLISTVIEW source_change_notice{};
+    source_change_notice.hdr.hwndFrom=master;
+    source_change_notice.hdr.idFrom=IDC_METADATA_TRACK_LIST;
+    source_change_notice.hdr.code=LVN_ITEMCHANGING;
+    source_change_notice.iItem=2; // sorted physical source 5, not source 9
+    source_change_notice.uChanged=LVIF_STATE;
+    source_change_notice.uOldState=0;
+    source_change_notice.uNewState=LVIS_SELECTED;
     const int blocked_before=blocked_online_rebind_notifications;
     check(SendMessageW(dialog,WM_NOTIFY,IDC_METADATA_TRACK_LIST,
-             reinterpret_cast<LPARAM>(&navigation))==TRUE &&
+             reinterpret_cast<LPARAM>(&source_change_notice))==TRUE &&
           blocked_online_rebind_notifications==blocked_before+1,
           "actual native dialog dispatch vetoes cross-source included choice loss");
-    navigation.iItem=0; // currently included source 9
-    navigation.uOldState=LVIS_SELECTED;
-    navigation.uNewState=0;
+    source_change_notice.iItem=0; // currently included source 9
+    source_change_notice.uOldState=LVIS_SELECTED;
+    source_change_notice.uNewState=0;
     check(SendMessageW(dialog,WM_NOTIFY,IDC_METADATA_TRACK_LIST,
-             reinterpret_cast<LPARAM>(&navigation))==TRUE &&
+             reinterpret_cast<LPARAM>(&source_change_notice))==TRUE &&
           blocked_online_rebind_notifications==blocked_before+2,
           "native message dispatch also rejects deselecting included source");
-    navigation.uOldState=0;
-    navigation.uNewState=LVIS_SELECTED;
+    source_change_notice.uOldState=0;
+    source_change_notice.uNewState=LVIS_SELECTED;
     check(SendMessageW(dialog,WM_NOTIFY,IDC_METADATA_TRACK_LIST,
-             reinterpret_cast<LPARAM>(&navigation))==FALSE &&
+             reinterpret_cast<LPARAM>(&source_change_notice))==FALSE &&
           blocked_online_rebind_notifications==blocked_before+2,
           "native same-source reselect is allowed without losing decisions");
     live_included_online_fields=false;
-    navigation.iItem=2;
+    source_change_notice.iItem=2;
     check(SendMessageW(dialog,WM_NOTIFY,IDC_METADATA_TRACK_LIST,
-             reinterpret_cast<LPARAM>(&navigation))==FALSE,
+             reinterpret_cast<LPARAM>(&source_change_notice))==FALSE,
           "native source switching resumes once online selection is reset");
     HWND detail = GetDlgItem(dialog, IDC_METADATA_LIST);
     check(ListView_SetItemCountEx(detail, 3, 0) != FALSE,
