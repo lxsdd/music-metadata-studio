@@ -493,9 +493,16 @@ int main() {
         if (!GetWindowRect(item, &rect)) return false;
         MapWindowPoints(HWND_DESKTOP, cue_dialog,
                         reinterpret_cast<POINT*>(&rect), 2);
-        return rect.left >= 0 && rect.top >= 0 &&
-               rect.right <= cue_client.right &&
-               rect.bottom <= cue_client.bottom;
+        const bool inside = rect.left >= 0 && rect.top >= 0 &&
+                            rect.right <= cue_client.right &&
+                            rect.bottom <= cue_client.bottom;
+        if (!inside)
+            std::cerr << "Precision CUE button geometry id="
+                      << GetDlgCtrlID(item) << " x=" << rect.left
+                      << ".." << rect.right << " y=" << rect.top
+                      << ".." << rect.bottom << " client="
+                      << cue_client.right << "x" << cue_client.bottom << "\\n";
+        return inside;
     };
     for (HWND item : {cue_edition, cue_copy, cue_save, cue_save_all, cue_close})
         check(inside_client(item),
