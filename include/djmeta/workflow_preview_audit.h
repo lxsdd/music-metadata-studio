@@ -4,6 +4,7 @@
 #include "djmeta/batch_preview.h"
 #include "djmeta/review_decisions.h"
 #include "djmeta/structural_guard.h"
+#include <algorithm>
 #include <cstddef>
 #include <optional>
 #include <string>
