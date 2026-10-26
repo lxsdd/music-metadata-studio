@@ -2338,7 +2338,7 @@ for marker in ("filter_cue_queue_view(", "CUE_QUEUE_FILTER_SORTED_ID",
 for marker in ("state.view_order=djmeta::filter_cue_queue_view(",
                'L"CUE: inspect / blocked"',
                "selected>static_cast<int>(djmeta::BatchLocationQueue::CueOriginalKept)",
-               "Selected online fields belong to the current source."):
+               "confirm_online_preview_navigation("):
     if marker not in workspace_dialog:
         raise SystemExit("STATIC CUE FILTER NATIVE SAFETY FAIL: "+marker)
 
