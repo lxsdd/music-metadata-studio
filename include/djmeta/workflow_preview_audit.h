@@ -147,6 +147,64 @@ inline WorkflowPreviewAudit audit_workflow_preview(
     return audit;
 }
 
+// Read-only source-identity navigation; never final FileOps authority.
+enum class WorkflowNextIssueKind { None, PendingReview, PendingConfident,
+    PendingSafe, RawRouteConflict, RawRouteBlocker, FinalFileOpsUnqualified };
+struct WorkflowNextIssue {
+    WorkflowNextIssueKind kind=WorkflowNextIssueKind::None;
+    std::size_t source_index=0,proposal_index=0;
+    std::string issue_code;
+};
+inline WorkflowNextIssue next_workflow_issue(
+    const WorkflowPreviewAudit& audit,const BatchPreviewTable& table,
+    const std::vector<AnalysisResult>& analyses,
+    const std::vector<std::vector<ReviewDecision>>& decisions,
+    std::size_t cursor) {
+    const auto n=analyses.size();
+    if(audit.tracks!=n || audit.rows.size()!=n ||
+       table.rows.size()!=n || decisions.size()!=n || n>100000)
+        throw std::invalid_argument("WORKFLOW_NEXT_ISSUE_STALE_BATCH");
+    if(!n) return {};
+    const auto start=cursor<n?cursor:std::size_t{0};
+    for(int priority=0;priority<5;++priority)
+        for(std::size_t offset=0;offset<n;++offset) {
+            const auto i=(start+offset)%n;
+            const auto& a=analyses[i];
+            const auto& d=decisions[i];
+            if(a.proposals.size()!=d.size())
+                throw std::invalid_argument("WORKFLOW_NEXT_ISSUE_STALE_DECISIONS");
+            if(priority<3) {
+                for(std::size_t j=0;j<d.size();++j) {
+                    if(d[j].action!=ReviewAction::Pending) continue;
+                    const auto safety=a.proposals[j].safety;
+                    if(priority==0 && safety==SafetyClass::Review)
+                        return {WorkflowNextIssueKind::PendingReview,i,j,{}};
+                    if(priority==1 && safety==SafetyClass::Confident)
+                        return {WorkflowNextIssueKind::PendingConfident,i,j,{}};
+                    if(priority==2 && safety==SafetyClass::Safe)
+                        return {WorkflowNextIssueKind::PendingSafe,i,j,{}};
+                }
+            } else for(const auto& code:table.rows[i].issues) {
+                if(code=="FILESYSTEM_TARGET_UNCHECKED" ||
+                   code=="CUE_DEPENDENCIES_UNCHECKED" ||
+                   code=="UNAPPROVED_METADATA_PROPOSALS") continue;
+                const bool collision=code=="DUPLICATE_RAW_TARGET" ||
+                    code=="RAW_TARGET_CASE_OR_SEPARATOR_COLLISION" ||
+                    code=="RAW_TARGET_ALIASES_SOURCE" ||
+                    code=="RAW_TARGET_IS_BATCH_SOURCE" ||
+                    code=="RAW_TARGET_SHARED_PHYSICAL_ID" ||
+                    code=="RAW_TARGET_SHARED_HOST_CANONICAL";
+                if(priority==3 && collision)
+                    return {WorkflowNextIssueKind::RawRouteConflict,i,0,code};
+                if(priority==4 && !collision)
+                    return {WorkflowNextIssueKind::RawRouteBlocker,i,0,code};
+            }
+        }
+    if(audit.file_plan_blocked_tracks)
+        return {WorkflowNextIssueKind::FinalFileOpsUnqualified,0,0,{}};
+    return {};
+}
+
 // The native host attaches this to at most one exact, independently
 // re-probed physical Discogs source. These are different units from the
 // proposal-count columns below: counts here are DISTINCT physical fields

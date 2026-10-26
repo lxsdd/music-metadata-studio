@@ -60,6 +60,56 @@ int main() {
           summary.rows[2].rejected==1 &&
           summary.rows[2].raw_collision && summary.rows[2].file_plan_blocked,
           "local explicit decisions and raw FileOps blockers remain independent");
+    auto next=next_workflow_issue(summary,table,analyses,decisions,0);
+    check(next.kind==WorkflowNextIssueKind::PendingReview &&
+          next.source_index==0 && next.proposal_index==1,
+          "first semantic REVIEW selected by physical source identity");
+    next=next_workflow_issue(summary,table,analyses,decisions,1);
+    check(next.kind==WorkflowNextIssueKind::PendingReview &&
+          next.source_index==3 && next.proposal_index==0,
+          "next cursor advances in source order regardless of UI sorting");
+    auto resolved=decisions;
+    resolved[0][1]={ReviewAction::Reject,{}};
+    resolved[3][0]={ReviewAction::Reject,{}};
+    auto audited=audit_workflow_preview(table,analyses,resolved);
+    next=next_workflow_issue(audited,table,analyses,resolved,0);
+    check(next.kind==WorkflowNextIssueKind::PendingSafe &&
+          next.source_index==0 && next.proposal_index==0,
+          "SAFE still requires an explicit decision");
+    resolved[0][0]={ReviewAction::Reject,{}};
+    audited=audit_workflow_preview(table,analyses,resolved);
+    next=next_workflow_issue(audited,table,analyses,resolved,0);
+    check(next.kind==WorkflowNextIssueKind::RawRouteConflict &&
+          next.source_index==2 && next.issue_code=="DUPLICATE_RAW_TARGET",
+          "raw collision is navigable but not an approved FileOps target");
+    auto no_collision=table;
+    no_collision.rows[2].issues.clear();
+    no_collision.rows[2].has_raw_target_collision=false;
+    no_collision.raw_collision_items=0;no_collision.unqualified_rows=1;
+    audited=audit_workflow_preview(no_collision,analyses,resolved);
+    next=next_workflow_issue(audited,no_collision,analyses,resolved,0);
+    check(next.kind==WorkflowNextIssueKind::RawRouteBlocker &&
+          next.source_index==1 && next.issue_code=="RAW_TARGET_EXISTS",
+          "raw existing target is a separate route finding");
+    no_collision.rows[1].issues={"FILESYSTEM_TARGET_UNCHECKED"};
+    audited=audit_workflow_preview(no_collision,analyses,resolved);
+    check(next_workflow_issue(audited,no_collision,analyses,resolved,0).kind==
+          WorkflowNextIssueKind::FinalFileOpsUnqualified,
+          "global final host check never shown as user-fixable raw path");
+    no_collision.rows[1].issues.clear();no_collision.unqualified_rows=0;
+    audited=audit_workflow_preview(no_collision,analyses,resolved);
+    check(next_workflow_issue(audited,no_collision,analyses,resolved,0).kind==
+          WorkflowNextIssueKind::None,"empty queue never approves writes");
+    auto broken=resolved;broken[0].pop_back();
+    rejects([&]{(void)next_workflow_issue(summary,table,analyses,broken,0);},
+            "truncated decision vector rejected");
+    auto stale_audit=summary;stale_audit.tracks=3;
+    rejects([&]{(void)next_workflow_issue(stale_audit,table,analyses,decisions,0);},
+            "stale audit source count rejected");
+    next=next_workflow_issue(summary,table,analyses,decisions,999999);
+    check(next.source_index==0 &&
+          next.kind==WorkflowNextIssueKind::PendingReview,
+          "invalid cursor resets without overflow");
     const auto export_tsv=format_workflow_audit_tsv(table,summary);
     check(export_tsv.find("READ-ONLY batch audit; no write approval")!=std::string::npos &&
           export_tsv.find("#1\t1\t0\t0\t1\t0\tNO\tNO")!=std::string::npos &&

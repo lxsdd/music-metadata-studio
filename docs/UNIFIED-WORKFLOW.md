@@ -956,3 +956,13 @@ staging is transactional and only changed tracks are recomputed. Source and
 provider evidence remain unchanged; Undo covers up to 4096 touched sources.
 The scope is neither batch execution approval nor a host FileOps destination.
 
+
+### Guided read-only Next issue
+
+**Next issue** on Review and File locations validates the captured batch and
+navigates to pending REVIEW/CONFIDENT/SAFE proposals or raw route conflicts.
+It uses underlying source identities across filters/sorting, expands field
+groups, never searches or approves automatically, and preserves selected
+online field evidence. Global final foobar File Operations and CUE checks
+remain explicitly unqualified and cannot be presented as a successful
+per-source raw filename check. No productive writes are enabled.

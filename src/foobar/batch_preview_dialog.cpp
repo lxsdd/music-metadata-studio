@@ -317,6 +317,7 @@ struct PreviewState {
     std::vector<djmeta::MetadataDiffRow> focused_metadata_rows;
     std::vector<djmeta::AnalysisResult> analyses;
     std::vector<std::vector<djmeta::ReviewDecision>> review_decisions;
+    std::size_t next_issue_cursor=0; // underlying source order
     std::vector<djmeta::MetadataDiffRow> metadata_rows;
     djmeta::TrackDiffIndex metadata_row_index; // built once per snapshot
     std::vector<std::size_t> metadata_view_order;
@@ -2389,6 +2390,10 @@ void show_preview_page(HWND dialog, PreviewState& state,
         metadata ? SW_HIDE : SW_SHOW);
     ShowWindow(GetDlgItem(dialog,IDC_BATCH_COPY_AUDIT),
         metadata ? SW_HIDE : SW_SHOW);
+    ShowWindow(GetDlgItem(dialog,IDC_BATCH_NEXT_ISSUE),
+        candidate ? SW_HIDE : SW_SHOW);
+    EnableWindow(GetDlgItem(dialog,IDC_BATCH_NEXT_ISSUE),
+        state.stale ? FALSE : TRUE);
     for (int id : {IDC_BATCH_ROUTE_LABEL,
                    IDC_BATCH_DEST_LABEL, IDC_BATCH_PATTERN_LABEL,
                    IDC_BATCH_PROFILE_PICKER,
@@ -2401,6 +2406,102 @@ void show_preview_page(HWND dialog, PreviewState& state,
     } else {
         update_workflow_audit_hint(state);
     }
+}
+
+// Navigate the entire captured read-only batch; no implicit search or write.
+void navigate_next_workflow_issue(HWND dialog,PreviewState& state) {
+    if(state.stale) throw std::runtime_error("Workspace stale; refresh.");
+    const auto audit=djmeta::audit_workflow_preview(
+        state.table,state.analyses,state.review_decisions);
+    const auto next=djmeta::next_workflow_issue(
+        audit,state.table,state.analyses,state.review_decisions,
+        state.next_issue_cursor);
+    using Kind=djmeta::WorkflowNextIssueKind;
+    if(next.kind==Kind::None || next.kind==Kind::FinalFileOpsUnqualified) {
+        SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+            next.kind==Kind::FinalFileOpsUnqualified
+            ? L"Local review/raw route queue resolved. Final foobar File "
+              L"Operations destination, collision and CUE checks remain "
+              L"UNQUALIFIED. No write or final approval."
+            : L"No pending local proposals or raw route findings. "
+              L"Final FileOps/CUE approval is not implied.");
+        return;
+    }
+    if(next.source_index>=state.entries.size())
+        throw std::runtime_error("Next issue source identity stale.");
+    if(next.source_index!=state.selected_track_index &&
+       !state.online_included_fields.empty())
+        throw std::runtime_error(
+            "Current source has selected online fields. Review or reset "
+            "them before navigating; they will not be silently discarded.");
+    if(next.source_index!=state.selected_track_index)
+        invalidate_online_request(state);
+    state.next_issue_cursor=(next.source_index+1)%state.entries.size();
+    if(next.kind==Kind::RawRouteConflict || next.kind==Kind::RawRouteBlocker) {
+        TabCtrl_SetCurSel(state.tabs,2);
+        show_preview_page(dialog,state,false,false);
+        const auto it=std::find(state.view_order.begin(),state.view_order.end(),
+                                next.source_index);
+        if(it==state.view_order.end())
+            throw std::runtime_error("Raw route source not visible.");
+        const auto row=static_cast<int>(it-state.view_order.begin());
+        ListView_SetItemState(state.list,-1,0,LVIS_SELECTED);
+        ListView_SetItemState(state.list,row,LVIS_SELECTED|LVIS_FOCUSED,
+                              LVIS_SELECTED|LVIS_FOCUSED);
+        ListView_EnsureVisible(state.list,row,FALSE);
+        SetFocus(state.list);
+        const std::wstring hint=L"Raw route issue on source #"+
+            std::to_wstring(next.source_index+1)+L": "+
+            from_utf8(issue_status_text(next.issue_code))+
+            L". Review route; final FileOps destination and CUE links "
+            L"remain unqualified. No writes.";
+        SetDlgItemTextW(dialog,IDC_BATCH_HINT,hint.c_str());
+        return;
+    }
+    state.track_discovery=djmeta::TrackDiscovery::All;
+    state.metadata_focus=djmeta::MetadataFocus::All;
+    state.existing_tags_view=false;
+    state.review_group_expanded={true,true,true};
+    SendDlgItemMessageW(dialog,IDC_METADATA_TRACK_FILTER,CB_SETCURSEL,0,0);
+    SendDlgItemMessageW(dialog,IDC_METADATA_FILTER,CB_SETCURSEL,2,0);
+    state.updating_track_selection=true;
+    ListView_SetItemState(state.metadata_track_list,-1,0,LVIS_SELECTED);
+    state.updating_track_selection=false;
+    state.selected_track_index=next.source_index;
+    state.focused_track_index=(std::numeric_limits<std::size_t>::max)();
+    update_master_table(state);
+    TabCtrl_SetCurSel(state.tabs,1);
+    show_preview_page(dialog,state,true,false);
+    const auto it=std::find(state.track_view_order.begin(),
+                            state.track_view_order.end(),next.source_index);
+    if(it==state.track_view_order.end())
+        throw std::runtime_error("Review source not visible.");
+    ListView_EnsureVisible(state.metadata_track_list,
+        static_cast<int>(it-state.track_view_order.begin()),FALSE);
+    bool found=false;
+    for(std::size_t row=0;row<state.metadata_view_order.size();++row) {
+        if(row<state.metadata_view_group.size() &&
+           state.metadata_view_group[row]>=0) continue;
+        const auto index=state.metadata_view_order[row];
+        if(index<state.focused_metadata_rows.size() &&
+           state.focused_metadata_rows[index].proposal_index==next.proposal_index) {
+            ListView_SetItemState(state.metadata_list,-1,0,LVIS_SELECTED);
+            ListView_SetItemState(state.metadata_list,static_cast<int>(row),
+                LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);
+            ListView_EnsureVisible(state.metadata_list,static_cast<int>(row),FALSE);
+            found=true;break;
+        }
+    }
+    if(!found) throw std::runtime_error(
+        "Pending proposal no longer visible. Refresh snapshot.");
+    SetFocus(state.metadata_list);
+    const wchar_t* level=next.kind==Kind::PendingReview?L"REVIEW":
+        next.kind==Kind::PendingConfident?L"CONFIDENT":L"SAFE";
+    const std::wstring hint=L"Next pending "+std::wstring(level)+
+        L" proposal: source #"+std::to_wstring(next.source_index+1)+
+        L". Inspect original/proposed values, then explicitly "
+        L"Accept, Reject or Manual. No writes.";
+    SetDlgItemTextW(dialog,IDC_BATCH_HINT,hint.c_str());
 }
 
 void add_column(HWND list, int index, const wchar_t* name, int width) {
@@ -3847,6 +3948,7 @@ void mark_stale_workspace(PreviewState& state) {
                    IDC_METADATA_RESET, IDC_METADATA_USE_VALUE,
                    IDC_BATCH_APPLY_SELECTED, IDC_BATCH_APPLY_ALL,
                    IDC_BATCH_UNDO, IDC_BATCH_COPY_AUDIT,
+                    IDC_BATCH_NEXT_ISSUE,
                    IDC_METADATA_MB_SEARCH, IDC_METADATA_MB_LOAD_RELEASE,
                    IDC_METADATA_DISCOGS_NEXT_PAGE,
                    IDC_ONLINE_INCLUDE_FIELDS,IDC_ONLINE_IGNORE_FIELDS,
@@ -4035,6 +4137,7 @@ void refresh_workspace_snapshot(PreviewState& state) {
             ? selected_before_refresh : 0;
         state.focused_track_index=(std::numeric_limits<std::size_t>::max)();
         state.track_discovery=djmeta::TrackDiscovery::All;
+        state.next_issue_cursor=0;
         state.focused_metadata_rows.clear();
         state.track_view_order.clear();
         state.cached_name_order_ascending.clear();
@@ -4118,6 +4221,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_BATCH_REFRESH,L"Reload the original selection after a confirmation. Discards pending decisions, search hits and routing previews. Does not import a different selection."},
         {IDC_BATCH_HELP,L"Open the three-stage walkthrough and explain what each tab can and cannot do."},
         {IDC_BATCH_AUDIT,L"Recheck every selected source, then show local explicit/no-op/pending decisions and raw FileOps blockers. Read-only; no approval."},
+        {IDC_BATCH_NEXT_ISSUE,L"Navigate to pending REVIEW/CONFIDENT/SAFE proposals and raw route blockers; never searches, approves or writes."},
         {IDC_BATCH_COPY_AUDIT,L"Recheck the full captured selection and copy a complete source-order TSV audit (including all 500+ rows) to your clipboard. No file paths, tag values, credentials, or write authorization."},
         {IDC_BATCH_UNDO,L"Undo the last local Accept/Reject/Manual or file route preview in memory. Up to 4096 affected tracks; no file writes or persisted approvals."},
         {IDCANCEL,L"Close the workspace without writing tags, CUE data or music files."}
@@ -7796,6 +7900,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
 #endif
         if (id == IDC_BATCH_UNDO && HIWORD(wp) == BN_CLICKED) {
             undo_last_preview_action(dialog,*state);
+            return TRUE;
+        }
+        if (id == IDC_BATCH_NEXT_ISSUE && HIWORD(wp) == BN_CLICKED) {
+            navigate_next_workflow_issue(dialog,*state);
             return TRUE;
         }
         if (id == IDC_BATCH_AUDIT && HIWORD(wp) == BN_CLICKED) {
