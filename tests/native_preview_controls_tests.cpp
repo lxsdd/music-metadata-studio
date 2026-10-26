@@ -470,13 +470,47 @@ int main() {
     HWND cue_edition = GetDlgItem(cue_dialog, IDC_PRECISION_EDITION_CONFIRMED);
     HWND cue_copy = GetDlgItem(cue_dialog, IDC_PRECISION_COPY_CUE);
     HWND cue_save = GetDlgItem(cue_dialog, IDC_PRECISION_SAVE_CUE);
-    check(cue_edition && cue_copy && cue_save,
-          "native edition confirmation, CUE copy and create-only controls exist");
+    HWND cue_save_all = GetDlgItem(cue_dialog, IDC_PRECISION_SAVE_ALL_CUES);
+    HWND cue_close = GetDlgItem(cue_dialog, IDCANCEL);
+    check(cue_edition && cue_copy && cue_save && cue_save_all && cue_close,
+          "native edition confirmation, single and multi-disc create-only controls exist");
     check((GetWindowLongPtrW(cue_copy, GWL_STYLE) & WS_DISABLED) != 0 &&
-          (GetWindowLongPtrW(cue_save, GWL_STYLE) & WS_DISABLED) != 0,
-          "copy and external create stay disabled before exact release/disc review");
+          (GetWindowLongPtrW(cue_save, GWL_STYLE) & WS_DISABLED) != 0 &&
+          (GetWindowLongPtrW(cue_save_all, GWL_STYLE) & WS_DISABLED) != 0,
+          "all CUE export actions disabled before exact release/disc review");
+    check((GetWindowLongPtrW(cue_save_all, GWL_STYLE) & BS_TYPEMASK) == BS_PUSHBUTTON,
+          "multi-disc create is a distinct explicit button, not an auto-execution control");
     check(IsDlgButtonChecked(cue_dialog, IDC_PRECISION_EDITION_CONFIRMED) == BST_UNCHECKED,
           "edition is never silently confirmed");
+    // Exercise the real compiled production dialog resource. All buttons
+    // must remain fully visible at the native minimum size, with a separate
+    // lower-row batch action and no collision with the Close button.
+    RECT cue_client{};
+    check(GetClientRect(cue_dialog, &cue_client) != FALSE,
+          "CUE native minimum client dimensions available");
+    const auto inside_client = [&](HWND item) {
+        RECT rect{};
+        if (!GetWindowRect(item, &rect)) return false;
+        MapWindowPoints(HWND_DESKTOP, cue_dialog,
+                        reinterpret_cast<POINT*>(&rect), 2);
+        return rect.left >= 0 && rect.top >= 0 &&
+               rect.right <= cue_client.right &&
+               rect.bottom <= cue_client.bottom;
+    };
+    for (HWND item : {cue_edition, cue_copy, cue_save, cue_save_all, cue_close})
+        check(inside_client(item),
+              "all CUE review/create controls fit inside production minimum window");
+    RECT cue_single_rect{}, cue_batch_rect{}, cue_close_rect{};
+    GetWindowRect(cue_save, &cue_single_rect);
+    GetWindowRect(cue_save_all, &cue_batch_rect);
+    GetWindowRect(cue_close, &cue_close_rect);
+    check(cue_single_rect.bottom < cue_batch_rect.top &&
+          cue_batch_rect.right <= cue_close_rect.left,
+          "native single/batch/close controls do not overlap");
+    wchar_t cue_batch_label[128]{};
+    GetWindowTextW(cue_save_all, cue_batch_label, 128);
+    check(std::wcsstr(cue_batch_label, L"all reviewed") != nullptr,
+          "actual multi-disc control declares explicit all-disc scope");
     DestroyWindow(cue_dialog);
 
     DestroyWindow(dialog);
