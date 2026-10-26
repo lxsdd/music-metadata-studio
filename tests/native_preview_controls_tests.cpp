@@ -101,17 +101,17 @@ bool centers_match(HWND dialog, int label_id, int control_id) {
 int main() {
     using djmeta_foobar::NativeRoutePreviewScope;
     using djmeta_foobar::native_route_preview_source_ids;
-    const std::vector<std::size_t> visible={4,1,3};
+    const std::vector<std::size_t> visible_routes_fixture={4,1,3};
     check(native_route_preview_source_ids(NativeRoutePreviewScope::Visible,
-          5,visible,{})==visible,"visible route scope keeps sorted source IDs");
+          5,visible_routes_fixture,{})==visible_routes_fixture,"visible route scope keeps sorted source IDs");
     check(native_route_preview_source_ids(NativeRoutePreviewScope::Selected,
-          5,visible,{1,2})==std::vector<std::size_t>({1,3}),
+          5,visible_routes_fixture,{1,2})==std::vector<std::size_t>({1,3}),
           "selected visible rows map to exact physical source IDs");
     check(native_route_preview_source_ids(NativeRoutePreviewScope::All,
-          5,visible,{})==std::vector<std::size_t>({0,1,2,3,4}),
+          5,visible_routes_fixture,{})==std::vector<std::size_t>({0,1,2,3,4}),
           "all routing includes hidden source IDs");
     check(native_route_preview_source_ids(NativeRoutePreviewScope::All,
-          54129,visible,{}).size()==54129,"large batch all-source routing");
+          54129,visible_routes_fixture,{}).size()==54129,"large batch all-source routing");
     for(const auto& bad:std::vector<std::vector<std::size_t>>{{4,4},{5},{}}) {
         bool rejected=false;
         try {(void)native_route_preview_source_ids(
@@ -122,7 +122,7 @@ int main() {
     for(const auto& bad:std::vector<std::vector<std::size_t>>{{3},{1,1},{}}) {
         bool rejected=false;
         try {(void)native_route_preview_source_ids(
-            NativeRoutePreviewScope::Selected,5,visible,bad);}
+            NativeRoutePreviewScope::Selected,5,visible_routes_fixture,bad);}
         catch(const std::invalid_argument&) {rejected=true;}
         check(rejected,"invalid/duplicate/empty selected routing rejected");
     }
