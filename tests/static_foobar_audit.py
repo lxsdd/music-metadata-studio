@@ -79,6 +79,31 @@ for token in (
     if token not in precision:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: precision CUE copy review gate missing " + token)
 
+# A single-disc external CUE must never have weaker album/track/time
+# qualification than the all-disc create action. The user must still approve
+# its own full destination after a fresh physical source/target snapshot.
+single_create = precision.split(
+    "void save_reviewed_disc_cue(Workspace& state) {", 1
+)[-1].split("void save_all_reviewed_disc_cues(Workspace& state) {", 1)[0]
+for token in (
+    "validate_precision_cue_selected_disc(",
+    "original, *state.release, static_cast<std::size_t>(chosen)",
+    "observe_precision_cue_external_review(original)",
+    "MessageBoxW(state.dialog, message.c_str()",
+    "MB_DEFBUTTON2",
+    "create_confirmed_precision_cue_selected_disc(",
+    "std::move(confirmed), *state.release,",
+):
+    if token not in single_create:
+        raise SystemExit(
+            "STATIC FOOBAR AUDIT FAIL: exact-release single-disc create gate missing: " + token)
+if not (
+    single_create.find("validate_precision_cue_selected_disc(") <
+    single_create.find("MessageBoxW(state.dialog, message.c_str()") <
+    single_create.find("create_confirmed_precision_cue_selected_disc(")
+):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: single-disc edition/confirmation gate reordered")
+
 # The multi-disc create action is separate from search, preview, copy and
 # single-disc create. It must remain impossible to dispatch without a real
 # BN_CLICKED command, a whole-batch preflight and an independent modal YES.
