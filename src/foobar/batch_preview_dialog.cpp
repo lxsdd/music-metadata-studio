@@ -1087,6 +1087,17 @@ std::wstring cell_text(PreviewState& state, std::size_t row, int column) {
         return from_utf8(display);
     }
     case 3: {
+        if(state.location_queue==djmeta::BatchLocationQueue::CueAll ||
+           state.location_queue==djmeta::BatchLocationQueue::CueAttention ||
+           state.location_queue==djmeta::BatchLocationQueue::CueRawOnly ||
+           state.location_queue==djmeta::BatchLocationQueue::CueOriginalKept) {
+            // CUE filter rows remain physical carrier identities; disclose
+            // the matching independent session stage instead of a generic
+            // raw target state. The final FILE postimage remains unqualified.
+            return L"CUE: "+from_utf8(djmeta::cue_queue_label(
+                state.cue_inspections.stage(row)))+
+                L" (final links unchecked)";
+        }
         const auto intent=djmeta::inspect_file_action_intent(
             entry.file_action,entry.input,summary);
         if(intent.file_skip) return L"No file action (staged)";

@@ -2300,3 +2300,11 @@ for marker in ("state.view_order=djmeta::filter_cue_queue_view(",
                "Selected online fields belong to the current source."):
     if marker not in workspace_dialog:
         raise SystemExit("STATIC CUE FILTER NATIVE SAFETY FAIL: "+marker)
+
+
+# In filtered CUE views, the native status cell explains the independent
+# CUE inspection stage, not a misleading generic RAW route status.
+for marker in ('return L"CUE: "+from_utf8(djmeta::cue_queue_label(',
+               'L" (final links unchecked)"'):
+    if marker not in workspace_dialog:
+        raise SystemExit("STATIC NATIVE CUE FILTER STATUS FAIL: "+marker)
