@@ -61,19 +61,24 @@ def violations(config: str, script: str) -> list[str]:
 
 def main() -> None:
     assert not violations(CONFIG, SCRIPT), violations(CONFIG, SCRIPT)
+    # Mutations MUST target the QA job, not the identically named
+    # Win32/x64 build matrix belonging to another job.
+    def mutate_qa(needle: str, replacement: str) -> str:
+        prefix, rest = CONFIG.split(START, 1)
+        qa, tail = rest.split(END, 1)
+        assert qa.count(needle) == 1, "ambiguous QA mutation target"
+        return prefix + START + qa.replace(needle, replacement, 1) + END + tail
+
     for altered in (
-        CONFIG.replace(
+        mutate_qa(
             "github.event.pull_request.head.repo.full_name == github.repository",
-            "github.event.pull_request.head.repo.full_name != github.repository", 1),
-        CONFIG.replace("github.event.pull_request.base.ref == 'main'",
-                       "github.event.pull_request.base.ref == 'develop'", 1),
-        CONFIG.replace("platform: [Win32, x64]",
-                       "platform: [x64]", 1),
-        CONFIG.replace("./scripts/qa-physical-writer-host.ps1",
-                       "./scripts/fake-writer-qa.ps1", 1),
-        CONFIG.replace(
-            "    needs: static-audit\n    runs-on: windows-2022\n    timeout-minutes: 25",
-            "    needs: []\n    runs-on: windows-2022\n    timeout-minutes: 25", 1),
+            "github.event.pull_request.head.repo.full_name != github.repository"),
+        mutate_qa("github.event.pull_request.base.ref == 'main'",
+                  "github.event.pull_request.base.ref == 'develop'"),
+        mutate_qa("platform: [Win32, x64]", "platform: [x64]"),
+        mutate_qa("./scripts/qa-physical-writer-host.ps1",
+                  "./scripts/fake-writer-qa.ps1"),
+        mutate_qa("needs: static-audit", "needs: []"),
     ):
         assert violations(altered, SCRIPT), "negative workflow mutation escaped"
     for mutated in (
