@@ -26,7 +26,7 @@ using namespace djmeta;
 
 std::string deezer_fixture() {
     std::string json =
-        R"({"id":123456,"title":"Synthetic Continuous Mix (DJ Mix)","artist":{"name":"Various Artists"},"nb_tracks":30,"tracks":{"data":[)";
+        R"JSON({"id":123456,"title":"Synthetic Continuous Mix (DJ Mix)","artist":{"name":"Various Artists"},"nb_tracks":30,"tracks":{"data":[)JSON";
     for (unsigned i = 0; i < 30; ++i) {
         if (i) json += ",";
         json += "{\"id\":" + std::to_string(1000 + i) +
@@ -39,7 +39,7 @@ std::string deezer_fixture() {
 }
 
 std::string apple_fixture() {
-    std::string json = R"({"resultCount":31,"results":[{"wrapperType":"collection","collectionId":456789,"collectionName":"Synthetic Continuous Mix (DJ Mix)","artistName":"Various Artists","trackCount":30})";
+    std::string json = R"JSON({"resultCount":31,"results":[{"wrapperType":"collection","collectionId":456789,"collectionName":"Synthetic Continuous Mix (DJ Mix)","artistName":"Various Artists","trackCount":30})JSON";
     for (unsigned i = 0; i < 30; ++i) {
         json += ",{\"wrapperType\":\"track\",\"kind\":\"song\",\"collectionId\":456789,"
             "\"collectionName\":\"Synthetic Continuous Mix (DJ Mix)\","
