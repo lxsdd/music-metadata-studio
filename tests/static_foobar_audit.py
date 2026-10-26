@@ -2410,3 +2410,21 @@ for token in ("state.entries.size()>1 && state.entries.size()<=128",
               "physical_batch_compared=true;"):
     if token not in batch_dialog:
         raise SystemExit("STATIC MUSICBRAINZ NATIVE BATCH FAIL: "+token)
+
+# Source-stale history/next-issue errors never escape native Win32 callbacks.
+# These verify production event-handler code rather than a detached helper.
+for entry, detail, kind in (
+    ("navigate_preview_history(dialog,*state,row);",
+     "History navigation aborted: stale source or route.", "WM_NOTIFY"),
+    ("navigate_next_workflow_issue(dialog,*state);",
+     "Next issue aborted: stale source or route.", "WM_COMMAND"),
+):
+    position = batch_dialog.find(entry)
+    if position < 0:
+        raise SystemExit("STATIC SOURCE NAVIGATION CALLBACK MISSING: " + entry)
+    preceding = batch_dialog[max(0, position - 170):position]
+    following = batch_dialog[position:position + 360]
+    if ("try {" not in preceding or "catch (...)" not in following or
+        "mark_stale_workspace(*state);" not in following or detail not in following or
+        kind not in batch_dialog):
+        raise SystemExit("STATIC SOURCE NAVIGATION NOT FAIL-CLOSED: " + entry)

@@ -7236,7 +7236,16 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 row=ListView_GetNextItem(state->history_list,-1,LVNI_FOCUSED);
                 if(row<0) row=ListView_GetNextItem(state->history_list,-1,LVNI_SELECTED);
             }
-            navigate_preview_history(dialog,*state,row);
+            // Source/rules/route exceptions must not escape unmanaged
+            // WM_NOTIFY. An aborted navigation cannot replay an action.
+            try {
+                navigate_preview_history(dialog,*state,row);
+            } catch (...) {
+                mark_stale_workspace(*state);
+                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                    L"History navigation aborted: stale source or route. "
+                    L"Refresh; nothing was replayed.");
+            }
             return TRUE;
         }
         if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&
@@ -9371,7 +9380,16 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             return TRUE;
         }
         if (id == IDC_BATCH_NEXT_ISSUE && HIWORD(wp) == BN_CLICKED) {
-            navigate_next_workflow_issue(dialog,*state);
+            // A hidden source re-probe may invalidate the entire queue;
+            // keep native WM_COMMAND exceptions inside this boundary.
+            try {
+                navigate_next_workflow_issue(dialog,*state);
+            } catch (...) {
+                mark_stale_workspace(*state);
+                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                    L"Next issue aborted: stale source or route. "
+                    L"Refresh; no file operation was approved.");
+            }
             return TRUE;
         }
         if (id == IDC_BATCH_AUDIT && HIWORD(wp) == BN_CLICKED) {
