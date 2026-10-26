@@ -26,6 +26,7 @@
 #include "djmeta/precision_cue_external_inspect.h"
 #include "djmeta/precision_cue_external_host_review.h"
 #include "djmeta/precision_cue_external_create.h"
+#include "djmeta/precision_cue_external_batch.h"
 #include "djmeta/precision_cue_embedded_inventory.h"
 #include "djmeta/precision_cue_embedded_crosscheck.h"
 #include "djmeta/precision_cue_id3_file_preview.h"
@@ -131,7 +132,7 @@ struct Workspace {
         unsigned flags = 0;
         RECT original{};
     };
-    std::array<ControlAnchor, 12> anchors{};
+    std::array<ControlAnchor, 13> anchors{};
     int initial_client_width = 0;
     int initial_client_height = 0;
     int min_window_width = 0;
@@ -167,7 +168,7 @@ void capture_precision_window_layout(Workspace& state) noexcept {
     state.initial_client_height = client.bottom - client.top;
     state.min_window_width = outer.right - outer.left;
     state.min_window_height = outer.bottom - outer.top;
-    const std::array<std::pair<int, unsigned>, 12> controls{{
+    const std::array<std::pair<int, unsigned>, 13> controls{{
         {IDC_PRECISION_APPLE_LINK, kGrowWidth},
         {IDC_PRECISION_SEARCH, kShiftX},
         {IDC_PRECISION_ALBUM_RESULTS, kGrowWidth},
@@ -179,6 +180,7 @@ void capture_precision_window_layout(Workspace& state) noexcept {
         {IDC_PRECISION_EDITION_CONFIRMED, kShiftY},
         {IDC_PRECISION_COPY_CUE, kShiftX | kShiftY},
         {IDC_PRECISION_SAVE_CUE, kShiftX | kShiftY},
+        {IDC_PRECISION_SAVE_ALL_CUES, kShiftX | kShiftY},
         {IDCANCEL, kShiftX | kShiftY}
     }};
     for (std::size_t i = 0; i < controls.size(); ++i) {
@@ -444,6 +446,7 @@ void invalidate_cue_copy(Workspace& state) {
     CheckDlgButton(state.dialog, IDC_PRECISION_EDITION_CONFIRMED, BST_UNCHECKED);
     EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_COPY_CUE), FALSE);
     EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_SAVE_CUE), FALSE);
+    EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_SAVE_ALL_CUES), FALSE);
 }
 
 void update_reviewed_actions(Workspace& state) {
@@ -457,6 +460,16 @@ void update_reviewed_actions(Workspace& state) {
         state.reviewed_exports[static_cast<std::size_t>(chosen)].has_value();
     EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_SAVE_CUE),
                  saveable ? TRUE : FALSE);
+    // All discs must be explicitly mapped, reviewed, and currently absent
+    // in the captured read-only inventory before presenting batch consent.
+    // The full host/content SHA preflight is repeated at actual invocation.
+    const bool all_saveable = approved && state.reviewed_exports.size() > 1 &&
+        state.reviewed_exports.size() == state.reviewed_mapping.size() &&
+        std::all_of(state.reviewed_exports.begin(),
+                    state.reviewed_exports.end(),
+                    [](const auto& item) { return item.has_value(); });
+    EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_SAVE_ALL_CUES),
+                 all_saveable ? TRUE : FALSE);
 }
 
 void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release,
@@ -992,6 +1005,81 @@ void save_reviewed_disc_cue(Workspace& state) {
     }
 }
 
+// A single explicit choice creates the complete reviewed multi-disc set.
+// All paths and source SHA snapshots are preflighted before the confirmation.
+// If an external actor changes a target during publication, some earlier
+// CUEs MAY already exist; NEVER silently delete, restore or overwrite them.
+void save_all_reviewed_disc_cues(Workspace& state) {
+    if (!state.reviewed_preview_ready || !state.release ||
+        IsDlgButtonChecked(state.dialog, IDC_PRECISION_EDITION_CONFIRMED) != BST_CHECKED ||
+        state.reviewed_exports.size() < 2 ||
+        state.reviewed_exports.size() != state.reviewed_mapping.size())
+        throw std::invalid_argument(
+            "Verify the exact multi-disc edition and review ALL physical MP3 mappings");
+    std::vector<djmeta::PrecisionCueReviewedExternalCreate> batch;
+    batch.reserve(state.reviewed_exports.size());
+    for (const auto& item : state.reviewed_exports) {
+        if (!item) throw std::invalid_argument(
+            "Every disc must have an absent, reviewed sibling CUE target");
+        batch.push_back(*item);
+    }
+    const auto before = djmeta::preflight_precision_cue_external_batch(batch);
+    using BatchState = djmeta::PrecisionCueExternalBatchState;
+    if (before.state != BatchState::ReadyForConfirmation) {
+        invalidate_cue_copy(state);
+        throw std::invalid_argument(
+            "Batch source, reviewed disc identity or target changed: " +
+            before.diagnostic + ". Refresh the complete preview");
+    }
+    std::wstring question =
+        L"Create all " + std::to_wstring(before.target_paths.size()) +
+        L" NEW external CUE files?\r\n\r\n";
+    for (std::size_t i = 0; i < before.target_paths.size(); ++i) {
+        question += L"Disc " + std::to_wstring(i + 1) + L": " +
+            before.target_paths[i].wstring() + L"\r\n";
+    }
+    question +=
+        L"\r\nEach file is individually create-only: existing CUEs are NEVER "
+        L"replaced, and MP3s/tags are NEVER modified.\r\n"
+        L"This multi-file operation is not atomic. An I/O failure after an "
+        L"earlier successful creation can leave a PARTIAL result. Published "
+        L"CUEs will be preserved, not rolled back.\r\n"
+        L"Proceed with ALL reviewed discs?";
+    if (MessageBoxW(state.dialog, question.c_str(),
+                    L"Precision CUE - create reviewed disc batch",
+                    MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES)
+        return;
+    const auto result = djmeta::create_confirmed_precision_cue_external_batch(
+        std::move(batch), true);
+    invalidate_cue_copy(state);
+    if (result.state == BatchState::CreatedAll) {
+        SetDlgItemTextW(state.dialog, IDC_PRECISION_SOURCE_HINT,
+            L"All reviewed external CUEs created and verified. No audio or tags changed.");
+        show_text(state.dialog,
+            L"Batch complete: " + std::to_wstring(result.created_count) +
+            L" new external CUEs created. Reopen or refresh the album "
+            L"to re-inspect the new files. No physical media/tags changed.");
+        return;
+    }
+    if (result.state == BatchState::PartialNeedsReview ||
+        result.state == BatchState::PublishedNeedsReview) {
+        SetDlgItemTextW(state.dialog, IDC_PRECISION_SOURCE_HINT,
+            L"PARTIAL/UNCERTAIN CUE batch: preserve published targets and review.");
+        show_text(state.dialog,
+            L"WARNING: external CUE batch did not finish.\r\n" +
+            std::to_wstring(result.created_count) +
+            L" disc CUEs were created before the failure; the next disc MAY "
+            L"also have been published if its verification failed.\r\n"
+            L"DO NOT delete, overwrite or automatically restore CUEs. "
+            L"Inspect all target paths manually.\r\n"
+            L"No MP3, physical ID3, ReplayGain or embedded CUE was modified.");
+        return;
+    }
+    throw std::runtime_error(
+        "No batch CUE created: " + result.diagnostic +
+        ". All existing sibling CUEs have been preserved; refresh the preview");
+}
+
 void start_search(Workspace& state) {
     if (state.job && !state.job->ready.load(std::memory_order_acquire))
         return;
@@ -1327,6 +1415,11 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
         }
         if (LOWORD(wp) == IDC_PRECISION_SAVE_CUE && HIWORD(wp) == BN_CLICKED) {
             try { save_reviewed_disc_cue(*state); }
+            catch (const std::exception& error) { show_error(dialog, error.what()); }
+            return TRUE;
+        }
+        if (LOWORD(wp) == IDC_PRECISION_SAVE_ALL_CUES && HIWORD(wp) == BN_CLICKED) {
+            try { save_all_reviewed_disc_cues(*state); }
             catch (const std::exception& error) { show_error(dialog, error.what()); }
             return TRUE;
         }
