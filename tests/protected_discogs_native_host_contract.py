@@ -49,18 +49,27 @@ def problems(full:str)->list[str]:
 
 def main()->None:
     assert not problems(SOURCE),problems(SOURCE)
+    # Restrict mutations to the protected job. Other ordinary QA jobs
+    # deliberately share same-repository branch filters and must not mask a
+    # regression in the credential-bearing job.
+    def mutate_protected(needle:str,replacement:str)->str:
+        head,tail=SOURCE.split(PREFIX,1)
+        block,end=tail.split(END,1)
+        assert block.count(needle)==1,"ambiguous native protection target"
+        return head+PREFIX+block.replace(needle,replacement,1)+END+end
+
     fixtures=(
-        SOURCE.replace("github.event.pull_request.number == 45",
-                       "github.event.pull_request.number == 46",1),
-        SOURCE.replace("github.event.pull_request.head.repo.full_name == github.repository",
-                       "github.event.pull_request.head.repo.full_name != github.repository",1),
-        SOURCE.replace("environment: discogs-qa", "environment: unprotected",1),
-        SOURCE.replace("github.event.pull_request.base.ref == 'main'",
-                       "github.event.pull_request.base.ref == 'foreign'",1),
-        SOURCE.replace("lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@"+NEW,
-                       "lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@"+OLD,1),
-        SOURCE.replace("authorized-discogs-probe: 'true'",
-                       "authorized-discogs-probe: 'false'",1),
+        mutate_protected("github.event.pull_request.number == 45",
+                         "github.event.pull_request.number == 46"),
+        mutate_protected("github.event.pull_request.head.repo.full_name == github.repository",
+                         "github.event.pull_request.head.repo.full_name != github.repository"),
+        mutate_protected("environment: discogs-qa", "environment: unprotected"),
+        mutate_protected("github.event.pull_request.base.ref == 'main'",
+                         "github.event.pull_request.base.ref == 'foreign'"),
+        mutate_protected("lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@"+NEW,
+                         "lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@"+OLD),
+        mutate_protected("authorized-discogs-probe: 'true'",
+                         "authorized-discogs-probe: 'false'"),
     )
     for mutated in fixtures:
         assert problems(mutated),"unsafe protected-host workflow mutation escaped"
