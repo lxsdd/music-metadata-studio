@@ -284,9 +284,8 @@ jobs:
   # One-shot source-to-component package qualification on disposable CI only.
   # No binaries are uploaded, retained or exposed as GitHub artifacts.
   private-package-qualification:
-    # This qualification writes only disposable RUNNER_TEMP build outputs;
-    # ordinary PR checks are the actual Studio source-of-truth workflow.
-    # No fork/unrelated-branch allowance, publication or user-file access.
+    # This only qualifies read-only packages in disposable Windows runners.
+    # No fork, unrelated branch, secret, user-file or artifact allowance.
     if: >-
       (github.event_name == 'push' &&
        github.ref == 'refs/heads/feature/online-metadata-discovery-foundation-20261009' &&
@@ -308,58 +307,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $sha = '${{ github.event.pull_request.head.sha || github.sha }}'
-          if ($sha -cnotmatch '^[a-f0-9]{40}
-          $target = Join-Path $env:RUNNER_TEMP 'mms-private-qualify'
-          try {
-            & ./scripts/local-acceptance-build.ps1 -SourceSha $sha -OutputDirectory $target
-            if (-not $?) { throw 'Private component acceptance build rejected' }
-            $package = Join-Path (Join-Path $target ('MMS-local-' + $sha)) 'BUILD-MANIFEST.txt'
-            if (-not (Test-Path -LiteralPath $package -PathType Leaf)) { throw 'Private package manifest missing' }
-            $text = Get-Content -LiteralPath $package -Raw
-            if (-not $text.Contains('commit=' + $sha) -or -not $text.Contains('status=PASS')) { throw 'Private exact-source package proof missing' }
-            Write-Host 'PRIVATE_SOURCE_TO_PACKAGE=PASS (Win32+x64, manifest, PE and SHA256 verified; no public artifact)'
-          } finally {
-            Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue
-          }
-  # Internal PRs may publish short-lived QA artifacts, never GitHub Releases.
-  # Fork PRs remain build-only so untrusted code cannot publish previews.
-  package:
-    if: false # Safety hold: do not package public DLLs
-    needs: [static-audit, host-gate-script, windows-build]
-    runs-on: windows-2022
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
-        with:
-          name: foo-music-metadata-studio-Win32
-          path: candidate-input/Win32
-      - uses: actions/download-artifact@v8
-        with:
-          name: foo-music-metadata-studio-x64
-          path: candidate-input/x64
-      - name: Package verified combined component
-        shell: pwsh
-        run: |
-          $version = (Get-Content -Raw -LiteralPath VERSION).Trim()
-          ./scripts/package-foobar.ps1 `
-            -Win32Dll 'candidate-input/Win32/foo_music_metadata_studio.dll' `
-            -X64Dll 'candidate-input/x64/foo_music_metadata_studio.dll' `
-            -OutputDirectory 'candidate-output' `
-            -Version $version `
-            -Commit '${{ github.event.pull_request.head.sha || github.sha }}'
-      - name: Upload combined component
-        if: false # Safety hold: no public binary packages
-        uses: actions/upload-artifact@v7
-        with:
-          name: foo-music-metadata-studio-component
-          path: |
-            candidate-output/*.fb2k-component
-            candidate-output/BUILD-MANIFEST.txt
-            candidate-output/SHA256SUMS.txt
-          if-no-files-found: error
-          retention-days: 14
-) { throw 'Unpinned source revision' }
+          if ($sha -cnotmatch '^[a-f0-9]{40}$') { throw 'Unpinned source revision' }
           $target = Join-Path $env:RUNNER_TEMP 'mms-private-qualify'
           try {
             & ./scripts/local-acceptance-build.ps1 -SourceSha $sha -OutputDirectory $target
