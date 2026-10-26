@@ -112,6 +112,33 @@ int main() {
           history.events().back().sequence==300 &&
           history.events().back().scope==2,
           "history retains the latest 256 events and stable ordinal");
+    using djmeta_foobar::PreviewHistoryFilter;
+    using djmeta_foobar::preview_history_visible_indices;
+    using djmeta_foobar::preview_history_single_source;
+    check(preview_history_visible_indices(history,PreviewHistoryFilter::Routing).size()==
+              SessionPreviewHistory::limit &&
+          preview_history_visible_indices(history,PreviewHistoryFilter::Review).empty() &&
+          preview_history_visible_indices(history,PreviewHistoryFilter::Undo).empty(),
+          "bounded session history filters preserve event order");
+    history.clear();
+    check(history.append(PreviewHistoryKind::Accept,1,2,0,7) &&
+          history.append(PreviewHistoryKind::Reject,3,4,1,8) &&
+          history.append(PreviewHistoryKind::Route,1,1,1,2) &&
+          history.append(PreviewHistoryKind::UndoRoute,1,1,0,2),
+          "mixed preview actions retain only single-source indexes");
+    check(preview_history_visible_indices(history,PreviewHistoryFilter::Review)==
+              std::vector<std::size_t>({0,1}) &&
+          preview_history_visible_indices(history,PreviewHistoryFilter::Routing)==
+              std::vector<std::size_t>({2}) &&
+          preview_history_visible_indices(history,PreviewHistoryFilter::Undo)==
+              std::vector<std::size_t>({3}),
+          "history filtering preserves stable source event indexes");
+    check(preview_history_single_source(history.events()[0],8)==7 &&
+          !preview_history_single_source(history.events()[0],7) &&
+          !preview_history_single_source(history.events()[1],100) &&
+          preview_history_single_source(history.events()[2],3)==2 &&
+          !preview_history_single_source(history.events()[2],2),
+          "single-source navigation rejects stale, out-of-range and bulk events");
     history.clear();
     check(history.events().empty() &&
           history.append(PreviewHistoryKind::UndoReview,3,5,0) &&
@@ -206,6 +233,10 @@ int main() {
         MAKEINTRESOURCEW(IDD_BATCH_PREVIEW), nullptr, test_dialog_proc, 0);
     check(dialog != nullptr, "actual production dialog template instantiation");
     const HWND history_grid=GetDlgItem(dialog,IDC_BATCH_HISTORY_LIST);
+    const HWND history_filter=GetDlgItem(dialog,IDC_BATCH_HISTORY_FILTER);
+    check(history_filter!=nullptr &&
+          (GetWindowLongPtrW(history_filter,GWL_STYLE)&CBS_DROPDOWNLIST)==CBS_DROPDOWNLIST,
+          "native History view provides an action filter");
     RECT history_rect{},footer_rect_history{};
     check(history_grid!=nullptr &&
           (GetWindowLongPtrW(history_grid,GWL_STYLE)&LVS_TYPEMASK)==LVS_REPORT &&

@@ -231,6 +231,8 @@ struct PreviewState {
     HWND tabs = nullptr;
     HWND history_list = nullptr;
     SessionPreviewHistory preview_history;
+    PreviewHistoryFilter history_filter=PreviewHistoryFilter::All;
+    std::vector<std::size_t> history_view_order;
     bool show_metadata = true;
     bool show_candidate = false; // third tab, never a write path
     bool cue_inspection_mode = false; // exact CUE source view, no online proposal
@@ -2318,8 +2320,10 @@ void refresh_preview_history_list(PreviewState& state) {
     if(!state.history_list) return;
     ListView_DeleteAllItems(state.history_list);
     const auto& events=state.preview_history.events();
-    for(std::size_t i=0;i<events.size();++i) {
-        const auto& event=events[i];
+    state.history_view_order=preview_history_visible_indices(
+        state.preview_history,state.history_filter);
+    for(std::size_t i=0;i<state.history_view_order.size();++i) {
+        const auto& event=events[state.history_view_order[i]];
         std::wstring sequence=std::to_wstring(event.sequence);
         LVITEMW row{};
         row.mask=LVIF_TEXT;
@@ -2339,8 +2343,9 @@ void refresh_preview_history_list(PreviewState& state) {
     }
 }
 void record_preview_history(PreviewState& state,PreviewHistoryKind kind,
-                            std::size_t sources,std::size_t items,unsigned scope) {
-    if(state.preview_history.append(kind,sources,items,scope) &&
+                            std::size_t sources,std::size_t items,unsigned scope,
+                            std::size_t source_index=static_cast<std::size_t>(-1)) {
+    if(state.preview_history.append(kind,sources,items,scope,source_index) &&
        state.tabs && TabCtrl_GetCurSel(state.tabs)==3)
         refresh_preview_history_list(state);
 }
@@ -2348,6 +2353,8 @@ void record_preview_history(PreviewState& state,PreviewHistoryKind kind,
 void show_preview_page(HWND dialog, PreviewState& state,
                        bool metadata, bool candidate = false) {
     if(state.history_list) ShowWindow(state.history_list,SW_HIDE);
+    for(int id:{IDC_BATCH_HISTORY_FILTER,IDC_BATCH_HISTORY_FILTER_LABEL})
+        ShowWindow(GetDlgItem(dialog,id),SW_HIDE);
     if (metadata && state.native_grid_candidate_mode!=candidate &&
         state.metadata_track_list && state.metadata_list) {
         // Capture the outgoing grid ONCE at the actual previous display DPI.
@@ -2491,10 +2498,74 @@ void show_history_page(HWND dialog,PreviewState& state) {
         ShowWindow(GetDlgItem(dialog,id),SW_HIDE);
     refresh_preview_history_list(state);
     ShowWindow(state.history_list,SW_SHOW);
+    for(int id:{IDC_BATCH_HISTORY_FILTER,IDC_BATCH_HISTORY_FILTER_LABEL})
+        ShowWindow(GetDlgItem(dialog,id),SW_SHOW);
     SetDlgItemTextW(dialog,IDC_BATCH_GUIDE,
-        L"4. Session history: explicit local preview decisions, route recalculations and Undo. No writes.");
+        L"4. Filter history; double-click a single-source action to inspect its current preview. No writes.");
     SetDlgItemTextW(dialog,IDC_BATCH_HINT,
-        L"Session only (last 256 actions). No tag values, paths or credentials stored. Refresh clears history.");
+        L"Session only (last 256 actions). Multi-track actions are summaries. Refresh clears history.");
+}
+
+// Inspect one historical source without replaying an action, starting a
+// network request, or treating the session history as write authorization.
+void navigate_preview_history(HWND dialog,PreviewState& state,int visible_row) {
+    if(state.stale) throw std::invalid_argument("History source snapshot stale; refresh.");
+    if(visible_row<0 ||
+       static_cast<std::size_t>(visible_row)>=state.history_view_order.size()) return;
+    const auto index=state.history_view_order[static_cast<std::size_t>(visible_row)];
+    if(index>=state.preview_history.events().size())
+        throw std::invalid_argument("History selection changed; retry.");
+    const auto& event=state.preview_history.events()[index];
+    const auto source=preview_history_single_source(event,state.entries.size());
+    if(!source) {
+        SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+            L"Multiple sources: inspect the current Review/File locations queue instead.");
+        return;
+    }
+    if(*source!=state.selected_track_index && !state.online_included_fields.empty())
+        throw std::invalid_argument(
+            "Current source has selected online fields. Review or reset before navigating.");
+    verify_snapshot(state.entries[*source]);
+    verify_rules_snapshot(state.captured_rules);
+    if(*source!=state.selected_track_index) invalidate_online_request(state);
+    const bool route=event.kind==PreviewHistoryKind::Route ||
+                     event.kind==PreviewHistoryKind::UndoRoute;
+    if(route) {
+        state.location_queue=djmeta::BatchLocationQueue::All;
+        SendDlgItemMessageW(dialog,IDC_BATCH_LOCATION_FILTER,CB_SETCURSEL,0,0);
+        update_table(state);
+        TabCtrl_SetCurSel(state.tabs,2);
+        show_preview_page(dialog,state,false,false);
+        const auto it=std::find(state.view_order.begin(),state.view_order.end(),*source);
+        if(it==state.view_order.end())
+            throw std::invalid_argument("History source not in file queue.");
+        const int row=static_cast<int>(it-state.view_order.begin());
+        ListView_SetItemState(state.list,-1,0,LVIS_SELECTED);
+        ListView_SetItemState(state.list,row,LVIS_SELECTED|LVIS_FOCUSED,
+                              LVIS_SELECTED|LVIS_FOCUSED);
+        ListView_EnsureVisible(state.list,row,FALSE);
+        SetFocus(state.list);
+    } else {
+        state.track_discovery=djmeta::TrackDiscovery::All;
+        SendDlgItemMessageW(dialog,IDC_METADATA_TRACK_FILTER,CB_SETCURSEL,0,0);
+        state.updating_track_selection=true;
+        ListView_SetItemState(state.metadata_track_list,-1,0,LVIS_SELECTED);
+        state.updating_track_selection=false;
+        state.selected_track_index=*source;
+        state.focused_track_index=static_cast<std::size_t>(-1);
+        update_master_table(state);
+        TabCtrl_SetCurSel(state.tabs,1);
+        show_preview_page(dialog,state,true,false);
+        const auto it=std::find(state.track_view_order.begin(),
+                                state.track_view_order.end(),*source);
+        if(it==state.track_view_order.end())
+            throw std::invalid_argument("History source not in review queue.");
+        ListView_EnsureVisible(state.metadata_track_list,
+            static_cast<int>(it-state.track_view_order.begin()),FALSE);
+        SetFocus(state.metadata_track_list);
+    }
+    SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+        L"History jump: current preview only. No action replayed or FileOps/CUE approval.");
 }
 
 // Navigate the entire captured read-only batch; no implicit search or write.
@@ -3325,7 +3396,8 @@ void apply_review_action(HWND dialog, PreviewState& state,
         : action==djmeta::ReviewAction::ManualValue
         ? PreviewHistoryKind::Manual : PreviewHistoryKind::Reset;
     record_preview_history(state,kind,affected_tracks.size(),
-                           changed_decisions,static_cast<unsigned>(scope));
+        changed_decisions,static_cast<unsigned>(scope),
+        affected_tracks.size()==1 ? *affected_tracks.begin() : static_cast<std::size_t>(-1));
 }
 
 void apply_to_rows(HWND dialog, PreviewState& state, bool all) {
@@ -3398,7 +3470,8 @@ void apply_to_rows(HWND dialog, PreviewState& state, bool all) {
                  state.last_preview_undo ? TRUE : FALSE);
     update_table(state);
     record_preview_history(state,PreviewHistoryKind::Route,
-                           selected.size(),candidate.size(),all?2u:1u);
+        selected.size(),candidate.size(),all?2u:1u,
+        selected.size()==1 ? selected.front() : static_cast<std::size_t>(-1));
 }
 
 void undo_last_preview_action(HWND dialog, PreviewState& state) {
@@ -3466,7 +3539,8 @@ void undo_last_preview_action(HWND dialog, PreviewState& state) {
         update_metadata_table(state);
     }
     record_preview_history(state,review?PreviewHistoryKind::UndoReview:
-        PreviewHistoryKind::UndoRoute,affected.size(),affected.size(),0);
+        PreviewHistoryKind::UndoRoute,affected.size(),affected.size(),0,
+        affected.size()==1 ? *affected.begin() : static_cast<std::size_t>(-1));
 }
 
 // User-initiated inspection of RAW, unsanitized candidate paths only. No
@@ -4325,7 +4399,8 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_METADATA_USE_VALUE,L"Use the manually entered value for one selected proposal in the read-only preview."},
         {IDC_METADATA_VISIBLE_WHITESPACE,L"Display tabs, spaces and other invisible characters visibly; original tags remain unchanged."},
         {IDC_BATCH_LIST,L"Proposed source-to-target rows. Destination paths have not passed the final foobar File Operations safety checks."},
-        {IDC_BATCH_HISTORY_LIST,L"Last 256 local preview actions, no source paths, tag values or credentials. Refresh discards this in-memory history."},
+        {IDC_BATCH_HISTORY_LIST,L"Last 256 session actions. Double-click a single-source action to inspect its current preview, never replay it."},
+        {IDC_BATCH_HISTORY_FILTER,L"Filter session actions; source order and original event identities remain unchanged."},
         {IDC_BATCH_LOCATION_FILTER,L"Display-only filter of full-batch raw route findings. Selected preview uses selected visible source IDs; Preview all and Audit still cover every source. No final FileOps/CUE approval."},
         {IDC_BATCH_PROFILE_PICKER,L"Select an existing foobar routing template or enter a custom display name; no file operation is performed."},
         {IDC_BATCH_DESTINATION,L"Destination root for the preview only. No folder is created."},
@@ -5880,6 +5955,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         state->metadata_scope = GetDlgItem(dialog, IDC_METADATA_REVIEW_SCOPE);
         state->tabs = GetDlgItem(dialog, IDC_BATCH_TABS);
         if (!state->list || !state->history_list ||
+            !GetDlgItem(dialog,IDC_BATCH_HISTORY_FILTER) ||
             !state->metadata_list || !state->musicbrainz_details ||
             !state->musicbrainz_details_label || !state->metadata_track_list ||
             !state->metadata_filter || !state->metadata_track_filter ||
@@ -5901,6 +5977,11 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         add_column(state->history_list,2,L"Scope",143);
         add_column(state->history_list,3,L"Tracks",76);
         add_column(state->history_list,4,L"Items",76);
+        for(const wchar_t* choice:{L"All actions",L"Review decisions",
+            L"Route previews",L"Undo actions"})
+            SendDlgItemMessageW(dialog,IDC_BATCH_HISTORY_FILTER,CB_ADDSTRING,
+                0,reinterpret_cast<LPARAM>(choice));
+        SendDlgItemMessageW(dialog,IDC_BATCH_HISTORY_FILTER,CB_SETCURSEL,0,0);
         ListView_SetExtendedListViewStyle(state->metadata_track_list,
             LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_INFOTIP |
             LVS_EX_HEADERDRAGDROP);
@@ -6276,6 +6357,21 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             if(selected_tab==3) show_history_page(dialog,*state);
             else show_preview_page(dialog, *state,
                 selected_tab != 2, selected_tab == 0);
+            return TRUE;
+        }
+        if(header && header->idFrom==IDC_BATCH_HISTORY_LIST &&
+           (header->code==NM_DBLCLK || header->code==LVN_KEYDOWN)) {
+            int row=-1;
+            if(header->code==NM_DBLCLK) {
+                const auto* click=reinterpret_cast<const NMITEMACTIVATE*>(lp);
+                if(click) row=click->iItem;
+            } else {
+                const auto* key=reinterpret_cast<const NMLVKEYDOWN*>(lp);
+                if(!key || key->wVKey!=VK_RETURN) return FALSE;
+                row=ListView_GetNextItem(state->history_list,-1,LVNI_FOCUSED);
+                if(row<0) row=ListView_GetNextItem(state->history_list,-1,LVNI_SELECTED);
+            }
+            navigate_preview_history(dialog,*state,row);
             return TRUE;
         }
         if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&
@@ -7769,6 +7865,15 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 ? djmeta::ReviewAction::Pending
                 : djmeta::ReviewAction::ManualValue;
             apply_review_action(dialog, *state, action);
+            return TRUE;
+        }
+        if(id==IDC_BATCH_HISTORY_FILTER && HIWORD(wp)==CBN_SELCHANGE) {
+            const auto selected=SendDlgItemMessageW(
+                dialog,IDC_BATCH_HISTORY_FILTER,CB_GETCURSEL,0,0);
+            if(selected<0 || selected>3)
+                throw std::invalid_argument("Unknown history filter.");
+            state->history_filter=static_cast<PreviewHistoryFilter>(selected);
+            refresh_preview_history_list(*state);
             return TRUE;
         }
         if(id==IDC_BATCH_LOCATION_FILTER && HIWORD(wp)==CBN_SELCHANGE) {

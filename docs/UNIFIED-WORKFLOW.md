@@ -996,3 +996,15 @@ clears the session history. The production writer remains disabled, so this
 is **not** an execution/result log or evidence that File Operations ran.
 A later qualified writer must separately supply verified per-item outcomes,
 failures and recovery status before MMS-WF-07 can be completed.
+
+
+### Session history navigation (read-only)
+
+Filter the last 256 in-memory preview actions by review decisions, route
+recalculations or Undo. Double-click/Enter a **single-source** action to open
+the source's **current** Review or File locations row; a multi-source event
+remains a summary. The source index is session-local, never a path or
+persistent approval, and is cleared on Refresh. Navigation checks current
+source/rules evidence, refuses to discard selected online fields, never
+replays a decision or starts online lookup, and never qualifies a FileOps/CUE
+write. MMS-WF-07 (actual execution report) remains OPEN.
