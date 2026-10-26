@@ -65,7 +65,8 @@ enum class BatchLocationQueue {
     MissingRaw, PendingMetadata, NoRawFindings,
     // Native File locations filters use the independent complete-batch
     // action ledger, never the raw route-only filter or a writer grant.
-    FileActionBlocked, FileActionRawOnly, FileActionSkipped
+    FileActionBlocked, FileActionRawOnly, FileActionSkipped,
+    CueAll, CueAttention, CueRawOnly, CueOriginalKept
 };
 bool batch_location_queue_matches(
     const BatchPreviewRow& row, BatchLocationQueue queue) noexcept;

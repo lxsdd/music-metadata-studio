@@ -795,7 +795,14 @@ void update_table(PreviewState& state) {
     state.cue_inspections.observe(current_cue_plan_rows(state,inputs));
     const auto sorted=djmeta::sort_batch_table_view(
         inputs, state.table, state.layout.sort_column, state.layout.sort_descending);
-    if(state.location_queue==djmeta::BatchLocationQueue::FileActionBlocked ||
+    if(state.location_queue==djmeta::BatchLocationQueue::CueAll ||
+       state.location_queue==djmeta::BatchLocationQueue::CueAttention ||
+       state.location_queue==djmeta::BatchLocationQueue::CueRawOnly ||
+       state.location_queue==djmeta::BatchLocationQueue::CueOriginalKept) {
+        state.view_order=djmeta::filter_cue_queue_view(
+            state.cue_inspections,captured_cue_carriers(state),
+            sorted,state.location_queue);
+    } else if(state.location_queue==djmeta::BatchLocationQueue::FileActionBlocked ||
        state.location_queue==djmeta::BatchLocationQueue::FileActionRawOnly ||
        state.location_queue==djmeta::BatchLocationQueue::FileActionSkipped) {
         // A stage queue is based on the SAME complete-batch review and route
@@ -6682,7 +6689,9 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             L"Raw target not inspected",L"Missing raw target",
             L"Pending metadata",L"No raw findings (NOT approved)",
             L"File action: BLOCKED",L"File action: RAW ONLY",
-            L"File action: SKIP"})
+            L"File action: SKIP",L"CUE: all carriers",
+            L"CUE: inspect / blocked",L"CUE: RAW only",
+            L"CUE: original kept"})
             SendDlgItemMessageW(dialog,IDC_BATCH_LOCATION_FILTER,CB_ADDSTRING,
                 0,reinterpret_cast<LPARAM>(choice));
         SendDlgItemMessageW(dialog,IDC_BATCH_LOCATION_FILTER,CB_SETCURSEL,0,0);
@@ -8576,7 +8585,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         if(id==IDC_BATCH_LOCATION_FILTER && HIWORD(wp)==CBN_SELCHANGE) {
             const auto selected=SendDlgItemMessageW(
                 dialog,IDC_BATCH_LOCATION_FILTER,CB_GETCURSEL,0,0);
-            if(selected<0 || selected>10)
+            if(selected<0 ||
+               selected>static_cast<int>(djmeta::BatchLocationQueue::CueOriginalKept))
                 throw std::invalid_argument("Unknown File locations filter.");
             state->location_queue=static_cast<djmeta::BatchLocationQueue>(selected);
             update_table(*state);
@@ -8894,11 +8904,20 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                     L"Final foobar FileOps/CUE permission remains unavailable.");
                 return TRUE;
             }
+            // Preserve uncommitted online comparison choices for their
+            // original source, just like the existing Next issue action.
+            if(next!=state->selected_track_index &&
+               !state->online_included_fields.empty())
+                throw std::runtime_error(
+                    "Selected online fields belong to the current source. "
+                    "Review or reset them before Next CUE.");
             verify_snapshot(state->entries[next]);
             verify_rules_snapshot(state->captured_rules);
             revalidate_workspace(*state,true);
             if(state->stale)
                 throw std::runtime_error("CUE queue changed. Refresh.");
+            if(next!=state->selected_track_index)
+                invalidate_online_request(*state);
             state->next_cue_cursor=next;
             state->track_discovery=djmeta::TrackDiscovery::All;
             state->metadata_focus=djmeta::MetadataFocus::All;

@@ -118,4 +118,41 @@ struct CueInspectionQueue {
         return out;
     }
 };
+// Project only the existing full-source CUE receipt queue onto an existing
+// complete sorted permutation. No path resolver, CUE writer or approval.
+inline std::vector<std::size_t> filter_cue_queue_view(
+    const CueInspectionQueue& queue,
+    const std::vector<std::size_t>& cue_sources,
+    const std::vector<std::size_t>& sorted_full_source_ids,
+    BatchLocationQueue filter) {
+    if(filter!=BatchLocationQueue::CueAll &&
+       filter!=BatchLocationQueue::CueAttention &&
+       filter!=BatchLocationQueue::CueRawOnly &&
+       filter!=BatchLocationQueue::CueOriginalKept)
+        throw std::invalid_argument("CUE_QUEUE_FILTER_KIND");
+    (void)queue.counts(cue_sources);
+    const auto n=queue.plan.size();
+    if(n>100000 || sorted_full_source_ids.size()!=n)
+        throw std::invalid_argument("CUE_QUEUE_FILTER_SHAPE");
+    std::vector<unsigned char> cue(n,0),seen(n,0);
+    for(auto id:cue_sources)cue[id]=1;
+    std::vector<std::size_t> visible;
+    visible.reserve(cue_sources.size());
+    for(const auto id:sorted_full_source_ids) {
+        if(id>=n || seen[id]++)
+            throw std::invalid_argument("CUE_QUEUE_FILTER_SORTED_ID");
+        if(!cue[id])continue;
+        const auto s=queue.stage(id);
+        const bool yes=filter==BatchLocationQueue::CueAll ||
+            (filter==BatchLocationQueue::CueAttention &&
+             (s==CueQueueStage::Missing || s==CueQueueStage::Stale ||
+              s==CueQueueStage::Blocked)) ||
+            (filter==BatchLocationQueue::CueRawOnly &&
+             s==CueQueueStage::RawOnly) ||
+            (filter==BatchLocationQueue::CueOriginalKept &&
+             s==CueQueueStage::OriginalKept);
+        if(yes)visible.push_back(id);
+    }
+    return visible;
+}
 } // namespace djmeta
