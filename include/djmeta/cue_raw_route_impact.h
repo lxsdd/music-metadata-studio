@@ -179,4 +179,98 @@ inline CueRawRouteImpact inspect_cue_raw_route_impact(
     return out;
 }
 
+
+// This read-only CUE carrier/sidecar decision uses the EXISTING native
+// FileAction staging of the CUE file. No extra default move, second renderer,
+// filename sanitizer, CUE writer or execution token is introduced.
+struct CueSidecarRawImpact {
+    std::string code="CUE_SIDECAR_UNQUALIFIED";
+    bool raw_only_candidate=false; // never write approval
+    std::string raw_candidate; // UI-only, not host-final FileOps
+};
+// Every external CUE has its OWN carrier action and source snapshot.
+// Explicit staging is mandatory because the native default Move is a template,
+// not authorization to relocate a sidecar.
+inline CueSidecarRawImpact inspect_cue_sidecar_raw_action(
+    const CueRawRouteImpact& audio,
+    FileAction sidecar_action,bool explicitly_staged,
+    bool physical_carrier_qualified,bool pending_cue_metadata,
+    bool carrier_raw_collision,std::string_view root,
+    std::string_view raw_relative_name) {
+    const auto reject=[](const char* code) {
+        CueSidecarRawImpact result;result.code=code;return result;
+    };
+    if(!audio.source_graph_qualified || audio.references.empty() ||
+       audio.references.size()>128)
+        return reject("CUE_SIDECAR_SOURCE_GRAPH_UNQUALIFIED");
+    if(!physical_carrier_qualified)
+        return reject("CUE_SIDECAR_PHYSICAL_CARRIER_UNQUALIFIED");
+    if(!explicitly_staged)
+        return reject("CUE_SIDECAR_ACTION_NOT_EXPLICITLY_STAGED");
+    if(sidecar_action==FileAction::None) {
+        // Leaving a CUE behind while selected audio moves or renames can
+        // orphan its FILE tokens even when a move is still preliminarily
+        // blocked. Copies preserve original sources/links.
+        for(const auto& row:audio.references)
+            if(row.requested_action==FileAction::Move ||
+               row.requested_action==FileAction::Rename)
+                return reject("CUE_SIDECAR_LEFT_WITH_MOVED_AUDIO_RISK");
+        return reject("CUE_SIDECAR_AND_ORIGINAL_FILE_LINKS_UNCHANGED");
+    }
+    if(sidecar_action!=FileAction::Move &&
+       sidecar_action!=FileAction::Copy &&
+       sidecar_action!=FileAction::Rename)
+        return reject("CUE_SIDECAR_ACTION_INVALID");
+    if(sidecar_action==FileAction::Rename)
+        return reject("CUE_SIDECAR_RENAME_FINAL_PARENT_UNQUALIFIED");
+    if(pending_cue_metadata)
+        return reject("CUE_SIDECAR_CUE_VALUES_PENDING");
+    if(carrier_raw_collision)
+        return reject("CUE_SIDECAR_RAW_BATCH_COLLISION");
+    if(audio.unselected!=0 || audio.selected_blocked!=0)
+        return reject("CUE_SIDECAR_INCOMPLETE_OR_BLOCKED_AUDIO_GRAPH");
+    for(const auto& row:audio.references) {
+        if(row.selected_source_row==cue_unselected_source_row ||
+           row.requested_action!=sidecar_action ||
+           row.raw_candidate.empty())
+            return reject("CUE_SIDECAR_AUDIO_ACTIONS_MIXED_OR_UNQUALIFIED");
+        if(sidecar_action==FileAction::Move &&
+           row.code!="CUE_AUDIO_MOVE_RAW_ONLY_REWRITE_UNQUALIFIED")
+            return reject("CUE_SIDECAR_AUDIO_ACTIONS_MIXED_OR_UNQUALIFIED");
+        if(sidecar_action==FileAction::Copy &&
+           row.code!="CUE_AUDIO_COPY_RAW_ONLY_SOURCE_CUE_UNCHANGED")
+            return reject("CUE_SIDECAR_AUDIO_ACTIONS_MIXED_OR_UNQUALIFIED");
+    }
+    if(root.size()>4096 || raw_relative_name.size()>2048 ||
+       !raw_destination_root_lexically_safe(root) ||
+       !raw_relative_path_lexically_safe(raw_relative_name))
+        return reject("CUE_SIDECAR_RAW_CARRIER_PATH_UNQUALIFIED");
+    CueSidecarRawImpact out;
+    out.code=sidecar_action==FileAction::Move
+        ? "CUE_SIDECAR_MOVE_RAW_ONLY_REWRITE_AND_FINAL_CUE_LINKS_UNQUALIFIED"
+        : "CUE_SIDECAR_COPY_RAW_ONLY_COPIED_LINKS_UNQUALIFIED";
+    out.raw_only_candidate=true;
+    out.raw_candidate=std::string(root)+"\\"+std::string(raw_relative_name);
+    return out;
+}
+
+inline std::string_view describe_cue_sidecar_action(std::string_view code) noexcept {
+    if(code=="CUE_SIDECAR_ACTION_NOT_EXPLICITLY_STAGED")
+        return "Choose a separate file action for the CUE carrier in File locations";
+    if(code=="CUE_SIDECAR_LEFT_WITH_MOVED_AUDIO_RISK")
+        return "Leaving original CUE behind could orphan FILE references after an audio move";
+    if(code=="CUE_SIDECAR_AND_ORIGINAL_FILE_LINKS_UNCHANGED")
+        return "CUE carrier and original FILE targets stay at their sources";
+    if(code=="CUE_SIDECAR_MOVE_RAW_ONLY_REWRITE_AND_FINAL_CUE_LINKS_UNQUALIFIED")
+        return "CUE move candidate requires full host-final FILE postimage and source/target checks";
+    if(code=="CUE_SIDECAR_COPY_RAW_ONLY_COPIED_LINKS_UNQUALIFIED")
+        return "CUE copy candidate requires independent relative links to copied audio";
+    if(code=="CUE_SIDECAR_AUDIO_ACTIONS_MIXED_OR_UNQUALIFIED")
+        return "Sidecar action conflicts with one or more physical audio actions";
+    if(code=="CUE_SIDECAR_INCOMPLETE_OR_BLOCKED_AUDIO_GRAPH")
+        return "Sidecar cannot follow an incomplete, unselected or blocked CUE FILE graph";
+    if(code=="CUE_SIDECAR_RENAME_FINAL_PARENT_UNQUALIFIED")
+        return "Rename requires host-final same-parent foobar File Operations target";
+    return code;
+}
 } // namespace djmeta

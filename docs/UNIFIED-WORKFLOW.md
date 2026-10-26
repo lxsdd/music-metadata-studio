@@ -1193,3 +1193,29 @@ block file actions; No file action is an independent skip, not tag approval.
 The export always labels final foobar FileOps target and CUE FILE/sidecar as
 **NOT RESOLVED / NOT QUALIFIED**. It neither claims CUE rewrite coverage nor
 enables FileOps, overwrite, sidecar creation, metadata writes or execution.
+
+
+### Explicit external CUE carrier/sidecar action (read-only)
+
+The *external CUE file itself* is now an independently staged physical
+File locations row. Select it, choose its Move/Copy/No file action and click
+Preview selected (or another explicit scope) before **Inspect CUE**. The
+default Move template is **not** a consent to relocate the sidecar; the
+in-memory capture remembers whether the carrier action was deliberately
+staged. Undo restores this distinction as well as the previous route.
+
+**Inspect CUE** joins the carrier choice to all independently host-probed
+FILE source IDs and their per-audio staged actions. Leaving the original
+CUE behind while audio moves reports an orphan risk; a CUE copy can only
+be shown as a RAW-only candidate when all referenced audio is independently
+staged for Copy, and a CUE move requires all audio Move and complete
+FILE coverage. Mixed actions, unselected FILEs, ambiguous physical source
+identity, pending CUE metadata, raw collisions and unsafe names block.
+Carrier Rename waits for the same-parent host-final target proof.
+
+Every carrier result is explicitly **BLOCKED for execution**, even when the
+preview can show a RAW sidecar path. Actual foobar File Operations names,
+correct relative FILE tokens on the new CUE, backup, overwrite/no-op,
+final source-target double-recheck and the separate write approval remain
+unqualified. Existing normalizer, source probes and FILE impact are reused;
+no CUE bytes, audio, tags or sidecars are changed by inspection.

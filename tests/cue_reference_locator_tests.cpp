@@ -199,5 +199,96 @@ int main() {
     require(!impact.source_graph_qualified && impact.raw_candidates==0 &&
             impact.selected_blocked==3,
             "failed graph forbids partial apparently qualified destinations");
-    std::cout << "PASS: action-aware physical CUE FILE and RAW route dry-run qualification\n";
+
+    // Distinct external-CUE carrier staging: a default native Move is not
+    // approval to move the CUE sidecar with its referenced audio.
+    std::vector<CueRawRouteTrack> all_moves(5);
+    all_moves[4]={"phys-A","version-A","Z:\\Library","CD1/01.wav",true,false,false,FileAction::Move};
+    all_moves[1]={"phys-B","version-B","Z:\\Library","CD2/02.wav",true,false,false,FileAction::Move};
+    const auto all_move_impact=inspect_cue_raw_route_impact(
+        complete_files,complete,all_moves);
+    require(all_move_impact.move_raw_candidates==2 &&
+            all_move_impact.selected_blocked==0,
+            "complete two-FILE staged move candidates remain raw-only");
+    auto carrier=inspect_cue_sidecar_raw_action(
+        all_move_impact,FileAction::Move,false,true,false,false,
+        "Z:\\Library","Album.cue");
+    require(!carrier.raw_only_candidate &&
+            carrier.code=="CUE_SIDECAR_ACTION_NOT_EXPLICITLY_STAGED",
+            "default Move on CUE carrier is never implicit user consent");
+    carrier=inspect_cue_sidecar_raw_action(
+        all_move_impact,FileAction::None,true,true,false,false,
+        "Z:\\Library","Album.cue");
+    require(carrier.code=="CUE_SIDECAR_LEFT_WITH_MOVED_AUDIO_RISK" &&
+            carrier.raw_candidate.empty(),
+            "leaving CUE behind while audio moves exposes orphan risk");
+    carrier=inspect_cue_sidecar_raw_action(
+        all_move_impact,FileAction::Move,true,true,false,false,
+        "Z:\\Library","Album.cue");
+    require(carrier.raw_only_candidate &&
+            carrier.code=="CUE_SIDECAR_MOVE_RAW_ONLY_REWRITE_AND_FINAL_CUE_LINKS_UNQUALIFIED" &&
+            carrier.raw_candidate=="Z:\\Library\\Album.cue",
+            "explicit CUE move is still only RAW pending final host FILE postimage");
+    auto mixed_moves=all_moves;
+    mixed_moves[1].file_action=FileAction::Copy;
+    const auto mixed_impact=inspect_cue_raw_route_impact(
+        complete_files,complete,mixed_moves);
+    carrier=inspect_cue_sidecar_raw_action(
+        mixed_impact,FileAction::Move,true,true,false,false,
+        "Z:\\Library","Album.cue");
+    require(carrier.code=="CUE_SIDECAR_AUDIO_ACTIONS_MIXED_OR_UNQUALIFIED",
+            "mixed audio Move and Copy cannot be papered over by CUE move");
+    auto all_copies=all_moves;
+    all_copies[4].file_action=FileAction::Copy;
+    all_copies[1].file_action=FileAction::Copy;
+    const auto all_copy_impact=inspect_cue_raw_route_impact(
+        complete_files,complete,all_copies);
+    carrier=inspect_cue_sidecar_raw_action(
+        all_copy_impact,FileAction::Copy,true,true,false,false,
+        "Z:\\Library","Album.cue");
+    require(carrier.raw_only_candidate &&
+            carrier.code=="CUE_SIDECAR_COPY_RAW_ONLY_COPIED_LINKS_UNQUALIFIED",
+            "copied CUE requires independent links to copied audio");
+    carrier=inspect_cue_sidecar_raw_action(
+        all_copy_impact,FileAction::None,true,true,false,false,
+        "Z:\\Library","Album.cue");
+    require(carrier.code=="CUE_SIDECAR_AND_ORIGINAL_FILE_LINKS_UNCHANGED",
+            "audio copies with untouched CUE preserve original FILE reference");
+    carrier=inspect_cue_sidecar_raw_action(
+        all_copy_impact,FileAction::Rename,true,true,false,false,
+        "Z:\\Library","Album.cue");
+    require(carrier.code=="CUE_SIDECAR_RENAME_FINAL_PARENT_UNQUALIFIED",
+            "CUE rename cannot guess host-final parent equivalence");
+    carrier=inspect_cue_sidecar_raw_action(
+        all_copy_impact,FileAction::Copy,true,false,false,false,
+        "Z:\\Library","Album.cue");
+    require(carrier.code=="CUE_SIDECAR_PHYSICAL_CARRIER_UNQUALIFIED",
+            "unqualified physical CUE carrier cannot be staged");
+    carrier=inspect_cue_sidecar_raw_action(
+        all_copy_impact,FileAction::Copy,true,true,true,false,
+        "Z:\\Library","Album.cue");
+    require(carrier.code=="CUE_SIDECAR_CUE_VALUES_PENDING",
+            "pending CUE metadata blocks sidecar move or copy");
+    carrier=inspect_cue_sidecar_raw_action(
+        all_copy_impact,FileAction::Copy,true,true,false,true,
+        "Z:\\Library","Album.cue");
+    require(carrier.code=="CUE_SIDECAR_RAW_BATCH_COLLISION",
+            "full-batch CUE carrier collision blocks sidecar copy");
+    carrier=inspect_cue_sidecar_raw_action(
+        all_copy_impact,FileAction::Copy,true,true,false,false,
+        "Z:\\Library","../escape.cue");
+    require(carrier.code=="CUE_SIDECAR_RAW_CARRIER_PATH_UNQUALIFIED",
+            "unsafe sidecar target path cannot become a candidate");
+    carrier=inspect_cue_sidecar_raw_action(
+        inspect_cue_raw_route_impact(files,matched,all_copies),
+        FileAction::Copy,true,true,false,false,
+        "Z:\\Library","Album.cue");
+    require(carrier.code=="CUE_SIDECAR_INCOMPLETE_OR_BLOCKED_AUDIO_GRAPH",
+            "copied CUE cannot omit unselected FILE sources");
+    carrier=inspect_cue_sidecar_raw_action(
+        all_copy_impact,static_cast<FileAction>(99),true,true,false,false,
+        "Z:\\Library","Album.cue");
+    require(carrier.code=="CUE_SIDECAR_ACTION_INVALID",
+            "invalid sidecar action is explicitly blocked");
+    std::cout << "PASS: action-aware CUE FILE, carrier and RAW sidecar dry-run qualification\n";
 }

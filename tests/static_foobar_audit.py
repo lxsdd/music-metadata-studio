@@ -2223,3 +2223,19 @@ for marker in ('target.file_action=source.file_action;',
                'impact.copy_raw_candidates'):
     if marker not in batch_table_dialog:
         raise SystemExit("STATIC NATIVE CUE ACTION WIRING FAIL: "+marker)
+
+
+# Native CUE carrier action must be explicitly staged, must be bound to its
+# own physical CUE source and the complete FILE graph, and never enable writes.
+cue_sidecar_model=(root / "include" / "djmeta" / "cue_raw_route_impact.h").read_text(encoding="utf-8")
+for marker in ("inspect_cue_sidecar_raw_action(", "CUE_SIDECAR_ACTION_NOT_EXPLICITLY_STAGED",
+               "CUE_SIDECAR_LEFT_WITH_MOVED_AUDIO_RISK",
+               "CUE_SIDECAR_AUDIO_ACTIONS_MIXED_OR_UNQUALIFIED",
+               "CUE_SIDECAR_COPY_RAW_ONLY_COPIED_LINKS_UNQUALIFIED"):
+    if marker not in cue_sidecar_model:
+        raise SystemExit("STATIC CUE SIDECAR CONTRACT FAIL: "+marker)
+for marker in ("next.file_action_explicitly_staged=true;",
+               "entry.file_action_explicitly_staged,",
+               "sidecar_row.reason=\"cue_carrier_action_not_final_approval\""):
+    if marker not in workspace_dialog:
+        raise SystemExit("STATIC NATIVE CUE SIDECAR WIRING FAIL: "+marker)

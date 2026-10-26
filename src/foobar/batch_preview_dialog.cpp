@@ -99,6 +99,7 @@ struct PreviewEntry {
     std::string input_fingerprint;
     std::string route_expression; // per-row foobar titleformat for review recomputation
     djmeta::FileAction file_action=djmeta::FileAction::Move; // preview intent only
+    bool file_action_explicitly_staged=false; // default Move is NOT user sidecar consent
     std::string observed_physical_key; // actual host-reported file ID, not a path guess
     std::string observed_source_guard; // read-only file version evidence
     std::string source_probe_detail;   // only shown as a preview diagnostic
@@ -3732,6 +3733,7 @@ void apply_to_rows(HWND dialog, PreviewState& state, NativeRoutePreviewScope sco
         verify_snapshot(old);
         PreviewEntry next=old;
         next.file_action=action;
+        next.file_action_explicitly_staged=true;
         next.input.profile=choice.display_name;
         next.input.destination_root=choice.destination_root;
         next.route_expression=choice.titleformat_expression;
@@ -3743,6 +3745,7 @@ void apply_to_rows(HWND dialog, PreviewState& state, NativeRoutePreviewScope sco
                 choice.titleformat_expression);
         }
         if(next.file_action==old.file_action &&
+           next.file_action_explicitly_staged==old.file_action_explicitly_staged &&
            next.input.profile==old.input.profile &&
            next.input.destination_root==old.input.destination_root &&
            next.route_expression==old.route_expression &&
@@ -4166,6 +4169,38 @@ void append_external_cue_file_reference_evidence(
     impact_summary.state=djmeta::online::FieldReviewState::Blocked;
     impact_summary.reason="cue_raw_routing_impact_not_final_approval";
     rows.push_back(std::move(impact_summary));
+
+    // Reuse the file-action staging of the external CUE carrier itself.
+    // The default Move template is NOT an explicit CUE sidecar choice;
+    // a user must preview/stage that physical carrier in File locations.
+    if(rows.size()>=10000)
+        throw std::invalid_argument("CUE carrier action display limit reached.");
+    const bool qualified_carrier=entry.input.physical_source_qualified &&
+        !entry.observed_physical_key.empty() &&
+        !entry.observed_source_guard.empty();
+    const auto sidecar=djmeta::inspect_cue_sidecar_raw_action(
+        impact,entry.file_action,entry.file_action_explicitly_staged,
+        qualified_carrier,entry.input.semantic_proposals_pending,
+        state.table.rows.size()>state.selected_track_index &&
+        state.table.rows[state.selected_track_index].has_raw_target_collision,
+        entry.input.destination_root,entry.input.raw_relative_path);
+    djmeta::online::FieldReviewRow sidecar_row;
+    sidecar_row.field="CUE carrier / Explicit sidecar operation";
+    sidecar_row.candidate.field="Staged carrier and FILE consequences (RAW ONLY)";
+    sidecar_row.candidate.provider="Local foobar File locations (read-only)";
+    sidecar_row.candidate.scope=djmeta::online::EvidenceScope::Edition;
+    sidecar_row.candidate.source_id="cue-sidecar-action";
+    std::string sidecar_explanation=
+        std::string(djmeta::describe_cue_sidecar_action(sidecar.code))+
+        " ["+sidecar.code+"]"+
+        "; carrier action: "+std::string(djmeta::file_action_label(entry.file_action));
+    if(!sidecar.raw_candidate.empty())
+        sidecar_explanation+="; carrier RAW ONLY: "+sidecar.raw_candidate;
+    sidecar_explanation+="; final FileOps/CUE postimage NOT approved";
+    sidecar_row.candidate.values.push_back(std::move(sidecar_explanation));
+    sidecar_row.state=djmeta::online::FieldReviewState::Blocked;
+    sidecar_row.reason="cue_carrier_action_not_final_approval";
+    rows.push_back(std::move(sidecar_row));
     if(rows.size()>=10000)
         throw std::invalid_argument("CUE physical audit display limit reached.");
     djmeta::online::FieldReviewRow coverage;
@@ -4820,7 +4855,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_ONLINE_IGNORE_FIELDS,L"Remove highlighted edition fields from the in-memory preview. Existing tags remain intact."},
         {IDC_ONLINE_RESET_FIELDS,L"Clear every included online field for this exact edition. Does not modify any file or saved metadata."},
         {IDC_ONLINE_WRITE_SELECTED,L"QA-only: submit the exact displayed physical tag differences for this one verified file after a separate final confirmation. No CUE or file move."},
-        {IDC_METADATA_INSPECT_CUE,L"Read the source CUE and show its album/track fields. Embedded and external CUE are never written here."},
+        {IDC_METADATA_INSPECT_CUE,L"Read the source CUE and inspect independently probed physical FILEs. For an external CUE carrier, first explicitly stage its own Move/Copy/No-file-action in File locations to inspect sidecar consistency. No actual CUE or audio writes."},
         {IDC_METADATA_IMPORT_CANDIDATE,L"Import structured clipboard evidence for Beatport/Crates, MusicBrainz, Discogs, Deezer or Spotify. Manual @provider claims are unverified, even if an ID is supplied. No authentication claim, tag change or file write."},
         {IDC_METADATA_LIST,L"Select a candidate or proposed change to inspect its source and status."},
         {IDC_METADATA_MB_DETAILS,L"Field-by-field evidence for the selected online candidate. REVIEW is not a tag-write authorization."},

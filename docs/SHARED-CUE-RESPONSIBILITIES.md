@@ -235,3 +235,17 @@ for actual FileOps/CUE execution, with final host-sanitized destinations and
 exact relative FILE postimages unqualified. Positive, mixed and negative
 synthetic fixtures ensure the action intent cannot silently become an
 audio move or CUE writer.
+
+
+## Studio-only physical external CUE sidecar action preflight (2026-10-26)
+
+An explicitly user-staged action for the physical **CUE carrier** itself
+is now required before any RAW sidecar Move/Copy impact can be displayed.
+The native default Move is never treated as sidecar consent. One CUE source
+is bound to its complete independently probed FILE audio graph; a sidecar
+Move requires every participant to Move, a Copy requires every participant
+to Copy, and No action explains when a planned audio move could orphan the
+original CUE. Mixed actions, partial FILE sets, Rename or unknown source
+guards fail closed. The preview and static regression tests make no change
+to the separate Precision CUE PR #52 timing/generation ownership, and grant
+no final FileOps or CUE write authorization.
