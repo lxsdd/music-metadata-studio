@@ -1,4 +1,5 @@
 #include "djmeta/workflow_preview_audit.h"
+#include "djmeta/workflow_file_action_audit.h"
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
@@ -60,6 +61,62 @@ int main() {
           summary.rows[2].rejected==1 &&
           summary.rows[2].raw_collision && summary.rows[2].file_plan_blocked,
           "local explicit decisions and raw FileOps blockers remain independent");
+    // Full user-facing File locations ledger: all four independent staged
+    // intentions, pending review, collision, overwrite risk and no-op.
+    std::vector<BatchPreviewInputRow> file_sources(4);
+    for(auto& source:file_sources) {
+        source.physical_source_qualified=true;
+        source.source_physical_key="private-host-id";
+        source.destination_root="C:\\\\Music";
+        source.raw_relative_path="Artist\\\\Track.flac";
+    }
+    const std::vector<FileAction> file_actions={
+        FileAction::Move,FileAction::Copy,FileAction::Rename,FileAction::None};
+    const auto ledger=audit_workflow_file_actions(
+        table,file_sources,file_actions,summary);
+    check(ledger.moves==1 && ledger.copies==1 && ledger.renames==1 &&
+          ledger.skips==1 && ledger.blocked==3 && ledger.raw_only==0 &&
+          ledger.rows[0].blocked && ledger.rows[1].blocked &&
+          ledger.rows[2].blocked && ledger.rows[3].skip,
+          "whole-batch mixed actions remain blocked by pending review, raw findings and rename");
+    const auto file_tsv=format_workflow_file_action_tsv(ledger);
+    check(file_tsv.find("#1\\tMove\\tBLOCKED")!=std::string::npos &&
+          file_tsv.find("#2\\tCopy\\tBLOCKED")!=std::string::npos &&
+          file_tsv.find("#3\\tRename\\tBLOCKED")!=std::string::npos &&
+          file_tsv.find("#4\\tNo file action\\tSKIP")!=std::string::npos &&
+          file_tsv.find("private-host-id")==std::string::npos &&
+          file_tsv.find("Artist")==std::string::npos,
+          "per-source action export preserves identity order without paths");
+    const auto blocked_tsv=format_workflow_file_action_tsv(
+        ledger,WorkflowAuditExportScope::AttentionRows);
+    check(blocked_tsv.find("Included rows\\t3")!=std::string::npos &&
+          blocked_tsv.find("#4\\t")==std::string::npos,
+          "blocked-only action queue does not invent work for no-action rows");
+    auto no_pending=summary;
+    no_pending.rows[0].pending_safe=0;
+    no_pending.rows[3].pending_semantic=0;
+    const auto safe_ledger=audit_workflow_file_actions(
+        table,file_sources,file_actions,no_pending);
+    check(safe_ledger.raw_only==1 && !safe_ledger.rows[0].blocked &&
+          safe_ledger.rows[0].raw_only && safe_ledger.blocked==2,
+          "cleared review yields RAW ONLY move, never final host authorization");
+    auto unknown_actions=file_actions;
+    unknown_actions[1]=static_cast<FileAction>(99);
+    rejects([&]{(void)audit_workflow_file_actions(
+        table,file_sources,unknown_actions,summary);},
+        "unknown action rejects whole ledger");
+    auto stale_file_sources=file_sources;
+    stale_file_sources.pop_back();
+    rejects([&]{(void)audit_workflow_file_actions(
+        table,stale_file_sources,file_actions,summary);},
+        "truncated physical source batch fails closed");
+    auto forged_ledger=ledger;
+    forged_ledger.rows[0].reason="INJECT\\tFORMULA";
+    rejects([&]{(void)format_workflow_file_action_tsv(forged_ledger);},
+        "clipboard refuses injected action reason");
+    forged_ledger=ledger;forged_ledger.raw_only=1;
+    rejects([&]{(void)format_workflow_file_action_tsv(forged_ledger);},
+        "clipboard refuses stale aggregate counters");
     check(next_workflow_issue(summary,table,analyses,decisions,0).source_index==3,
           "already accepted semantic proposal is not pending");
     auto navigation=decisions;

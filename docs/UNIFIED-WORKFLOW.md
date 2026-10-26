@@ -1172,3 +1172,24 @@ filesystem permission check, validated relative FILE token, or
 execution approval. No SDK writer, sidecar rewrite, or FileOps writes are
 enabled. End-to-end native Discogs authorization and installed user GUI
 acceptance remain independent outstanding gates.
+
+
+### Whole-batch action ledger in Audit and Copy audit
+
+The existing **Audit** now includes the actual per-source staged File locations
+operation and a bounded first-blocker summary. **Copy audit** appends a complete
+source-order, privacy-safe TSV action ledger to the existing metadata audit;
+**Copy issues** includes only blocked FileOps action rows in that appended
+ledger. It does not export source paths, Title Formatting output, tags, host
+identifiers, provider credentials, CUE text or approval tokens. Each row
+separates **SKIP**, **BLOCKED** (with reason) and **RAW ONLY** (a preliminary
+candidate, never the final sanitized foobar target). The full captured batch
+is recomputed against the same native RAW route inputs, including the exact
+selected Discogs route overlay, and fails closed if the displayed route table
+or review decision shape is stale. Filtered/sorted views cannot hide collisions.
+Pending SAFE/CONFIDENT/REVIEW decisions, known raw route findings, physical
+source uncertainty and Rename without proven host-final same-parent identity
+block file actions; No file action is an independent skip, not tag approval.
+The export always labels final foobar FileOps target and CUE FILE/sidecar as
+**NOT RESOLVED / NOT QUALIFIED**. It neither claims CUE rewrite coverage nor
+enables FileOps, overwrite, sidecar creation, metadata writes or execution.

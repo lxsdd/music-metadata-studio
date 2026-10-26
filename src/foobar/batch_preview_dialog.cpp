@@ -62,6 +62,7 @@
 #endif
 #include "djmeta/review_decisions.h"
 #include "djmeta/workflow_preview_audit.h"
+#include "djmeta/workflow_file_action_audit.h"
 #include "djmeta/review_physical_postimage.h"
 #include "djmeta/unified_review_batch_preflight.h"
 #include "djmeta/review_display.h"
@@ -671,19 +672,8 @@ void update_workflow_audit_hint(PreviewState& state) {
         native_workspace_display_hint(state.stale,hint.c_str()));
 }
 
-void update_table(PreviewState& state) {
-    // Preserve underlying identities, NOT virtual screen positions, when
-    // a sort or user override causes displayed rows to change order.
-    std::set<std::size_t> selected_entries;
-    if (state.list) {
-        int view_row = -1;
-        while ((view_row = ListView_GetNextItem(state.list, view_row, LVNI_SELECTED)) >= 0) {
-            const auto index = static_cast<std::size_t>(view_row);
-            if (index < state.view_order.size())
-                selected_entries.insert(state.view_order[index]);
-        }
-    }
-
+std::vector<djmeta::BatchPreviewInputRow> current_batch_route_inputs(
+    const PreviewState& state) {
     std::vector<djmeta::BatchPreviewInputRow> inputs;
     inputs.reserve(state.entries.size());
     // File Locations must disclose the accepted local + selected exact
@@ -735,6 +725,23 @@ void update_table(PreviewState& state) {
         }
         inputs.push_back(std::move(input));
     }
+    return inputs;
+}
+
+void update_table(PreviewState& state) {
+    // Preserve underlying identities, NOT virtual screen positions, when
+    // a sort or user override causes displayed rows to change order.
+    std::set<std::size_t> selected_entries;
+    if (state.list) {
+        int view_row = -1;
+        while ((view_row = ListView_GetNextItem(state.list, view_row, LVNI_SELECTED)) >= 0) {
+            const auto index = static_cast<std::size_t>(view_row);
+            if (index < state.view_order.size())
+                selected_entries.insert(state.view_order[index]);
+        }
+    }
+
+    const auto inputs=current_batch_route_inputs(state);
     state.table = djmeta::describe_batch_preview(inputs);
     const auto sorted=djmeta::sort_batch_table_view(
         inputs, state.table, state.layout.sort_column, state.layout.sort_descending);
@@ -783,6 +790,28 @@ const char* issue_status_text(std::string_view issue) {
     return "Other safety finding";
 }
 
+djmeta::WorkflowFileActionAudit current_file_action_audit(
+    const PreviewState& state,const djmeta::WorkflowPreviewAudit& review) {
+    const auto inputs=current_batch_route_inputs(state);
+    const auto recomputed=djmeta::describe_batch_preview(inputs);
+    if(recomputed.rows.size()!=state.table.rows.size() ||
+       recomputed.raw_collision_items!=state.table.raw_collision_items ||
+       recomputed.unqualified_rows!=state.table.unqualified_rows)
+        throw std::invalid_argument("File action audit: route snapshot stale.");
+    for(std::size_t i=0;i<recomputed.rows.size();++i) {
+        if(recomputed.rows[i].issues!=state.table.rows[i].issues ||
+           recomputed.rows[i].raw_destination!=state.table.rows[i].raw_destination ||
+           recomputed.rows[i].raw_target_presence!=state.table.rows[i].raw_target_presence ||
+           recomputed.rows[i].has_raw_target_collision!=state.table.rows[i].has_raw_target_collision)
+            throw std::invalid_argument("File action audit: route evidence changed.");
+    }
+    std::vector<djmeta::FileAction> actions;
+    actions.reserve(state.entries.size());
+    for(const auto& entry:state.entries) actions.push_back(entry.file_action);
+    return djmeta::audit_workflow_file_actions(
+        state.table,inputs,actions,review);
+}
+
 std::wstring workflow_audit_summary(
     const PreviewState& state,
     std::optional<djmeta::WorkflowOnlineSourceCounts>* verified_online=nullptr) {
@@ -811,20 +840,24 @@ std::wstring workflow_audit_summary(
         std::to_wstring(audit.raw_collision_tracks)+
         L"\nUnqualified FileOps rows: "+
         std::to_wstring(audit.file_plan_blocked_tracks);
-    std::size_t move=0,copy=0,rename=0,skip=0;
-    for(const auto& entry:state.entries) {
-        switch(entry.file_action) {
-        case djmeta::FileAction::Move: ++move; break;
-        case djmeta::FileAction::Copy: ++copy; break;
-        case djmeta::FileAction::Rename: ++rename; break;
-        case djmeta::FileAction::None: ++skip; break;
-        default: throw std::invalid_argument("Unknown file action in batch audit.");
-        }
-    }
+    const auto file_actions=current_file_action_audit(state,audit);
     report+=L"\nFile action intentions (not executable): Move "+
-        std::to_wstring(move)+L", Copy "+std::to_wstring(copy)+
-        L", Rename "+std::to_wstring(rename)+
-        L", No file action "+std::to_wstring(skip);
+        std::to_wstring(file_actions.moves)+L", Copy "+
+        std::to_wstring(file_actions.copies)+L", Rename "+
+        std::to_wstring(file_actions.renames)+
+        L", No file action "+std::to_wstring(file_actions.skips)+
+        L"\nFile action ledger: "+std::to_wstring(file_actions.blocked)+
+        L" blocked, "+std::to_wstring(file_actions.raw_only)+
+        L" RAW ONLY candidates (not final FileOps paths).";
+    std::size_t shown=0;
+    for(std::size_t i=0;i<file_actions.rows.size() && shown<5;++i) {
+        const auto& row=file_actions.rows[i];
+        if(!row.blocked) continue;
+        if(shown++==0) report+=L"\nFirst blocked file actions:";
+        report+=L"\n#"+std::to_wstring(i+1)+L" "+
+            from_utf8(djmeta::file_action_label(row.action))+
+            L": "+from_utf8(row.reason);
+    }
     if(!state.online_included_fields.empty()) {
         // Audit the selected physical source independently of which tab is
         // visible. A summary of online-only edits is NOT the postimage when
@@ -5002,7 +5035,13 @@ void copy_workflow_audit(HWND dialog,const PreviewState& state,
               djmeta::WorkflowAuditExportScope::AttentionRows)
         : djmeta::format_workflow_audit_tsv(
               state.table,audit,verified_online);
-    const auto report=verified_summary+L"\r\n\r\n"+from_utf8(tsv);
+    const auto file_actions=current_file_action_audit(state,audit);
+    const auto ledger=djmeta::format_workflow_file_action_tsv(
+        file_actions,attention_only
+            ? djmeta::WorkflowAuditExportScope::AttentionRows
+            : djmeta::WorkflowAuditExportScope::AllRows);
+    const auto report=verified_summary+L"\r\n\r\n"+from_utf8(tsv)+
+        L"\r\n"+from_utf8(ledger);
     native_copy_audit_text_to_clipboard(dialog,report);
     SetDlgItemTextW(dialog,IDC_BATCH_HINT,attention_only
         ? L"Read-only attention queue copied (whole batch verified; source-order IDs). No paths, tags or writes."
