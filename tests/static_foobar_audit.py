@@ -2346,7 +2346,7 @@ for marker in ("state.cue_inspections.observe(", "state.cue_inspections.record("
 # permutation; never silently change metadata decisions or enable writers.
 cue_filter=(root / "include" / "djmeta" / "cue_inspection_queue.h").read_text(encoding="utf-8")
 for marker in ("related_inspected_cue_carriers(", "CUE_REVERSE_RECEIPT_SHAPE",
-               "CUE_REVERSE_FILE_IDENTITY", "receipt.epoch!=queue.epoch"):
+               "CUE_REVERSE_FILE_IDENTITY", "found->second.epoch!=queue.epoch"):
     if marker not in cue_filter:
         raise SystemExit("STATIC REVERSE CUE FILE NAVIGATION FAIL: "+marker)
 for marker in ("related_cues_for_selected_file(", "id==41301u",
