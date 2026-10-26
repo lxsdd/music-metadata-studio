@@ -36,13 +36,21 @@ def problems(value: str) -> list[str]:
       "discogs-release-id: ${{ github.event_name == 'pull_request' && '37332711' || inputs.discogs_release_id }}"
     ]
     issues=["lost authorized gate: "+item for item in expected if item not in secured]
+    # The new separately reviewed, immutable shared host action from
+    # infrastructure Draft #56 validates the original GitHub event JSON,
+    # PR #45 exact head SHA and workspace Git HEAD itself. Neither spoof
+    # the runner event nor retain the superseded manual-only gate.
     native="      - name: Authorized official Discogs native exact-edition gate\n"
-    if secured.count(native)!=1 or not secured.split(native,1)[1].startswith(
-        "        if: github.event_name == 'workflow_dispatch'\n"):
-        issues.append("shared native host action must remain manual-dispatch only")
-    if ("      - name: Explicit native-host limitation on protected PR\n"
-        "        if: github.event_name == 'pull_request'\n") not in secured:
-        issues.append("PR must visibly disclose native host gate skipped")
+    expected_native=(
+        native+
+        "        uses: lxsdd/dev-infrastructure-public/.github/actions/"
+        "foobar-host-smoke@a71edfa479ba478611e32086e41665e80eb305a2\n"
+    )
+    if secured.count(native)!=1 or expected_native not in secured:
+        issues.append("protected native E2E action missing its reviewed exact source pin")
+    if ("MMS_PROTECTED_NATIVE_HOST=SKIPPED_PINNED_ACTION_MANUAL_ONLY" in secured or
+        native+"        if: github.event_name == 'workflow_dispatch'\n" in secured):
+        issues.append("native host still manual-only, despite separately approved safe PR admission")
     if secured.count("secrets.MMS_DISCOGS_QA_TOKEN")!=2:
         issues.append("token must only be in two protected steps")
     if "secrets.MMS_DISCOGS_QA_TOKEN" in regular+following:
@@ -78,16 +86,19 @@ def main() -> None:
       ("authorized-discogs-probe: 'true'",
        "authorized-discogs-probe: 'false'"),
       ("      - name: Authorized official Discogs native exact-edition gate\n"
-       "        if: github.event_name == 'workflow_dispatch'\n",
+       "        uses: lxsdd/dev-infrastructure-public/.github/actions/"
+       "foobar-host-smoke@a71edfa479ba478611e32086e41665e80eb305a2\n",
        "      - name: Authorized official Discogs native exact-edition gate\n"
-       "        if: github.event_name == 'pull_request'\n")
+       "        if: github.event_name == 'workflow_dispatch'\n"
+       "        uses: lxsdd/dev-infrastructure-public/.github/actions/"
+       "foobar-host-smoke@a71edfa479ba478611e32086e41665e80eb305a2\n")
     ]
     for prior, next_value in pairs:
         assert problems(mutation(prior,next_value)), "unsafe mutation escaped"
     assert problems(TEXT+"\npull_request_target:\n"), "target event escaped"
     assert problems(TEXT.replace("  package:\n", "  package:\n"
         "    env:\n      TOKEN: ${{ secrets.MMS_DISCOGS_QA_TOKEN }}\n",1)), "public token leak escaped"
-    print("PASS: protected PR official API search; native host remains manual-dispatch-only under pinned action")
+    print("PASS: protected PR authentic native E2E with reviewed source-pinned shared action and negative mutations")
 
 if __name__=="__main__":
     main()
