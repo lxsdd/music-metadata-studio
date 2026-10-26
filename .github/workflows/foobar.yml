@@ -282,7 +282,18 @@ jobs:
           MMS_DISCOGS_QA_TOKEN: ${{ secrets.MMS_DISCOGS_QA_TOKEN }}
           MMS_DISCOGS_QA_RELEASE_ID: ${{ github.event_name == 'pull_request' && '37332711' || inputs.discogs_release_id }}
         run: ./scripts/qa-discogs-discovery.ps1 -Mode Live -ReleaseId $env:MMS_DISCOGS_QA_RELEASE_ID
+      # The pinned shared host action explicitly refuses non-dispatch
+      # GITHUB_EVENT_NAME (host-smoke.ps1:207). Do NOT spoof runner event
+      # variables or weaken its protected credential gate. Internal PRs
+      # still execute the real official staged API search above.
+      - name: Explicit native-host limitation on protected PR
+        if: github.event_name == 'pull_request'
+        shell: pwsh
+        run: |
+          Write-Host 'MMS_PROTECTED_NATIVE_HOST=SKIPPED_PINNED_ACTION_MANUAL_ONLY'
+          Write-Host 'Authenticated staged API search is not native foobar Search-Edition-Compare.'
       - name: Authorized official Discogs native exact-edition gate
+        if: github.event_name == 'workflow_dispatch'
         uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@31930d4fca571f449f2c57044bea5ba2e01f0ca7
         env:
           FB2K_DISCOGS_QA_TOKEN: ${{ secrets.MMS_DISCOGS_QA_TOKEN }}

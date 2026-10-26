@@ -106,3 +106,23 @@ negative static tests. No published binaries or production writes.
 
 A successful workflow must still show actual protected host-probe output for
 both architectures; job eligibility alone is not native API acceptance.
+
+## Exact upstream native host action contract found (2026-10-26)
+
+On the protected internal PR #45 exact SHA `419075e88f7ca8617b3a3d4a0b8aad4e669c2b34`,
+the **real official authorized staged Discogs search** for public release
+`37332711` passed (`FULL_ORIGINAL_ARTIST → AUTHORIZED_SEARCH → EXACT_EDITION →
+TRACKLIST`). Both protected native foobar host steps nevertheless failed at
+the pinned shared `foobar-host-smoke/host-smoke.ps1:207` preflight, **before
+the native authenticated UI probe**. That shared action explicitly requires
+`GITHUB_EVENT_NAME=workflow_dispatch` and the feature-branch ref. A PR event
+cannot meet that invariant. The shared action belongs to the separately
+owned infrastructure repository; Studio does not spoof GitHub event variables
+or change that dependency's security policy.
+
+Until the upstream action is separately qualified for the exact protected
+internal PR, Studio PR jobs perform **only** the authenticated official API
+staged search and display `MMS_PROTECTED_NATIVE_HOST=SKIPPED_PINNED_ACTION_MANUAL_ONLY`.
+The real native host step remains executable on the existing protected manual
+`workflow_dispatch` path. This is a known external qualification gap, **not**
+a successful native Search → Edition → Compare or installed owner acceptance.

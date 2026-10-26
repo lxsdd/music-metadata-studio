@@ -36,6 +36,13 @@ def problems(value: str) -> list[str]:
       "discogs-release-id: ${{ github.event_name == 'pull_request' && '37332711' || inputs.discogs_release_id }}"
     ]
     issues=["lost authorized gate: "+item for item in expected if item not in secured]
+    native="      - name: Authorized official Discogs native exact-edition gate\n"
+    if secured.count(native)!=1 or not secured.split(native,1)[1].startswith(
+        "        if: github.event_name == 'workflow_dispatch'\n"):
+        issues.append("shared native host action must remain manual-dispatch only")
+    if ("      - name: Explicit native-host limitation on protected PR\n"
+        "        if: github.event_name == 'pull_request'\n") not in secured:
+        issues.append("PR must visibly disclose native host gate skipped")
     if secured.count("secrets.MMS_DISCOGS_QA_TOKEN")!=2:
         issues.append("token must only be in two protected steps")
     if "secrets.MMS_DISCOGS_QA_TOKEN" in regular+following:
@@ -69,14 +76,18 @@ def main() -> None:
       ("ref: ${{ github.event.pull_request.head.sha || github.sha }}",
        "ref: ${{ github.sha }}"),
       ("authorized-discogs-probe: 'true'",
-       "authorized-discogs-probe: 'false'")
+       "authorized-discogs-probe: 'false'"),
+      ("      - name: Authorized official Discogs native exact-edition gate\n"
+       "        if: github.event_name == 'workflow_dispatch'\n",
+       "      - name: Authorized official Discogs native exact-edition gate\n"
+       "        if: github.event_name == 'pull_request'\n")
     ]
     for prior, next_value in pairs:
         assert problems(mutation(prior,next_value)), "unsafe mutation escaped"
     assert problems(TEXT+"\npull_request_target:\n"), "target event escaped"
     assert problems(TEXT.replace("  package:\n", "  package:\n"
         "    env:\n      TOKEN: ${{ secrets.MMS_DISCOGS_QA_TOKEN }}\n",1)), "public token leak escaped"
-    print("PASS: canonical same-repo PR #45 live Discogs, protected secret, SHA and no-publish contract")
+    print("PASS: protected PR official API search; native host remains manual-dispatch-only under pinned action")
 
 if __name__=="__main__":
     main()
