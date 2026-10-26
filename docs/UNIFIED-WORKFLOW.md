@@ -1417,3 +1417,22 @@ This qualification is separate from final foobar FileOps target resolution,
 production-writer activation and installed owner GUI acceptance. The new
 negative static workflow contract prevents accidental fork eligibility,
 secret use, architecture loss and upload enablement.
+
+### 2026-10-26 — Same-field physical batch Manual preview (MMS-WF-05, MMS-NRM-08)
+
+The existing **Review** manual-value control now also accepts the selected
+field across **visible** or **all** captured qualified physical tracks. It
+stages exactly one original scalar value per source, with a default-No
+confirmation that displays the requested Unicode value and precise source /
+proposal counts. It refuses duplicate-name or multivalue fields, multiple
+same-field proposals per source, protected embedded CUE, virtual subsongs,
+malformed/blank manual values and stale original/rules/proposal evidence.
+The value and exact source/field/decision set are rechecked after the modal
+confirmation, then projected transactionally through the existing single
+normalizer and host-safe physical postimage/route preview. A repeated identical
+Manual is a true in-memory no-op; other fields, ReplayGain, custom values,
+external CUE and original tags remain unchanged. The action is not a physical
+writer, provider approval or File Operations/CUE target authorization. Large
+batch Undo retains its existing 4,096-source memory bound; Refresh resets
+in-memory decisions without changing user files. Installed GUI acceptance
+remains separate from Win32/x64 CI host-load qualification.

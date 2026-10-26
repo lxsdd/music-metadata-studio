@@ -3611,12 +3611,39 @@ void apply_review_action(HWND dialog, PreviewState& state,
         return;
     }
 
-    // Manual replacement is a single-field edit; never show a misleading
-    // filtered bulk confirmation before rejecting an ineligible manual scope.
-    if(action==djmeta::ReviewAction::ManualValue &&
-       (scope!=0 || targets.size()!=1))
-        throw std::invalid_argument(
-            "Manual replacement requires exactly one selected change.");
+    // Manual replacement is either one selected proposal, or one scalar
+    // proposal of the SAME field per qualified physical source. Multivalue,
+    // duplicate field names, virtual tracks and CUE remain out of scope.
+    std::string manual_value;
+    if(action==djmeta::ReviewAction::ManualValue) {
+        if((scope!=0 && scope!=4 && scope!=5) ||
+           (scope==0 && targets.size()!=1))
+            throw std::invalid_argument(
+                "Manual replacement requires one proposal or a physical same-field scope.");
+        manual_value=to_utf8(read_control(dialog,IDC_METADATA_MANUAL_INPUT));
+        if(!djmeta::valid_manual_review_value(manual_value) ||
+           (scope>=4 && (manual_value.size()>512 ||
+                          manual_value.find('\t')!=std::string::npos)))
+            throw std::invalid_argument(
+                "Enter a nonempty, single-line manual value (max 512 bytes for bulk).");
+        if(scope>=4) {
+            std::set<std::size_t> unique_sources;
+            for(const auto& [source,proposal]:targets) {
+                if(source>=state.entries.size() ||
+                   !unique_sources.insert(source).second)
+                    throw std::invalid_argument(
+                        "Bulk Manual requires exactly one proposal per physical source.");
+                const auto& entry=state.entries[source];
+                verify_snapshot(entry);
+                const auto original=metadata_from_file_info(
+                    entry.handle->get_info_ref()->info());
+                if(!djmeta::scalar_manual_review_target(
+                       original,state.analyses[source],proposal,field_name))
+                    throw std::invalid_argument(
+                        "Bulk Manual excludes multivalue, duplicate, protected or stale fields.");
+            }
+        }
+    }
 
     // Bulk scope is always default-No. A modal dialog pumps Windows messages:
     // validate the exact source/proposal set, selected field, rules and all
@@ -3624,8 +3651,11 @@ void apply_review_action(HWND dialog, PreviewState& state,
     if(scope>=3) {
         const std::vector<std::pair<std::size_t,std::size_t>> captured_targets{
             targets.begin(),targets.end()};
-        const auto changed=djmeta::count_visible_review_action_changes(
-            captured_targets,state.review_decisions,action);
+        const auto changed=action==djmeta::ReviewAction::ManualValue
+            ? djmeta::count_manual_review_action_changes(
+                captured_targets,state.review_decisions,manual_value)
+            : djmeta::count_visible_review_action_changes(
+                captured_targets,state.review_decisions,action);
         if(changed==0) return;
         const auto visible_sources=state.track_view_order;
         const auto filter=state.track_discovery;
@@ -3634,7 +3664,7 @@ void apply_review_action(HWND dialog, PreviewState& state,
         const auto selected_source=state.selected_track_index;
         const wchar_t* verb=action==djmeta::ReviewAction::Accept?L"ACCEPT":
             action==djmeta::ReviewAction::Reject?L"REJECT":
-            action==djmeta::ReviewAction::Pending?L"RESET":L"EDIT";
+            action==djmeta::ReviewAction::Pending?L"RESET":L"MANUAL REPLACE";
         std::wstring confirmation;
         if(scope==3) {
             confirmation=L"Apply "+std::wstring(verb)+
@@ -3656,6 +3686,11 @@ void apply_review_action(HWND dialog, PreviewState& state,
                     : L"ALL captured physical source tracks are in scope, including hidden rows.")+
                 std::wstring(L"\nOnly this field (all its existing proposal values) is selected. ")+
                 L"Other tags and CUE/virtual tracks are excluded.";
+            if(action==djmeta::ReviewAction::ManualValue)
+                confirmation+=L"\n\nManual replacement: \""+
+                    from_utf8(manual_value)+
+                    L"\"\nExactly one original scalar field value per physical source. "
+                    L"Multivalues, duplicate-name fields and CUE are excluded.";
         }
         confirmation+=L"\n\nOnly in-memory review decisions and raw filename previews "+
                       std::wstring(L"change. No tags, CUE or audio files are written.");
@@ -3693,17 +3728,27 @@ void apply_review_action(HWND dialog, PreviewState& state,
         }
         std::sort(fresh_targets.begin(),fresh_targets.end());
         if(fresh_targets!=captured_targets ||
-           djmeta::count_visible_review_action_changes(
-               captured_targets,state.review_decisions,action)!=changed)
+           (action==djmeta::ReviewAction::ManualValue
+               ? djmeta::count_manual_review_action_changes(
+                   captured_targets,state.review_decisions,manual_value)
+               : djmeta::count_visible_review_action_changes(
+                   captured_targets,state.review_decisions,action))!=changed ||
+           (action==djmeta::ReviewAction::ManualValue &&
+            to_utf8(read_control(dialog,IDC_METADATA_MANUAL_INPUT))!=manual_value))
             throw std::invalid_argument(
-                "Bulk review proposal identities or decisions changed.");
+                "Bulk review proposal identities, manual value or decisions changed.");
         for(const auto& entry:state.entries) verify_snapshot(entry);
+        if(action==djmeta::ReviewAction::ManualValue) {
+            for(const auto& [source,proposal]:captured_targets) {
+                const auto original=metadata_from_file_info(
+                    state.entries.at(source).handle->get_info_ref()->info());
+                if(!djmeta::scalar_manual_review_target(
+                       original,state.analyses.at(source),proposal,field_name))
+                    throw std::invalid_argument(
+                        "Bulk Manual field changed during confirmation.");
+            }
+        }
         verify_rules_snapshot(state.captured_rules);
-    }
-
-    std::string manual_value;
-    if (action == djmeta::ReviewAction::ManualValue) {
-        manual_value = to_utf8(read_control(dialog, IDC_METADATA_MANUAL_INPUT));
     }
 
     // Stage only touched tracks. Deep-copying all captured metadata and
@@ -5077,12 +5122,12 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_ONLINE_DATE_TARGET,L"Choose a tag for each verified release date. DATE keeps only the four-digit year (YYYY); RELEASEDATE and DATE_RAW keep the full ISO date. PAIR stages Master -> ORIGINALDATE (or year-only DATE) plus Edition -> RELEASEDATE. Memory-only preview, no file write."},
         {IDC_METADATA_FILTER,L"Limit the local normalization review to music, extended or all tags."},
         {IDC_METADATA_TRACK_FILTER,L"Review queue: all, proposals, pending REVIEW, pending any, staged edits, completed review, or no proposals. Filtering never changes source files or approvals."},
-        {IDC_METADATA_REVIEW_SCOPE,L"Review selected changes/tracks, all tracks, visible queue, or one selected field across visible/all qualified physical tracks. Field scope preserves other tags and excludes CUE/virtual sources. Bulk actions require default-No confirmation. Preview only."},
+        {IDC_METADATA_REVIEW_SCOPE,L"Review selected changes/tracks, all tracks, visible queue, or one selected field across visible/all qualified physical tracks. Bulk Manual applies one scalar value per source; multivalues/duplicate fields/CUE are excluded. Default-No confirmation; preview only."},
         {IDC_METADATA_ACCEPT,L"Mark chosen rule proposals as accepted in memory. No music file is written."},
         {IDC_METADATA_REJECT,L"Reject chosen local rule proposals in memory, without changing source files."},
         {IDC_METADATA_RESET,L"Restore pending decisions for selected local proposals, preview only."},
         {IDC_METADATA_MANUAL_INPUT,L"Enter a replacement value for exactly one selected local rule proposal."},
-        {IDC_METADATA_USE_VALUE,L"Use the manually entered value for one selected proposal in the read-only preview."},
+        {IDC_METADATA_USE_VALUE,L"Use the entered value for one proposal or the selected scalar field across visible/all qualified physical tracks. Bulk requires default-No confirmation; no writes."},
         {IDC_METADATA_VISIBLE_WHITESPACE,L"Display tabs, spaces and other invisible characters visibly; original tags remain unchanged."},
         {IDC_BATCH_LIST,L"Proposed source-to-target rows. Destination paths have not passed the final foobar File Operations safety checks."},
         {IDC_BATCH_HISTORY_LIST,L"Last 256 session actions. Double-click a single-source action to inspect its current preview, never replay it."},

@@ -95,3 +95,20 @@ Die beiden Varianten erhalten unterschiedliche Ausgabeordner. Das
 `external_cue_write_enabled` und den auf `value-only-exact-edition`
 begrenzten CUE-Schreibumfang. Ein privater Build ist noch keine
 Windows-foobar-Praxisabnahme.
+
+## Private SHA-exact package qualification in the trusted Studio PR
+
+The private package job previously remained **SKIPPED** on all Studio PR
+runs, because its sole trigger was an explicitly marked branch `push`.
+It now follows the existing successful static, original Win32/x64 host-build
+and real SDK physical/CUE fixture tests on **trusted same-repository Studio
+PRs only**, or the existing one-shot marked branch-push event. A fork or
+another branch cannot activate the job. For a PR it reads
+`github.event.pull_request.head.sha` (the real Studio source revision),
+not GitHub's synthetic merge ref. It builds the **read-only** acceptance
+package in a unique disposable GitHub runner directory, checks actual Win32
+and x64 PE IDs, the matching 40-character source revision, manifest and
+SHA-256, and deletes the entire runner temporary output afterward. No
+component DLL, package, token, user path or media is uploaded or publicly
+released. This tests technical reproducibility, **not** installation into
+the owner's foobar or authorization of productive tag/CUE/FileOps writes.
