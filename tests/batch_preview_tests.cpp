@@ -1,4 +1,5 @@
 #include "djmeta/batch_preview.h"
+#include "djmeta/file_action_intent.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -25,6 +26,50 @@ bool contains(const djmeta::BatchPreviewRow& row, const std::string& text) {
 
 int main() {
     using djmeta::raw_relative_path_lexically_safe;
+    using djmeta::FileAction;
+    auto action_row=sample("file:///Z:/source.flac");
+    action_row.source_physical_key="observed-id";
+    const auto action_table=djmeta::describe_batch_preview({action_row});
+    const auto& raw_action=action_table.rows.front();
+    auto action=djmeta::inspect_file_action_intent(FileAction::Move,
+                                                   action_row,raw_action);
+    check(action.raw_candidate && !action.blocked && !action.file_skip,
+          "Move requests a raw-only target, never a final FileOps approval");
+    action=djmeta::inspect_file_action_intent(FileAction::Copy,
+                                              action_row,raw_action);
+    check(action.raw_candidate && !action.blocked,
+          "Copy is a separate explicitly staged user action");
+    action=djmeta::inspect_file_action_intent(FileAction::Rename,
+                                              action_row,raw_action);
+    check(action.blocked && !action.raw_candidate &&
+          std::string(action.reason)=="RENAME_PARENT_UNVERIFIED",
+          "Rename cannot invent a same-parent final destination");
+    action_row.semantic_proposals_pending=true;
+    check(djmeta::inspect_file_action_intent(
+        FileAction::Move,action_row,raw_action).blocked,
+        "pending metadata blocks preliminary file plan");
+    action_row.semantic_proposals_pending=false;
+    auto colliding=raw_action; colliding.has_raw_target_collision=true;
+    check(djmeta::inspect_file_action_intent(
+        FileAction::Copy,action_row,colliding).blocked,
+        "intra-batch collision blocks copy intent");
+    action_row.raw_relative_path="../escape.flac";
+    check(djmeta::inspect_file_action_intent(
+        FileAction::Move,action_row,raw_action).blocked,
+        "unqualified path blocks the intent");
+    action_row.physical_source_qualified=false;
+    check(djmeta::inspect_file_action_intent(
+        FileAction::Move,action_row,raw_action).blocked,
+        "virtual/unqualified sources cannot become moves");
+    action=djmeta::inspect_file_action_intent(
+        FileAction::None,action_row,raw_action);
+    check(action.file_skip && !action.blocked && !action.raw_candidate,
+        "No file action is distinct from a metadata write");
+    check(djmeta::inspect_file_action_intent(
+        static_cast<FileAction>(99),action_row,raw_action).blocked,
+        "invalid operation intent fails closed");
+    check(djmeta::file_action_label(FileAction::None)=="No file action",
+        "the shared FileAction supplies the displayed intent label");
     for (const std::string& valid : {
              std::string("Album/Artist - Track.mp3"),
              std::string("A\\B\\C.flac"),

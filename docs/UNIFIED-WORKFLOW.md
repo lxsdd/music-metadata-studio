@@ -1120,3 +1120,27 @@ reject the entire import without partial changes. Identical imports are no-ops.
 Import/export never chooses a route for a track, stages a preview, approves a
 postimage or calls File Operations. Select an imported name and rerun Preview
 for fresh RAW paths; host-sanitized final targets/CUE references remain BLOCKED.
+
+
+## Read-only File locations action intents
+
+The native File locations toolbar explicitly distinguishes **Move, Copy,
+Rename and No file action**. Preview selected / visible / all associates the
+chosen operation with captured physical source-row identities and the current
+explicitly accepted metadata / foobar Title Formatting RAW route. Subsequent
+scoped previews may stage other operations for different source rows; Undo
+restores previous intent and route together. The source row status/infotip
+and full-batch audit disclose action selection. Identical restaging is a
+no-op. This extends the existing FileAction enum, not a parallel writer.
+
+Move/Copy are **RAW ONLY** candidates, subject to whole-batch raw collision
+checks. Rename stays **BLOCKED** until foobar's final resolved destination
+is proven to have the original parent identity. No file action skips *only*
+the FileOps intent; any metadata review decisions remain independently
+unchanged. Per-row intent remains memory-only: the existing v1 named-route
+profile format, built-in templates and profile-local settings are unchanged.
+Any action change invalidates previous destination/CUE observations.
+
+No selected intention enables FileOps, overwrites, CUE reference rewriting or
+a physical SDK writer. Host-final destination, source/target/rule double
+rechecks and one separate owner-authorized execution remain open.

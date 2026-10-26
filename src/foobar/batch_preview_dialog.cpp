@@ -23,6 +23,7 @@
 #include "titleformat_planner.h"
 
 #include "djmeta/batch_preview.h"
+#include "djmeta/file_action_intent.h"
 #include "djmeta/metadata_diff.h"
 #include "djmeta/online_intake.h"
 #include "djmeta/online_query_prefill.h"
@@ -96,6 +97,7 @@ struct PreviewEntry {
     djmeta::BatchPreviewInputRow input;
     std::string input_fingerprint;
     std::string route_expression; // per-row foobar titleformat for review recomputation
+    djmeta::FileAction file_action=djmeta::FileAction::Move; // preview intent only
     std::string observed_physical_key; // actual host-reported file ID, not a path guess
     std::string observed_source_guard; // read-only file version evidence
     std::string source_probe_detail;   // only shown as a preview diagnostic
@@ -457,6 +459,16 @@ bool valid_user_text(std::wstring_view text) {
     return true;
 }
 
+djmeta::FileAction read_file_action(HWND dialog) {
+    switch(SendDlgItemMessageW(dialog,IDC_BATCH_FILE_ACTION,CB_GETCURSEL,0,0)) {
+    case 0: return djmeta::FileAction::Move;
+    case 1: return djmeta::FileAction::Copy;
+    case 2: return djmeta::FileAction::Rename;
+    case 3: return djmeta::FileAction::None;
+    default: throw std::invalid_argument("Select a file action for the preview.");
+    }
+}
+
 RoutePreviewChoice read_choice(HWND window) {
     const std::wstring name = read_control(window, IDC_BATCH_PROFILE_PICKER);
     const std::wstring root = read_control(window, IDC_BATCH_DESTINATION);
@@ -799,6 +811,20 @@ std::wstring workflow_audit_summary(
         std::to_wstring(audit.raw_collision_tracks)+
         L"\nUnqualified FileOps rows: "+
         std::to_wstring(audit.file_plan_blocked_tracks);
+    std::size_t move=0,copy=0,rename=0,skip=0;
+    for(const auto& entry:state.entries) {
+        switch(entry.file_action) {
+        case djmeta::FileAction::Move: ++move; break;
+        case djmeta::FileAction::Copy: ++copy; break;
+        case djmeta::FileAction::Rename: ++rename; break;
+        case djmeta::FileAction::None: ++skip; break;
+        default: throw std::invalid_argument("Unknown file action in batch audit.");
+        }
+    }
+    report+=L"\nFile action intentions (not executable): Move "+
+        std::to_wstring(move)+L", Copy "+std::to_wstring(copy)+
+        L", Rename "+std::to_wstring(rename)+
+        L", No file action "+std::to_wstring(skip);
     if(!state.online_included_fields.empty()) {
         // Audit the selected physical source independently of which tab is
         // visible. A summary of online-only edits is NOT the postimage when
@@ -940,24 +966,29 @@ std::wstring cell_text(PreviewState& state, std::size_t row, int column) {
         for (char& ch : display) if (ch == '/') ch = '\\';
         return from_utf8(display);
     }
-    case 3:
+    case 3: {
+        const auto intent=djmeta::inspect_file_action_intent(
+            entry.file_action,entry.input,summary);
+        if(intent.file_skip) return L"No file action (staged)";
+        const std::wstring prefix=
+            from_utf8(djmeta::file_action_label(entry.file_action))+L": ";
+        if(intent.blocked) return prefix+from_utf8(intent.reason);
         if(native_recheck_preserved_online_selection(
                state.online_field_snapshot.has_value(),
                state.online_edition_source,row,
                state.online_included_fields.size())) {
             if(!state.online_raw_route_valid)
-                return L"Joint raw route: unqualified";
-            // Preserve collisions and unsafe path diagnostics in the narrow
-            // status cell; the complete issue list stays in the row tooltip.
+                return prefix+L"Joint raw route unqualified";
             const auto issue=status_text(summary);
             if(!issue.empty() && issue!="Qualified inputs (not approved)")
-                return from_utf8(issue);
-            return state.online_raw_target_observation &&
+                return prefix+from_utf8(issue);
+            return prefix+(state.online_raw_target_observation &&
                 summary.raw_target_presence!=djmeta::RawTargetPresence::NotInspected
                 ? L"Joint raw inspected; not final"
-                : L"Joint raw preview; not probed";
+                : L"Joint raw preview; not probed");
         }
-        return from_utf8(status_text(summary));
+        return prefix+from_utf8(status_text(summary));
+    }
     default: return {};
     }
 }
@@ -2591,7 +2622,7 @@ void show_preview_page(HWND dialog, PreviewState& state,
     ShowWindow(GetDlgItem(dialog, IDC_METADATA_FILTER_LABEL),
         metadata && !candidate ? SW_SHOW : SW_HIDE);
     ShowWindow(state.list, metadata ? SW_HIDE : SW_SHOW);
-    for(const int id:{IDC_BATCH_LOCATION_FILTER,
+    for(const int id:{IDC_BATCH_LOCATION_FILTER,IDC_BATCH_FILE_ACTION,
                       IDC_BATCH_LOCATION_FILTER_LABEL,IDC_BATCH_LOCATION_NOTE})
         ShowWindow(GetDlgItem(dialog,id),metadata?SW_HIDE:SW_SHOW);
     ShowWindow(GetDlgItem(dialog,IDC_BATCH_AUDIT),
@@ -2625,7 +2656,7 @@ void show_history_page(HWND dialog,PreviewState& state) {
     // window, persistent history database or clipboard access.
     show_preview_page(dialog,state,false,false);
     for(const int id:{IDC_BATCH_LIST,IDC_BATCH_LOCATION_FILTER,
-        IDC_BATCH_LOCATION_FILTER_LABEL,IDC_BATCH_LOCATION_NOTE,
+        IDC_BATCH_FILE_ACTION,IDC_BATCH_LOCATION_FILTER_LABEL,IDC_BATCH_LOCATION_NOTE,
         IDC_BATCH_ROUTE_LABEL,IDC_BATCH_DEST_LABEL,IDC_BATCH_PATTERN_LABEL,
         IDC_BATCH_PROFILE_PICKER,IDC_BATCH_PROFILE_SAVE,
         IDC_BATCH_PROFILE_DELETE,IDC_BATCH_PROFILE_COPY,
@@ -3096,6 +3127,8 @@ void capture_resize_layout(PreviewState& state) {
                              id == IDC_BATCH_PROFILE_DELETE ||
                              id == IDC_BATCH_PROFILE_COPY ||
                              id == IDC_BATCH_PROFILE_PASTE ||
+                             id == IDC_BATCH_FILE_ACTION ||
+                             id == IDC_BATCH_LOCATION_NOTE ||
                              id == IDC_BATCH_APPLY_SELECTED ||
                               id == IDC_BATCH_APPLY_VISIBLE ||
                               id == IDC_BATCH_APPLY_ALL || id == IDCANCEL;
@@ -3645,6 +3678,7 @@ void apply_to_rows(HWND dialog, PreviewState& state, NativeRoutePreviewScope sco
         throw std::invalid_argument("File locations requires a fresh source snapshot.");
     verify_rules_snapshot(state.captured_rules);
     const auto choice=read_choice(dialog);
+    const auto action=read_file_action(dialog);
     const auto selected_rows=[&]() {
         std::vector<std::size_t> rows;
         if(scope==NativeRoutePreviewScope::Selected) {
@@ -3664,6 +3698,7 @@ void apply_to_rows(HWND dialog, PreviewState& state, NativeRoutePreviewScope sco
         const auto& old=state.entries.at(index);
         verify_snapshot(old);
         PreviewEntry next=old;
+        next.file_action=action;
         next.input.profile=choice.display_name;
         next.input.destination_root=choice.destination_root;
         next.route_expression=choice.titleformat_expression;
@@ -3674,7 +3709,8 @@ void apply_to_rows(HWND dialog, PreviewState& state, NativeRoutePreviewScope sco
                 next.handle->get_location(),current->info(),next.staged,
                 choice.titleformat_expression);
         }
-        if(next.input.profile==old.input.profile &&
+        if(next.file_action==old.file_action &&
+           next.input.profile==old.input.profile &&
            next.input.destination_root==old.input.destination_root &&
            next.route_expression==old.route_expression &&
            next.input.raw_relative_path==old.input.raw_relative_path)
@@ -3700,9 +3736,11 @@ void apply_to_rows(HWND dialog, PreviewState& state, NativeRoutePreviewScope sco
             : L"selected visible rows";
         const std::wstring scope_confirmation=std::wstring(L"Preview routing for ")+name+
             L"?\n\nSources: "+std::to_wstring(selected.size())+
-            L"\nChanged routes: "+std::to_wstring(candidate.size())+
+            L"\nChosen file action: "+from_utf8(djmeta::file_action_label(action))+
+            L" (read-only intent)"+
+            L"\nChanged routes/intents: "+std::to_wstring(candidate.size())+
             L"\nExact no-ops: "+std::to_wstring(selected.size()-candidate.size())+
-            L"\n\nOnly in-memory paths change. Final foobar File Operations "
+            L"\n\nOnly in-memory RAW paths and operation intentions change. Final foobar File Operations "
             L"destinations, CUE references and overwrites remain UNQUALIFIED. "
             L"No music files or tags are written.";
         if(MessageBoxW(dialog,scope_confirmation.c_str(),L"Confirm route preview scope",
@@ -3720,6 +3758,7 @@ void apply_to_rows(HWND dialog, PreviewState& state, NativeRoutePreviewScope sco
     if(now.display_name!=choice.display_name ||
        now.destination_root!=choice.destination_root ||
        now.titleformat_expression!=choice.titleformat_expression ||
+       read_file_action(dialog)!=action ||
        native_route_preview_source_ids(
            scope,state.entries.size(),state.view_order,selected_rows())!=selected)
         throw std::runtime_error("Route scope or settings changed during confirmation.");
@@ -4755,6 +4794,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_BATCH_HISTORY_LIST,L"Last 256 session actions. Double-click a single-source action to inspect its current preview, never replay it."},
         {IDC_BATCH_HISTORY_FILTER,L"Filter session actions; source order and original event identities remain unchanged."},
         {IDC_BATCH_LOCATION_FILTER,L"Display-only filter of full-batch raw route findings. Selected preview uses selected visible source IDs; Preview all and Audit still cover every source. No final FileOps/CUE approval."},
+        {IDC_BATCH_FILE_ACTION,L"Explicit action intent for the next selected/visible/all preview: Move, Copy, Rename or No file action. Each track retains its own intent; Rename awaits verified same-parent host destination. Nothing is executed."},
         {IDC_BATCH_PROFILE_PICKER,L"Choose a built-in or saved route, or type a new name. Saved templates do not approve files."},
         {IDC_BATCH_PROFILE_SAVE,L"Save this name, destination and Title Formatting expression in the foobar profile. Existing names require default-No confirmation. Preview again for RAW routes."},
         {IDC_BATCH_PROFILE_DELETE,L"Delete only a saved custom route after default-No confirmation. Built-in Singles/Alben/Livesets are immutable."},
@@ -6456,6 +6496,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             SendDlgItemMessageW(dialog,IDC_BATCH_LOCATION_FILTER,CB_ADDSTRING,
                 0,reinterpret_cast<LPARAM>(choice));
         SendDlgItemMessageW(dialog,IDC_BATCH_LOCATION_FILTER,CB_SETCURSEL,0,0);
+        for(const wchar_t* action:{L"Move",L"Copy",L"Rename",L"No file action"})
+            SendDlgItemMessageW(dialog,IDC_BATCH_FILE_ACTION,CB_ADDSTRING,
+                0,reinterpret_cast<LPARAM>(action));
+        SendDlgItemMessageW(dialog,IDC_BATCH_FILE_ACTION,CB_SETCURSEL,0,0);
         state->layout = load_batch_table_layout();
         apply_column_layout(*state);
         const HWND batch_header = ListView_GetHeader(state->list);
@@ -7189,7 +7233,13 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                     const auto source_row = state->view_order[view_row];
                     if (source_row < state->entries.size()) {
                         const auto& entry = state->entries[source_row];
-                        std::string detail;
+                        std::string detail="Selected file action: "+
+                            std::string(djmeta::file_action_label(entry.file_action))+
+                            " (preview only)";
+                        if(source_row < state->table.rows.size())
+                            detail+="; "+std::string(djmeta::inspect_file_action_intent(
+                                entry.file_action,entry.input,state->table.rows[source_row]).reason);
+                        detail+="\n";
                         if (source_row < state->table.rows.size()) {
                             const auto& issues = state->table.rows[source_row].issues;
                             if (!issues.empty()) detail = "Safety findings:";

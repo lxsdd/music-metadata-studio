@@ -129,7 +129,7 @@
 | MMS-FILE-01 | PARTIAL | Native foobar Title Formatting, no duplicate parser; compute proposed name and folder from exactly the same accepted staged metadata as tag preview. | [workflow](UNIFIED-WORKFLOW.md) |
 | MMS-FILE-02 | PARTIAL | Singles/Alben/Livesets presets with editable per-job destination/pattern; eventual persistent named profiles and per-track multi-select overrides. | #33 |
 | MMS-FILE-03 | PARTIAL | Whole-batch preflight: source identity/staleness, target collisions, same-key/case aliases, permissions, CUE/sidecars and dangerous paths, before first mutation. | #33 |
-| MMS-FILE-04 | OPEN | Rename/move/copy/no-action through qualified foobar host policy, explicit final batch approval and progress/results, not ad hoc invisible file operations. | #50 |
+| MMS-FILE-04 | PARTIAL | Explicit session-only Move/Copy/Rename/No file action intentions for scoped native RAW previews, with source-row status, undo and audit. Real host FileOps target resolution, confirmation, execution, progress/results remain OPEN. | #50 |
 | MMS-FILE-05 | PARTIAL | Overwrite individual or explicitly enumerated batch targets only, never global overwrite=yes; impossible intra-batch collisions are non-overridable. | [workflow](UNIFIED-WORKFLOW.md) |
 | MMS-FILE-06 | PARTIAL | Zero file/tag/CUE/timestamp rewrite when desired output equals original; no-op verified through real synthetic host QA as well as offline tests. | #33 |
 | MMS-FILE-07 | OPEN | Backup and recovery strategy where host/file format permits; accurately report partially executed batches and cancellation limits, without implying impossible cross-file atomicity. | [workflow](UNIFIED-WORKFLOW.md) |
