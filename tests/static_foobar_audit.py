@@ -136,6 +136,21 @@ if (batch_handler.find("preflight_precision_cue_external_batch(") >
         batch_handler.find("MessageBoxW(state.dialog, question.c_str()") >
         batch_handler.find("create_confirmed_precision_cue_external_batch(")):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: batch consent/preflight order changed")
+# A partial multi-file operation MUST show the precise per-disc destination
+# and distinguish verified publishes from an uncertain latest publish. A
+# generic error/exception loses vital user evidence after an earlier write.
+for token in (
+    "std::wstring outcome = L\"EXTERNAL CUE BATCH DID NOT COMPLETE.",
+    "result.created_count",
+    "result.failed_disc_index",
+    "CREATED AND VERIFIED - RETAIN",
+    "MAY BE PUBLISHED - INSPECT AND RETAIN",
+    "before.target_paths[i].wstring()",
+    "Do NOT delete, overwrite or automatically restore targets",
+):
+    if token not in batch_handler:
+        raise SystemExit(
+            "STATIC FOOBAR AUDIT FAIL: lost partial CUE publication evidence: " + token)
 resources_for_batch = (foobar / "component.rc").read_text(encoding="utf-8")
 if "IDC_PRECISION_SAVE_ALL_CUES" not in resources_for_batch:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: batch create lacks a native control")
