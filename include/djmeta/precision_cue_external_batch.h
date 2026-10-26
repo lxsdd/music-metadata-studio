@@ -148,6 +148,17 @@ preflight_precision_cue_external_batch(
             out.diagnostic = "CUE_BATCH_PHYSICAL_SOURCE_STALE";
             return out;
         }
+        // Distinct basenames are insufficient: two hardlinks can reference
+        // the very same physical MP3. A multi-disc release must never
+        // generate distinct disc CUEs for one underlying file identity.
+        for (std::size_t previous = 0; previous < index; ++previous) {
+            const auto& prior = reviews[previous].reviewed_source;
+            if (prior.volume_id == review.reviewed_source.volume_id &&
+                prior.file_id == review.reviewed_source.file_id) {
+                out.diagnostic = "CUE_BATCH_DUPLICATE_PHYSICAL_SOURCE";
+                return out;
+            }
+        }
         for (const auto& previous : out.target_paths) {
             if (precision_cue_batch_detail::same_target(
                     previous, destination)) {
