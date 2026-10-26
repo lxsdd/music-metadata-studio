@@ -563,7 +563,7 @@
 ### 2026-10-26 — File locations routing scope (MMS-WF-02/06/09, MMS-UI-07, MMS-FILE-01; PARTIAL)
 
 Native Selected/Visible/All read-only route previews use exact captured
-physical IDs, full-batch stale rechecks, default-No bulk confirmation,
+physical IDs, full-batch stale rechecks, default-No multi-source confirmation,
 post-dialog scope/rules/choice revalidation, transactional evaluation and
 exact route no-op suppression. Final FileOps/CUE/writer/installed GUI gates
 remain OPEN. Exact-SHA CI evidence is recorded in Draft PR #45 and Issue #50.

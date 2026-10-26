@@ -3453,7 +3453,9 @@ void apply_to_rows(HWND dialog, PreviewState& state, NativeRoutePreviewScope sco
             L"Identical route preview. No history, undo or file writes.");
         return;
     }
-    if(scope!=NativeRoutePreviewScope::Selected || selected.size()>1) {
+    // Single-source previews are read-only and need no redundant modal
+    // consent. Multi-source actions always disclose their exact scope.
+    if(selected.size()>1) {
         const wchar_t* name=scope==NativeRoutePreviewScope::Visible
             ? L"VISIBLE filtered queue (hidden rows excluded)"
             : scope==NativeRoutePreviewScope::All

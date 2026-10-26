@@ -1017,8 +1017,7 @@ sources. The existing foobar Title Formatting adapter evaluates explicitly
 accepted normalizer postimages only. Visible maps sorted ListView rows to exact
 captured physical source IDs; it never updates hidden rows. All three scopes
 re-probe the complete batch before preview; collisions are scanned globally.
-Exact route no-ops preserve target observations, Undo and History. Multi-row,
-Visible and All previews require a default-No confirmation with affected and
+Exact route no-ops preserve target observations, Undo and History. Multi-source previews in any scope require a default-No confirmation with affected and
 no-op counts, followed by revalidation of physical sources, rules, route
 controls and the exact selected source scope after modal return. Only changed
 rows invalidate raw destination/CUE evidence. Final FileOps-sanitized targets,
