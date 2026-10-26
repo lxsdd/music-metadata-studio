@@ -5,6 +5,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -20,6 +21,9 @@ enum class PrecisionCueExistingTargetState {
 struct PrecisionCueExistingTargetInspection {
     PrecisionCueExistingTargetState state = PrecisionCueExistingTargetState::Unqualified;
     std::string diagnostic;
+    // Optional bounded bytes of a different existing reference, for a
+    // read-only timing diff only. Not a stable snapshot or write approval.
+    std::optional<std::string> observed_different_cue;
 };
 
 inline PrecisionCueExistingTargetInspection inspect_precision_cue_existing_target(
@@ -51,15 +55,27 @@ inline PrecisionCueExistingTargetInspection inspect_precision_cue_existing_targe
         const auto size = fs::file_size(target, ec);
         if (ec || size > 1024 * 1024)
             return {State::Unqualified, "CUE_EXISTING_CONTENT_UNQUALIFIED"};
+        const auto before_mtime = fs::last_write_time(target, ec);
+        if (ec) return {State::Unqualified, "CUE_EXISTING_STAT_UNQUALIFIED"};
         std::ifstream input(target, std::ios::binary);
         if (!input) return {State::Unqualified, "CUE_EXISTING_CONTENT_UNREADABLE"};
         std::string existing(static_cast<std::size_t>(size), '\0');
         if (!input.read(existing.data(), static_cast<std::streamsize>(existing.size())) ||
             input.peek() != std::char_traits<char>::eof())
             return {State::Unqualified, "CUE_EXISTING_CONTENT_UNREADABLE"};
+        input.close();
+        // Do not present text from an obviously changing target as a stable
+        // reference. Even if these checks pass, a timeline diff remains
+        // advisory and never upgrades a create/write authorization.
+        const auto later_status = fs::symlink_status(target, ec);
+        if (ec || later_status.type() != fs::file_type::regular ||
+            fs::file_size(target, ec) != size || ec ||
+            fs::last_write_time(target, ec) != before_mtime || ec)
+            return {State::Unqualified, "CUE_EXISTING_CHANGED_DURING_READ"};
         if (existing == plan.external_cue_utf8)
             return {State::Identical, "CUE_IDENTICAL_NOOP_ONLY"};
-        return {State::Different, "CUE_CONFLICT_NO_OVERWRITE"};
+        return {State::Different, "CUE_CONFLICT_NO_OVERWRITE",
+                std::move(existing)};
     } catch (const std::exception&) {
         return {State::Unqualified, "CUE_PREVIEW_TARGET_INSPECTION_FAILED"};
     }
