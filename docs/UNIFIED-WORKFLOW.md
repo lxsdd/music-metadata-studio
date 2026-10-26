@@ -1065,3 +1065,19 @@ source/target/sidecar rechecks and one final execution confirmation still need
 independent host qualification. No raw candidate ever sets
 `filesystem_target_checked` or `cue_dependencies_checked`, and neither the
 physical writer nor foobar File Operations is enabled.
+
+
+### Named File locations templates (MMS-CFG-05 / MMS-FILE-02, read-only)
+
+In **3. Plan file locations**, edit the name, destination and native foobar
+Title Formatting expression, then **Save profile**. A new name creates a
+foobar-profile-local template; replacing an existing name needs explicit
+(default-No) confirmation. Singles/Alben/Livesets remain immutable. Choose a
+saved name to restore both fields. **Delete** removes only saved custom names
+with default-No confirmation. Duplicate by selecting a profile, typing a new
+name and saving. Strict versioned UTF-8 schema bounds 24 named templates and
+rejects corruption/duplicates. No metadata values, secrets, source evidence,
+write rights or approvals are persisted. Save/Delete never run FileOps or
+recompute existing route previews; explicitly Preview again. Final sanitized
+FileOps destinations and CUE references are still unqualified. Import/export
+and execution remain OPEN.

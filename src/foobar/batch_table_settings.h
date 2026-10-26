@@ -4,6 +4,7 @@
 #include "djmeta/review_grid_layout.h"
 #include "djmeta/preview_window_geometry.h"
 #include "djmeta/workspace_defaults.h"
+#include "djmeta/named_route_profiles.h"
 #include "djmeta/online_match.h"
 #include <optional>
 
@@ -22,6 +23,10 @@ void store_batch_preview_window_size(djmeta::PreviewWindowSize size);
 // geometry is persisted; no source selection or approval state.
 int load_review_split_offset();
 void store_review_split_offset(int logical_offset);
+
+// foobar-profile-local named templates; never a saved approval or writer right.
+std::vector<djmeta::NamedRouteProfile> load_named_routes();
+void store_named_routes(const std::vector<djmeta::NamedRouteProfile>& profiles);
 
 // Only visual defaults for NEW studio windows; never search or write permission.
 djmeta::WorkspaceDefaults load_workspace_defaults();

@@ -73,7 +73,7 @@
 | MMS-CFG-02 | PARTIAL | Child page Workspace: opening view, initial provider, default Singles/Alben/Livesets route and whitespace display. Stored via strict versioned safe schema; changes affect **new** windows only. | Commit 67bb646 |
 | MMS-CFG-03 | OPEN | Preferences areas: General, Online Metadata, Metadata Fields, Normalization, File Organization, CUE, Safety and Appearance, with simple defaults and optional advanced controls. | [configuration](CONFIGURATION-ARCHITECTURE.md) |
 | MMS-CFG-04 | OPEN | Per-job overrides (provider, rule and file profile, selected fields, routing) directly in Studio, without editing global Preferences; cog opens relevant settings. | [configuration](CONFIGURATION-ARCHITECTURE.md) |
-| MMS-CFG-05 | OPEN | User-maintained **named profile** create/duplicate/rename/delete, import/export and portable migration; Singles, Alben, Livesets, normalize-only and search-only as useful presets. | [workflow](UNIFIED-WORKFLOW.md) |
+| MMS-CFG-05 | PARTIAL | User-maintained **named profile** create/duplicate/rename/delete, import/export and portable migration; Singles, Alben, Livesets, normalize-only and search-only as useful presets. | [workflow](UNIFIED-WORKFLOW.md) |
 | MMS-CFG-06 | PARTIAL | Persist only UX choices (window, columns, filters, selected profile, source preference); **never persist an approval or batch overwrite authorization** across a new plan/restart. | #33 |
 | MMS-CFG-07 | OPEN | Full field include/exclude, priority and mapping editor that does not silently introduce unnecessary extra DJ tags or overwrite user-specific DATE/GENRE/BPM conventions. | #49 |
 | MMS-CFG-08 | OPEN | Rule-profile import/export/version/migration, staged validation and explicit preview of effects before changing the active rule revision; reset to deterministic default. | [architecture](ARCHITECTURE.md) |
@@ -567,3 +567,10 @@ physical IDs, full-batch stale rechecks, default-No multi-source confirmation,
 post-dialog scope/rules/choice revalidation, transactional evaluation and
 exact route no-op suppression. Final FileOps/CUE/writer/installed GUI gates
 remain OPEN. Exact-SHA CI evidence is recorded in Draft PR #45 and Issue #50.
+
+- 2026-10-26: MMS-CFG-05/MMS-FILE-02 named foobar-profile-local route
+  templates: create/duplicate, explicit default-No replace/delete, immutable
+  built-in presets, strict versioned Unicode schema, native buttons/tooltips,
+  negative offline tests and original Win32/x64 resource coverage. Templates
+  only; import/export, final sanitized FileOps destinations, CUE references,
+  productive writes and installed owner acceptance remain OPEN.

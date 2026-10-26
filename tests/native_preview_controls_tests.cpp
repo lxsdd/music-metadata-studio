@@ -714,8 +714,17 @@ int main() {
           "routing profile picker is editable with real Win32 control");
     check(GetDlgItem(dialog, IDC_BATCH_DESTINATION) &&
           GetDlgItem(dialog, IDC_BATCH_PATTERN) &&
-          GetDlgItem(dialog, IDC_BATCH_ROUTE_LABEL),
-          "route profile is accompanied by destination and naming expression");
+          GetDlgItem(dialog, IDC_BATCH_ROUTE_LABEL) &&
+          GetDlgItem(dialog, IDC_BATCH_PROFILE_SAVE) &&
+          GetDlgItem(dialog, IDC_BATCH_PROFILE_DELETE),
+          "named route save/delete are wired to the original Win32 dialog");
+    RECT picker_rect{},save_rect{},delete_rect{};
+    GetWindowRect(combo,&picker_rect);
+    GetWindowRect(GetDlgItem(dialog,IDC_BATCH_PROFILE_SAVE),&save_rect);
+    GetWindowRect(GetDlgItem(dialog,IDC_BATCH_PROFILE_DELETE),&delete_rect);
+    check(picker_rect.right<save_rect.left && save_rect.right<delete_rect.left &&
+          picker_rect.top==save_rect.top && save_rect.top==delete_rect.top,
+          "saved-route controls align without overlapping the native picker");
 
     const wchar_t* names[] = {L"Singles", L"Alben", L"Livesets"};
     for (const auto* name : names)

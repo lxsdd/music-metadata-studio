@@ -14,6 +14,9 @@ cfg_string g_batch_preview_window_size(kBatchPreviewWindowSizeGuid, "");
 constexpr GUID kBatchPreviewPlacementGuid =
     {0x64c0a912, 0xe4c1, 0x4b53, {0x9d, 0xb1, 0x29, 0xd5, 0x43, 0x3f, 0x57, 0x86}};
 cfg_string g_batch_preview_placement(kBatchPreviewPlacementGuid, "");
+constexpr GUID kNamedRouteGuid =
+    {0x34b6c15e,0xe730,0x4c12,{0x96,0xb8,0x2c,0x84,0x61,0x77,0xd0,0x39}};
+cfg_string g_named_routes(kNamedRouteGuid,"v1|0");
 constexpr GUID kReviewSplitOffsetGuid =
     {0x9c7a2e15, 0x4b60, 0x4cf5, {0x8b, 0xc2, 0x91, 0x30, 0x5f, 0xde, 0x68, 0x41}};
 cfg_string g_review_split_offset(kReviewSplitOffsetGuid, "v1|0");
@@ -88,6 +91,20 @@ void store_batch_preview_window_size(djmeta::PreviewWindowSize size) {
     const auto before = g_batch_preview_window_size.get();
     if (std::string_view(before.c_str()) != serialized)
         g_batch_preview_window_size.set(serialized.c_str());
+}
+
+std::vector<djmeta::NamedRouteProfile> load_named_routes() {
+    const auto saved=g_named_routes.get();
+    const auto parsed=djmeta::parse_named_routes(saved.c_str());
+    if(!parsed) throw std::invalid_argument(
+        "Named routing profiles invalid; no profile was loaded.");
+    return *parsed;
+}
+void store_named_routes(const std::vector<djmeta::NamedRouteProfile>& profiles) {
+    const auto text=djmeta::serialize_named_routes(profiles);
+    const auto before=g_named_routes.get();
+    if(std::string_view(before.c_str())!=text)
+        g_named_routes.set(text.c_str());
 }
 
 int load_review_split_offset() {

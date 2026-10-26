@@ -12,6 +12,7 @@
 #include "readonly_network_request.h"
 #include "batch_table_settings.h"
 #include "legacy_routing_profiles.h"
+#include "djmeta/named_route_profiles.h"
 #include "native_preview_controls.h"
 #include "session_preview_history.h"
 #include "review_grid_controls.h"
@@ -468,15 +469,94 @@ RoutePreviewChoice read_choice(HWND window) {
     return {to_utf8(name), to_utf8(root), to_utf8(script)};
 }
 
-void load_profile(HWND window, int index) {
-    if (index >= 0 && static_cast<std::size_t>(index) < legacy_move_route_count) {
-        const auto& route = legacy_move_routes[index];
-        SetDlgItemTextW(window, IDC_BATCH_DESTINATION,
-                        from_utf8(route.destination_root).c_str());
-        SetDlgItemTextW(window, IDC_BATCH_PATTERN,
-                        from_utf8(route.foobar_titleformat).c_str());
+void load_profile(HWND window,int index) {
+    if(index<0) return;
+    if(static_cast<std::size_t>(index)<legacy_move_route_count) {
+        const auto& p=legacy_move_routes[index];
+        SetDlgItemTextW(window,IDC_BATCH_DESTINATION,from_utf8(p.destination_root).c_str());
+        SetDlgItemTextW(window,IDC_BATCH_PATTERN,from_utf8(p.foobar_titleformat).c_str());
+        return;
     }
-    // "Custom" retains the current editable values.
+    const auto saved=load_named_routes();
+    const auto at=static_cast<std::size_t>(index)-legacy_move_route_count;
+    if(at>=saved.size()) throw std::invalid_argument("Saved route selection changed.");
+    SetDlgItemTextW(window,IDC_BATCH_DESTINATION,from_utf8(saved[at].destination_root).c_str());
+    SetDlgItemTextW(window,IDC_BATCH_PATTERN,from_utf8(saved[at].titleformat_expression).c_str());
+}
+
+void rebuild_route_picker(HWND window,std::wstring_view name) {
+    const auto saved=load_named_routes();
+    const auto combo=GetDlgItem(window,IDC_BATCH_PROFILE_PICKER);
+    SendMessageW(combo,CB_RESETCONTENT,0,0);
+    for(const auto& p:legacy_move_routes) {
+        const auto wide=from_utf8(p.name);
+        SendMessageW(combo,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(wide.c_str()));
+    }
+    for(const auto& p:saved) {
+        const auto wide=from_utf8(p.name);
+        SendMessageW(combo,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(wide.c_str()));
+    }
+    SetWindowTextW(combo,std::wstring(name).c_str());
+}
+
+void save_route_template(HWND window) {
+    const auto choice=read_choice(window);
+    const djmeta::NamedRouteProfile requested{
+        choice.display_name,choice.destination_root,choice.titleformat_expression};
+    if(!djmeta::named_route_valid(requested))
+        throw std::invalid_argument(
+            "A named route requires a unique non-preset name, valid destination "
+            "and native Title Formatting expression.");
+    auto saved=load_named_routes();
+    const auto found=std::find_if(saved.begin(),saved.end(),[&](const auto& p) {
+        return djmeta::route_name_equal(p.name,requested.name);
+    });
+    if(found!=saved.end() && *found==requested) {
+        SetDlgItemTextW(window,IDC_BATCH_HINT,
+            L"Profile already saved. No changes or file operations.");
+        return;
+    }
+    const bool overwrite=found!=saved.end();
+    if(overwrite) {
+        if(MessageBoxW(window,
+            L"Replace the saved named route with these settings? This affects "
+            L"future RAW previews only; no files are changed.",
+            L"Replace named route",MB_YESNO|MB_ICONWARNING|MB_DEFBUTTON2)!=IDYES) return;
+        const auto current=read_choice(window);
+        if(current.display_name!=choice.display_name ||
+           current.destination_root!=choice.destination_root ||
+           current.titleformat_expression!=choice.titleformat_expression ||
+           load_named_routes()!=saved)
+            throw std::invalid_argument("Named route changed during confirmation.");
+    }
+    if(!djmeta::upsert_named_route(saved,requested,overwrite)) return;
+    store_named_routes(saved);
+    rebuild_route_picker(window,from_utf8(requested.name));
+    SetDlgItemTextW(window,IDC_BATCH_HINT,
+        L"Named route saved to this foobar profile. Preview again for current "
+        L"RAW targets; final FileOps/CUE approval remains unavailable.");
+}
+
+void delete_route_template(HWND window) {
+    const auto name=to_utf8(read_control(window,IDC_BATCH_PROFILE_PICKER));
+    auto saved=load_named_routes();
+    if(std::none_of(saved.begin(),saved.end(),[&](const auto& p) {
+        return djmeta::route_name_equal(p.name,name);
+    })) throw std::invalid_argument(
+        "Select a saved custom route. Built-in presets cannot be deleted.");
+    if(MessageBoxW(window,
+        L"Delete this saved route from your foobar profile? "
+        L"Current previews and files remain unchanged.",
+        L"Delete named route",MB_YESNO|MB_ICONWARNING|MB_DEFBUTTON2)!=IDYES) return;
+    if(load_named_routes()!=saved ||
+       to_utf8(read_control(window,IDC_BATCH_PROFILE_PICKER))!=name)
+        throw std::invalid_argument("Named route changed during confirmation.");
+    if(!djmeta::erase_named_route(saved,name))
+        throw std::invalid_argument("Saved route disappeared.");
+    store_named_routes(saved);
+    rebuild_route_picker(window,from_utf8(name));
+    SetDlgItemTextW(window,IDC_BATCH_HINT,
+        L"Saved route deleted. Current RAW preview and all source files unchanged.");
 }
 
 void verify_rules_snapshot(const djmeta::RulesTextSnapshot& captured) {
@@ -2476,7 +2556,8 @@ void show_preview_page(HWND dialog, PreviewState& state,
         state.stale ? FALSE : TRUE);
     for (int id : {IDC_BATCH_ROUTE_LABEL,
                    IDC_BATCH_DEST_LABEL, IDC_BATCH_PATTERN_LABEL,
-                   IDC_BATCH_PROFILE_PICKER,
+                   IDC_BATCH_PROFILE_PICKER, IDC_BATCH_PROFILE_SAVE,
+                   IDC_BATCH_PROFILE_DELETE,
                    IDC_BATCH_DESTINATION, IDC_BATCH_PATTERN,
                    IDC_BATCH_APPLY_SELECTED, IDC_BATCH_APPLY_VISIBLE, IDC_BATCH_APPLY_ALL}) {
         ShowWindow(GetDlgItem(dialog,id), metadata ? SW_HIDE : SW_SHOW);
@@ -2495,7 +2576,8 @@ void show_history_page(HWND dialog,PreviewState& state) {
     for(const int id:{IDC_BATCH_LIST,IDC_BATCH_LOCATION_FILTER,
         IDC_BATCH_LOCATION_FILTER_LABEL,IDC_BATCH_LOCATION_NOTE,
         IDC_BATCH_ROUTE_LABEL,IDC_BATCH_DEST_LABEL,IDC_BATCH_PATTERN_LABEL,
-        IDC_BATCH_PROFILE_PICKER,IDC_BATCH_DESTINATION,IDC_BATCH_PATTERN,
+        IDC_BATCH_PROFILE_PICKER,IDC_BATCH_PROFILE_SAVE,
+        IDC_BATCH_PROFILE_DELETE,IDC_BATCH_DESTINATION,IDC_BATCH_PATTERN,
         IDC_BATCH_APPLY_SELECTED, IDC_BATCH_APPLY_VISIBLE, IDC_BATCH_APPLY_ALL,IDC_BATCH_AUDIT,
         IDC_BATCH_COPY_AUDIT,IDC_BATCH_COPY_ISSUES,IDC_BATCH_NEXT_ISSUE})
         ShowWindow(GetDlgItem(dialog,id),SW_HIDE);
@@ -2958,6 +3040,8 @@ void capture_resize_layout(PreviewState& state) {
                              id == IDC_METADATA_MB_LOAD_RELEASE ||
                              id == IDC_METADATA_IMPORT_CANDIDATE ||
                              id == IDC_METADATA_USE_VALUE ||
+                             id == IDC_BATCH_PROFILE_SAVE ||
+                             id == IDC_BATCH_PROFILE_DELETE ||
                              id == IDC_BATCH_APPLY_SELECTED ||
                               id == IDC_BATCH_APPLY_VISIBLE ||
                               id == IDC_BATCH_APPLY_ALL || id == IDCANCEL;
@@ -4521,7 +4605,9 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_BATCH_HISTORY_LIST,L"Last 256 session actions. Double-click a single-source action to inspect its current preview, never replay it."},
         {IDC_BATCH_HISTORY_FILTER,L"Filter session actions; source order and original event identities remain unchanged."},
         {IDC_BATCH_LOCATION_FILTER,L"Display-only filter of full-batch raw route findings. Selected preview uses selected visible source IDs; Preview all and Audit still cover every source. No final FileOps/CUE approval."},
-        {IDC_BATCH_PROFILE_PICKER,L"Select an existing foobar routing template or enter a custom display name; no file operation is performed."},
+        {IDC_BATCH_PROFILE_PICKER,L"Choose a built-in or saved route, or type a new name. Saved templates do not approve files."},
+        {IDC_BATCH_PROFILE_SAVE,L"Save this name, destination and Title Formatting expression in the foobar profile. Existing names require default-No confirmation. Preview again for RAW routes."},
+        {IDC_BATCH_PROFILE_DELETE,L"Delete only a saved custom route after default-No confirmation. Built-in Singles/Alben/Livesets are immutable."},
         {IDC_BATCH_DESTINATION,L"Destination root for the preview only. No folder is created."},
         {IDC_BATCH_PATTERN,L"foobar Title Formatting pattern for preview file names only. Actual paths are not yet validated."},
         {IDC_BATCH_APPLY_SELECTED,L"Preview selected visible physical sources only; full-batch recheck, no writes."},
@@ -6232,11 +6318,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         for (const int id : {IDC_BATCH_DESTINATION, IDC_BATCH_PATTERN})
             SendDlgItemMessageW(dialog, id, EM_LIMITTEXT, 16384, 0);
         SendDlgItemMessageW(dialog, IDC_BATCH_PROFILE_PICKER, CB_LIMITTEXT, 16384, 0);
-        for (const auto& profile : legacy_move_routes) {
-            const auto name = from_utf8(profile.name); // user-owned preset names stay exact
-            SendDlgItemMessageW(dialog, IDC_BATCH_PROFILE_PICKER, CB_ADDSTRING,
-                0, reinterpret_cast<LPARAM>(name.c_str()));
-        }
+        rebuild_route_picker(dialog,from_utf8(state->current_choice.display_name));
         int initial_profile = -1;
         for (std::size_t i = 0; i < legacy_move_route_count; ++i) {
             const auto& profile = legacy_move_routes[i];
@@ -8040,6 +8122,14 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         }
         if (id == 41300u) {
             inspect_selected_raw_targets(dialog, *state);
+            return TRUE;
+        }
+        if(id==IDC_BATCH_PROFILE_SAVE && HIWORD(wp)==BN_CLICKED) {
+            save_route_template(dialog);
+            return TRUE;
+        }
+        if(id==IDC_BATCH_PROFILE_DELETE && HIWORD(wp)==BN_CLICKED) {
+            delete_route_template(dialog);
             return TRUE;
         }
         if (id == IDC_BATCH_PROFILE_PICKER && HIWORD(wp) == CBN_SELCHANGE) {
