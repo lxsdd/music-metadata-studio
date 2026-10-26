@@ -1440,3 +1440,15 @@ remains separate from Win32/x64 CI host-load qualification.
 ## Native CUE FILE dependency audit: per-FILE evidence (2026-10-26)
 
 The existing **Copy CUE audit / Copy CUE issues** native clipboard actions now include each currently inspected external CUE's bounded FILE ordinal, exact captured physical audio row (or NOT_SELECTED), staged file action, stable risk code and explicitly unresolved final foobar destination, plus the sidecar risk code. This reuses the one existing source-identity CUE inspection and full-batch epoch; it does not add a matcher, persistent database, destination sanitizer, second writer or automatic operation. Receipts never retain or export raw target paths, private file IDs/guards, tag values or secrets. Changing a hidden source invalidates all previous FILE findings and omits them from the stale export until reinspection. These are diagnostic RAW-only results, not final foobar File Operations/CUE FILE postimages or write approval.
+
+## Protected Discogs search vs. native foobar acceptance (2026-10-26)
+
+The canonical protected PR #45 job can independently prove the **real
+official authenticated API** staged search and exact edition/tracklist
+evidence, but that is not a native foobar GUI result. The currently pinned
+shared `foobar-host-smoke` action deliberately rejects `pull_request`
+events for its credential-bearing native probe; the Studio workflow visibly
+records `MMS_PROTECTED_NATIVE_HOST=SKIPPED_PINNED_ACTION_MANUAL_ONLY` instead
+of misreporting a green native test. The existing protected manual dispatch
+still exercises the complete Win32/x64 native host flow. Do not alter event
+variables, environment protection or token scope to bypass this boundary.
