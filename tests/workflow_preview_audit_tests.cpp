@@ -236,6 +236,12 @@ int main() {
           full_catalog.size()<16u*1024u*1024u,
           "54,129 source full audit is complete, bounded and privacy-safe");
     choices[0][0]={ReviewAction::Reject,{}};
+    // A universal final FileOps/CUE blocker is not a useful source-specific
+    // issue: the focused queue must remain small even when every source
+    // is correctly marked globally unqualified.
+    large.rows[0].issues={"FILESYSTEM_TARGET_UNCHECKED",
+                          "CUE_DEPENDENCIES_UNCHECKED"};
+    large.unqualified_rows=1;
     const auto catalog_with_resolved=audit_workflow_preview(large,many,choices);
     const auto attention=format_workflow_audit_tsv(large,catalog_with_resolved,
         std::nullopt,WorkflowAuditExportScope::AttentionRows);
@@ -244,6 +250,15 @@ int main() {
           attention.find("#2\t")!=std::string::npos &&
           attention.find("#54129\t")!=std::string::npos,
           "attention export omits resolved rows without changing source IDs");
+    const WorkflowOnlineSourceCounts online_resolved{
+        0,0,0,0,0,1,"guard:synthetic-private"};
+    const auto attention_with_online=format_workflow_audit_tsv(
+        large,catalog_with_resolved,online_resolved,
+        WorkflowAuditExportScope::AttentionRows);
+    check(attention_with_online.find("Included rows\t54129")!=std::string::npos &&
+          attention_with_online.find("#1\t")!=std::string::npos &&
+          attention_with_online.find("guard:synthetic-private")==std::string::npos,
+          "verified exact online source remains visible without exporting guard");
     auto hidden_injection=large;
     hidden_injection.rows[0].issues={"BAD\tINJECTION"};
     rejects([&]{(void)format_workflow_audit_tsv(hidden_injection,

@@ -246,9 +246,18 @@ inline std::string format_workflow_audit_tsv(
         throw std::invalid_argument("WORKFLOW_AUDIT_EXPORT_SCOPE_INVALID");
     const auto needs_attention=[&](std::size_t i) {
         const auto& row=audit.rows[i];
+        // Every source is still globally FileOps/CUE-unqualified. That
+        // universal gate is shown in the summary, not mistaken for a
+        // source-specific issue that makes a focused queue useless.
+        const auto& issues=table.rows[i].issues;
+        const bool specific_issue=std::any_of(issues.begin(),issues.end(),
+            [](const std::string& code) {
+                return code!="FILESYSTEM_TARGET_UNCHECKED" &&
+                       code!="CUE_DEPENDENCIES_UNCHECKED";
+            });
         return row.explicit_changes!=0 || row.pending_safe!=0 ||
             row.pending_semantic!=0 || row.raw_collision ||
-            row.file_plan_blocked || (online && i==online->source_index);
+            specific_issue || (online && i==online->source_index);
     };
     std::size_t included=0;
     for(std::size_t i=0;i<audit.tracks;++i)

@@ -1028,7 +1028,9 @@ CUE references, overwrite and physical writes remain unqualified and disabled.
 
 The File locations toolbar has **Copy audit** (all captured physical source
 rows) and **Copy issues** (staged changes, pending decisions, raw conflicts,
-unqualified FileOps/CUE, and the exact verified online source). Both actions
+source-specific raw FileOps/CUE findings, and the exact verified online
+source). Universal final FileOps/CUE-unqualified status remains in the batch
+summary, rather than flooding the attention queue. Both actions
 recheck the **entire** captured batch, including hidden/filtered rows, before
 copying a source-order TSV. The attention filter is output-only: it never
 reduces global collision checks or qualifies final foobar File Operations.
