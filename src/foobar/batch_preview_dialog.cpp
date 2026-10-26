@@ -3459,14 +3459,14 @@ void apply_to_rows(HWND dialog,PreviewState& state,NativeRoutePreviewScope scope
             : scope==NativeRoutePreviewScope::All
             ? L"ALL captured tracks (including hidden rows)"
             : L"selected visible rows";
-        const std::wstring notice=std::wstring(L"Preview routing for ")+name+
+        const std::wstring scope_confirmation=std::wstring(L"Preview routing for ")+name+
             L"?\n\nSources: "+std::to_wstring(selected.size())+
             L"\nChanged routes: "+std::to_wstring(candidate.size())+
             L"\nExact no-ops: "+std::to_wstring(selected.size()-candidate.size())+
             L"\n\nOnly in-memory paths change. Final foobar File Operations "
             L"destinations, CUE references and overwrites remain UNQUALIFIED. "
             L"No music files or tags are written.";
-        if(MessageBoxW(dialog,notice.c_str(),L"Confirm route preview scope",
+        if(MessageBoxW(dialog,scope_confirmation.c_str(),L"Confirm route preview scope",
                        MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2)!=IDYES)
             return;
     }
