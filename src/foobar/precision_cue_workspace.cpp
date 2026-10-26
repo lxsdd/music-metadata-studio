@@ -6,6 +6,7 @@
 #include "djmeta/precision_cue.h"
 #include "djmeta/precision_cue_assemble.h"
 #include "djmeta/precision_cue_boundary_audit.h"
+#include "djmeta/precision_cue_reference_diff.h"
 #include "djmeta/precision_cue_physical_bounds.h"
 #include "djmeta/precision_cue_apple.h"
 #include "djmeta/precision_cue_apple_http.h"
@@ -699,9 +700,55 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
         case TargetState::Identical:
             details += L"\r\nTARGET CHECK: Existing CUE is byte-identical (NO-OP; keep file).\r\n";
             break;
-        case TargetState::Different:
+        case TargetState::Different: {
             details += L"\r\nTARGET CHECK: Existing DIFFERENT CUE; NEVER overwrite it.\r\n";
+            // Reuse only the bounded, read-only bytes already inspected.
+            // File identity, edition provenance and future create approval
+            // remain separate; a matching time grid never proves mastering.
+            if (inspection.observed_different_cue) {
+                const auto diff = djmeta::compare_precision_cue_external_reference(
+                    plans[i], *inspection.observed_different_cue, file.basename);
+                using DiffState = djmeta::PrecisionCueReferenceDiffState;
+                switch (diff.state) {
+                case DiffState::ExactFramesPreviewOnly:
+                    details += L"EXISTING CUE DIFF: All INDEX 01 frames agree; "
+                               L"other CUE bytes differ. Edition/audio identity NOT proven.\r\n";
+                    break;
+                case DiffState::WithinOneFramePreviewOnly:
+                    details += L"EXISTING CUE DIFF: Only +/-1-frame differences detected; "
+                               L"review transitions and original mix.\r\n";
+                    break;
+                case DiffState::ReviewRequired:
+                    details += L"EXISTING CUE DIFF: Timing or gap discrepancy; "
+                               L"manual review required.\r\n";
+                    break;
+                case DiffState::Unqualified:
+                    details += L"EXISTING CUE DIFF: Unsupported, ambiguous or unsafe "
+                               L"reference; no numeric comparison is claimed.\r\n";
+                    break;
+                }
+                if (diff.state != DiffState::Unqualified) {
+                    details += L"Reference frames: " +
+                        std::to_wstring(diff.audit.exact_count) + L" exact, " +
+                        std::to_wstring(diff.audit.within_one_frame_count) +
+                        L" within one frame, " +
+                        std::to_wstring(diff.audit.review_count) +
+                        L" require review.\r\n";
+                    for (const auto& boundary : diff.audit.differences) {
+                        if (boundary.signed_delta_frames == 0) continue;
+                        details += L"Track " +
+                            std::to_wstring(boundary.track_number) +
+                            L": generated minus reference " +
+                            (boundary.signed_delta_frames >= 0 ? L"+" : L"") +
+                            std::to_wstring(boundary.signed_delta_frames) +
+                            L" frame(s).\r\n";
+                    }
+                    details += L"Timing comparison is read-only and is NOT "
+                               L"permission to alter either CUE.\r\n";
+                }
+            }
             break;
+        }
         case TargetState::Unqualified:
             details += L"\r\nTARGET CHECK: Existing target or path is not safely qualified.\r\n";
             break;
