@@ -3,6 +3,7 @@
 // deliberately NOT represented as atomic: distinct files can be published
 // before an unforeseen later I/O failure. Never auto-delete published CUEs.
 #include "djmeta/precision_cue_external_host_review.h"
+#include "djmeta/precision_cue_source_consensus.h"
 
 #include <array>
 #include <cstddef>
@@ -82,11 +83,22 @@ inline bool same_target(const std::filesystem::path& a,
 // fresh physical source content SHA + absent target evidence for every disc.
 inline PrecisionCueExternalBatchResult
 preflight_precision_cue_external_batch(
-    const std::vector<PrecisionCueReviewedExternalCreate>& reviews) {
+    const std::vector<PrecisionCueReviewedExternalCreate>& reviews,
+    const PrecisionCueRelease& selected_edition) {
     using State = PrecisionCueExternalBatchState;
     PrecisionCueExternalBatchResult out;
     if (reviews.empty() || reviews.size() > 8) {
         out.diagnostic = "CUE_BATCH_DISC_COUNT_INVALID";
+        return out;
+    }
+    // The full selected high-resolution Apple edition, not just a common
+    // album TITLE/PERFORMER, binds all discs and all TRACK metadata/durations.
+    // The native window owns this release; no network or writes are involved.
+    if (selected_edition.provider != "apple" ||
+        !precision_cue_consensus_detail::valid_release_structure(
+            selected_edition) ||
+        selected_edition.tracks.back().disc_number != reviews.size()) {
+        out.diagnostic = "CUE_BATCH_SELECTED_EDITION_INVALID";
         return out;
     }
     std::string shared_album_header;
@@ -133,6 +145,50 @@ preflight_precision_cue_external_batch(
             plan.external_cue_utf8.find(count_line) ==
                 std::string::npos) {
             out.diagnostic = "CUE_BATCH_DISC_IDENTITY_INVALID";
+            return out;
+        }
+        // Reconstruct the EXACT canonical CUE for each disc using one
+        // qualified edition. Prevent interleaving tracks from different
+        // releases even when album titles, total time and disc counts agree.
+        PrecisionCueDisc canonical_disc;
+        canonical_disc.album_title = selected_edition.album_title;
+        canonical_disc.album_performer = selected_edition.album_performer;
+        canonical_disc.genre = selected_edition.genre;
+        canonical_disc.release_date = selected_edition.release_date;
+        canonical_disc.audio_file_basename = request.mp3_basename;
+        canonical_disc.disc_number = static_cast<unsigned>(index + 1);
+        canonical_disc.total_discs = static_cast<unsigned>(reviews.size());
+        for (const auto& track : selected_edition.tracks) {
+            if (track.disc_number == index + 1)
+                canonical_disc.tracks.push_back({
+                    track.title, track.performer, track.duration_ms
+                });
+        }
+        if (canonical_disc.tracks.empty()) {
+            out.diagnostic = "CUE_BATCH_SELECTED_DISC_MISSING";
+            return out;
+        }
+        try {
+            const auto expected = make_precision_cue(canonical_disc);
+            if (plan.external_cue_utf8 != expected.external_cue_utf8 ||
+                plan.total_duration_ms != expected.total_duration_ms ||
+                plan.boundaries.size() != expected.boundaries.size()) {
+                out.diagnostic = "CUE_BATCH_EDITION_TRACKLIST_CONFLICT";
+                return out;
+            }
+            for (std::size_t pos = 0; pos < plan.boundaries.size(); ++pos) {
+                if (plan.boundaries[pos].track_number !=
+                        expected.boundaries[pos].track_number ||
+                    plan.boundaries[pos].elapsed_ms !=
+                        expected.boundaries[pos].elapsed_ms ||
+                    plan.boundaries[pos].cue_frame !=
+                        expected.boundaries[pos].cue_frame) {
+                    out.diagnostic = "CUE_BATCH_EDITION_TRACKLIST_CONFLICT";
+                    return out;
+                }
+            }
+        } catch (const std::exception&) {
+            out.diagnostic = "CUE_BATCH_EDITION_TRACKLIST_CONFLICT";
             return out;
         }
         const auto destination = request.qualified_sibling_directory /
@@ -195,6 +251,7 @@ preflight_precision_cue_external_batch(
 inline PrecisionCueExternalBatchResult
 create_confirmed_precision_cue_external_batch(
     std::vector<PrecisionCueReviewedExternalCreate> reviews,
+    const PrecisionCueRelease& selected_edition,
     bool explicit_batch_confirmation) {
     using State = PrecisionCueExternalBatchState;
     PrecisionCueExternalBatchResult result;
@@ -202,7 +259,7 @@ create_confirmed_precision_cue_external_batch(
         result.diagnostic = "CUE_BATCH_REQUIRES_EXPLICIT_CONFIRMATION";
         return result;
     }
-    result = preflight_precision_cue_external_batch(reviews);
+    result = preflight_precision_cue_external_batch(reviews, selected_edition);
     if (result.state != State::ReadyForConfirmation)
         return result;
     for (std::size_t index = 0; index < reviews.size(); ++index) {
