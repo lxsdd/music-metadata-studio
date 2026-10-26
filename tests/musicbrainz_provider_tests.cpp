@@ -1427,21 +1427,21 @@ int main() {
         "musicbrainz",first);
     check(two_physical.eligible && two_physical.rows.empty(),
           "two captured physical files are eligible for exact album alignment");
-    const auto mixed=review_physical_album_batch_scope(3,
+    const auto scope_mixed=review_physical_album_batch_scope(3,
         {{0,true,true,false},{1,true,false,false},{2,false,true,true}},
         "musicbrainz",first);
-    check(!mixed.eligible && mixed.rows.size()==3 &&
-          mixed.rows[0].field=="Batch / MATCH" &&
-          online_evidence_scope_label(mixed.rows[0].candidate.scope)=="exact edition" &&
-          mixed.rows[0].state==FieldReviewState::Blocked &&
-          mixed.rows[1].reason=="album_batch_scope_VIRTUAL_SUBSONG" &&
-          mixed.rows[2].reason=="album_batch_scope_EXTERNAL_CUE_CARRIER" &&
-          mixed.rows[2].candidate.provider=="musicbrainz" &&
-          mixed.rows[2].candidate.field=="MATCH_DIAGNOSTIC",
+    check(!scope_mixed.eligible && scope_mixed.rows.size()==3 &&
+          scope_mixed.rows[0].field=="Batch / MATCH" &&
+          online_evidence_scope_label(scope_mixed.rows[0].candidate.scope)=="exact edition" &&
+          scope_mixed.rows[0].state==FieldReviewState::Blocked &&
+          scope_mixed.rows[1].reason=="album_batch_scope_VIRTUAL_SUBSONG" &&
+          scope_mixed.rows[2].reason=="album_batch_scope_EXTERNAL_CUE_CARRIER" &&
+          scope_mixed.rows[2].candidate.provider=="musicbrainz" &&
+          scope_mixed.rows[2].candidate.field=="MATCH_DIAGNOSTIC",
           "mixed physical/CUE selection produces bounded, nonstageable source reasons");
-    check(mixed.rows[0].candidate.provider=="musicbrainz" &&
-          mixed.rows[0].reason=="album_batch_scope_UNQUALIFIED_SELECTION" &&
-          mixed.rows[1].candidate.field=="MATCH_DIAGNOSTIC",
+    check(scope_mixed.rows[0].candidate.provider=="musicbrainz" &&
+          scope_mixed.rows[0].reason=="album_batch_scope_UNQUALIFIED_SELECTION" &&
+          scope_mixed.rows[1].candidate.field=="MATCH_DIAGNOSTIC",
           "scope explanation is local evidence, not an online tag suggestion");
     const auto oversized=review_physical_album_batch_scope(
         54129,{},"musicbrainz",first);
