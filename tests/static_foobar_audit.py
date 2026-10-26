@@ -115,7 +115,6 @@ for token in (
     "Reset included Discogs fields before starting another search",
     "Reset included online fields before replacing this view with CUE evidence",
     "Reset included online fields before replacing this view with clipboard evidence",
-    "L\"no bulk field \"",
     "L\"approval or network request.\"",
 ):
     if token not in batch_writer_ui:
