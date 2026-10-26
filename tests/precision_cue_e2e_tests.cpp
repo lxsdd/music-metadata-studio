@@ -183,7 +183,8 @@ void reference_cue_timeline_regressions(const PrecisionCuePlan& plan) {
 }
 
 void batch_reviewed_external_cue_regressions(
-    const std::vector<PrecisionCuePlan>& plans) {
+    const std::vector<PrecisionCuePlan>& plans,
+    const PrecisionCueRelease& edition) {
     using State = PrecisionCueExternalBatchState;
     using TargetState = PrecisionCueExistingTargetState;
     CHECK(plans.size() == 2);
@@ -209,7 +210,7 @@ void batch_reviewed_external_cue_regressions(
     };
     const auto cue_a = temporary.path / "Disc 1.cue";
     const auto cue_b = temporary.path / "Disc 2.cue";
-    auto qualified = preflight_precision_cue_external_batch(reviewed);
+    auto qualified = preflight_precision_cue_external_batch(reviewed, edition);
     CHECK(qualified.state == State::ReadyForConfirmation);
     CHECK(qualified.target_paths.size() == 2);
     CHECK(qualified.created_count == 0);
@@ -235,7 +236,7 @@ void batch_reviewed_external_cue_regressions(
             alias_plan, alias, "Disc 2 alias.mp3", *alias_identity);
         CHECK(alias_review);
         const auto duplicate = preflight_precision_cue_external_batch(
-            {*review_a, *alias_review});
+            {*review_a, *alias_review}, edition);
         CHECK(duplicate.state == State::RejectedBeforeCreate);
         CHECK(duplicate.diagnostic == "CUE_BATCH_DUPLICATE_PHYSICAL_SOURCE");
         CHECK(precision_cue_target_is_absent(cue_a));
@@ -245,7 +246,7 @@ void batch_reviewed_external_cue_regressions(
 
     // A valid preflight is never implicit batch authorization.
     auto forbidden = create_confirmed_precision_cue_external_batch(
-        reviewed, false);
+        reviewed, edition, false);
     CHECK(forbidden.state == State::RejectedBeforeCreate);
     CHECK(forbidden.created_count == 0);
     CHECK(precision_cue_target_is_absent(cue_a) &&
@@ -254,11 +255,11 @@ void batch_reviewed_external_cue_regressions(
     // No filename order or arbitrary vector permutation may silently
     // relabel a disc; duplicate disc references also fail closed.
     CHECK(preflight_precision_cue_external_batch(
-        {*review_b, *review_a}).state == State::RejectedBeforeCreate);
+        {*review_b, *review_a}, edition).state == State::RejectedBeforeCreate);
     CHECK(preflight_precision_cue_external_batch(
-        {*review_a, *review_a}).state == State::RejectedBeforeCreate);
+        {*review_a, *review_a}, edition).state == State::RejectedBeforeCreate);
     CHECK(preflight_precision_cue_external_batch(
-        {*review_a}).state == State::RejectedBeforeCreate);
+        {*review_a}, edition).state == State::RejectedBeforeCreate);
 
     // Even if both plans have a valid physical source and matching disc
     // count, two album editions must never be grouped as one release.
@@ -269,9 +270,33 @@ void batch_reviewed_external_cue_regressions(
     mixed_editions[1].request.reviewed_cue_sha256 =
         precision_cue_sha256(mixed_editions[1].request.plan.external_cue_utf8);
     const auto edition_mismatch =
-        preflight_precision_cue_external_batch(mixed_editions);
+        preflight_precision_cue_external_batch(mixed_editions, edition);
     CHECK(edition_mismatch.state == State::RejectedBeforeCreate);
     CHECK(edition_mismatch.diagnostic == "CUE_BATCH_ALBUM_EDITION_CONFLICT");
+
+    // Same album title and performer, same track count and timing, but a
+    // different mixed track version on only disc two: all release positions
+    // must be re-derived from ONE selected Apple album at the write gate.
+    auto mismatched_tracks = reviewed;
+    replace_once(mismatched_tracks[1].request.plan.external_cue_utf8,
+        "Mix Track 16 (Mixed)", "Mix Track 16 (Original Mix)");
+    mismatched_tracks[1].request.reviewed_cue_sha256 =
+        precision_cue_sha256(
+            mismatched_tracks[1].request.plan.external_cue_utf8);
+    const auto track_conflict =
+        preflight_precision_cue_external_batch(mismatched_tracks, edition);
+    CHECK(track_conflict.state == State::RejectedBeforeCreate);
+    CHECK(track_conflict.diagnostic == "CUE_BATCH_EDITION_TRACKLIST_CONFLICT");
+    auto wrong_catalog = edition;
+    wrong_catalog.tracks[16].duration_ms += 1;
+    CHECK(preflight_precision_cue_external_batch(reviewed, wrong_catalog).state ==
+          State::RejectedBeforeCreate);
+    wrong_catalog = edition;
+    wrong_catalog.provider = "deezer"; // Whole-second catalogs lack timing precision.
+    CHECK(preflight_precision_cue_external_batch(reviewed, wrong_catalog).state ==
+          State::RejectedBeforeCreate);
+    CHECK(precision_cue_target_is_absent(cue_a) &&
+          precision_cue_target_is_absent(cue_b));
 
     // A pre-existing DIFFERENT sibling on the second disc prevents
     // publication of the first disc: whole-batch preflight is mandatory.
@@ -281,7 +306,7 @@ void batch_reviewed_external_cue_regressions(
         existing << "existing second-disc CUE";
     }
     const auto blocked = create_confirmed_precision_cue_external_batch(
-        reviewed, true);
+        reviewed, edition, true);
     CHECK(blocked.state == State::RejectedBeforeCreate);
     CHECK(blocked.created_count == 0);
     CHECK(precision_cue_target_is_absent(cue_a));
@@ -295,7 +320,7 @@ void batch_reviewed_external_cue_regressions(
     std::error_code ec;
     fs::last_write_time(source_b, old_mtime, ec);
     CHECK(!ec);
-    auto stale = create_confirmed_precision_cue_external_batch(reviewed, true);
+    auto stale = create_confirmed_precision_cue_external_batch(reviewed, edition, true);
     CHECK(stale.state == State::RejectedBeforeCreate);
     CHECK(stale.created_count == 0);
     CHECK(precision_cue_target_is_absent(cue_a));
@@ -313,10 +338,10 @@ void batch_reviewed_external_cue_regressions(
     std::vector<PrecisionCueReviewedExternalCreate> renewed{
         *review_a, *rereview_b
     };
-    CHECK(preflight_precision_cue_external_batch(renewed).state ==
+    CHECK(preflight_precision_cue_external_batch(renewed, edition).state ==
           State::ReadyForConfirmation);
     const auto complete = create_confirmed_precision_cue_external_batch(
-        renewed, true);
+        renewed, edition, true);
     CHECK(complete.state == State::CreatedAll);
     CHECK(complete.created_count == 2);
     CHECK(inspect_precision_cue_existing_target(
@@ -327,7 +352,7 @@ void batch_reviewed_external_cue_regressions(
     // Second invocation must not overwrite either CUE, even if consent
     // is supplied again; exact target bytes remain unchanged.
     const auto again = create_confirmed_precision_cue_external_batch(
-        renewed, true);
+        renewed, edition, true);
     CHECK(again.state == State::RejectedBeforeCreate);
     CHECK(again.created_count == 0);
     {
@@ -376,7 +401,7 @@ void cross_provider_release_and_cue() {
     CHECK(reviewed.discs[1].external_cue_utf8.find(
         "FILE \"Disc 2.mp3\" WAVE") != std::string::npos);
     reference_cue_timeline_regressions(reviewed.discs[0]);
-    batch_reviewed_external_cue_regressions(reviewed.discs);
+    batch_reviewed_external_cue_regressions(reviewed.discs, apple);
 
     std::vector<PrecisionCueReferenceBoundary> references;
     for (const auto& b : reviewed.discs[0].boundaries)
