@@ -558,3 +558,12 @@
   in-memory explicit review/route/undo event summaries). Does not complete
   MMS-WF-07 execution results; no file/tag/CUE writes or persisted consent.
   Exact-SHA CI must be attached in PR #45 before any qualification claim.
+
+
+### 2026-10-26 — File locations routing scope (MMS-WF-02/06/09, MMS-UI-07, MMS-FILE-01; PARTIAL)
+
+Native Selected/Visible/All read-only route previews use exact captured
+physical IDs, full-batch stale rechecks, default-No bulk confirmation,
+post-dialog scope/rules/choice revalidation, transactional evaluation and
+exact route no-op suppression. Final FileOps/CUE/writer/installed GUI gates
+remain OPEN. Exact-SHA CI evidence is recorded in Draft PR #45 and Issue #50.

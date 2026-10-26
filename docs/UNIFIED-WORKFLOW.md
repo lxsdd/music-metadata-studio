@@ -1008,3 +1008,18 @@ persistent approval, and is cleared on Refresh. Navigation checks current
 source/rules evidence, refuses to discard selected online fields, never
 replays a decision or starts online lookup, and never qualifies a FileOps/CUE
 write. MMS-WF-07 (actual execution report) remains OPEN.
+
+
+## Filtered routing preview scope (2026-10-26, no writes)
+
+File locations now offers Selected, Visible filtered queue and All captured
+sources. The existing foobar Title Formatting adapter evaluates explicitly
+accepted normalizer postimages only. Visible maps sorted ListView rows to exact
+captured physical source IDs; it never updates hidden rows. All three scopes
+re-probe the complete batch before preview; collisions are scanned globally.
+Exact route no-ops preserve target observations, Undo and History. Multi-row,
+Visible and All previews require a default-No confirmation with affected and
+no-op counts, followed by revalidation of physical sources, rules, route
+controls and the exact selected source scope after modal return. Only changed
+rows invalidate raw destination/CUE evidence. Final FileOps-sanitized targets,
+CUE references, overwrite and physical writes remain unqualified and disabled.

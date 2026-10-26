@@ -169,6 +169,39 @@ inline bool native_release_loadable(
         std::find(exact_ids.begin(),exact_ids.end(),selected_id)!=exact_ids.end();
 }
 
+enum class NativeRoutePreviewScope { Selected, Visible, All };
+// Source IDs, not sorted/filtered ListView row indices, are routing authority.
+inline std::vector<std::size_t> native_route_preview_source_ids(
+    NativeRoutePreviewScope scope,std::size_t count,
+    const std::vector<std::size_t>& visible,
+    const std::vector<std::size_t>& selected_rows) {
+    if(count==0 || count>100000)
+        throw std::invalid_argument("ROUTE_SCOPE_BATCH_INVALID");
+    if(scope==NativeRoutePreviewScope::All) {
+        std::vector<std::size_t> ids(count);
+        std::iota(ids.begin(),ids.end(),std::size_t{0});
+        return ids;
+    }
+    std::vector<bool> seen(count,false);
+    for(auto id:visible) {
+        if(id>=count || seen[id])
+            throw std::invalid_argument("ROUTE_SCOPE_VISIBLE_IDENTITY_INVALID");
+        seen[id]=true;
+    }
+    std::vector<std::size_t> ids;
+    if(scope==NativeRoutePreviewScope::Visible) ids=visible;
+    else if(scope==NativeRoutePreviewScope::Selected) {
+        std::vector<bool> used(visible.size(),false);
+        for(auto row:selected_rows) {
+            if(row>=visible.size() || used[row])
+                throw std::invalid_argument("ROUTE_SCOPE_SELECTED_ROW_INVALID");
+            used[row]=true;
+            ids.push_back(visible[row]);
+        }
+    } else throw std::invalid_argument("ROUTE_SCOPE_UNKNOWN");
+    if(ids.empty()) throw std::invalid_argument("ROUTE_SCOPE_EMPTY");
+    return ids;
+}
 enum class PreviewCommand {
     None, Accept, Reject, Reset, ManualValue, TrackFilterChanged, FocusFilterChanged, VisibleWhitespaceChanged
 };
@@ -216,6 +249,7 @@ inline constexpr NativeWorkspaceCheckScope native_workspace_command_check_scope(
     }
     switch(LOWORD(wp)) {
     case IDC_BATCH_APPLY_SELECTED:
+    case IDC_BATCH_APPLY_VISIBLE:
     case IDC_BATCH_APPLY_ALL:
     case IDC_BATCH_AUDIT:
     case IDC_BATCH_COPY_AUDIT:

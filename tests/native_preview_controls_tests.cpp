@@ -99,6 +99,38 @@ bool centers_match(HWND dialog, int label_id, int control_id) {
 }
 
 int main() {
+    using djmeta_foobar::NativeRoutePreviewScope;
+    using djmeta_foobar::native_route_preview_source_ids;
+    const std::vector<std::size_t> visible={4,1,3};
+    check(native_route_preview_source_ids(NativeRoutePreviewScope::Visible,
+          5,visible,{})==visible,"visible route scope keeps sorted source IDs");
+    check(native_route_preview_source_ids(NativeRoutePreviewScope::Selected,
+          5,visible,{1,2})==std::vector<std::size_t>({1,3}),
+          "selected visible rows map to exact physical source IDs");
+    check(native_route_preview_source_ids(NativeRoutePreviewScope::All,
+          5,visible,{})==std::vector<std::size_t>({0,1,2,3,4}),
+          "all routing includes hidden source IDs");
+    check(native_route_preview_source_ids(NativeRoutePreviewScope::All,
+          54129,visible,{}).size()==54129,"large batch all-source routing");
+    for(const auto& bad:std::vector<std::vector<std::size_t>>{{4,4},{5},{}}) {
+        bool rejected=false;
+        try {(void)native_route_preview_source_ids(
+            NativeRoutePreviewScope::Visible,5,bad,{});}
+        catch(const std::invalid_argument&) {rejected=true;}
+        check(rejected,"invalid/duplicate/empty visible routing rejected");
+    }
+    for(const auto& bad:std::vector<std::vector<std::size_t>>{{3},{1,1},{}}) {
+        bool rejected=false;
+        try {(void)native_route_preview_source_ids(
+            NativeRoutePreviewScope::Selected,5,visible,bad);}
+        catch(const std::invalid_argument&) {rejected=true;}
+        check(rejected,"invalid/duplicate/empty selected routing rejected");
+    }
+    check(djmeta_foobar::native_workspace_command_check_scope(
+        djmeta_foobar::PreviewCommand::None,WM_COMMAND,
+        MAKEWPARAM(IDC_BATCH_APPLY_VISIBLE,BN_CLICKED))==
+        djmeta_foobar::NativeWorkspaceCheckScope::FullBatch,
+        "visible route command rechecks full captured batch");
     using djmeta_foobar::SessionPreviewHistory;
     using djmeta_foobar::PreviewHistoryKind;
     SessionPreviewHistory history;
@@ -232,6 +264,10 @@ int main() {
     HWND dialog = CreateDialogParamW(GetModuleHandleW(nullptr),
         MAKEINTRESOURCEW(IDD_BATCH_PREVIEW), nullptr, test_dialog_proc, 0);
     check(dialog != nullptr, "actual production dialog template instantiation");
+    const HWND visible_route=GetDlgItem(dialog,IDC_BATCH_APPLY_VISIBLE);
+    check(visible_route!=nullptr &&
+          (GetWindowLongPtrW(visible_route,GWL_STYLE)&WS_TABSTOP)!=0,
+          "production native Visible route button is keyboard accessible");
     const HWND history_grid=GetDlgItem(dialog,IDC_BATCH_HISTORY_LIST);
     const HWND history_filter=GetDlgItem(dialog,IDC_BATCH_HISTORY_FILTER);
     check(history_filter!=nullptr &&

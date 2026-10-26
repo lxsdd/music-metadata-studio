@@ -2475,7 +2475,7 @@ void show_preview_page(HWND dialog, PreviewState& state,
                    IDC_BATCH_DEST_LABEL, IDC_BATCH_PATTERN_LABEL,
                    IDC_BATCH_PROFILE_PICKER,
                    IDC_BATCH_DESTINATION, IDC_BATCH_PATTERN,
-                   IDC_BATCH_APPLY_SELECTED, IDC_BATCH_APPLY_ALL}) {
+                   IDC_BATCH_APPLY_SELECTED, IDC_BATCH_APPLY_VISIBLE, IDC_BATCH_APPLY_ALL}) {
         ShowWindow(GetDlgItem(dialog,id), metadata ? SW_HIDE : SW_SHOW);
     }
     if (metadata) {
@@ -2493,7 +2493,7 @@ void show_history_page(HWND dialog,PreviewState& state) {
         IDC_BATCH_LOCATION_FILTER_LABEL,IDC_BATCH_LOCATION_NOTE,
         IDC_BATCH_ROUTE_LABEL,IDC_BATCH_DEST_LABEL,IDC_BATCH_PATTERN_LABEL,
         IDC_BATCH_PROFILE_PICKER,IDC_BATCH_DESTINATION,IDC_BATCH_PATTERN,
-        IDC_BATCH_APPLY_SELECTED,IDC_BATCH_APPLY_ALL,IDC_BATCH_AUDIT,
+        IDC_BATCH_APPLY_SELECTED, IDC_BATCH_APPLY_VISIBLE, IDC_BATCH_APPLY_ALL,IDC_BATCH_AUDIT,
         IDC_BATCH_COPY_AUDIT,IDC_BATCH_NEXT_ISSUE})
         ShowWindow(GetDlgItem(dialog,id),SW_HIDE);
     refresh_preview_history_list(state);
@@ -2956,7 +2956,8 @@ void capture_resize_layout(PreviewState& state) {
                              id == IDC_METADATA_IMPORT_CANDIDATE ||
                              id == IDC_METADATA_USE_VALUE ||
                              id == IDC_BATCH_APPLY_SELECTED ||
-                             id == IDC_BATCH_APPLY_ALL || id == IDCANCEL;
+                              id == IDC_BATCH_APPLY_VISIBLE ||
+                              id == IDC_BATCH_APPLY_ALL || id == IDCANCEL;
         current.resize_controls.push_back(layout);
         return TRUE;
     }, reinterpret_cast<LPARAM>(&state));
@@ -3401,57 +3402,95 @@ void apply_review_action(HWND dialog, PreviewState& state,
         affected_tracks.size()==1 ? *affected_tracks.begin() : static_cast<std::size_t>(-1));
 }
 
-void apply_to_rows(HWND dialog, PreviewState& state, bool all) {
+void revalidate_workspace(PreviewState& state,bool full_source_check);
+void apply_to_rows(HWND dialog,PreviewState& state,NativeRoutePreviewScope scope) {
+    if(state.stale || state.refreshing || TabCtrl_GetCurSel(state.tabs)!=2)
+        throw std::invalid_argument("File locations requires a fresh source snapshot.");
     verify_rules_snapshot(state.captured_rules);
-    const RoutePreviewChoice choice = read_choice(dialog);
-    std::vector<std::size_t> selected;
-    if (all) {
-        for (std::size_t i = 0; i < state.entries.size(); ++i)
-            selected.push_back(i);
-    } else {
-        int index = -1;
-        while ((index = ListView_GetNextItem(state.list, index, LVNI_SELECTED)) >= 0)
-            if (static_cast<std::size_t>(index) < state.view_order.size())
-                selected.push_back(state.view_order[static_cast<std::size_t>(index)]);
-        if (selected.empty()) {
-            MessageBoxW(dialog, L"Select one or more rows first.",
-                        L"Prepare Tracks", MB_OK | MB_ICONINFORMATION);
-            return;
+    const auto choice=read_choice(dialog);
+    const auto selected_rows=[&]() {
+        std::vector<std::size_t> rows;
+        if(scope==NativeRoutePreviewScope::Selected) {
+            int row=-1;
+            while((row=ListView_GetNextItem(state.list,row,LVNI_SELECTED))>=0)
+                rows.push_back(static_cast<std::size_t>(row));
         }
-    }
-
-    // Transactional: every evaluation must succeed before any displayed
-    // batch row is updated. No metadata or filesystem state is modified.
+        return rows;
+    };
+    const auto selected=native_route_preview_source_ids(
+        scope,state.entries.size(),state.view_order,selected_rows());
+    revalidate_workspace(state,true);
+    if(state.stale) throw std::runtime_error("Source changed; refresh preview.");
     std::map<std::size_t,PreviewEntry> candidate;
     TitleformatBatchEvaluator formatter;
-    for (const auto index : selected) {
-        auto [it, inserted] = candidate.try_emplace(
-            index,state.entries.at(index));
-        PreviewEntry& entry = it->second;
-        verify_snapshot(entry);
-        entry.input.profile = choice.display_name;
-        entry.input.destination_root = choice.destination_root;
-        entry.route_expression = choice.titleformat_expression;
-        entry.input.raw_relative_path.clear();
-        reset_raw_target_observation(entry);
-        entry.input.filesystem_target_checked = false;
-        entry.input.cue_dependencies_checked = false;
-        if (!entry.input.physical_source_qualified) continue;
-
-        const auto current = entry.handle->get_info_ref();
-        entry.input.raw_relative_path = formatter.evaluate(
-            entry.handle->get_location(), current->info(),
-            entry.staged, choice.titleformat_expression);
+    for(auto index:selected) {
+        const auto& old=state.entries.at(index);
+        verify_snapshot(old);
+        PreviewEntry next=old;
+        next.input.profile=choice.display_name;
+        next.input.destination_root=choice.destination_root;
+        next.route_expression=choice.titleformat_expression;
+        next.input.raw_relative_path.clear();
+        if(next.input.physical_source_qualified) {
+            const auto current=next.handle->get_info_ref();
+            next.input.raw_relative_path=formatter.evaluate(
+                next.handle->get_location(),current->info(),next.staged,
+                choice.titleformat_expression);
+        }
+        if(next.input.profile==old.input.profile &&
+           next.input.destination_root==old.input.destination_root &&
+           next.route_expression==old.route_expression &&
+           next.input.raw_relative_path==old.input.raw_relative_path)
+            continue; // exact no-op: keep target evidence, undo and history
+        reset_raw_target_observation(next);
+        next.input.filesystem_target_checked=false;
+        next.input.cue_dependencies_checked=false;
+        candidate.emplace(index,std::move(next));
     }
-
-    // No mixed stale snapshots: refuse the entire preview update if any
-    // selected or unselected source metadata has changed.
-    for (const auto& entry : state.entries) verify_snapshot(entry);
     verify_rules_snapshot(state.captured_rules);
-
-    for (auto& [index, changed] : candidate) {
+    if(candidate.empty()) {
+        SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+            L"Identical route preview. No history, undo or file writes.");
+        return;
+    }
+    if(scope!=NativeRoutePreviewScope::Selected || selected.size()>1) {
+        const wchar_t* name=scope==NativeRoutePreviewScope::Visible
+            ? L"VISIBLE filtered queue (hidden rows excluded)"
+            : scope==NativeRoutePreviewScope::All
+            ? L"ALL captured tracks (including hidden rows)"
+            : L"selected visible rows";
+        const std::wstring notice=std::wstring(L"Preview routing for ")+name+
+            L"?\n\nSources: "+std::to_wstring(selected.size())+
+            L"\nChanged routes: "+std::to_wstring(candidate.size())+
+            L"\nExact no-ops: "+std::to_wstring(selected.size()-candidate.size())+
+            L"\n\nOnly in-memory paths change. Final foobar File Operations "
+            L"destinations, CUE references and overwrites remain UNQUALIFIED. "
+            L"No music files or tags are written.";
+        if(MessageBoxW(dialog,notice.c_str(),L"Confirm route preview scope",
+                       MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2)!=IDYES)
+            return;
+    }
+    if(!IsWindow(dialog) || g_workspace!=dialog ||
+       state.workspace_generation!=g_workspace_generation ||
+       GetWindowLongPtrW(dialog,GWLP_USERDATA)!=
+           reinterpret_cast<LONG_PTR>(&state) ||
+       TabCtrl_GetCurSel(state.tabs)!=2) return;
+    revalidate_workspace(state,true);
+    if(state.stale) throw std::runtime_error("Source changed during confirmation.");
+    const auto now=read_choice(dialog);
+    if(now.display_name!=choice.display_name ||
+       now.destination_root!=choice.destination_root ||
+       now.titleformat_expression!=choice.titleformat_expression ||
+       native_route_preview_source_ids(
+           scope,state.entries.size(),state.view_order,selected_rows())!=selected)
+        throw std::runtime_error("Route scope or settings changed during confirmation.");
+    verify_rules_snapshot(state.captured_rules);
+    const auto changed=candidate.size();
+    const auto single=changed==1 ? candidate.begin()->first
+        : static_cast<std::size_t>(-1);
+    for(auto& [index,next]:candidate) {
         using std::swap;
-        swap(state.entries[index],changed);
+        swap(state.entries[index],next);
     }
     if(candidate.size()<=kMaxPreviewUndoSources) {
         PreviewUndoFrame frame;
@@ -3460,19 +3499,23 @@ void apply_to_rows(HWND dialog, PreviewState& state, bool all) {
         frame.previous_choice=state.current_choice;
         state.last_preview_undo=std::move(frame);
     } else state.last_preview_undo.reset();
-    state.current_choice = choice;
-    // A route override can change the naming expression and the selected
-    // online source's per-track profile. Old what-if paths are not reusable.
+    state.current_choice=choice;
     state.online_raw_route_valid=false;
     state.online_raw_route_before.clear();
     state.online_raw_route_after.clear();
     state.online_raw_target_observation.reset();
     EnableWindow(GetDlgItem(dialog,IDC_BATCH_UNDO),
                  state.last_preview_undo ? TRUE : FALSE);
-    update_table(state);
+    update_table(state); // collision scan always covers the entire batch
     record_preview_history(state,PreviewHistoryKind::Route,
-        selected.size(),selected.size(),all?2u:1u,
-        selected.size()==1 ? selected.front() : static_cast<std::size_t>(-1));
+        changed,changed,scope==NativeRoutePreviewScope::Visible ? 3u :
+        scope==NativeRoutePreviewScope::All ? 2u : 1u,single);
+    const std::wstring status=L"Read-only route preview: "+
+        std::to_wstring(changed)+L" changed of "+
+        std::to_wstring(selected.size())+
+        L" scoped tracks. Full-batch collision checks retained; "
+        L"final FileOps/CUE not qualified. No writes.";
+    SetDlgItemTextW(dialog,IDC_BATCH_HINT,status.c_str());
 }
 
 void undo_last_preview_action(HWND dialog, PreviewState& state) {
@@ -4130,7 +4173,7 @@ void mark_stale_workspace(PreviewState& state) {
     state.stale = true;
     for (int id : {IDC_METADATA_ACCEPT, IDC_METADATA_REJECT,
                    IDC_METADATA_RESET, IDC_METADATA_USE_VALUE,
-                   IDC_BATCH_APPLY_SELECTED, IDC_BATCH_APPLY_ALL,
+                   IDC_BATCH_APPLY_SELECTED, IDC_BATCH_APPLY_VISIBLE, IDC_BATCH_APPLY_ALL,
                    IDC_BATCH_UNDO, IDC_BATCH_COPY_AUDIT,
                     IDC_BATCH_NEXT_ISSUE,
                    IDC_METADATA_MB_SEARCH, IDC_METADATA_MB_LOAD_RELEASE,
@@ -4335,7 +4378,7 @@ void refresh_workspace_snapshot(PreviewState& state) {
         prefill_musicbrainz_query(state);
         for (int id : {IDC_METADATA_ACCEPT, IDC_METADATA_REJECT,
                        IDC_METADATA_RESET, IDC_METADATA_USE_VALUE,
-                       IDC_BATCH_APPLY_SELECTED, IDC_BATCH_APPLY_ALL})
+                       IDC_BATCH_APPLY_SELECTED, IDC_BATCH_APPLY_VISIBLE, IDC_BATCH_APPLY_ALL})
             EnableWindow(GetDlgItem(state.dialog,id), TRUE);
         SetWindowTextW(state.dialog,L"Music Metadata Studio - Prepare Tracks (Read-only)");
         update_table(state);
@@ -4406,8 +4449,9 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_BATCH_PROFILE_PICKER,L"Select an existing foobar routing template or enter a custom display name; no file operation is performed."},
         {IDC_BATCH_DESTINATION,L"Destination root for the preview only. No folder is created."},
         {IDC_BATCH_PATTERN,L"foobar Title Formatting pattern for preview file names only. Actual paths are not yet validated."},
-        {IDC_BATCH_APPLY_SELECTED,L"Recalculate proposed locations for selected rows in memory, without copying or moving files."},
-        {IDC_BATCH_APPLY_ALL,L"Recalculate proposed locations for every row in memory. Nothing is written."},
+        {IDC_BATCH_APPLY_SELECTED,L"Preview selected visible physical sources only; full-batch recheck, no writes."},
+        {IDC_BATCH_APPLY_VISIBLE,L"Preview all currently visible filtered File queue rows; hidden rows excluded, no writes."},
+        {IDC_BATCH_APPLY_ALL,L"Preview every captured source, including hidden File queue rows; no writes."},
         {IDC_BATCH_REFRESH,L"Reload the original selection after a confirmation. Discards pending decisions, search hits and routing previews. Does not import a different selection."},
         {IDC_BATCH_HELP,L"Open the three-stage walkthrough and explain what each tab can and cannot do."},
         {IDC_BATCH_AUDIT,L"Recheck every selected source, then show local explicit/no-op/pending decisions and raw FileOps blockers. Read-only; no approval."},
@@ -8165,11 +8209,15 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             return TRUE;
         }
         if (id == IDC_BATCH_APPLY_SELECTED && HIWORD(wp) == BN_CLICKED) {
-            apply_to_rows(dialog, *state, false);
+            apply_to_rows(dialog, *state, NativeRoutePreviewScope::Selected);
+            return TRUE;
+        }
+        if (id == IDC_BATCH_APPLY_VISIBLE && HIWORD(wp) == BN_CLICKED) {
+            apply_to_rows(dialog, *state, NativeRoutePreviewScope::Visible);
             return TRUE;
         }
         if (id == IDC_BATCH_APPLY_ALL && HIWORD(wp) == BN_CLICKED) {
-            apply_to_rows(dialog, *state, true);
+            apply_to_rows(dialog, *state, NativeRoutePreviewScope::All);
             return TRUE;
         }
     } catch (const std::exception& error) {
