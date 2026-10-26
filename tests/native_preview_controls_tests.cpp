@@ -269,6 +269,19 @@ int main() {
           (GetWindowLongPtrW(field_scope_control,GWL_STYLE)&CBS_DROPDOWNLIST)==CBS_DROPDOWNLIST &&
           (GetWindowLongPtrW(field_scope_control,GWL_STYLE)&WS_TABSTOP)!=0,
           "field-specific review uses keyboard-accessible native scope picker");
+    const HWND file_action=GetDlgItem(dialog,IDC_BATCH_FILE_ACTION);
+    check(file_action!=nullptr &&
+          (GetWindowLongPtrW(file_action,GWL_STYLE)&CBS_DROPDOWNLIST)==CBS_DROPDOWNLIST &&
+          (GetWindowLongPtrW(file_action,GWL_STYLE)&WS_TABSTOP)!=0,
+          "native File locations action selection is keyboard accessible");
+    for(const wchar_t* item:{L"Move",L"Copy",L"Rename",L"No file action"})
+        check(SendMessageW(file_action,CB_ADDSTRING,0,
+              reinterpret_cast<LPARAM>(item))!=CB_ERR,
+              "four distinct read-only action intents are selectable");
+    check(SendMessageW(file_action,CB_GETCOUNT,0,0)==4 &&
+          SendMessageW(file_action,CB_SETCURSEL,3,0)==3 &&
+          SendMessageW(file_action,CB_GETCURSEL,0,0)==3,
+          "No file action is deliberately selectable and never auto-executes");
     const HWND visible_route=GetDlgItem(dialog,IDC_BATCH_APPLY_VISIBLE);
     check(visible_route!=nullptr &&
           (GetWindowLongPtrW(visible_route,GWL_STYLE)&WS_TABSTOP)!=0,

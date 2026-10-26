@@ -978,7 +978,7 @@ std::wstring cell_text(PreviewState& state, std::size_t row, int column) {
                state.online_edition_source,row,
                state.online_included_fields.size())) {
             if(!state.online_raw_route_valid)
-                return prefix+L"Joint raw route unqualified";
+                return L"Joint raw route: unqualified";
             const auto issue=status_text(summary);
             if(!issue.empty() && issue!="Qualified inputs (not approved)")
                 return prefix+from_utf8(issue);
