@@ -1,6 +1,7 @@
 #include "djmeta/cue_reference_locator.h"
 #include "djmeta/cue_raw_route_impact.h"
 #include "djmeta/cue_file_navigation.h"
+#include "djmeta/cue_inspection_queue.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -319,5 +320,50 @@ int main() {
     require(cue_file_navigation_id(128,1)=="cue-raw-route:unavailable" &&
             cue_file_navigation_id(1,100000)=="cue-raw-route:unavailable",
             "out-of-bounds CUE reference cannot invent a target source");
+    CueInspectionQueue queue;
+    std::vector<CueQueuePlanRow> snapshot(54129);
+    snapshot[8]={"private-id","private-guard","R:\\PRIVATE","Track.flac",
+                 FileAction::Move,true,true,false,false};
+    queue.observe(snapshot);
+    const std::vector<std::size_t> cues{8,32};
+    require(queue.counts(cues).missing==2 &&
+            queue.next_attention(cues,8)==32,
+            "54k source-order CUE inspection navigates missing source");
+    auto moved=inspect_cue_sidecar_raw_action(
+        all_move_impact,FileAction::Move,true,true,false,false,
+        "Z:\\Library","Album.cue");
+    queue.record(8,all_move_impact,moved);
+    require(queue.stage(8)==CueQueueStage::RawOnly,
+            "CUE FILE move is only RAW, not final FileOps");
+    auto kept=inspect_cue_sidecar_raw_action(
+        all_copy_impact,FileAction::None,true,true,false,false,
+        "Z:\\Library","Album.cue");
+    queue.record(32,all_copy_impact,kept);
+    require(queue.stage(32)==CueQueueStage::OriginalKept,
+            "CUE kept original on audio Copy remains advisory");
+    auto tsv=queue.export_tsv(cues);
+    require(tsv.find("#9\tRAW_ONLY_FINAL_CUE_UNQUALIFIED")!=std::string::npos &&
+            tsv.find("#33\tORIGINAL_CUE_KEPT")!=std::string::npos &&
+            tsv.find("PRIVATE")==std::string::npos &&
+            tsv.find("private-id")==std::string::npos,
+            "whole-batch CUE audit exports no source keys or paths");
+    tsv=queue.export_tsv(cues,true);
+    require(tsv.find("#33\tORIGINAL_CUE_KEPT")==std::string::npos,
+            "Copy issues excludes unchanged original CUE FILEs");
+    const auto epoch=queue.epoch;
+    queue.observe(snapshot);
+    require(queue.epoch==epoch && queue.stage(8)==CueQueueStage::RawOnly,
+            "sort and filter preserve exact current inspection");
+    snapshot[11].raw_filename="different-hidden.flac";
+    queue.observe(snapshot);
+    require(queue.epoch!=epoch && queue.counts(cues).stale==2 &&
+            queue.stage(8)==CueQueueStage::Stale,
+            "changing hidden source invalidates ALL prior CUE inspections");
+    tsv=queue.export_tsv(cues,true);
+    require(tsv.find("#9\tSTALE_REINSPECT")!=std::string::npos &&
+            tsv.find("#33\tSTALE_REINSPECT")!=std::string::npos,
+            "stale CUEs included in privacy-safe Copy issues");
+    try { (void)queue.counts({32,8}); require(false,"invalid order"); }
+    catch(const std::invalid_argument&) {}
     std::cout << "PASS: action-aware CUE FILE and source-identity navigation dry-run qualification\n";
 }
