@@ -1219,3 +1219,24 @@ correct relative FILE tokens on the new CUE, backup, overwrite/no-op,
 final source-target double-recheck and the separate write approval remain
 unqualified. Existing normalizer, source probes and FILE impact are reused;
 no CUE bytes, audio, tags or sidecars are changed by inspection.
+
+
+### Direct CUE FILE → physical File locations drill-down
+
+Within **Inspect CUE**, double-click or press **Enter** on a
+"FILE # / RAW routing impact" row to jump directly to its captured physical
+audio source in **File locations**. The "CUE carrier / Explicit sidecar
+operation" row similarly opens the physical CUE carrier, where the user can
+stage an independent Move, Copy or No file action. The full raw-route table
+is rechecked and the complete filter restored before selecting the linked
+source, so hidden/sorted view positions cannot redirect action to the wrong
+track. The online comparison remains an inspection; no search request is
+initiated and no metadata decision is silently changed.
+
+The link contains only numeric original source and FILE ordinals, not
+paths/tags/physical fingerprints. The source ID parser bounds FILE and source
+counts; unselected/malformed references cannot navigate. Before navigation,
+the native host independently verifies the CUE snapshot, selected audio
+source and captured rules, then revalidates the whole workspace. Stale
+evidence requires Refresh. The jump only navigates; the writer, CUE
+serializer, File Operations execution and final postimage gates stay disabled.

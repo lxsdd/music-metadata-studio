@@ -53,6 +53,7 @@
 #include "djmeta/cue_reference_locator.h"
 #include "djmeta/cue_physical_selection_audit.h"
 #include "djmeta/cue_raw_route_impact.h"
+#include "djmeta/cue_file_navigation.h"
 #include "djmeta/physical_selection.h"
 #include "djmeta/physical_sdk_postimage.h"
 #if defined(MMS_ENABLE_PHYSICAL_WRITES)
@@ -4128,7 +4129,11 @@ void append_external_cue_file_reference_evidence(
         row.candidate.field="Staged audio routing (NOT final FileOps/CUE)";
         row.candidate.provider="Local foobar Title Formatting (read-only)";
         row.candidate.scope=djmeta::online::EvidenceScope::Edition;
-        row.candidate.source_id="cue-raw-route:"+std::to_string(shown+1);
+        row.candidate.source_id=route.selected_source_row==
+            djmeta::cue_unselected_source_row
+            ? "cue-raw-route:"+std::to_string(shown+1)
+            : djmeta::cue_file_navigation_id(
+                route.reference_index,route.selected_source_row);
         std::string explanation=std::string(
             djmeta::describe_cue_raw_route_code(route.code))+
             " ["+route.code+"]";
@@ -4140,6 +4145,8 @@ void append_external_cue_file_reference_evidence(
         if(!route.raw_candidate.empty())
             explanation+="; RAW ONLY: "+route.raw_candidate;
         explanation+="; final FileOps target / relative CUE FILE unchecked";
+        if(route.selected_source_row!=djmeta::cue_unselected_source_row)
+            explanation+="; double-click or press Enter to inspect that physical source in File locations";
         row.candidate.values.push_back(std::move(explanation));
         row.state=djmeta::online::FieldReviewState::Blocked;
         row.reason="cue_raw_routing_impact_not_final_approval";
@@ -4196,6 +4203,7 @@ void append_external_cue_file_reference_evidence(
         "; carrier action: "+std::string(djmeta::file_action_label(entry.file_action));
     if(!sidecar.raw_candidate.empty())
         sidecar_explanation+="; carrier RAW ONLY: "+sidecar.raw_candidate;
+    sidecar_explanation+="; double-click or press Enter to inspect the CUE carrier in File locations";
     sidecar_explanation+="; final FileOps/CUE postimage NOT approved";
     sidecar_row.candidate.values.push_back(std::move(sidecar_explanation));
     sidecar_row.state=djmeta::online::FieldReviewState::Blocked;
@@ -4855,7 +4863,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_ONLINE_IGNORE_FIELDS,L"Remove highlighted edition fields from the in-memory preview. Existing tags remain intact."},
         {IDC_ONLINE_RESET_FIELDS,L"Clear every included online field for this exact edition. Does not modify any file or saved metadata."},
         {IDC_ONLINE_WRITE_SELECTED,L"QA-only: submit the exact displayed physical tag differences for this one verified file after a separate final confirmation. No CUE or file move."},
-        {IDC_METADATA_INSPECT_CUE,L"Read the source CUE and inspect independently probed physical FILEs. For an external CUE carrier, first explicitly stage its own Move/Copy/No-file-action in File locations to inspect sidecar consistency. No actual CUE or audio writes."},
+        {IDC_METADATA_INSPECT_CUE,L"Inspect original CUE FILE sources and sidecar actions. Double-click/Enter a linked FILE routing row to jump to its exact physical source, or the carrier row to stage its sidecar action in File locations. No file changes."},
         {IDC_METADATA_IMPORT_CANDIDATE,L"Import structured clipboard evidence for Beatport/Crates, MusicBrainz, Discogs, Deezer or Spotify. Manual @provider claims are unverified, even if an ID is supplied. No authentication claim, tag change or file write."},
         {IDC_METADATA_LIST,L"Select a candidate or proposed change to inspect its source and status."},
         {IDC_METADATA_MB_DETAILS,L"Field-by-field evidence for the selected online candidate. REVIEW is not a tag-write authorization."},
@@ -7049,6 +7057,98 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                     return TRUE;
                 }
             }
+        }
+        // The read-only CUE inventory connects one observed FILE dependency
+        // directly to the selected physical File locations source. Interpret
+        // only our bounded ID, never a CUE filename or tooltip/path text.
+        if(header && header->idFrom==IDC_METADATA_LIST &&
+           (header->code==NM_DBLCLK ||
+            (header->code==LVN_KEYDOWN &&
+             reinterpret_cast<const NMLVKEYDOWN*>(lp)->wVKey==VK_RETURN)) &&
+           state->cue_inspection_mode && state->show_candidate &&
+           !state->stale && !state->refreshing &&
+           !state->musicbrainz_request && !state->discogs_request &&
+           !state->beatport_public_request &&
+           state->candidate_source_index==state->selected_track_index &&
+           state->selected_track_index<state->entries.size()) {
+            const int clicked=header->code==NM_DBLCLK
+                ? reinterpret_cast<const NMITEMACTIVATE*>(lp)->iItem : -1;
+            const int focused=ListView_GetNextItem(
+                state->metadata_list,-1,LVNI_FOCUSED);
+            const int clicked_selected=clicked>=0 &&
+                (ListView_GetItemState(state->metadata_list,clicked,
+                                      LVIS_SELECTED)&LVIS_SELECTED)!=0;
+            const int focused_selected=focused>=0 &&
+                (ListView_GetItemState(state->metadata_list,focused,
+                                      LVIS_SELECTED)&LVIS_SELECTED)!=0;
+            const int activated=native_selected_release_activation_row(
+                header->code,clicked,focused,clicked_selected!=0,
+                focused_selected!=0,
+                header->code==LVN_KEYDOWN?VK_RETURN:0);
+            if(activated<0 ||
+               static_cast<std::size_t>(activated)>=
+                   state->candidate_view_order.size())
+                return TRUE;
+            const auto candidate=state->candidate_view_order[
+                static_cast<std::size_t>(activated)];
+            if(candidate>=state->candidate_rows.size()) return TRUE;
+            const auto& row=state->candidate_rows[candidate];
+            if(row.reason!="cue_raw_routing_impact_not_final_approval" &&
+               row.reason!="cue_carrier_action_not_final_approval")
+                return TRUE;
+            const auto target=djmeta::resolve_cue_file_navigation(
+                row.candidate.source_id,state->selected_track_index,
+                state->entries.size());
+            if(!target) {
+                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                    L"This CUE FILE reference has no qualified selected physical audio. "
+                    L"Inspect the missing source before planning relocation; no writes.");
+                return TRUE;
+            }
+            const auto& cue=state->entries.at(state->selected_track_index);
+            verify_snapshot(cue);
+            verify_rules_snapshot(state->captured_rules);
+            const auto& physical=state->entries.at(target->source_index);
+            if(!target->carrier &&
+               (!physical.input.physical_source_qualified ||
+                physical.handle->get_subsong_index()!=0 ||
+                is_external_cue_locator(physical.input.source_path)))
+                throw std::runtime_error(
+                    "CUE reference no longer maps to qualified physical audio. Refresh.");
+            verify_snapshot(physical);
+            revalidate_workspace(*state,true);
+            if(state->stale)
+                throw std::runtime_error(
+                    "CUE linked source changed; refresh the read-only workspace.");
+            // Re-evaluate the full batch AFTER re-probing, preserving all
+            // mixed Move/Copy/Skip intents and whole-batch raw collisions.
+            state->location_queue=djmeta::BatchLocationQueue::All;
+            SendDlgItemMessageW(dialog,IDC_BATCH_LOCATION_FILTER,CB_SETCURSEL,0,0);
+            update_table(*state);
+            TabCtrl_SetCurSel(state->tabs,2);
+            show_preview_page(dialog,*state,false,false);
+            const auto where=std::find(state->view_order.begin(),
+                                       state->view_order.end(),
+                                       target->source_index);
+            if(where==state->view_order.end())
+                throw std::runtime_error(
+                    "Linked source no longer visible in complete File locations queue.");
+            const auto position=static_cast<int>(where-state->view_order.begin());
+            ListView_SetItemState(state->list,-1,0,LVIS_SELECTED);
+            ListView_SetItemState(state->list,position,
+                                  LVIS_SELECTED|LVIS_FOCUSED,
+                                  LVIS_SELECTED|LVIS_FOCUSED);
+            ListView_EnsureVisible(state->list,position,FALSE);
+            SetFocus(state->list);
+            const std::wstring hint=target->carrier
+                ? L"CUE carrier opened in File locations. Stage an explicit "
+                  L"sidecar action; no final FileOps/CUE approval."
+                : L"CUE FILE #"+std::to_wstring(target->file_index+1)+
+                  L" linked physical source #"+
+                  std::to_wstring(target->source_index+1)+
+                  L" opened. RAW routes only; no final FileOps/CUE approval.";
+            SetDlgItemTextW(dialog,IDC_BATCH_HINT,hint.c_str());
+            return TRUE;
         }
         const bool release_activation=header &&
             header->idFrom==IDC_METADATA_LIST &&

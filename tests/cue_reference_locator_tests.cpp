@@ -1,5 +1,6 @@
 #include "djmeta/cue_reference_locator.h"
 #include "djmeta/cue_raw_route_impact.h"
+#include "djmeta/cue_file_navigation.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -290,5 +291,33 @@ int main() {
         "Z:\\Library","Album.cue");
     require(carrier.code=="CUE_SIDECAR_ACTION_INVALID",
             "invalid sidecar action is explicitly blocked");
-    std::cout << "PASS: action-aware CUE FILE, carrier and RAW sidecar dry-run qualification\n";
+
+    // Native candidate source_id encodes stable captured physical row IDs
+    // only. File locations sorting/filtering cannot rebind an activated row.
+    const auto nav_id=cue_file_navigation_id(0,4);
+    require(nav_id=="cue-raw-route:1/source/5",
+            "CUE routing IDs retain original 1-based source row identity");
+    auto nav=resolve_cue_file_navigation(nav_id,2,5);
+    require(nav && nav->file_index==0 && nav->source_index==4 &&
+            !nav->carrier, "linked CUE FILE resolves exact captured physical source");
+    nav=resolve_cue_file_navigation("cue-sidecar-action",2,5);
+    require(nav && nav->carrier && nav->source_index==2,
+            "carrier action links to exact CUE physical source row");
+    for(const std::string_view bad:{
+        "cue-raw-route:1", "cue-raw-route:1/source/0",
+        "cue-raw-route:1/source/6", "cue-raw-route:129/source/1",
+        "cue-raw-route:01/source/1", "cue-raw-route:1/source/01",
+        "cue-raw-route:1/source/99999999999999999999999999",
+        "cue-raw-route:1/source/-1", "cue-raw-route:1/source/1/extra",
+        "cue-raw-route:1/source/1\\tWRITER", "cue-file:1", "cue-raw-route:unavailable"}) {
+        require(!resolve_cue_file_navigation(bad,2,5),
+                "malformed/unselected/external CUE FILE link cannot navigate");
+    }
+    require(!resolve_cue_file_navigation("cue-sidecar-action",5,5) &&
+            !resolve_cue_file_navigation("cue-sidecar-action",0,0),
+            "stale or empty captured CUE carrier selection fails closed");
+    require(cue_file_navigation_id(128,1)=="cue-raw-route:unavailable" &&
+            cue_file_navigation_id(1,100000)=="cue-raw-route:unavailable",
+            "out-of-bounds CUE reference cannot invent a target source");
+    std::cout << "PASS: action-aware CUE FILE and source-identity navigation dry-run qualification\n";
 }

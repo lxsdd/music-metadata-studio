@@ -2239,3 +2239,20 @@ for marker in ("next.file_action_explicitly_staged=true;",
                "sidecar_row.reason=\"cue_carrier_action_not_final_approval\""):
     if marker not in workspace_dialog:
         raise SystemExit("STATIC NATIVE CUE SIDECAR WIRING FAIL: "+marker)
+
+
+# CUE review-to-file-plan native drilldown requires exact captured physical
+# source identity, independent source/rules reprobe and no network/writer.
+cue_nav=(root / "include" / "djmeta" / "cue_file_navigation.h").read_text(encoding="utf-8")
+for marker in ("resolve_cue_file_navigation(", "cue_file_navigation_id(",
+               "cue-sidecar-action", '"/source/"', "source>captured_tracks"):
+    if marker not in cue_nav:
+        raise SystemExit("STATIC CUE NAVIGATION FAIL: "+marker)
+for marker in ('row.reason!="cue_raw_routing_impact_not_final_approval"',
+               'row.reason!="cue_carrier_action_not_final_approval"',
+               "verify_snapshot(cue);", "verify_snapshot(physical);",
+               "revalidate_workspace(*state,true);",
+               "state->location_queue=djmeta::BatchLocationQueue::All;",
+               "target->source_index", "SetFocus(state->list);"):
+    if marker not in workspace_dialog:
+        raise SystemExit("STATIC NATIVE CUE NAVIGATION FAIL: "+marker)

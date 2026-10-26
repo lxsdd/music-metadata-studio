@@ -42,7 +42,7 @@
 | ID | Status | Verbindliches Verhalten und Abnahme | Detail |
 |---|---|---|---|
 | MMS-WF-01 | PARTIAL | One **modeless single-instance workspace** alongside foobar playback, playlists and Properties; no application-locking wizard or forced topmost; minimize/maximize/taskbar; preserve an existing in-progress batch. | #47 |
-| MMS-WF-02 | PARTIAL | One intelligible journey: **Find/compare → normalize/review → file plan → one final confirmation**, with no redundant dialogs or double entry. Three central views for daily work; inline guidance. | #48, [workflow](UNIFIED-WORKFLOW.md) |
+| MMS-WF-02 | PARTIAL | One intelligible journey: **Find/compare → normalize/review → file plan → one final confirmation**, with no redundant dialogs or double entry. Three central views for daily work; double-click/Enter Inspect CUE FILE evidence to navigate the exact linked physical File locations row or the CUE carrier; inline guidance. | #48, [workflow](UNIFIED-WORKFLOW.md) |
 | MMS-WF-03 | PARTIAL | Select one/many tracks from foobar; show one compact **row per track** with grouped expandable field differences rather than an endless one-row-per-change list; multi-selection and clear status counts. | #48, #49 |
 | MMS-WF-04 | PARTIAL | Final workspace clearly separates **Metadaten, Dateien, Verlauf** without scattering actions across windows; shared staged canonical metadata is the only input to routing. | [workflow](UNIFIED-WORKFLOW.md) |
 | MMS-WF-05 | PARTIAL | Accept/Reject/Reset/manual value for a field, selected tracks or all; applicable actions must name their scope. No provider result or SAFE rule silently approves a write. | #49 |
