@@ -6,6 +6,7 @@
 #include "djmeta/precision_cue_assemble.h"
 #include "djmeta/precision_cue_source_consensus.h"
 #include "djmeta/precision_cue_boundary_audit.h"
+#include "djmeta/precision_cue_reference_diff.h"
 #include "djmeta/precision_cue_external_host_review.h"
 #include "djmeta/precision_cue_external_inspect.h"
 
@@ -84,6 +85,101 @@ void synthetic_file(const fs::path& path, char fill) {
     CHECK(out.good());
 }
 
+void replace_once(std::string& bytes, std::string_view before,
+                  std::string_view after) {
+    const auto at = bytes.find(before);
+    CHECK(at != std::string::npos);
+    bytes.replace(at, before.size(), after);
+}
+
+void reference_cue_timeline_regressions(const PrecisionCuePlan& plan) {
+    using State = PrecisionCueReferenceDiffState;
+    const auto& original = plan.external_cue_utf8;
+    const std::string basename = "Disc 1.mp3";
+    auto diff = compare_precision_cue_external_reference(plan, original, basename);
+    CHECK(diff.state == State::ExactFramesPreviewOnly);
+    CHECK(diff.audit.exact_count == 15);
+    CHECK(diff.audit.within_one_frame_count == 0);
+    CHECK(diff.audit.review_count == 0);
+
+    // Different descriptive metadata is not a different INDEX timeline,
+    // but it is NOT proof that two editions or audio masters coincide.
+    auto metadata = original;
+    replace_once(metadata, "Mix Track 1 (Mixed)", "Mix Track 1 (Other Edition)");
+    diff = compare_precision_cue_external_reference(plan, metadata, basename);
+    CHECK(diff.state == State::ExactFramesPreviewOnly);
+
+    auto one_frame = original;
+    replace_once(one_frame, "INDEX 01 02:00:00", "INDEX 01 02:00:01");
+    diff = compare_precision_cue_external_reference(plan, one_frame, basename);
+    CHECK(diff.state == State::WithinOneFramePreviewOnly);
+    CHECK(diff.audit.exact_count == 14);
+    CHECK(diff.audit.within_one_frame_count == 1);
+    CHECK(diff.audit.differences[1].signed_delta_frames == -1);
+
+    auto two_frames = original;
+    replace_once(two_frames, "INDEX 01 02:00:00", "INDEX 01 02:00:02");
+    diff = compare_precision_cue_external_reference(plan, two_frames, basename);
+    CHECK(diff.state == State::ReviewRequired);
+    CHECK(diff.audit.review_count == 1);
+
+    auto pregap = original;
+    replace_once(pregap, "    INDEX 01 02:00:00",
+                 "    INDEX 00 01:59:70\n    INDEX 01 02:00:00");
+    diff = compare_precision_cue_external_reference(plan, pregap, basename);
+    CHECK(diff.state == State::ReviewRequired);
+    CHECK(diff.extra_index_or_pregap);
+    CHECK(diff.audit.exact_count == 15);
+
+    auto wrong_name = original;
+    replace_once(wrong_name, "Disc 1.mp3", "Disc 2.mp3");
+    CHECK(compare_precision_cue_external_reference(plan, wrong_name, basename).state ==
+          State::Unqualified);
+    auto wrong_type = original;
+    replace_once(wrong_type, "\"Disc 1.mp3\" WAVE", "\"Disc 1.mp3\" BINARY");
+    CHECK(compare_precision_cue_external_reference(plan, wrong_type, basename).state ==
+          State::Unqualified);
+
+    auto duplicate_index = original;
+    replace_once(duplicate_index, "    INDEX 01 02:00:00",
+                 "    INDEX 01 02:00:00\n    INDEX 01 02:00:00");
+    CHECK(compare_precision_cue_external_reference(plan, duplicate_index, basename).state ==
+          State::Unqualified);
+    auto bad_seconds = original;
+    replace_once(bad_seconds, "INDEX 01 02:00:00", "INDEX 01 02:60:00");
+    CHECK(compare_precision_cue_external_reference(plan, bad_seconds, basename).state ==
+          State::Unqualified);
+    auto bad_frames = original;
+    replace_once(bad_frames, "INDEX 01 02:00:00", "INDEX 01 02:00:75");
+    CHECK(compare_precision_cue_external_reference(plan, bad_frames, basename).state ==
+          State::Unqualified);
+    auto missing_index = original;
+    replace_once(missing_index, "    INDEX 01 02:00:00\n", "");
+    CHECK(compare_precision_cue_external_reference(plan, missing_index, basename).state ==
+          State::Unqualified);
+    auto extra_track = original + "  TRACK 16 AUDIO\n    INDEX 01 30:00:00\n";
+    CHECK(compare_precision_cue_external_reference(plan, extra_track, basename).state ==
+          State::Unqualified);
+    auto second_file = original + "FILE \"other.mp3\" MP3\n";
+    CHECK(compare_precision_cue_external_reference(plan, second_file, basename).state ==
+          State::Unqualified);
+    auto unknown_command = original + "  POSTPROCESS true\n";
+    CHECK(compare_precision_cue_external_reference(plan, unknown_command, basename).state ==
+          State::Unqualified);
+    auto crlf = original;
+    for (std::size_t offset = 0; offset < crlf.size(); ++offset)
+        if (crlf[offset] == '\n') { crlf.insert(offset, 1, '\r'); ++offset; }
+    CHECK(compare_precision_cue_external_reference(plan, crlf, basename).state ==
+          State::ExactFramesPreviewOnly);
+    const std::string bom = "\xef\xbb\xbf" + original;
+    CHECK(compare_precision_cue_external_reference(plan, bom, basename).state ==
+          State::ExactFramesPreviewOnly);
+    CHECK(compare_precision_cue_external_reference(
+        plan, original + std::string("\xff", 1), basename).state == State::Unqualified);
+    CHECK(compare_precision_cue_external_reference(
+        plan, std::string(1024 * 1024 + 1, 'X'), basename).state == State::Unqualified);
+}
+
 void cross_provider_release_and_cue() {
     const auto deezer = parse_deezer_precision_cue_album(
         deezer_fixture(), "123456");
@@ -117,6 +213,7 @@ void cross_provider_release_and_cue() {
     CHECK(reviewed.discs[1].boundaries.front().cue_frame == 0);
     CHECK(reviewed.discs[1].external_cue_utf8.find(
         "FILE \"Disc 2.mp3\" WAVE") != std::string::npos);
+    reference_cue_timeline_regressions(reviewed.discs[0]);
 
     std::vector<PrecisionCueReferenceBoundary> references;
     for (const auto& b : reviewed.discs[0].boundaries)
@@ -176,6 +273,36 @@ void cross_provider_release_and_cue() {
     CHECK(inspect_precision_cue_existing_target(
         reviewed.discs[0], physical, "Disc 1.mp3").state ==
           PrecisionCueExistingTargetState::Identical);
+
+    // A conflicting sibling reference is strictly read-only evidence. Even
+    // frame-near equivalence must NEVER permit an overwrite or second create.
+    auto different = reviewed.discs[0].external_cue_utf8;
+    replace_once(different, "INDEX 01 02:00:00", "INDEX 01 02:00:01");
+    const auto cue_path = temporary.path / "Disc 1.cue";
+    {
+        std::ofstream out(cue_path, std::ios::binary | std::ios::trunc);
+        CHECK(out.good());
+        out << different;
+        out.close();
+        CHECK(out.good());
+    }
+    const auto conflict = inspect_precision_cue_existing_target(
+        reviewed.discs[0], physical, "Disc 1.mp3");
+    CHECK(conflict.state == PrecisionCueExistingTargetState::Different);
+    CHECK(conflict.observed_different_cue.has_value());
+    CHECK(*conflict.observed_different_cue == different);
+    const auto conflicting_timeline = compare_precision_cue_external_reference(
+        reviewed.discs[0], *conflict.observed_different_cue, "Disc 1.mp3");
+    CHECK(conflicting_timeline.state ==
+          PrecisionCueReferenceDiffState::WithinOneFramePreviewOnly);
+    CHECK(create_confirmed_precision_cue_external(*review).status !=
+          PrecisionCueExternalCreateStatus::Created);
+    {
+        std::ifstream in(cue_path, std::ios::binary);
+        const std::string persisted((std::istreambuf_iterator<char>(in)),
+                                    std::istreambuf_iterator<char>());
+        CHECK(persisted == different);
+    }
 
     const auto physical2 = temporary.path / "Disc 2.mp3";
     synthetic_file(physical2, 'B');
