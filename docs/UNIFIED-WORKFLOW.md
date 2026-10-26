@@ -935,3 +935,22 @@ order survive queue changes. Tooltip and review hint expose the current
 track's staged and pending counts. These are **in-memory navigation states**:
 no provider match, SAFE suggestion, filter selection or completed queue
 implies approval to write. Physical, CUE and FileOps gates remain disabled.
+
+### Filtered bulk review (MMS-WF-03/05/09, MMS-UI-07)
+
+Review scope now also offers **Visible queue** beside Selected changes,
+Selected tracks and All tracks. With a Tracks filter such as Pending REVIEW,
+Accept/Reject/Reset applies to proposals belonging to **exactly the currently
+visible source identities**, not the whole selected library. The Music/
+Extended detail filter only changes presentation: the confirmation explicitly
+warns that all proposal fields of visible tracks, including hidden custom
+fields, are in scope. Manual replacement still requires one selected change.
+
+Before a visible-queue action, the native workspace shows an exact track and
+proposal count and defaults to **No**. After the dialog returns, it verifies
+window generation, queue identity, filter, all source snapshots and ruleset
+again; a changed queue aborts without publishing a partial decision. Preview
+staging is transactional and only changed tracks are recomputed. Source and
+provider evidence remain unchanged; Undo covers up to 4096 touched sources.
+The scope is neither batch execution approval nor a host FileOps destination.
+

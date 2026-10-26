@@ -1005,6 +1005,17 @@ int main() {
           (static_cast<DWORD>(GetWindowLongPtrW(review_scope, GWL_STYLE)) & 0x3u) ==
               CBS_DROPDOWNLIST,
           "review scope is the real non-editable Windows selection control");
+    // The fourth bulk scope is native and non-editable; verify its actual
+    // Win32 combo capacity and roundtrip alongside the manual-value editor.
+    for(const wchar_t* label:{L"Selected changes",L"Selected tracks",
+                              L"All tracks",L"Visible queue"})
+        check(SendMessageW(review_scope,CB_ADDSTRING,0,
+              reinterpret_cast<LPARAM>(label))!=CB_ERR,
+              "native review scope accepts all four choices");
+    check(SendMessageW(review_scope,CB_GETCOUNT,0,0)==4 &&
+          SendMessageW(review_scope,CB_SETCURSEL,3,0)==3 &&
+          SendMessageW(review_scope,CB_GETCURSEL,0,0)==3,
+          "visible filtered queue is selectable without editing source IDs");
     check(SetWindowTextW(manual, L"Custom review value") != FALSE,
           "manual value control accepts editor text");
     wchar_t manual_text[128]{};

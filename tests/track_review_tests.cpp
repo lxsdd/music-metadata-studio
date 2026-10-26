@@ -273,6 +273,38 @@ int main(){
           completed_stress.back()==kLargeBatch-2,
           "54k review queue retains exact identity and stable source order");
 
+    // Filtered bulk review is an explicit fourth scope, independent of
+    // selected rows. It must never affect a hidden or duplicate source.
+    std::vector<AnalysisResult> scope_analyses(3);
+    scope_analyses[0].proposals.resize(2);
+    scope_analyses[1].proposals.resize(1);
+    const auto scope_targets=visible_review_proposal_targets(
+        scope_analyses,{1,0});
+    check(scope_targets==std::vector<std::pair<std::size_t,std::size_t>>({
+              {1,0},{0,0},{0,1}}) &&
+          visible_review_proposal_targets(scope_analyses,{2}).empty() &&
+          visible_review_proposal_targets(scope_analyses,{}).empty(),
+          "filtered queue stages every proposal only for visible source identities");
+    auto rejects_visible=[&](const std::vector<std::size_t>& ids) {
+        try {(void)visible_review_proposal_targets(scope_analyses,ids);}
+        catch(const std::invalid_argument&) {return true;}
+        return false;
+    };
+    check(rejects_visible({0,0}) && rejects_visible({0,3}) &&
+          rejects_visible({2,1,2}),
+          "duplicate, hidden or out-of-range filtered source cannot be staged");
+    scope_analyses[1].proposals.resize(10001);
+    check(rejects_visible({1}),"oversized filtered proposal batch fails closed");
+    std::vector<AnalysisResult> scope_large(kLargeBatch);
+    for(auto& item:scope_large) item.proposals.resize(1);
+    const auto large_visible_targets=visible_review_proposal_targets(
+        scope_large,pending_stress);
+    check(large_visible_targets.size()==pending_stress.size() &&
+          large_visible_targets.front()==std::pair<std::size_t,std::size_t>{0,0} &&
+          large_visible_targets.back()==
+              std::pair<std::size_t,std::size_t>{kLargeBatch-1,0},
+          "54k-track filtered bulk scope preserves source identity and excludes hidden rows");
+
     check(proposals[0].field=="DISCOGS_RELEASE_CREDITS" &&
           proposals[4].field=="X_CUSTOM_FIELD",
           "no mutation or loss of secondary metadata");

@@ -2831,7 +2831,7 @@ void apply_review_action(HWND dialog, PreviewState& state,
                          djmeta::ReviewAction action) {
     const auto scope = SendDlgItemMessageW(dialog, IDC_METADATA_REVIEW_SCOPE,
                                            CB_GETCURSEL, 0, 0);
-    if (scope < 0 || scope > 2)
+    if (scope < 0 || scope > 3)
         throw std::invalid_argument("Choose a review scope.");
 
     // The selected identity always refers to analysis.proposals; neither
@@ -2854,15 +2854,61 @@ void apply_review_action(HWND dialog, PreviewState& state,
             for (std::size_t j = 0; j < state.analyses[track].proposals.size(); ++j)
                 targets.emplace(track, j);
         }
-    } else {
+    } else if (scope == 2) {
         for (std::size_t track = 0; track < state.analyses.size(); ++track)
             for (std::size_t j = 0; j < state.analyses[track].proposals.size(); ++j)
                 targets.emplace(track, j);
+    } else {
+        // This is the currently filtered, source-identity-preserving queue,
+        // NOT the current selection or all 54k original source rows.
+        const auto visible=djmeta::visible_review_proposal_targets(
+            state.analyses,state.track_view_order);
+        targets.insert(visible.begin(),visible.end());
     }
     if (targets.empty()) {
         MessageBoxW(dialog, L"Select changes or tracks with proposals first.",
                     L"Metadata Review", MB_OK | MB_ICONINFORMATION);
         return;
+    }
+
+    // A filtered bulk decision can include custom fields hidden by the
+    // current Music/Extended detail filter. Require informed, one-shot
+    // consent to this exact visible source set, not silent mass acceptance.
+    // The modal confirmation pumps Windows messages; validate HWND lifetime,
+    // generation, filter and all captured sources again after it returns.
+    if(scope==3) {
+        const auto visible_sources=state.track_view_order;
+        const auto filter=state.track_discovery;
+        const auto generation=state.workspace_generation;
+        const wchar_t* verb=action==djmeta::ReviewAction::Accept?L"ACCEPT":
+            action==djmeta::ReviewAction::Reject?L"REJECT":
+            action==djmeta::ReviewAction::Pending?L"RESET":L"EDIT";
+        const std::wstring confirmation=L"Apply "+std::wstring(verb)+
+            L" to all "+std::to_wstring(targets.size())+
+            L" proposals in "+std::to_wstring(visible_sources.size())+
+            L" currently visible tracks?\n\nThe Tracks filter selects sources; "+
+            L"ALL proposal fields for those sources are included, even if "+
+            L"the Music/Extended detail filter hides some.\n\n"+
+            L"Only in-memory review decisions and raw filename previews "+
+            L"change. No tags, CUE or audio files are written.";
+        if(MessageBoxW(dialog,confirmation.c_str(),
+                       L"Confirm filtered review scope",
+                       MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2)!=IDYES)
+            return;
+        if(!IsWindow(dialog) || g_workspace!=dialog ||
+           g_workspace_generation!=generation ||
+           GetWindowLongPtrW(dialog,GWLP_USERDATA)!=
+               reinterpret_cast<LONG_PTR>(&state))
+            return;
+        if(state.stale || !state.show_metadata || state.show_candidate ||
+           state.track_discovery!=filter ||
+           state.track_view_order!=visible_sources ||
+           djmeta::visible_review_proposal_targets(
+               state.analyses,state.track_view_order).size()!=targets.size())
+            throw std::invalid_argument(
+                "Filtered review queue changed during confirmation. Retry.");
+        for(const auto& entry:state.entries) verify_snapshot(entry);
+        verify_rules_snapshot(state.captured_rules);
     }
 
     std::string manual_value;
@@ -4044,7 +4090,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_ONLINE_DATE_TARGET,L"Choose a tag for each verified release date. DATE keeps only the four-digit year (YYYY); RELEASEDATE and DATE_RAW keep the full ISO date. PAIR stages Master -> ORIGINALDATE (or year-only DATE) plus Edition -> RELEASEDATE. Memory-only preview, no file write."},
         {IDC_METADATA_FILTER,L"Limit the local normalization review to music, extended or all tags."},
         {IDC_METADATA_TRACK_FILTER,L"Review queue: all, proposals, pending REVIEW, pending any, staged edits, completed review, or no proposals. Filtering never changes source files or approvals."},
-        {IDC_METADATA_REVIEW_SCOPE,L"Choose whether to review selected change rows, selected tracks or all tracks. Review decisions are preview-only."},
+        {IDC_METADATA_REVIEW_SCOPE,L"Review selected changes, selected tracks, all tracks, or the current visible filtered queue. Visible queue requires confirmation and includes hidden custom proposal fields. Preview only."},
         {IDC_METADATA_ACCEPT,L"Mark chosen rule proposals as accepted in memory. No music file is written."},
         {IDC_METADATA_REJECT,L"Reject chosen local rule proposals in memory, without changing source files."},
         {IDC_METADATA_RESET,L"Restore pending decisions for selected local proposals, preview only."},
@@ -5659,7 +5705,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             SendDlgItemMessageW(dialog, IDC_METADATA_TRACK_FILTER, CB_ADDSTRING,
                 0, reinterpret_cast<LPARAM>(status));
         SendDlgItemMessageW(dialog, IDC_METADATA_TRACK_FILTER, CB_SETCURSEL, 0, 0);
-        for (const wchar_t* scope : {L"Selected changes", L"Selected tracks", L"All tracks"})
+        for (const wchar_t* scope : {L"Selected changes", L"Selected tracks",
+                                     L"All tracks", L"Visible queue"})
             SendDlgItemMessageW(dialog, IDC_METADATA_REVIEW_SCOPE, CB_ADDSTRING,
                 0, reinterpret_cast<LPARAM>(scope));
         SendDlgItemMessageW(dialog, IDC_METADATA_REVIEW_SCOPE, CB_SETCURSEL, 0, 0);

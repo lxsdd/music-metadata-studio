@@ -4,6 +4,9 @@
 #include "djmeta/review_decisions.h"
 
 #include <cstddef>
+#include <set>
+#include <stdexcept>
+#include <utility>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -81,6 +84,30 @@ std::vector<std::size_t> filter_track_view(
     const std::vector<TrackReviewSummary>& summaries,
     const std::vector<std::size_t>& sorted_source_indices,
     TrackDiscovery discovery);
+
+// Expand a frozen visible track queue into exact (source, proposal) identities.
+// The UI may sort or filter source rows; neither operation may authorize
+// edits to hidden sources, duplicate a source, or silently skip stale IDs.
+// This is an in-memory review selection only, never writer consent.
+inline std::vector<std::pair<std::size_t,std::size_t>> visible_review_proposal_targets(
+    const std::vector<AnalysisResult>& analyses,
+    const std::vector<std::size_t>& visible_sources) {
+    if(analyses.size()>100000 || visible_sources.size()>analyses.size())
+        throw std::invalid_argument("VISIBLE_REVIEW_BATCH_SHAPE_INVALID");
+    std::set<std::size_t> unique_sources;
+    std::vector<std::pair<std::size_t,std::size_t>> targets;
+    for(const auto source:visible_sources) {
+        if(source>=analyses.size() || !unique_sources.insert(source).second)
+            throw std::invalid_argument("VISIBLE_REVIEW_SOURCE_ID_INVALID");
+        const auto& proposals=analyses[source].proposals;
+        if(proposals.size()>10000 ||
+           targets.size()>1000000-proposals.size())
+            throw std::invalid_argument("VISIBLE_REVIEW_PROPOSAL_LIMIT");
+        for(std::size_t proposal=0;proposal<proposals.size();++proposal)
+            targets.emplace_back(source,proposal);
+    }
+    return targets;
+}
 
 // Sorting changes presentation only; source index identity remains stable.
 std::vector<std::size_t> sort_track_summaries(
