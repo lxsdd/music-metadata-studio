@@ -60,6 +60,12 @@
     </ResourceCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\core\precision_cue.cpp" />
+    <ClCompile Include="src\core\precision_cue_match.cpp" />
+    <ClCompile Include="src\core\precision_cue_assemble.cpp" />
+    <ClCompile Include="src\core\precision_cue_apple.cpp" />
+    <ClCompile Include="src\core\precision_cue_apple_http_win.cpp" />
+    <ClCompile Include="src\core\precision_cue_deezer_http_win.cpp" />
     <ClCompile Include="src\core\normalizer.cpp" />
     <ClCompile Include="src\core\write_guard.cpp" />
     <ClCompile Include="src\core\physical_selection.cpp" />
@@ -87,6 +93,7 @@
     <ClCompile Include="src\foobar\routing_preview.cpp" />
     <ClCompile Include="src\foobar\prepare_dialog.cpp" />
     <ClCompile Include="src\foobar\batch_preview_dialog.cpp" />
+    <ClCompile Include="src\foobar\precision_cue_workspace.cpp" />
     <ClCompile Include="src\writer\physical_tag_writer.cpp" />
     <ClCompile Include="src\writer\physical_tag_writer_qa.cpp" />
     <ClCompile Include="src\core\batch_plan.cpp" Condition="'$(EnablePhysicalWrites)'=='true'" />

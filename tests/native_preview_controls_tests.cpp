@@ -1939,6 +1939,23 @@ int main() {
             DispatchMessageW(&notification);
     }
 
+    HWND generator = GetDlgItem(dialog, IDC_METADATA_GENERATE_CUE);
+    check(generator != nullptr, "Studio integrates reviewed Generate CUE");
+    HWND cue = CreateDialogParamW(GetModuleHandleW(nullptr),
+        MAKEINTRESOURCEW(IDD_PRECISION_CUE_PREVIEW), nullptr,
+        test_dialog_proc, 0);
+    check(cue != nullptr, "Precision CUE shares Studio native component");
+    for (int id : {IDC_PRECISION_APPLE_LINK, IDC_PRECISION_SEARCH,
+                   IDC_PRECISION_LOOKUP, IDC_PRECISION_DISC_PICKER,
+                   IDC_PRECISION_MP3_PICKER, IDC_PRECISION_PREVIEW_TEXT,
+                   IDC_PRECISION_EDITION_CONFIRMED,
+                   IDC_PRECISION_SAVE_CUE, IDC_PRECISION_SAVE_ALL_CUES})
+        check(GetDlgItem(cue, id) != nullptr, "real embedded Precision CUE UI");
+    check(!IsWindowEnabled(GetDlgItem(cue,IDC_PRECISION_SAVE_CUE)) &&
+          !IsWindowEnabled(GetDlgItem(cue,IDC_PRECISION_SAVE_ALL_CUES)),
+          "integrated generator never opens with create rights");
+    DestroyWindow(cue);
+
     check(DestroyWindow(dialog)!=FALSE && !IsWindow(dialog),
           "modeless HWND shuts down without lingering native controls");
     std::cout << "PASS: Win32 reviewed bindings, modeless taskbar lifecycle, master/detail resizing and 96-192 DPI column geometry; "

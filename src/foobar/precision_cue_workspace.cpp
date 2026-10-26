@@ -1639,38 +1639,10 @@ void open_precision_workspace(metadb_handle_list_cref handles) {
     }
 }
 
-class precision_context_menu : public contextmenu_item_simple {
-public:
-    GUID get_parent() override { return guids::context_group; }
-    unsigned get_num_items() override { return 1; }
-    t_enabled_state get_enabled_state(unsigned) override {
-        return contextmenu_item::DEFAULT_ON;
-    }
-    void get_item_name(unsigned, pfc::string_base& output) override {
-        output = "Precision CUE (Preview)";
-    }
-    GUID get_item_guid(unsigned) override {
-        return {0xcf5f5ed7, 0x7e3c, 0x4b97,
-                {0x9c, 0xe3, 0x62, 0x98, 0xb8, 0x2a, 0x68, 0xf4}};
-    }
-    bool get_item_description(unsigned, pfc::string_base& output) override {
-        output = "Look up Deezer or Apple album metadata and preview continuous-mix CUE timing "
-                 "for selected local MP3s. Read-only, independent review required.";
-        return true;
-    }
-    bool context_get_display(unsigned index, metadb_handle_list_cref data,
-        pfc::string_base& output, unsigned& flags, const GUID& caller) override {
-        if (index != 0 || data.get_count() == 0 || data.get_count() > 8)
-            return false;
-        return contextmenu_item_simple::context_get_display(
-            index, data, output, flags, caller);
-    }
-    void context_command(unsigned index, metadb_handle_list_cref data, const GUID&) override {
-        if (index == 0) open_precision_workspace(data);
-    }
-};
-
-contextmenu_item_factory_t<precision_context_menu> g_precision_context_factory;
-
 } // namespace
+
+void open_studio_precision_cue_generator(metadb_handle_list_cref handles) {
+    open_precision_workspace(handles);
+}
+
 } // namespace djmeta_foobar

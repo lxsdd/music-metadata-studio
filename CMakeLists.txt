@@ -3,6 +3,10 @@ cmake_minimum_required(VERSION 3.24)
 project(music_metadata_studio VERSION 0.1.0 LANGUAGES CXX)
 
 add_library(djmeta_core STATIC
+    src/core/precision_cue.cpp
+    src/core/precision_cue_match.cpp
+    src/core/precision_cue_assemble.cpp
+    src/core/precision_cue_apple.cpp
     src/core/normalizer.cpp
     src/core/batch_plan.cpp
     src/core/write_guard.cpp
@@ -20,6 +24,12 @@ add_library(djmeta_core STATIC
     src/core/rule_loader.cpp
     src/core/analysis_json.cpp
 )
+if(WIN32)
+    target_sources(djmeta_core PRIVATE
+        src/core/precision_cue_apple_http_win.cpp
+        src/core/precision_cue_deezer_http_win.cpp)
+    target_link_libraries(djmeta_core PRIVATE winhttp)
+endif()
 target_include_directories(djmeta_core PUBLIC include)
 target_compile_features(djmeta_core PUBLIC cxx_std_20)
 set_target_properties(djmeta_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -589,7 +599,250 @@ else()
         -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+# Shared exact-edition Precision CUE generator and synthetic safety suite
+add_executable(djmeta_precision_cue_tests tests/precision_cue_tests.cpp)
+target_link_libraries(djmeta_precision_cue_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_precision_cue_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_precision_cue_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_precision_cue_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+if(WIN32)
+    # Never contact external providers from CI; these are pure request-policy tests.
+    add_executable(djmeta_precision_cue_deezer_http_tests
+        tests/precision_cue_deezer_http_tests.cpp)
+    target_link_libraries(djmeta_precision_cue_deezer_http_tests PRIVATE djmeta_core)
+    target_compile_features(djmeta_precision_cue_deezer_http_tests PRIVATE cxx_std_20)
+    if(MSVC)
+        target_compile_options(djmeta_precision_cue_deezer_http_tests PRIVATE /W4 /WX /permissive-)
+    else()
+        target_compile_options(djmeta_precision_cue_deezer_http_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_executable(djmeta_precision_cue_apple_http_tests
+        tests/precision_cue_apple_http_tests.cpp)
+    target_link_libraries(djmeta_precision_cue_apple_http_tests PRIVATE djmeta_core)
+    target_compile_features(djmeta_precision_cue_apple_http_tests PRIVATE cxx_std_20)
+    if(MSVC)
+        target_compile_options(djmeta_precision_cue_apple_http_tests PRIVATE /W4 /WX /permissive-)
+    else()
+        target_compile_options(djmeta_precision_cue_apple_http_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+endif()
+
+add_executable(djmeta_precision_cue_apple_tests
+    tests/precision_cue_apple_tests.cpp)
+target_link_libraries(djmeta_precision_cue_apple_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_precision_cue_apple_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_precision_cue_apple_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_precision_cue_apple_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+# Strict, transport-free Deezer official album JSON parsing fixtures.
+add_executable(djmeta_precision_cue_deezer_tests
+    tests/precision_cue_deezer_tests.cpp)
+target_link_libraries(djmeta_precision_cue_deezer_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_precision_cue_deezer_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_precision_cue_deezer_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_precision_cue_deezer_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+add_executable(djmeta_precision_cue_apple_link_tests
+    tests/precision_cue_apple_link_tests.cpp)
+target_link_libraries(djmeta_precision_cue_apple_link_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_precision_cue_apple_link_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_precision_cue_apple_link_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_precision_cue_apple_link_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+add_executable(djmeta_precision_cue_source_consensus_tests
+    tests/precision_cue_source_consensus_tests.cpp)
+target_link_libraries(djmeta_precision_cue_source_consensus_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_precision_cue_source_consensus_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_precision_cue_source_consensus_tests
+        PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_precision_cue_source_consensus_tests
+        PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+# One offline, synthetic end-to-end album -> timing -> explicit external create gate.
+add_executable(djmeta_precision_cue_e2e_tests tests/precision_cue_e2e_tests.cpp)
+target_link_libraries(djmeta_precision_cue_e2e_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_precision_cue_e2e_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_precision_cue_e2e_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_precision_cue_e2e_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+add_executable(djmeta_precision_cue_assemble_tests tests/precision_cue_assemble_tests.cpp)
+target_link_libraries(djmeta_precision_cue_assemble_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_precision_cue_assemble_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_precision_cue_assemble_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_precision_cue_assemble_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+add_executable(djmeta_precision_cue_write_preflight_tests
+    tests/precision_cue_write_preflight_tests.cpp)
+target_link_libraries(djmeta_precision_cue_write_preflight_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_precision_cue_write_preflight_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_precision_cue_write_preflight_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_precision_cue_write_preflight_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+add_executable(djmeta_precision_cue_embedded_probe_tests
+    tests/precision_cue_embedded_probe_tests.cpp)
+target_link_libraries(djmeta_precision_cue_embedded_probe_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_precision_cue_embedded_probe_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_precision_cue_embedded_probe_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_precision_cue_embedded_probe_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+# Conservatively plan an ID3 TXXX CUESHEET tag postimage WITHOUT writing.
+add_executable(djmeta_precision_cue_id3_patch_tests
+    tests/precision_cue_id3_patch_tests.cpp)
+target_link_libraries(djmeta_precision_cue_id3_patch_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_precision_cue_id3_patch_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_precision_cue_id3_patch_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_precision_cue_id3_patch_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+# Pure lossless FLAC Vorbis CUESHEET postimage + bounded read-only prefix
+# tests. A productive FLAC metadata writer is intentionally NOT linked.
+add_executable(djmeta_precision_cue_flac_patch_tests
+    tests/precision_cue_flac_patch_tests.cpp)
+target_link_libraries(djmeta_precision_cue_flac_patch_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_precision_cue_flac_patch_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_precision_cue_flac_patch_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_precision_cue_flac_patch_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+# Full-file SHA256 and immutable physical audio snapshot prerequisites for
+# future transaction/rollback, with no productive media-write API.
+add_executable(djmeta_precision_cue_sha256_stream_tests
+    tests/precision_cue_sha256_stream_tests.cpp)
+target_link_libraries(djmeta_precision_cue_sha256_stream_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_precision_cue_sha256_stream_tests PRIVATE cxx_std_20)
+add_executable(djmeta_precision_cue_full_file_snapshot_tests
+    tests/precision_cue_full_file_snapshot_tests.cpp)
+target_link_libraries(djmeta_precision_cue_full_file_snapshot_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_precision_cue_full_file_snapshot_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_precision_cue_sha256_stream_tests PRIVATE /W4 /WX /permissive-)
+    target_compile_options(djmeta_precision_cue_full_file_snapshot_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_precision_cue_sha256_stream_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    target_compile_options(djmeta_precision_cue_full_file_snapshot_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+# Embedded CUE candidate verification is strictly temporary and
+# never provides a publication or physical-tag overwrite operation.
+add_executable(djmeta_precision_cue_embedded_stage_dryrun_tests
+    tests/precision_cue_embedded_stage_dryrun_tests.cpp)
+target_link_libraries(djmeta_precision_cue_embedded_stage_dryrun_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_precision_cue_embedded_stage_dryrun_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_precision_cue_embedded_stage_dryrun_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_precision_cue_embedded_stage_dryrun_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+# Create-only recovery backup preparation for an eventual embedded CUE
+# transaction. Only synthetic fixtures use this backend; there is no host
+# write, replace-original, recovery, or automatic rollback entry point.
+add_executable(djmeta_precision_cue_embedded_recovery_backup_tests
+    tests/precision_cue_embedded_recovery_backup_tests.cpp)
+target_link_libraries(djmeta_precision_cue_embedded_recovery_backup_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_precision_cue_embedded_recovery_backup_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_precision_cue_embedded_recovery_backup_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_precision_cue_embedded_recovery_backup_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+# Crash recovery inventory is READ ONLY. Pending backup clones are untrusted;
+# verified full-file SHA matches never authorize automatic restoration.
+add_executable(djmeta_precision_cue_embedded_recovery_inventory_tests
+    tests/precision_cue_embedded_recovery_inventory_tests.cpp)
+target_link_libraries(djmeta_precision_cue_embedded_recovery_inventory_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_precision_cue_embedded_recovery_inventory_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_precision_cue_embedded_recovery_inventory_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_precision_cue_embedded_recovery_inventory_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+# Independent synthetic commit-evidence review and physical storage envelope.
+# These tests NEVER enable an embedded write path or touch user media.
+add_executable(djmeta_precision_cue_embedded_commit_review_tests
+    tests/precision_cue_embedded_commit_review_tests.cpp)
+target_link_libraries(djmeta_precision_cue_embedded_commit_review_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_precision_cue_embedded_commit_review_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_precision_cue_embedded_commit_review_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_precision_cue_embedded_commit_review_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_executable(djmeta_precision_cue_physical_envelope_tests
+    tests/precision_cue_physical_envelope_tests.cpp)
+target_link_libraries(djmeta_precision_cue_physical_envelope_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_precision_cue_physical_envelope_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_precision_cue_physical_envelope_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_precision_cue_physical_envelope_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_executable(djmeta_precision_cue_match_tests tests/precision_cue_match_tests.cpp)
+target_link_libraries(djmeta_precision_cue_match_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_precision_cue_match_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_precision_cue_match_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_precision_cue_match_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 enable_testing()
+if(WIN32)
+
+endif()
+add_test(NAME djmeta_precision_cue_apple_tests COMMAND djmeta_precision_cue_apple_tests)
+add_test(NAME djmeta_precision_cue_apple_link_tests COMMAND djmeta_precision_cue_apple_link_tests)
+add_test(NAME djmeta_precision_cue_deezer_tests COMMAND djmeta_precision_cue_deezer_tests)
+add_test(NAME djmeta_precision_cue_source_consensus_tests COMMAND djmeta_precision_cue_source_consensus_tests)
+add_test(NAME djmeta_precision_cue_e2e_tests COMMAND djmeta_precision_cue_e2e_tests)
+add_test(NAME djmeta_precision_cue_assemble_tests COMMAND djmeta_precision_cue_assemble_tests)
+add_test(NAME djmeta_precision_cue_write_preflight_tests COMMAND djmeta_precision_cue_write_preflight_tests)
+add_test(NAME djmeta_precision_cue_match_tests COMMAND djmeta_precision_cue_match_tests)
+add_test(NAME djmeta_precision_cue_embedded_probe_tests COMMAND djmeta_precision_cue_embedded_probe_tests)
+add_test(NAME djmeta_precision_cue_id3_patch_tests COMMAND djmeta_precision_cue_id3_patch_tests)
+add_test(NAME djmeta_precision_cue_flac_patch_tests COMMAND djmeta_precision_cue_flac_patch_tests)
+add_test(NAME djmeta_precision_cue_sha256_stream_tests COMMAND djmeta_precision_cue_sha256_stream_tests)
+add_test(NAME djmeta_precision_cue_full_file_snapshot_tests COMMAND djmeta_precision_cue_full_file_snapshot_tests)
+add_test(NAME djmeta_precision_cue_embedded_stage_dryrun_tests COMMAND djmeta_precision_cue_embedded_stage_dryrun_tests)
+add_test(NAME djmeta_precision_cue_embedded_recovery_backup_tests COMMAND djmeta_precision_cue_embedded_recovery_backup_tests)
+add_test(NAME djmeta_precision_cue_embedded_recovery_inventory_tests COMMAND djmeta_precision_cue_embedded_recovery_inventory_tests)
+add_test(NAME djmeta_precision_cue_embedded_commit_review_tests COMMAND djmeta_precision_cue_embedded_commit_review_tests)
+add_test(NAME djmeta_precision_cue_physical_envelope_tests COMMAND djmeta_precision_cue_physical_envelope_tests)
+add_test(NAME djmeta_precision_cue_tests COMMAND djmeta_precision_cue_tests)
 add_test(NAME djmeta_unified_review_batch_tests COMMAND djmeta_unified_review_batch_tests)
 add_test(NAME djmeta_workspace_defaults_tests COMMAND djmeta_workspace_defaults_tests)
 add_test(NAME djmeta_filter_once_tests COMMAND djmeta_filter_once_tests)
