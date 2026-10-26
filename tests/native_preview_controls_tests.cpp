@@ -35,6 +35,9 @@ int notified_master_deselections = 0;
 int notified_find_row = -99;
 std::vector<std::wstring> active_track_names;
 bool rebuilding_master = false;
+bool live_included_online_fields = false;
+std::size_t current_included_physical_source = 0;
+int blocked_online_rebind_notifications = 0;
 int read_only_worker_notifications = 0;
 int query_edit_events = 0;
 djmeta_foobar::ReadOnlyContextVersion test_request_context;
@@ -59,6 +62,17 @@ INT_PTR CALLBACK test_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM l
                 find->iStart, (find->lvfi.flags & LVFI_WRAP) != 0);
             SetWindowLongPtrW(dialog, DWLP_MSGRESULT, notified_find_row);
             return TRUE;
+        }
+        if (hdr && hdr->idFrom == IDC_METADATA_TRACK_LIST &&
+            hdr->code == LVN_ITEMCHANGING) {
+            const auto* change=reinterpret_cast<const NMLISTVIEW*>(lp);
+            if(djmeta_foobar::native_online_source_selection_veto(
+                *change,active_track_order,current_included_physical_source,
+                live_included_online_fields,rebuilding_master)) {
+                ++blocked_online_rebind_notifications;
+                SetWindowLongPtrW(dialog,DWLP_MSGRESULT,TRUE);
+                return TRUE;
+            }
         }
         if (hdr && hdr->idFrom == IDC_METADATA_TRACK_LIST &&
             hdr->code == LVN_ITEMCHANGED) {
@@ -1541,6 +1555,42 @@ int main() {
     ListView_SetItemState(master, 2, LVIS_SELECTED, LVIS_SELECTED);
     check(notified_track_identity == 5,
           "real LVN_ITEMCHANGED after sorting resolves new source, not stale view row");
+    // Production dialog resource ID and owner-data ListView HWND: verify
+    // that an actual Win32 WM_NOTIFY round-trip can veto the source
+    // mutation before previously included field choices are removed.
+    live_included_online_fields=true;
+    current_included_physical_source=9;
+    NMLISTVIEW navigation{};
+    navigation.hdr.hwndFrom=master;
+    navigation.hdr.idFrom=IDC_METADATA_TRACK_LIST;
+    navigation.hdr.code=LVN_ITEMCHANGING;
+    navigation.iItem=2; // sorted physical source 5, not source 9
+    navigation.uChanged=LVIF_STATE;
+    navigation.uOldState=0;
+    navigation.uNewState=LVIS_SELECTED;
+    const int blocked_before=blocked_online_rebind_notifications;
+    check(SendMessageW(dialog,WM_NOTIFY,IDC_METADATA_TRACK_LIST,
+             reinterpret_cast<LPARAM>(&navigation))==TRUE &&
+          blocked_online_rebind_notifications==blocked_before+1,
+          "actual native dialog dispatch vetoes cross-source included choice loss");
+    navigation.iItem=0; // currently included source 9
+    navigation.uOldState=LVIS_SELECTED;
+    navigation.uNewState=0;
+    check(SendMessageW(dialog,WM_NOTIFY,IDC_METADATA_TRACK_LIST,
+             reinterpret_cast<LPARAM>(&navigation))==TRUE &&
+          blocked_online_rebind_notifications==blocked_before+2,
+          "native message dispatch also rejects deselecting included source");
+    navigation.uOldState=0;
+    navigation.uNewState=LVIS_SELECTED;
+    check(SendMessageW(dialog,WM_NOTIFY,IDC_METADATA_TRACK_LIST,
+             reinterpret_cast<LPARAM>(&navigation))==FALSE &&
+          blocked_online_rebind_notifications==blocked_before+2,
+          "native same-source reselect is allowed without losing decisions");
+    live_included_online_fields=false;
+    navigation.iItem=2;
+    check(SendMessageW(dialog,WM_NOTIFY,IDC_METADATA_TRACK_LIST,
+             reinterpret_cast<LPARAM>(&navigation))==FALSE,
+          "native source switching resumes once online selection is reset");
     HWND detail = GetDlgItem(dialog, IDC_METADATA_LIST);
     check(ListView_SetItemCountEx(detail, 3, 0) != FALSE,
           "production virtual proposal grid accepts three rows");

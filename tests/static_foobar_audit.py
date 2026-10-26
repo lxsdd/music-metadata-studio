@@ -120,6 +120,17 @@ for token in (
     if token not in batch_writer_ui:
         raise SystemExit("STATIC ONLINE REVIEW NAVIGATION GATE FAIL: "+token)
 
+# A failed host reprobe or native row mapping in the generated physical
+# album drill-down must never unwind across an unmanaged Win32 notification.
+native_album_jump = batch_writer_ui.split(
+    "// Exact-edition album source drill-down:", 1)[1].split(
+    "const bool release_activation=header &&", 1)[0]
+for token in ("catch (...)", "mark_stale_workspace(*state);",
+              "state->updating_track_selection=false;",
+              "no choices or media were written."):
+    if token not in native_album_jump:
+        raise SystemExit("STATIC ALBUM DRILLDOWN FAIL-CLOSED GATE: " + token)
+
 # A single captured shared rules snapshot must be checked at each
 # transactional UI edit and during initial loading, in addition to
 # per-track metadata fingerprints.

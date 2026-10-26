@@ -7518,6 +7518,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                     const auto target=native_verified_album_source_target(
                         row.field,row.reason,true,true,state->entries.size());
                     if(target) {
+                        try {
                         if(*target!=state->selected_track_index &&
                            !state->online_included_fields.empty()) {
                             SetDlgItemTextW(dialog,IDC_BATCH_HINT,
@@ -7573,6 +7574,18 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                             L"approval or network request.";
                         SetDlgItemTextW(dialog,IDC_BATCH_HINT,hint.c_str());
                         return TRUE;
+                        } catch (...) {
+                            // Host source, rules, allocation or UI mapping
+                            // failure cannot unwind through Win32 WndProc or
+                            // leave a partially retargeted usable workspace.
+                            state->updating_track_selection=false;
+                            mark_stale_workspace(*state);
+                            SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                                L"Exact album source changed or could not be "
+                                L"revalidated. Refresh the read-only workspace; "
+                                L"no choices or media were written.");
+                            return TRUE;
+                        }
                     }
                 }
             }

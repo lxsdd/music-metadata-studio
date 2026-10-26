@@ -1348,3 +1348,16 @@ duplicate, truncated and invalid source permutations.
 - Positive/negative native Win32 policy tests, static production wiring and
   real original-foobar Win32/x64 build/host gates qualify these interactions
   in CI; installed owner DPI/theme/keyboard acceptance remains separate.
+
+### 2026-10-26 — Native drill-down failure containment and HWND regression
+
+- The verified album source navigation now catches any host source/rules
+  recheck or Win32 mapping failure inside the notification handler, resets
+  its transient selection-update flag and marks the complete workspace
+  STALE instead of unwinding into the foobar dialog procedure. No candidate
+  approval or file write is generated on this failure path.
+- The original native Windows RC test dispatches the same LVN_ITEMCHANGING
+  notification with captured source IDs through the actual dialog HWND and
+  asserts veto/allow semantics for included online fields, deselection,
+  same-source reselect and explicit reset. This complements portable policy
+  negative tests; it does **not** replace installed end-user DPI/UI checks.
