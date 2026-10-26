@@ -2,6 +2,7 @@
 
 #include "djmeta/metadata_diff.h"
 #include "djmeta/review_decisions.h"
+#include "djmeta/structural_guard.h"
 
 #include <cstddef>
 #include <set>
@@ -169,6 +170,61 @@ inline std::size_t count_visible_review_action_changes(
             throw std::invalid_argument("VISIBLE_REVIEW_DECISIONS_STALE");
         if(decisions[source][proposal].action!=action ||
            !decisions[source][proposal].manual_value.empty())
+            ++changes;
+    }
+    return changes;
+}
+
+// A batch Manual replacement may affect ONE existing scalar value per
+// captured physical source, never a multivalue, duplicate-name, CUE or
+// malformed legacy field. Single-proposal manual review remains independent.
+// The native caller separately proves host physical identity and fresh rules.
+inline bool scalar_manual_review_target(
+    const MetadataDocument& original,const AnalysisResult& analysis,
+    std::size_t proposal_index,std::string_view requested_field) {
+    if(requested_field.empty() || proposal_index>=analysis.proposals.size() ||
+       fingerprint(original)!=analysis.input_fingerprint ||
+       is_protected_cue_metadata(requested_field))
+        return false;
+    const auto& p=analysis.proposals[proposal_index];
+    if(!same_review_field_name(p.field,requested_field) ||
+       p.field_index>=original.fields.size() || p.value_index!=0)
+        return false;
+    const auto& field=original.fields[p.field_index];
+    if(!same_review_field_name(field.name,requested_field) ||
+       field.values.size()!=1 || field.values[0]!=p.original_value ||
+       !valid_manual_review_value(field.values[0]))
+        return false;
+    std::size_t names=0,proposals=0;
+    for(const auto& f:original.fields)
+        if(same_review_field_name(f.name,requested_field) && ++names>1)
+            return false;
+    for(const auto& candidate:analysis.proposals)
+        if(same_review_field_name(candidate.field,requested_field) &&
+           ++proposals>1)
+            return false;
+    return names==1 && proposals==1;
+}
+
+// Exact manual-value no-op detection across source/proposal identities.
+// The action is in-memory only; unlike Accept/Reject it must compare the
+// requested bytes, not just the enum, and reject duplicate/stale targets.
+inline std::size_t count_manual_review_action_changes(
+    const std::vector<std::pair<std::size_t,std::size_t>>& targets,
+    const std::vector<std::vector<ReviewDecision>>& decisions,
+    std::string_view manual_value) {
+    if(!valid_manual_review_value(manual_value))
+        throw std::invalid_argument("MANUAL_BATCH_VALUE_INVALID");
+    std::set<std::pair<std::size_t,std::size_t>> seen;
+    std::size_t changes=0;
+    for(const auto& target:targets) {
+        const auto [source,proposal]=target;
+        if(!seen.insert(target).second || source>=decisions.size() ||
+           proposal>=decisions[source].size())
+            throw std::invalid_argument("MANUAL_BATCH_TARGET_STALE_OR_DUPLICATE");
+        const auto& decision=decisions[source][proposal];
+        if(decision.action!=ReviewAction::ManualValue ||
+           decision.manual_value!=manual_value)
             ++changes;
     }
     return changes;

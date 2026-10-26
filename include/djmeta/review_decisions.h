@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace djmeta {
@@ -16,6 +17,10 @@ struct ReviewDecision {
     ReviewAction action = ReviewAction::Pending;
     std::string manual_value;
 };
+
+// Shared validation for one or many explicit manual replacements. Never
+// implies a write, deletion or automatic rule acceptance.
+bool valid_manual_review_value(std::string_view text);
 
 struct ReviewProjection {
     MetadataDocument document;

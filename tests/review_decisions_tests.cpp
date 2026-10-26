@@ -59,6 +59,12 @@ int main() {
         grouped_rows,{3,0,2},{true,true,true}); },
         "stale proposal count must not enter native review");
 
+    check(valid_manual_review_value("Tiësto") &&
+          valid_manual_review_value("Artist & Guest") &&
+          !valid_manual_review_value("") &&
+          !valid_manual_review_value("Bad\nValue") &&
+          !valid_manual_review_value(std::string("Bad \xC0\xAF",6)),
+          "shared single/bulk manual validation retains Unicode and rejects deletion/injection");
     const MetadataDocument original {{
         {"TITLE", {" Old Title "}},
         {"ARTIST", {"Original Artist"}},

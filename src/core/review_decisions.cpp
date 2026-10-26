@@ -6,14 +6,12 @@
 #include <utility>
 
 namespace djmeta {
-namespace {
-bool valid_manual_value(const std::string& text) {
+bool valid_manual_review_value(std::string_view text) {
     if (text.empty() || !valid_utf8_metadata_text(text)) return false; // no implicit deletion or malformed UTF-8
     for (unsigned char ch : text)
         if (ch == 0 || ch == 0x7f || (ch < 0x20 && ch != '\t'))
             return false;
     return true;
-}
 }
 
 ReviewProjection project_review_decisions(
@@ -67,7 +65,7 @@ ReviewProjection project_review_decisions(
                 throw std::invalid_argument("unused manual value in non-manual decision");
             break;
         case ReviewAction::ManualValue:
-            if (!valid_manual_value(decision.manual_value))
+            if (!valid_manual_review_value(decision.manual_value))
                 throw std::invalid_argument("manual replacement is empty or contains control characters");
             break;
         default:

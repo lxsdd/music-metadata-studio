@@ -1703,6 +1703,9 @@ for marker in (
     'same_field_review_proposal_targets(',
     'selected_field_anchor()', 'field_scope_sources(scope)',
     'fresh_targets!=captured_targets',
+    'scalar_manual_review_target(',
+    'count_manual_review_action_changes(',
+    'to_utf8(read_control(dialog,IDC_METADATA_MANUAL_INPUT))!=manual_value',
     'MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2',
 ):
     if marker not in workspace_dialog:

@@ -388,6 +388,83 @@ int main(){
               std::pair<std::size_t,std::size_t>{kLargeBatch-1,0},
           "54k-source same-field batch preserves source/proposal coordinates");
 
+    // Bulk Manual uses one scalar original value per physical source and
+    // refuses duplicate-name, multivalue, protected or stale proposal inputs.
+    MetadataDocument manual_doc{{{"ARTIST",{"Old Artist"}},
+                                 {"X_CUSTOM",{"untouched"}}}};
+    AnalysisResult manual_analysis;
+    manual_analysis.input_fingerprint=fingerprint(manual_doc);
+    Proposal manual_proposal;
+    manual_proposal.field="ARTIST";
+    manual_proposal.field_index=0;
+    manual_proposal.value_index=0;
+    manual_proposal.original_value="Old Artist";
+    manual_proposal.proposed_value="Canonical Artist";
+    manual_proposal.safety=SafetyClass::Review;
+    manual_analysis.proposals={manual_proposal};
+    check(scalar_manual_review_target(manual_doc,manual_analysis,0,"artist"),
+          "same-field manual accepts one exact scalar physical proposal");
+    auto invalid_manual_doc=manual_doc;
+    invalid_manual_doc.fields[0].values.push_back("Second Artist");
+    check(!scalar_manual_review_target(invalid_manual_doc,manual_analysis,0,"ARTIST"),
+          "multivalue manual bulk refuses even when one proposal is present");
+    invalid_manual_doc=manual_doc;
+    invalid_manual_doc.fields.push_back({"artist",{"Duplicate"}});
+    check(!scalar_manual_review_target(invalid_manual_doc,manual_analysis,0,"ARTIST"),
+          "duplicate case-folded field names cannot be bulk overwritten");
+    invalid_manual_doc=manual_doc;
+    invalid_manual_doc.fields[0].values[0]="Changed externally";
+    check(!scalar_manual_review_target(invalid_manual_doc,manual_analysis,0,"ARTIST"),
+          "stale source fingerprints refuse bulk manual staging");
+    auto invalid_manual_analysis=manual_analysis;
+    invalid_manual_analysis.proposals.push_back(manual_proposal);
+    check(!scalar_manual_review_target(manual_doc,invalid_manual_analysis,0,"ARTIST"),
+          "multiple proposals for one field refuse manual bulk");
+    invalid_manual_analysis=manual_analysis;
+    invalid_manual_analysis.proposals[0].field="TITLE";
+    check(!scalar_manual_review_target(manual_doc,invalid_manual_analysis,0,"ARTIST"),
+          "proposal identity cannot cross fields");
+    MetadataDocument cue_manual_doc{{{"CUESHEET",{"FILE \"a.wav\" WAVE"}}}};
+    auto cue_manual_analysis=manual_analysis;
+    cue_manual_analysis.input_fingerprint=fingerprint(cue_manual_doc);
+    cue_manual_analysis.proposals[0].field="CUESHEET";
+    cue_manual_analysis.proposals[0].original_value="FILE \"a.wav\" WAVE";
+    check(!scalar_manual_review_target(
+              cue_manual_doc,cue_manual_analysis,0,"CUESHEET"),
+          "embedded CUE cannot enter generic bulk Manual");
+    const std::vector<std::pair<std::size_t,std::size_t>> manual_targets{
+        {0,0},{1,0}};
+    std::vector<std::vector<ReviewDecision>> manual_decisions(2,
+        std::vector<ReviewDecision>(1));
+    check(count_manual_review_action_changes(
+              manual_targets,manual_decisions,"Shared Artist")==2,
+          "manual bulk counts exact source-bound pending decisions");
+    manual_decisions[0][0]={ReviewAction::ManualValue,"Shared Artist"};
+    check(count_manual_review_action_changes(
+              manual_targets,manual_decisions,"Shared Artist")==1,
+          "manual bulk excludes identical existing decisions");
+    manual_decisions[1][0]={ReviewAction::ManualValue,"Shared Artist"};
+    check(count_manual_review_action_changes(
+              manual_targets,manual_decisions,"Shared Artist")==0 &&
+          count_manual_review_action_changes(
+              manual_targets,manual_decisions,"Other Artist")==2,
+          "repeat Manual is no-op, different manual text changes both");
+    auto bad_manual_count=[&](const std::vector<std::pair<std::size_t,std::size_t>>& selected,
+                              std::string_view value) {
+        try {(void)count_manual_review_action_changes(
+            selected,manual_decisions,value);}
+        catch(const std::invalid_argument&) {return true;}
+        return false;
+    };
+    check(bad_manual_count({{0,0},{0,0}},"Shared Artist") &&
+          bad_manual_count({{3,0}},"Shared Artist") &&
+          bad_manual_count({{0,2}},"Shared Artist") &&
+          bad_manual_count({{0,0}},"") &&
+          bad_manual_count({{0,0}},"Bad\nValue"),
+          "duplicate/stale/manual-delete/control input rejected before confirmation");
+    check(manual_doc.fields[1].values[0]=="untouched",
+          "manual batch eligibility does not mutate custom originals");
+
     check(proposals[0].field=="DISCOGS_RELEASE_CREDITS" &&
           proposals[4].field=="X_CUSTOM_FIELD",
           "no mutation or loss of secondary metadata");
