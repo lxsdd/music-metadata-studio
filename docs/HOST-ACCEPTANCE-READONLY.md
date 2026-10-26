@@ -59,3 +59,23 @@ available integration, ask only for its protected manual workflow start when
 all independent work is finished. A successful installed session is the
 human HOST gate, not permission to merge, tag, release or activate production
 writers; those decisions remain explicit.
+
+## 2026-10-26 — Real native physical/CUE writer QA on trusted CI pull requests
+
+The previous `physical-sdk-runtime-qa` job was incorrectly restricted to
+`push` events, while the actual Studio code checks appeared only as
+`pull_request` runs; a green foobar Preview workflow therefore did **not**
+exercise its real SDK writer/no-op tests. The workflow now permits the
+**same-repository Studio branch → main PR only**, in addition to the existing
+branch-push trigger; forks and unrelated PRs remain ineligible. The QA
+component is built only on disposable Windows GitHub runners and tested
+against runner-generated silent FLAC plus an external CUE inside a fresh
+`RUNNER_TEMP` subtree. The runner rejects a pre-existing foobar process,
+restricts the component to exact fixture paths, checks real SDK write/readback,
+first and subsequent no-op bytes/timestamps and exact CUE-value postimages,
+then deletes disposable fixtures and QA DLLs. Neither normal Studio builds
+nor owner files gain writer access; no DLL is packaged, uploaded or retained.
+This qualification is separate from final foobar FileOps target resolution,
+production-writer activation and installed owner GUI acceptance. The new
+negative static workflow contract prevents accidental fork eligibility,
+secret use, architecture loss and upload enablement.

@@ -172,7 +172,17 @@ jobs:
   # RUNNER_TEMP. This custom QA-DLL is NEVER packaged, uploaded or installed
   # in a user profile. Both first write and exact no-op are mandatory gates.
   physical-sdk-runtime-qa:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/feature/online-metadata-discovery-foundation-20261009'
+    # The canonical Studio PR generates pull_request runs, NOT push runs in
+    # this repository configuration. Previously this legitimate disposable
+    # real-SDK QA was permanently SKIPPED despite green build status.
+    # Never run on forks, other branches, releases, or external user media.
+    if: >-
+      (github.event_name == 'push' &&
+       github.ref == 'refs/heads/feature/online-metadata-discovery-foundation-20261009') ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.event.pull_request.head.ref == 'feature/online-metadata-discovery-foundation-20261009' &&
+       github.event.pull_request.base.ref == 'main')
     needs: static-audit
     runs-on: windows-2022
     timeout-minutes: 25
