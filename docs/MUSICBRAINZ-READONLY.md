@@ -97,3 +97,27 @@ bounded plan. Failed HTTPS stages retry without skipping. A new source,
 query, provider, exact URL or restarted plan cannot mix stale candidates.
 Maximum: eight explicit strategies of 25 results each (200 in memory), no
 background catalog scan, automatic matching, caching or tag/CUE/file writes.
+
+
+### 2026-10-26 — Explicit MusicBrainz result pagination
+
+The existing **Next results page** control now works for **MusicBrainz**
+recording searches and exact release discovery as well as Discogs. The
+official count and offset in the published MusicBrainz response must
+prove another page exists. The user explicitly clicks each subsequent
+page; at most four 25-result pages (offsets 0, 25, 50, 75) of the **same
+source, original query, provider, kind and strategy** are permitted. The
+native fixed-host allowlist rejects arbitrary offsets, extra query
+parameters, release lookup pagination and noncanonical URLs.
+
+Successful pages are combined with existing search-stage results using
+exact recording/release MBIDs, preserving first-seen evidence and
+marking contradictory duplicate identities for manual review. A changed
+source, CUE bytes, rules, query, provider, selected strategy or async
+request generation invalidates navigation. The full page remains an
+untrusted discovery hint; no edition or mix is automatically selected,
+no provider result is a tag-write permission, and no CUE, physical file
+or File Operations writer is enabled. Offline tests include full
+25-record pages, exhausted count, malformed count, mismatched offset,
+out-of-range page and URL injection. The existing Win32/x64 host GUI
+tests and protected provider-health checks remain separate gates.

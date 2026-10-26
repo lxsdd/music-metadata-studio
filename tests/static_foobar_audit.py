@@ -2308,3 +2308,19 @@ for marker in ('return L"CUE: "+from_utf8(djmeta::cue_queue_label(',
                'L" (final links unchecked)"'):
     if marker not in workspace_dialog:
         raise SystemExit("STATIC NATIVE CUE FILTER STATUS FAIL: "+marker)
+
+
+# Native MusicBrainz paging reuses the existing Discogs/Crates button,
+# same exact source snapshot and same provider worker; never new transports.
+mb_provider=(root / "include" / "djmeta" / "musicbrainz_provider.h").read_text(encoding="utf-8")
+for marker in ("musicbrainz_search_page_path(", "musicbrainz_has_next_page(",
+               "max_search_page=4"):
+    if marker not in mb_provider:
+        raise SystemExit("STATIC MUSICBRAINZ PAGING MODEL FAIL: "+marker)
+for marker in ("const bool next_musicbrainz=", "request.page_one_path=path;",
+               "request.page=next;", "musicbrainz_more_pages=",
+               "request->page==1 &&", "verify_online_source_snapshot(*state,entry);",
+               "read_cue_raw_on_demand(entry.handle,entry.input.source_path)",
+               "state->musicbrainz_results.size()>"):
+    if marker not in workspace_dialog:
+        raise SystemExit("STATIC MUSICBRAINZ NATIVE PAGING FAIL: "+marker)

@@ -1146,5 +1146,79 @@ int main() {
         check(musicbrainz_search_edition_date(first,valid).has_value(),
               "valid partial dates and Gregorian leap days remain available");
 
+
+    // MusicBrainz's documented offset/count allow a bounded explicit
+    // next-page action without confusing an unrelated recording or edition.
+    const auto first_page=make_search_path(
+        SearchKind::Recording,"What Time Is Love","The KLF");
+    const auto second_page=musicbrainz_search_page_path(first_page,2);
+    const auto third_page=musicbrainz_search_page_path(first_page,3);
+    const auto fourth_page=musicbrainz_search_page_path(first_page,4);
+    check(second_page==first_page+"&offset=25" &&
+          third_page==first_page+"&offset=50" &&
+          fourth_page==first_page+"&offset=75" &&
+          qualified_musicbrainz_request_path(second_page) &&
+          qualified_musicbrainz_request_path(third_page) &&
+          qualified_musicbrainz_request_path(fourth_page),
+          "native fixed-host allowlist admits only bounded official search pages");
+    for(const auto& malicious:{
+        first_page+"&offset=0",first_page+"&offset=100",
+        first_page+"&offset=25&offset=50",
+        first_page+"&offset=25&token=secret",
+        first_page+"&offset=-25",first_page+"&offset=025",
+        first_page+"&offset=25#evil"})
+        check(!qualified_musicbrainz_request_path(malicious),
+              "offset injection and extra query parameters are rejected");
+    rejects([&]{(void)musicbrainz_search_page_path(first_page,1);},
+            "page one must use original path");
+    rejects([&]{(void)musicbrainz_search_page_path(first_page,5);},
+            "unbounded page five is blocked");
+    rejects([&]{(void)musicbrainz_search_page_path(second_page,3);},
+            "cannot paginate a previously paged URL");
+    rejects([&]{(void)musicbrainz_search_page_path(
+                make_release_lookup_path(first),2);},
+            "exact edition lookup cannot be paged as a search");
+    std::string page_json="{\"count\":75,\"offset\":0,\"recordings\":[";
+    for(int i=0;i<25;++i) {
+        if(i)page_json+=",";
+        const std::string last=(i<10?"0":"")+std::to_string(i);
+        page_json+="{\"id\":\"11111111-1111-1111-1111-1111111111"+
+            last+"\",\"title\":\"Synthetic Recording\",\"artist-credit\":[{\"name\":\"Synthetic Artist\"}]}";
+    }
+    page_json+="]}";
+    const auto parsed_page=parse_search(page_json,SearchKind::Recording);
+    check(parsed_page.candidates.size()==25 &&
+          parsed_page.page_items==25 &&
+          parsed_page.total_count==75 && parsed_page.offset==0 &&
+          musicbrainz_has_next_page(parsed_page,1) &&
+          !musicbrainz_has_next_page(parsed_page,2),
+          "only exact first-page offset/count permits explicit next page");
+    auto page_two=page_json;
+    const auto off=page_two.find("\"offset\":0");
+    check(off!=std::string::npos,"fixture offset present");
+    page_two.replace(off,10,"\"offset\":25");
+    const auto parsed_two=parse_search(page_two,SearchKind::Recording);
+    check(musicbrainz_has_next_page(parsed_two,2) &&
+          !musicbrainz_has_next_page(parsed_two,1),
+          "second-page metadata is source-position bound");
+    auto page_three=page_two;
+    const auto off_two=page_three.find("\"offset\":25");
+    check(off_two!=std::string::npos,"second fixture offset present");
+    page_three.replace(off_two,11,"\"offset\":50");
+    check(!musicbrainz_has_next_page(
+              parse_search(page_three,SearchKind::Recording),3),
+          "last populated official page stops pagination");
+    auto missing_count=page_json;
+    const auto count_pos=missing_count.find("\"count\":75,");
+    check(count_pos!=std::string::npos,"fixture count present");
+    missing_count.erase(count_pos,11);
+    check(!musicbrainz_has_next_page(
+              parse_search(missing_count,SearchKind::Recording),1),
+          "missing count cannot authorize a speculative next-page request");
+    auto truncated=page_json;
+    truncated.replace(truncated.find("\"count\":75"),10,"\"count\":100000000");
+    check(!musicbrainz_has_next_page(
+              parse_search(truncated,SearchKind::Recording),1),
+          "unbounded provider count cannot drive navigation");
     std::cout << "PASS: official MusicBrainz query encoding, bounded JSON, artist roles and release alignment\n";
 }

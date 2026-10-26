@@ -162,6 +162,9 @@ struct PendingMusicBrainzContext {
     // Explicit browser URL identities, never arbitrary network URLs.
     std::string exact_recording_mbid;
     bool direct_release=false;
+    // Search pagination is an explicit click, never an automatic scan.
+    std::size_t page=1;
+    std::string page_one_path;
 };
 
 struct PendingBeatportPageContext {
@@ -191,6 +194,17 @@ struct PreviewState {
     bool musicbrainz_has_published_attempt=false;
     std::size_t musicbrainz_published_attempt_index=0;
     bool last_musicbrainz_stage_empty=false;
+    // Last successfully published official search page, source- and
+    // strategy-bound. Retain one selected source's original evidence only.
+    std::string musicbrainz_page_one_path;
+    std::string musicbrainz_page_identity;
+    std::string musicbrainz_page_strategy;
+    std::size_t musicbrainz_result_page=0;
+    std::size_t musicbrainz_page_attempt_total=0;
+    bool musicbrainz_more_pages=false;
+    bool musicbrainz_page_cue_mode=false;
+    std::string musicbrainz_page_cue_before;
+    djmeta::MetadataDocument musicbrainz_page_originals;
     std::wstring search_attempt_notice;
     std::size_t auto_search_track = (std::numeric_limits<std::size_t>::max)();
     bool modeless_registered = false;
@@ -2568,6 +2582,21 @@ void update_live_provider_controls(PreviewState& state) {
         state.discogs_result_page>0 &&
         state.discogs_result_page<state.discogs_result_pages &&
         state.discogs_result_page<djmeta::online::discogs::max_search_result_page;
+    const bool next_musicbrainz=state.show_candidate &&
+        !discogs && !state.beatport_offline_selected &&
+        state.musicbrainz_live_view && !state.discogs_live_view &&
+        !state.musicbrainz_release_loaded &&
+        state.candidate_source_index==state.selected_track_index &&
+        !state.stale && !state.refreshing && !pending &&
+        state.musicbrainz_more_pages &&
+        state.musicbrainz_result_page>0 &&
+        state.musicbrainz_result_page<
+            djmeta::online::musicbrainz::max_search_page &&
+        state.musicbrainz_results.size()<=
+            djmeta::online::musicbrainz::max_search_candidates*7 &&
+        !state.musicbrainz_page_one_path.empty() &&
+        state.search_plan_identity==state.musicbrainz_page_identity &&
+        state.search_attempt_index==state.musicbrainz_published_attempt_index;
     const bool crates_search=state.show_candidate &&
         state.beatport_offline_selected && !state.stale &&
         !state.refreshing && !pending &&
@@ -2579,9 +2608,9 @@ void update_live_provider_controls(PreviewState& state) {
     SetDlgItemTextW(state.dialog,IDC_METADATA_DISCOGS_NEXT_PAGE,
         state.beatport_offline_selected ? L"Find in Crates" : L"Next results page");
     ShowWindow(GetDlgItem(state.dialog,IDC_METADATA_DISCOGS_NEXT_PAGE),
-               next_result || crates_search?SW_SHOW:SW_HIDE);
+               next_result || next_musicbrainz || crates_search?SW_SHOW:SW_HIDE);
     EnableWindow(GetDlgItem(state.dialog,IDC_METADATA_DISCOGS_NEXT_PAGE),
-                 next_result || crates_search?TRUE:FALSE);
+                 next_result || next_musicbrainz || crates_search?TRUE:FALSE);
 }
 
 const wchar_t* preview_history_action(PreviewHistoryKind kind) noexcept {
@@ -6110,6 +6139,24 @@ void publish_musicbrainz_search(
             }),fresh.candidates.end());
     }
     const bool raw_stage_empty=fresh.candidates.empty();
+    if(request.page>1) {
+        if(request.page>djmeta::online::musicbrainz::max_search_page ||
+           request.page!=state.musicbrainz_result_page+1 ||
+           !state.musicbrainz_more_pages ||
+           request.page_one_path!=state.musicbrainz_page_one_path ||
+           request.plan_identity!=state.musicbrainz_page_identity ||
+           request.attempt_index!=state.musicbrainz_published_attempt_index ||
+           request.kind!=state.musicbrainz_kind ||
+           !request.exact_recording_mbid.empty() ||
+           fresh.offset!=static_cast<std::int64_t>(
+               (request.page-1)*djmeta::online::musicbrainz::max_search_candidates))
+            throw std::runtime_error(
+                "MusicBrainz next page no longer matches the published search.");
+    }
+    const bool append_page=request.page>1 &&
+        state.musicbrainz_live_view && !state.discogs_live_view &&
+        !state.musicbrainz_release_loaded &&
+        state.candidate_source_index==request.source_index;
     const bool append_previous=request.exact_recording_mbid.empty() &&
         request.attempt_index>0 &&
         state.musicbrainz_has_published_attempt &&
@@ -6121,9 +6168,10 @@ void publish_musicbrainz_search(
         state.search_plan_identity==request.plan_identity;
     djmeta::online::musicbrainz::SearchResult previous;
     previous.kind=request.kind;
-    if(append_previous) previous.candidates=state.musicbrainz_results;
+    if(append_previous || append_page)
+        previous.candidates=state.musicbrainz_results;
     const auto merged=djmeta::online::musicbrainz::merge_search_stage_results(
-        previous,fresh,request.strategy,append_previous);
+        previous,fresh,request.strategy,append_previous || append_page);
     auto rows=musicbrainz_search_rows(
         merged.result,request.local_title,request.local_artist,request.originals);
     verify_online_source_snapshot(state, entry);
@@ -6137,6 +6185,21 @@ void publish_musicbrainz_search(
     state.musicbrainz_has_published_attempt=true;
     state.musicbrainz_published_attempt_index=request.attempt_index;
     state.last_musicbrainz_stage_empty=raw_stage_empty;
+    state.musicbrainz_page_one_path=request.page_one_path;
+    state.musicbrainz_page_identity=request.plan_identity;
+    state.musicbrainz_page_strategy=request.strategy;
+    state.musicbrainz_result_page=request.page;
+    state.musicbrainz_page_attempt_total=request.total;
+    state.musicbrainz_page_cue_mode=request.cue_mode;
+    state.musicbrainz_page_cue_before=request.cue_before;
+    state.musicbrainz_page_originals=request.originals;
+    state.musicbrainz_more_pages=
+        djmeta::online::musicbrainz::musicbrainz_has_next_page(
+            fresh,request.page) &&
+        state.musicbrainz_results.size()<=
+            djmeta::online::musicbrainz::max_search_candidates*7 &&
+        !request.page_one_path.empty() &&
+        request.exact_recording_mbid.empty();
     state.discogs_live_view=false;
     state.discogs_results.clear();
     state.discogs_master_id=0;
@@ -6153,7 +6216,8 @@ void publish_musicbrainz_search(
     state.search_attempt_index=request.attempt_index;
     state.search_attempt_notice=
         L"MusicBrainz query "+std::to_wstring(request.attempt_index+1)+
-        L"/"+std::to_wstring(request.total)+L" - "+
+        L"/"+std::to_wstring(request.total)+
+        L", page "+std::to_wstring(request.page)+L" - "+
         from_utf8(request.strategy)+L": "+
         std::to_wstring(merged.added)+L" new, "+
         std::to_wstring(merged.repeated)+L" repeated; "+
@@ -6301,7 +6365,8 @@ void consume_musicbrainz_network(HWND dialog, PreviewState& state) {
                 state.candidate_source_index==request->source_index &&
                 state.online_context_version.matches(request->context_version) &&
                 !state.musicbrainz_request && !state.discogs_request;
-            if(djmeta::online::musicbrainz::continue_empty_search_plan(
+            if(request->page==1 &&
+               djmeta::online::musicbrainz::continue_empty_search_plan(
                     request->attempt_index,request->total,
                     state.last_musicbrainz_stage_empty,qualified))
                 SendMessageW(dialog,WM_COMMAND,
@@ -8016,7 +8081,55 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         if(id==IDC_METADATA_DISCOGS_NEXT_PAGE && HIWORD(wp)==BN_CLICKED) {
             if(state->beatport_offline_selected)
                 open_crates_for_selected_physical_track(dialog,*state);
-            else
+            else if(!state->discogs_provider_selected) {
+                // Explicit page navigation of the currently published
+                // exact source/query/strategy; no automatic HTTP fan-out.
+                if(state->stale || state->refreshing ||
+                   !state->show_candidate || !state->musicbrainz_live_view ||
+                   state->discogs_live_view || state->musicbrainz_release_loaded ||
+                   state->selected_track_index!=state->candidate_source_index ||
+                   state->musicbrainz_request || state->discogs_request ||
+                   !state->musicbrainz_more_pages ||
+                   state->musicbrainz_result_page==0 ||
+                   state->musicbrainz_result_page>=
+                       djmeta::online::musicbrainz::max_search_page ||
+                   state->search_plan_identity!=state->musicbrainz_page_identity ||
+                   state->search_attempt_index!=
+                       state->musicbrainz_published_attempt_index ||
+                   state->musicbrainz_results.size()>
+                       djmeta::online::musicbrainz::max_search_candidates*7)
+                    throw std::invalid_argument(
+                        "No qualified MusicBrainz results page remains.");
+                const auto next=state->musicbrainz_result_page+1;
+                const auto path=djmeta::online::musicbrainz::musicbrainz_search_page_path(
+                    state->musicbrainz_page_one_path,next);
+                auto& entry=state->entries.at(state->selected_track_index);
+                verify_online_source_snapshot(*state,entry);
+                verify_rules_snapshot(state->captured_rules);
+                if(state->musicbrainz_page_cue_mode &&
+                   read_cue_raw_on_demand(entry.handle,entry.input.source_path)
+                       .raw_text!=state->musicbrainz_page_cue_before)
+                    throw std::runtime_error("CUE changed before next page.");
+                PendingMusicBrainzContext request;
+                request.operation=PendingMusicBrainzContext::Kind::Search;
+                request.source_index=state->selected_track_index;
+                request.kind=state->musicbrainz_kind;
+                request.cue_mode=state->musicbrainz_page_cue_mode;
+                request.cue_before=state->musicbrainz_page_cue_before;
+                request.local_title=state->musicbrainz_original_title;
+                request.local_artist=state->musicbrainz_original_artist;
+                request.originals=state->musicbrainz_page_originals;
+                request.strategy=state->musicbrainz_page_strategy;
+                request.plan_identity=state->musicbrainz_page_identity;
+                request.attempt_index=state->musicbrainz_published_attempt_index;
+                request.total=state->musicbrainz_page_attempt_total;
+                request.page=next;
+                request.page_one_path=state->musicbrainz_page_one_path;
+                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                    (L"Loading MusicBrainz page "+std::to_wstring(next)+
+                     L" (read-only)...").c_str());
+                begin_musicbrainz_network(dialog,*state,path,std::move(request));
+            } else
                 perform_discogs_next_page(dialog,*state);
             return TRUE;
         }
@@ -8225,6 +8338,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             request.plan_identity=state->search_plan_identity;
             request.attempt_index=state->search_attempt_index;
             request.total=strategy_count;
+            request.page_one_path=path;
             begin_musicbrainz_network(dialog,*state,std::move(path),
                                       std::move(request));
             return TRUE;

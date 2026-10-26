@@ -46,7 +46,21 @@ struct SearchCandidate {
 struct SearchResult {
     SearchKind kind = SearchKind::Recording;
     std::vector<SearchCandidate> candidates;
+    // Official page metadata, only from a parsed SEARCH response.
+    // Missing/malformed count or offset disables next-page navigation.
+    std::int64_t total_count=-1,offset=-1;
+    std::size_t page_items=0;
 };
+inline constexpr std::size_t max_search_page=4;
+inline bool musicbrainz_has_next_page(
+    const SearchResult& page,std::size_t current_page) noexcept {
+    return current_page>=1 && current_page<max_search_page &&
+        page.offset==static_cast<std::int64_t>(
+            (current_page-1)*max_search_candidates) &&
+        page.page_items==max_search_candidates &&
+        page.total_count>page.offset+
+            static_cast<std::int64_t>(page.page_items);
+}
 struct Json {
     enum class Type { Null, Bool, Number, String, Object, Array };
     Type type = Type::Null;
@@ -898,6 +912,20 @@ inline bool qualified_musicbrainz_request_path(std::string_view path) {
     if(path.empty() || path.size()>2048) return false;
     for(unsigned char c:path)
         if(c<0x21 || c>0x7e || c=='#' || c=='\\') return false;
+    // Only the three explicit bounded follow-up offsets are permitted.
+    // Never accept arbitrary query parameters, chained offsets or a URL.
+    for(const std::string_view suffix:{
+        std::string_view("&offset=25"),std::string_view("&offset=50"),
+        std::string_view("&offset=75")}) {
+        if(path.ends_with(suffix)) {
+            const auto base=path.substr(0,path.size()-suffix.size());
+            if(base.find("&offset=")!=std::string_view::npos ||
+               (!base.starts_with("/ws/2/recording?query=") &&
+                !base.starts_with("/ws/2/release?query=")))
+                return false;
+            return qualified_musicbrainz_request_path(base);
+        }
+    }
     for(const std::string_view prefix:{
         std::string_view("/ws/2/recording?query="),
         std::string_view("/ws/2/release?query=")}) {
@@ -936,6 +964,21 @@ inline bool qualified_musicbrainz_request_path(std::string_view path) {
     return false;
 }
 
+inline std::string musicbrainz_search_page_path(
+    std::string_view page_one_path,std::size_t page) {
+    if(page<2 || page>max_search_page ||
+       page_one_path.find("&offset=")!=std::string_view::npos ||
+       !qualified_musicbrainz_request_path(page_one_path) ||
+       (!page_one_path.starts_with("/ws/2/recording?query=") &&
+        !page_one_path.starts_with("/ws/2/release?query=")))
+        throw std::invalid_argument("Invalid MusicBrainz next-page request");
+    auto next=std::string(page_one_path)+"&offset="+
+        std::to_string((page-1)*max_search_candidates);
+    if(!qualified_musicbrainz_request_path(next))
+        throw std::invalid_argument("Unqualified MusicBrainz next-page path");
+    return next;
+}
+
 inline SearchResult parse_search(std::string_view json, SearchKind kind) {
     const auto root=JsonParser(json).parse();
     if (root.type != Json::Type::Object)
@@ -945,6 +988,13 @@ inline SearchResult parse_search(std::string_view json, SearchKind kind) {
         throw std::invalid_argument("MusicBrainz response has no expected candidates");
     SearchResult output;
     output.kind=kind;
+    const auto count=number_or(root.get("count"));
+    const auto offset=number_or(root.get("offset"));
+    if(count>=0 && count<=1000000 && offset>=0 && offset<=count) {
+        output.total_count=count;
+        output.offset=offset;
+    }
+    output.page_items=arr->array.size();
     // Provider relevance order is meaningful; retain the FIRST valid
     // occurrence of each exact MBID, not multiple rows with one identity.
     // Never deduplicate by title/artist: versions and editions may share names.
