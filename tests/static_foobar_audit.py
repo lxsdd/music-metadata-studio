@@ -1920,7 +1920,7 @@ for marker in (
     "struct WorkflowAuditRow",
     "format_workflow_audit_tsv(",
     "WORKFLOW_AUDIT_EXPORT_UNSAFE_CODE",
-    "audit.tracks>5000",
+    "audit.tracks>100000",
     'out+="#"+std::to_string(i+1)',
 ):
     if marker not in audit_header:
@@ -1938,6 +1938,12 @@ for marker in (
 if "IDC_BATCH_COPY_AUDIT" not in native_controls or (
     '"Copy audit", IDC_BATCH_COPY_AUDIT' not in resources):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: audit export lacks visible full-batch gate")
+for marker in ("IDC_BATCH_COPY_ISSUES", "WorkflowAuditExportScope::AttentionRows"):
+    if marker not in workspace_dialog:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: attention-only export not wired "+marker)
+if '"Copy issues", IDC_BATCH_COPY_ISSUES' not in resources or (
+    "IDC_BATCH_COPY_ISSUES" not in native_controls):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: attention export lacks full-batch native control")
 
 
 # The real Inspect CUE action must bind independently probed FILE source
