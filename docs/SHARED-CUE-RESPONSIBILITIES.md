@@ -217,3 +217,21 @@ identity. A new portable regression covers the exact sentinel combinations
 and snapshot version guards. Ordinary foobar source/target access remains
 read-only, while unusual unsupported/network file systems fail closed until
 their identity can be proven. No changes to Precision CUE timing/writers.
+
+
+## 2026-10-26 Studio-only action-aware native FILE relocation impact
+
+The external **Inspect CUE** evidence now distinguishes explicit per-audio
+**Move / Copy / Rename / No file action** decisions, without borrowing any
+Precision CUE PR #52 timing/generation behavior. Source identity always comes
+from independent host-observed FILE physical IDs and version guards. A Move
+with *any unselected* CUE FILE source is blocked instead of proposing a
+partial CUE rewrite; Copy reports its proposed RAW copy without changing the
+original FILE reference; Rename cannot pass the still-absent actual
+same-directory final FileOps destination gate; No action is a true no-FileOps
+choice even if metadata review remains pending. The native pane reports
+full-source counts and original-CUE consequences. Every row remains BLOCKED
+for actual FileOps/CUE execution, with final host-sanitized destinations and
+exact relative FILE postimages unqualified. Positive, mixed and negative
+synthetic fixtures ensure the action intent cannot silently become an
+audio move or CUE writer.

@@ -93,16 +93,77 @@ int main() {
     require(matched.eligible && matched.unselected_files==1,
             "host source graph with an unselected FILE");
     std::vector<CueRawRouteTrack> routes(5);
-    routes[4]={"phys-A","version-A","Z:\\Library","CD1/01.wav",true,false,false};
-    routes[1]={"phys-B","version-B","Z:\\Library","CD2/02.wav",true,false,false};
+    routes[4]={"phys-A","version-A","Z:\\Library","CD1/01.wav",true,false,false,FileAction::Copy};
+    routes[1]={"phys-B","version-B","Z:\\Library","CD2/02.wav",true,false,false,FileAction::Copy};
     auto impact=inspect_cue_raw_route_impact(files,matched,routes);
     require(impact.source_graph_qualified && impact.raw_candidates==2 &&
+            impact.copy_raw_candidates==2 && impact.move_raw_candidates==0 &&
             impact.unselected==1 && impact.selected_blocked==0 &&
             impact.references[0].selected_source_row==4 &&
-            impact.references[0].code=="CUE_ROUTE_RAW_CANDIDATE_ONLY" &&
+            impact.references[0].code=="CUE_AUDIO_COPY_RAW_ONLY_SOURCE_CUE_UNCHANGED" &&
+            impact.references[0].requested_action==FileAction::Copy &&
             impact.references[0].raw_candidate=="Z:\\Library\\CD1/01.wav" &&
             impact.references[2].code=="CUE_FILE_AUDIO_NOT_SELECTED",
             "stable physical identities projected to RAW-only CUE routing impact");
+    // Different explicit operations MUST give different original-CUE
+    // consequences, not an invented automatic FILE-reference relocation.
+    routes[4].file_action=FileAction::None;
+    routes[4].pending_metadata_review=true;
+    impact=inspect_cue_raw_route_impact(files,matched,routes);
+    require(impact.kept_in_place==1 && impact.copy_raw_candidates==1 &&
+            impact.selected_blocked==0 &&
+            impact.references[0].code=="CUE_FILE_AUDIO_LEFT_IN_PLACE" &&
+            impact.references[0].raw_candidate.empty(),
+            "No file action leaves original FILE untouched despite tag review");
+    routes[4].pending_metadata_review=false;
+    routes[4].file_action=FileAction::Rename;
+    impact=inspect_cue_raw_route_impact(files,matched,routes);
+    require(impact.rename_blocked==1 &&
+            impact.references[0].code=="CUE_RENAME_PARENT_UNVERIFIED" &&
+            impact.references[0].raw_candidate.empty(),
+            "Rename requires real final foobar same-directory target");
+    routes[4].file_action=FileAction::Move;
+    impact=inspect_cue_raw_route_impact(files,matched,routes);
+    require(impact.partial_move_blocked==1 && impact.raw_candidates==1 &&
+            impact.references[0].code=="CUE_MOVE_PARTIAL_DEPENDENCIES_UNQUALIFIED" &&
+            impact.references[0].raw_candidate.empty(),
+            "Move with unselected CUE FILE dependencies cannot claim safe rewrite");
+    // All FILE sources are now physically covered by the captured audio.
+    auto complete_files=files;
+    complete_files.pop_back();
+    const auto complete=audit_cue_physical_selection(
+        "cue-physical",complete_files,selected);
+    require(complete.eligible && complete.unselected_files==0,
+            "complete physical CUE FILE selection for Move staging");
+    impact=inspect_cue_raw_route_impact(complete_files,complete,routes);
+    require(impact.move_raw_candidates==1 && impact.copy_raw_candidates==1 &&
+            impact.unselected==0 && impact.selected_blocked==0 &&
+            impact.references[0].code=="CUE_AUDIO_MOVE_RAW_ONLY_REWRITE_UNQUALIFIED" &&
+            impact.references[0].raw_candidate=="Z:\\Library\\CD1/01.wav" &&
+            impact.references[1].code=="CUE_AUDIO_COPY_RAW_ONLY_SOURCE_CUE_UNCHANGED",
+            "complete selection distinguishes CUE rewrite from copy sidecar");
+    routes[4].file_action=static_cast<FileAction>(99);
+    impact=inspect_cue_raw_route_impact(complete_files,complete,routes);
+    require(impact.references[0].code=="CUE_UNKNOWN_FILE_ACTION" &&
+            impact.references[0].raw_candidate.empty(),
+            "invalid operation never masquerades as CUE relocation");
+    routes[4].file_action=FileAction::Copy;
+    const auto source_graph_invalid=[&] {
+        auto stale=matched;
+        stale.unselected_files=99;
+        return inspect_cue_raw_route_impact(files,stale,routes);
+    }();
+    require(!source_graph_invalid.source_graph_qualified &&
+            source_graph_invalid.raw_candidates==0 &&
+            source_graph_invalid.selected_blocked==files.size(),
+            "untrusted FILE graph cardinality inconsistency fails closed");
+    require(describe_cue_raw_route_code(
+        "CUE_FILE_AUDIO_LEFT_IN_PLACE").find("No file action")!=
+            std::string_view::npos &&
+        describe_cue_raw_route_code(
+        "CUE_MOVE_PARTIAL_DEPENDENCIES_UNQUALIFIED").find("Move blocked")!=
+            std::string_view::npos,
+            "clear native per-FILE action risk descriptions");
     routes[4].pending_metadata_review=true;
     impact=inspect_cue_raw_route_impact(files,matched,routes);
     require(impact.raw_candidates==1 && impact.selected_blocked==1 &&
@@ -138,5 +199,5 @@ int main() {
     require(!impact.source_graph_qualified && impact.raw_candidates==0 &&
             impact.selected_blocked==3,
             "failed graph forbids partial apparently qualified destinations");
-    std::cout << "PASS: read-only external CUE FILE sibling and RAW-route impact qualification\n";
+    std::cout << "PASS: action-aware physical CUE FILE and RAW route dry-run qualification\n";
 }

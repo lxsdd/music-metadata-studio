@@ -2201,3 +2201,22 @@ for marker in (
 for marker in ('"Copy", IDC_BATCH_PROFILE_COPY', '"Paste", IDC_BATCH_PROFILE_PASTE'):
     if marker not in resources:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: route clipboard button absent "+marker)
+
+# Native action-aware CUE impact must consume per-source File locations
+# staging, and must never activate the writer/host FileOps path.
+cue_impact=(root / "include" / "djmeta" / "cue_raw_route_impact.h").read_text(encoding="utf-8")
+for marker in ('FileAction file_action = FileAction::Move',
+               'CUE_FILE_AUDIO_LEFT_IN_PLACE',
+               'CUE_AUDIO_COPY_RAW_ONLY_SOURCE_CUE_UNCHANGED',
+               'CUE_AUDIO_MOVE_RAW_ONLY_REWRITE_UNQUALIFIED',
+               'CUE_MOVE_PARTIAL_DEPENDENCIES_UNQUALIFIED',
+               'CUE_RENAME_PARENT_UNVERIFIED',
+               'CUE_UNKNOWN_FILE_ACTION'):
+    if marker not in cue_impact:
+        raise SystemExit("STATIC CUE ACTION IMPACT FAIL: "+marker)
+for marker in ('target.file_action=source.file_action;',
+               'describe_cue_raw_route_code(route.code)',
+               'impact.partial_move_blocked',
+               'impact.copy_raw_candidates'):
+    if marker not in batch_table_dialog:
+        raise SystemExit("STATIC NATIVE CUE ACTION WIRING FAIL: "+marker)

@@ -1144,3 +1144,31 @@ Any action change invalidates previous destination/CUE observations.
 No selected intention enables FileOps, overwrites, CUE reference rewriting or
 a physical SDK writer. Host-final destination, source/target/rule double
 rechecks and one separate owner-authorized execution remain open.
+
+
+### Action-aware external-CUE FILE impact after scoped route preview
+
+The existing **Inspect CUE** pane now joins independently re-probed
+physical CUE FILE dependencies to the **per-track** File locations
+Move/Copy/Rename/No file action intent. No second naming or normalization
+engine is introduced. Its per-FILE rows show a human-readable explanation,
+stable source-row identity, requested action, and an optional **RAW ONLY**
+Title Formatting candidate. The full-graph summary counts moves, copies,
+unchanged FILEs, blocked renames, blocked partial-graph moves, and unselected
+dependencies. Filtering/sorting File locations never prunes the physical
+source graph or broadens a batch permission.
+
+**No file action** leaves the existing CUE FILE target unchanged regardless
+of independent pending tag decisions. **Copy** leaves the original CUE FILE
+link pointing to its original audio; a copied CUE sidecar is not implied.
+**Move** can show only a preliminary target when *all* physical FILE sources
+are selected; a partial selection blocks with the missing-dependency risk.
+**Rename** stays blocked because actual final same-parent foobar FileOps
+identity has not been obtained. Invalid actions, stale file guards, pending
+metadata, collisions and unsafe RAW names remain fail-closed.
+
+This is an impact **inspection**, not a CUE edit, FileOps resolver,
+filesystem permission check, validated relative FILE token, or
+execution approval. No SDK writer, sidecar rewrite, or FileOps writes are
+enabled. End-to-end native Discogs authorization and installed user GUI
+acceptance remain independent outstanding gates.

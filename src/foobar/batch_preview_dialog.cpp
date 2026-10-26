@@ -4061,6 +4061,7 @@ void append_external_cue_file_reference_evidence(
         auto& target=route_tracks[i];
         target.host_physical_key=source.observed_physical_key;
         target.source_guard=source.observed_source_guard;
+        target.file_action=source.file_action;
         target.qualified_physical=source.input.physical_source_qualified &&
             source.handle->get_subsong_index()==0 &&
             !is_external_cue_locator(source.input.source_path);
@@ -4092,10 +4093,14 @@ void append_external_cue_file_reference_evidence(
         row.candidate.provider="Local foobar Title Formatting (read-only)";
         row.candidate.scope=djmeta::online::EvidenceScope::Edition;
         row.candidate.source_id="cue-raw-route:"+std::to_string(shown+1);
-        std::string explanation=route.code;
+        std::string explanation=std::string(
+            djmeta::describe_cue_raw_route_code(route.code))+
+            " ["+route.code+"]";
         if(route.selected_source_row!=djmeta::cue_unselected_source_row)
             explanation+="; selected physical row #"+
-                std::to_string(route.selected_source_row+1);
+                std::to_string(route.selected_source_row+1)+
+                "; intent: "+std::string(djmeta::file_action_label(
+                    route.requested_action));
         if(!route.raw_candidate.empty())
             explanation+="; RAW ONLY: "+route.raw_candidate;
         explanation+="; final FileOps target / relative CUE FILE unchecked";
@@ -4114,10 +4119,17 @@ void append_external_cue_file_reference_evidence(
     impact_summary.candidate.scope=djmeta::online::EvidenceScope::Edition;
     impact_summary.candidate.source_id="cue-raw-route-summary";
     impact_summary.candidate.values.push_back(
-        std::to_string(impact.raw_candidates)+" selected RAW-only candidates, "+
-        std::to_string(impact.selected_blocked)+" blocked/unqualified, "+
-        std::to_string(impact.unselected)+" unselected physical FILE dependencies; "+
-        "actual foobar-sanitized targets, CUE rewrites and writes NOT qualified");
+        "Move "+std::to_string(impact.move_raw_candidates)+
+        " RAW-only (CUE rewrite needed), Copy "+
+        std::to_string(impact.copy_raw_candidates)+
+        " RAW-only (original FILE unchanged), No file action "+
+        std::to_string(impact.kept_in_place)+
+        ", Rename blocked "+std::to_string(impact.rename_blocked)+
+        ", partial-graph Move blocked "+std::to_string(impact.partial_move_blocked)+
+        ", other blocked "+std::to_string(
+            impact.selected_blocked-impact.rename_blocked-impact.partial_move_blocked)+
+        ", unselected FILE dependencies "+std::to_string(impact.unselected)+
+        "; actual foobar FileOps targets/CUE postimages/writes NOT qualified");
     impact_summary.state=djmeta::online::FieldReviewState::Blocked;
     impact_summary.reason="cue_raw_routing_impact_not_final_approval";
     rows.push_back(std::move(impact_summary));
