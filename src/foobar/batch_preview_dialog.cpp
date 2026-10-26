@@ -2325,7 +2325,8 @@ void refresh_preview_history_list(PreviewState& state) {
         row.mask=LVIF_TEXT;
         row.iItem=static_cast<int>(i);
         row.pszText=sequence.data();
-        const int index=ListView_InsertItemW(state.history_list,&row);
+        const int index=static_cast<int>(SendMessageW(state.history_list,LVM_INSERTITEMW,0,
+            reinterpret_cast<LPARAM>(&row)));
         if(index<0) throw std::runtime_error("Cannot display preview history.");
         std::wstring sources=std::to_wstring(event.sources);
         std::wstring items=std::to_wstring(event.items);
