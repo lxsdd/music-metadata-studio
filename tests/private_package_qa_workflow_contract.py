@@ -12,6 +12,8 @@ def failures(content: str) -> list[str]:
         return ["missing unambiguous private packaging job"]
     block=content.split(START,1)[1].split(END,1)[0]
     required=[
+        "github.event_name == 'push'",
+        "github.ref == 'refs/heads/feature/studio-precision-cue-integration-20261026'",
         "github.event_name == 'pull_request'",
         "github.event.pull_request.head.repo.full_name == github.repository",
         "github.event.pull_request.head.ref == 'feature/online-metadata-discovery-foundation-20261009'",
@@ -86,7 +88,7 @@ def integration_failures(content: str) -> list[str]:
         "needs: [static-audit, host-gate-script, windows-build]",
         "runs-on: windows-2022",
         "permissions:\n      contents: read",
-        "github.event.pull_request.head.sha",
+        "github.event.pull_request.head.sha || github.sha",
         "Join-Path $env:RUNNER_TEMP",
         "scripts/local-acceptance-build.ps1 -SourceSha $sha -OutputDirectory $target",
         "precision_cue_create_only_enabled=true",
@@ -100,7 +102,7 @@ def integration_failures(content: str) -> list[str]:
     for forbidden in (
         "uses: actions/upload-artifact@", "uses: actions/create-release@",
         "environment: discogs-qa", "secrets.", "-EnablePhysicalWrites",
-        "MMS_DISCOGS_QA_TOKEN", "github.event_name == 'push'",
+        "MMS_DISCOGS_QA_TOKEN",
     ):
         if forbidden in block:
             issues.append("Integrated package has an unsafe feature: "+forbidden)
@@ -114,6 +116,8 @@ def tamper_integration(needle: str, replacement: str) -> str:
 def check_integration_mutations() -> None:
     assert not integration_failures(YAML), integration_failures(YAML)
     for mutated in (
+        tamper_integration("github.ref == 'refs/heads/feature/studio-precision-cue-integration-20261026'",
+                           "github.ref == 'refs/heads/any-branch'"),
         tamper_integration("github.event.pull_request.head.repo.full_name == github.repository",
                            "github.event.pull_request.head.repo.full_name != github.repository"),
         tamper_integration("github.event.pull_request.base.ref == 'feature/online-metadata-discovery-foundation-20261009'",

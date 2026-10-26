@@ -2,7 +2,7 @@ name: foobar Preview Component
 
 on:
   push:
-    branches: [ main, feature/online-metadata-discovery-foundation-20261009 ]
+    branches: [ main, feature/online-metadata-discovery-foundation-20261009, feature/studio-precision-cue-integration-20261026 ]
     paths:
       - 'include/**'
       - 'src/core/**'
@@ -366,10 +366,12 @@ jobs:
   # cloud uploads, or any physical-tag / embedded CUE writer.
   precision-integration-package-qa:
     if: >-
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.head.ref == 'feature/studio-precision-cue-integration-20261026' &&
-      github.event.pull_request.base.ref == 'feature/online-metadata-discovery-foundation-20261009'
+      (github.event_name == 'push' &&
+       github.ref == 'refs/heads/feature/studio-precision-cue-integration-20261026') ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.event.pull_request.head.ref == 'feature/studio-precision-cue-integration-20261026' &&
+       github.event.pull_request.base.ref == 'feature/online-metadata-discovery-foundation-20261009')
     needs: [static-audit, host-gate-script, windows-build]
     runs-on: windows-2022
     timeout-minutes: 35
@@ -384,7 +386,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $sha = '${{ github.event.pull_request.head.sha }}'
+          $sha = '${{ github.event.pull_request.head.sha || github.sha }}'
           if ($sha -cnotmatch '^[a-f0-9]{40}$') { throw 'Invalid exact integration commit SHA' }
           if (-not (Test-Path -LiteralPath $env:RUNNER_TEMP -PathType Container)) {
             throw 'Synthetic runner scratch directory is unavailable'

@@ -2,7 +2,7 @@ name: Core CI
 
 on:
   push:
-    branches: [ main, feature/online-metadata-discovery-foundation-20261009 ]
+    branches: [ main, feature/online-metadata-discovery-foundation-20261009, feature/studio-precision-cue-integration-20261026 ]
     paths:
       - 'include/**'
       - 'src/core/**'
