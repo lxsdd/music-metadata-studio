@@ -82,6 +82,58 @@ inline WorkflowFileActionAudit audit_workflow_file_actions(
         throw std::invalid_argument("FILE_ACTION_AUDIT_COUNTER_MISMATCH");
     return result;
 }
+// Filter the COMPLETE independently audited file-action ledger by its stage.
+// This is display-only: sorted IDs are original captured source identities;
+// hidden rows still participated in the whole-batch collision/route audit.
+inline std::vector<std::size_t> filter_workflow_file_action_view(
+    const WorkflowFileActionAudit& audit,
+    const std::vector<std::size_t>& sorted_source_ids,
+    BatchLocationQueue queue) {
+    if(queue!=BatchLocationQueue::FileActionBlocked &&
+       queue!=BatchLocationQueue::FileActionRawOnly &&
+       queue!=BatchLocationQueue::FileActionSkipped)
+        throw std::invalid_argument("FILE_ACTION_FILTER_UNKNOWN_STAGE");
+    const auto n=audit.rows.size();
+    if(n>100000 || sorted_source_ids.size()!=n)
+        throw std::invalid_argument("FILE_ACTION_FILTER_STALE_BATCH");
+    std::size_t moves=0,copies=0,renames=0,skips=0,blocked=0,raw_only=0;
+    for(const auto& row:audit.rows) {
+        switch(row.action) {
+        case FileAction::Move: ++moves; break;
+        case FileAction::Copy: ++copies; break;
+        case FileAction::Rename: ++renames; break;
+        case FileAction::None: ++skips; break;
+        default: throw std::invalid_argument("FILE_ACTION_FILTER_UNKNOWN_ACTION");
+        }
+        if(row.skip!=(row.action==FileAction::None) ||
+           (static_cast<int>(row.skip)+static_cast<int>(row.blocked)+
+            static_cast<int>(row.raw_only))!=1 ||
+           !row.reason || !*row.reason)
+            throw std::invalid_argument("FILE_ACTION_FILTER_INVALID_STAGE");
+        if(row.blocked) ++blocked;
+        if(row.raw_only) ++raw_only;
+    }
+    if(moves!=audit.moves || copies!=audit.copies ||
+       renames!=audit.renames || skips!=audit.skips ||
+       blocked!=audit.blocked || raw_only!=audit.raw_only ||
+       blocked+raw_only+skips!=n)
+        throw std::invalid_argument("FILE_ACTION_FILTER_STALE_COUNTERS");
+    std::vector<unsigned char> seen(n,0);
+    std::vector<std::size_t> visible;
+    visible.reserve(queue==BatchLocationQueue::FileActionBlocked?blocked:
+                    queue==BatchLocationQueue::FileActionRawOnly?raw_only:skips);
+    for(const auto source:sorted_source_ids) {
+        if(source>=n || seen[source]++)
+            throw std::invalid_argument("FILE_ACTION_FILTER_INVALID_SOURCE_ORDER");
+        const auto& row=audit.rows[source];
+        if((queue==BatchLocationQueue::FileActionBlocked && row.blocked) ||
+           (queue==BatchLocationQueue::FileActionRawOnly && row.raw_only) ||
+           (queue==BatchLocationQueue::FileActionSkipped && row.skip))
+            visible.push_back(source);
+    }
+    return visible;
+}
+
 inline std::string format_workflow_file_action_tsv(
     const WorkflowFileActionAudit& actions,
     WorkflowAuditExportScope scope=WorkflowAuditExportScope::AllRows) {

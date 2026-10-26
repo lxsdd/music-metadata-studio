@@ -62,7 +62,10 @@ BatchPreviewTable describe_batch_preview(
 // File Operations/CUE approval or removes hidden rows from collision scans.
 enum class BatchLocationQueue {
     All=0, RawCollisions, RawUnsafe, ExistingRaw, UninspectedRaw,
-    MissingRaw, PendingMetadata, NoRawFindings
+    MissingRaw, PendingMetadata, NoRawFindings,
+    // Native File locations filters use the independent complete-batch
+    // action ledger, never the raw route-only filter or a writer grant.
+    FileActionBlocked, FileActionRawOnly, FileActionSkipped
 };
 bool batch_location_queue_matches(
     const BatchPreviewRow& row, BatchLocationQueue queue) noexcept;

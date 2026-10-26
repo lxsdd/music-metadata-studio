@@ -100,6 +100,47 @@ int main() {
     check(safe_ledger.raw_only==1 && !safe_ledger.rows[0].blocked &&
           safe_ledger.rows[0].raw_only && safe_ledger.blocked==2,
           "cleared review yields RAW ONLY move, never final host authorization");
+    // Action-stage queues are separate from raw-target filters: a skipped
+    // source never becomes a RAW candidate; sorted view IDs remain original.
+    const std::vector<std::size_t> shuffled{3,1,0,2};
+    check(filter_workflow_file_action_view(
+              ledger,shuffled,BatchLocationQueue::FileActionBlocked)==
+              (std::vector<std::size_t>{1,0,2}) &&
+          filter_workflow_file_action_view(
+              ledger,shuffled,BatchLocationQueue::FileActionSkipped)==
+              (std::vector<std::size_t>{3}) &&
+          filter_workflow_file_action_view(
+              ledger,shuffled,BatchLocationQueue::FileActionRawOnly).empty(),
+          "mixed action queues retain stable source IDs under sorting");
+    check(filter_workflow_file_action_view(
+              safe_ledger,shuffled,BatchLocationQueue::FileActionRawOnly)==
+              (std::vector<std::size_t>{0}) &&
+          filter_workflow_file_action_view(
+              safe_ledger,shuffled,BatchLocationQueue::FileActionBlocked)==
+              (std::vector<std::size_t>{1,2}),
+          "review decision changes stage queue without granting FileOps approval");
+    rejects([&]{(void)filter_workflow_file_action_view(
+        ledger,{3,1,0,0},BatchLocationQueue::FileActionBlocked);},
+        "duplicate sorted source identity cannot redirect file actions");
+    rejects([&]{(void)filter_workflow_file_action_view(
+        ledger,{3,1,0,4},BatchLocationQueue::FileActionBlocked);},
+        "out-of-range source identity is rejected");
+    rejects([&]{(void)filter_workflow_file_action_view(
+        ledger,{3,1,0},BatchLocationQueue::FileActionBlocked);},
+        "truncated visible order cannot hide a source");
+    rejects([&]{(void)filter_workflow_file_action_view(
+        ledger,shuffled,BatchLocationQueue::All);},
+        "raw-only filter cannot accidentally consume an action ledger");
+    auto forged_queue=ledger;
+    forged_queue.rows[3].blocked=true;
+    rejects([&]{(void)filter_workflow_file_action_view(
+        forged_queue,shuffled,BatchLocationQueue::FileActionBlocked);},
+        "forged blocked+skip stage is never displayed as actionable");
+    forged_queue=ledger;
+    ++forged_queue.raw_only;
+    rejects([&]{(void)filter_workflow_file_action_view(
+        forged_queue,shuffled,BatchLocationQueue::FileActionRawOnly);},
+        "stale aggregate action counters reject filtered queue");
     auto unknown_actions=file_actions;
     unknown_actions[1]=static_cast<FileAction>(99);
     rejects([&]{(void)audit_workflow_file_actions(
@@ -297,6 +338,16 @@ int main() {
     catalog_sources[0].raw_relative_path="Test/Artist - Track";
     const auto catalog_ledger=audit_workflow_file_actions(
         large,catalog_sources,catalog_actions,catalog);
+    std::vector<std::size_t> catalog_order(catalog_size);
+    for(std::size_t i=0;i<catalog_size;++i) catalog_order[i]=catalog_size-1-i;
+    const auto catalog_skips=filter_workflow_file_action_view(
+        catalog_ledger,catalog_order,BatchLocationQueue::FileActionSkipped);
+    const auto catalog_blocked=filter_workflow_file_action_view(
+        catalog_ledger,catalog_order,BatchLocationQueue::FileActionBlocked);
+    check(catalog_skips.size()==catalog_size-1 &&
+          catalog_skips.front()==catalog_size-1 && catalog_skips.back()==1 &&
+          catalog_blocked==(std::vector<std::size_t>{0}),
+          "54,129-row stage queues preserve original source identity and order");
     const auto catalog_file_export=format_workflow_file_action_tsv(catalog_ledger);
     const auto catalog_blocked_export=format_workflow_file_action_tsv(
         catalog_ledger,WorkflowAuditExportScope::AttentionRows);

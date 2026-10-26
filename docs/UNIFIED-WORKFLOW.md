@@ -1258,3 +1258,25 @@ old evidence is never replayed as if still qualified. No online search,
 file operation or physical audio/tag/CUE writer is initiated. The original
 Win32/x64 native GUI tests assert keyboard access and non-overlap with
 Preview selected; source/rule integrity still needs installed owner testing.
+
+
+### File locations: whole-batch action-stage queues (2026-10-26)
+
+The existing **File locations** filter now also offers **File action:
+BLOCKED**, **File action: RAW ONLY** and **File action: SKIP**. These stages
+come from the exact same complete-batch, read-only FileAction ledger used by
+Audit/Copy issues; they are **not** inferred from a displayed filename or
+raw-target-only status. Mixed Move/Copy/Rename/No action batches remain
+independently staged per physical source. A changed local review decision or
+route recomputes the stage queue, with original source IDs stable through
+sorting and filtering. The visible count makes a 500+ source batch navigable.
+
+**Preview selected/visible** applies only to the source IDs currently shown
+and explicitly selected; **Preview all**, whole-batch collision checks and
+Audit/Copy audit always cover hidden sources. A SKIP means no file action;
+RAW ONLY is a preliminary Title Formatting candidate, never an approved
+foobar destination; BLOCKED retains its exact reason. Source/order shape,
+unknown action, contradictory stage and stale aggregate counters fail closed.
+No execution, overwrite consent, CUE rewrite, tag write, persistence of
+approval or new normalization engine was added. Native Win32/x64 host-load
+and installed GUI acceptance are separate qualification gates.

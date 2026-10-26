@@ -675,7 +675,9 @@ void update_workflow_audit_hint(PreviewState& state) {
         L", semantic "+std::to_wstring(audit.pending_semantic_values)+
         L"); raw collisions "+std::to_wstring(audit.raw_collision_tracks)+
         L", FileOps unqualified "+std::to_wstring(audit.file_plan_blocked_tracks)+
-        L". Audit or Copy audit for all rows; no writes.";
+        L". Action-stage filters show BLOCKED / RAW ONLY / SKIP from the "
+        L"complete action ledger; Preview all and Audit still cover hidden "
+        L"rows. No writes.";
     SetDlgItemTextW(state.dialog,IDC_BATCH_HINT,
         native_workspace_display_hint(state.stale,hint.c_str()));
 }
@@ -753,8 +755,24 @@ void update_table(PreviewState& state) {
     state.table = djmeta::describe_batch_preview(inputs);
     const auto sorted=djmeta::sort_batch_table_view(
         inputs, state.table, state.layout.sort_column, state.layout.sort_descending);
-    state.view_order=djmeta::filter_batch_location_view(
-        state.table,sorted,state.location_queue);
+    if(state.location_queue==djmeta::BatchLocationQueue::FileActionBlocked ||
+       state.location_queue==djmeta::BatchLocationQueue::FileActionRawOnly ||
+       state.location_queue==djmeta::BatchLocationQueue::FileActionSkipped) {
+        // A stage queue is based on the SAME complete-batch review and route
+        // evidence as Audit/Copy issues, not on visible rows or UI labels.
+        const auto review=djmeta::audit_workflow_preview(
+            state.table,state.analyses,state.review_decisions);
+        std::vector<djmeta::FileAction> actions;
+        actions.reserve(state.entries.size());
+        for(const auto& entry:state.entries) actions.push_back(entry.file_action);
+        const auto ledger=djmeta::audit_workflow_file_actions(
+            state.table,inputs,actions,review);
+        state.view_order=djmeta::filter_workflow_file_action_view(
+            ledger,sorted,state.location_queue);
+    } else {
+        state.view_order=djmeta::filter_batch_location_view(
+            state.table,sorted,state.location_queue);
+    }
 
     if (state.list) {
         ListView_SetItemCountEx(state.list, static_cast<int>(state.view_order.size()),
@@ -4890,7 +4908,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_BATCH_LIST,L"Proposed source-to-target rows. Destination paths have not passed the final foobar File Operations safety checks."},
         {IDC_BATCH_HISTORY_LIST,L"Last 256 session actions. Double-click a single-source action to inspect its current preview, never replay it."},
         {IDC_BATCH_HISTORY_FILTER,L"Filter session actions; source order and original event identities remain unchanged."},
-        {IDC_BATCH_LOCATION_FILTER,L"Display-only filter of full-batch raw route findings. Selected preview uses selected visible source IDs; Preview all and Audit still cover every source. No final FileOps/CUE approval."},
+        {IDC_BATCH_LOCATION_FILTER,L"Display-only full-batch raw route and staged FileAction queues: BLOCKED, RAW ONLY or SKIP. Selected/visible previews use only visible original source IDs; Preview all and Audit include hidden rows. No final FileOps/CUE approval."},
         {IDC_BATCH_FILE_ACTION,L"Explicit action intent for the next selected/visible/all preview: Move, Copy, Rename or No file action. Each track retains its own intent; Rename awaits verified same-parent host destination. Nothing is executed."},
         {IDC_BATCH_BACK_TO_CUE,L"Return to the original CUE carrier and reread its full physical FILE reference and sidecar action evidence. Rechecks all sources; never writes files."},
         {IDC_BATCH_PROFILE_PICKER,L"Choose a built-in or saved route, or type a new name. Saved templates do not approve files."},
@@ -6596,7 +6614,9 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         for(const wchar_t* choice:{L"All file rows",L"Raw collisions",
             L"Unsafe / unqualified raw",L"Existing raw target",
             L"Raw target not inspected",L"Missing raw target",
-            L"Pending metadata",L"No raw findings (NOT approved)"})
+            L"Pending metadata",L"No raw findings (NOT approved)",
+            L"File action: BLOCKED",L"File action: RAW ONLY",
+            L"File action: SKIP"})
             SendDlgItemMessageW(dialog,IDC_BATCH_LOCATION_FILTER,CB_ADDSTRING,
                 0,reinterpret_cast<LPARAM>(choice));
         SendDlgItemMessageW(dialog,IDC_BATCH_LOCATION_FILTER,CB_SETCURSEL,0,0);
@@ -8490,7 +8510,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         if(id==IDC_BATCH_LOCATION_FILTER && HIWORD(wp)==CBN_SELCHANGE) {
             const auto selected=SendDlgItemMessageW(
                 dialog,IDC_BATCH_LOCATION_FILTER,CB_GETCURSEL,0,0);
-            if(selected<0 || selected>7)
+            if(selected<0 || selected>10)
                 throw std::invalid_argument("Unknown File locations filter.");
             state->location_queue=static_cast<djmeta::BatchLocationQueue>(selected);
             update_table(*state);
