@@ -1654,10 +1654,18 @@ route_action=workspace_dialog.split(
     "void apply_to_rows(HWND dialog, PreviewState& state,",1)[1].split(
     "// User-initiated inspection of RAW, unsanitized candidate paths",1)[0]
 for name, body in (("review",review_action),("FileOps routing",route_action)):
-    if ("std::map<std::size_t,PreviewEntry>" not in body or
-        "try_emplace(" not in body or
-        "for (const auto& entry : state.entries) verify_snapshot(entry);" not in body or
-        "verify_rules_snapshot(state.captured_rules);" not in body):
+    if name == "review":
+        required = ("std::map<std::size_t,PreviewEntry>", "try_emplace(",
+                    "for (const auto& entry : state.entries) verify_snapshot(entry);",
+                    "verify_rules_snapshot(state.captured_rules);")
+    else:
+        # Scoped routing builds only changed sparse rows and performs a full
+        # physical source re-probe both before and after modal confirmation.
+        required = ("std::map<std::size_t,PreviewEntry>", "candidate.emplace(",
+                    "revalidate_workspace(state,true);",
+                    "verify_rules_snapshot(state.captured_rules);",
+                    "native_route_preview_source_ids(", "MB_DEFBUTTON2")
+    if any(marker not in body for marker in required):
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: sparse "+name+
                          " editing lost atomic revalidation")
     if ("auto next_entries = state.entries;" in body or
