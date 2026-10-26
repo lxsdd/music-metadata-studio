@@ -85,7 +85,7 @@ jobs:
           context-command: 'Precision CUE (Preview)'
           context-fixture-format: 'mp3'
           expected-window-title: 'Precision CUE - Preview / External CUE Create'
-          required-control-ids: '331,332,333,335,336,337,338,339,340,341,342,343'
+          required-control-ids: '331,332,333,335,336,337,338,339,340,341,342,343,344'
       - name: Upload DLL
         if: false # Hold public DLL uploads until explicit owner distribution approval
         uses: actions/upload-artifact@v7
