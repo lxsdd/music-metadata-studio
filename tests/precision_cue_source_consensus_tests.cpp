@@ -89,6 +89,10 @@ int main() {
     assert(initial_coarse.differences[1].signed_cumulative_delta_ms == -690);
     assert(initial_coarse.differences[0].signed_start_cumulative_delta_ms == 0);
     assert(initial_coarse.differences[1].signed_start_cumulative_delta_ms == -234);
+    assert(initial_coarse.differences[0].signed_start_frame_delta == 0);
+    // This coarse source's arithmetic frame delta is NEVER frame proof.
+    assert(initial_coarse.differences[1].signed_start_frame_delta ==
+           initial_coarse.differences[0].signed_end_frame_delta);
     assert(audit_precision_cue_source_consensus({apple}).differences.empty());
     // Both trusted release inputs must start at disc 1, track 1. Reject a
     // shifted first disc even when both providers share the same bad data.
@@ -221,6 +225,14 @@ int main() {
     assert(report.differences[16].signed_start_cumulative_delta_ms == 0);
     assert(report.differences[17].signed_start_cumulative_delta_ms == 0);
     assert(report.differences[18].signed_start_cumulative_delta_ms == 14);
+    assert(report.differences[0].signed_start_frame_delta == 0);
+    assert(report.differences[1].signed_start_frame_delta == 0);
+    assert(report.differences[2].signed_start_frame_delta == 1);
+    assert(report.differences[3].signed_start_frame_delta == 0);
+    assert(report.differences[16].signed_start_frame_delta == 0);
+    assert(report.differences[17].signed_start_frame_delta == 0);
+    assert(report.differences[18].signed_start_frame_delta == 1);
+    assert(report.differences[19].signed_start_frame_delta == 0);
     unsigned exact = 0, one_frame = 0;
     for (const auto& diff : report.differences) {
         if (diff.signed_end_frame_delta == 0) ++exact;

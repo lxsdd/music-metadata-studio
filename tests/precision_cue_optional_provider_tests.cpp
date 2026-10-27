@@ -29,10 +29,14 @@ int main() {
     assert(r.field_unit_ms == 1 && r.comparison_resolution_ms == 1);
     assert(r.comparison.differences.size() == 3);
     assert(r.comparison.differences[2].signed_start_cumulative_delta_ms == 0);
+    assert(r.comparison.differences[0].signed_start_frame_delta == 0);
+    assert(r.comparison.differences[2].signed_start_frame_delta == 0);
     s.release.tracks[0].duration_ms += 14;
     r = audit_precision_cue_optional_source(apple, s);
     assert(r.comparison.state == PrecisionCueConsensusState::Review);
     assert(r.comparison.differences[1].signed_start_cumulative_delta_ms == 14);
+    assert(r.comparison.differences[1].signed_start_frame_delta == 1);
+    assert(r.comparison.differences[2].signed_start_frame_delta == 0);
     s.offline_user_reviewed = false;
     assert(audit_precision_cue_optional_source(apple, s).state ==
         PrecisionCueOptionalState::Blocked);
@@ -95,6 +99,12 @@ int main() {
     assert(r.comparison.state == PrecisionCueConsensusState::Review);
     assert(r.comparison.differences[15].signed_start_cumulative_delta_ms == 0);
     assert(r.comparison.differences[16].signed_start_cumulative_delta_ms == 0);
+    assert(r.comparison.differences[0].signed_start_frame_delta == 0);
+    assert(r.comparison.differences[1].signed_start_frame_delta == 1);
+    assert(r.comparison.differences[15].signed_start_frame_delta == 0);
+    assert(r.comparison.differences[16].signed_start_frame_delta == 0);
+    assert(r.comparison.differences[17].signed_start_frame_delta == -1);
+    assert(r.comparison.differences[18].signed_start_frame_delta == -1);
     s.release.tracks[22].title = "Not this edition";
     assert(audit_precision_cue_optional_source(thirty_apple, s).state ==
         PrecisionCueOptionalState::Blocked);

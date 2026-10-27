@@ -612,6 +612,8 @@ void cross_provider_release_and_cue() {
           spotify_release.provider_release_id);
     CHECK(optional_studio.rows[0].optional_track_evidence[0].reported_field_unit_ms == 1);
     CHECK(optional_studio.rows[15].optional_track_evidence[0].signed_start_cumulative_delta_ms == 0);
+    CHECK(optional_studio.rows[0].optional_track_evidence[0].signed_start_frame_delta == 0);
+    CHECK(optional_studio.rows[15].optional_track_evidence[0].signed_start_frame_delta == 0);
     auto shifted_spotify = spotify_optional;
     shifted_spotify.release.tracks[0].duration_ms += 14;
     shifted_spotify.release.tracks[1].duration_ms -= 14;
@@ -625,6 +627,14 @@ void cross_provider_release_and_cue() {
           signed_start_cumulative_delta_ms == 0);
     CHECK(shifted_optional_studio.rows[15].optional_track_evidence[0].
           signed_start_cumulative_delta_ms == 0);
+    CHECK(shifted_optional_studio.rows[0].optional_track_evidence[0].
+          signed_start_frame_delta == 0);
+    CHECK(shifted_optional_studio.rows[1].optional_track_evidence[0].
+          signed_start_frame_delta == 1);
+    CHECK(shifted_optional_studio.rows[2].optional_track_evidence[0].
+          signed_start_frame_delta == 0);
+    CHECK(shifted_optional_studio.rows[15].optional_track_evidence[0].
+          signed_start_frame_delta == 0);
     auto amazon_release = apple;
     amazon_release.provider = "amazon_music";
     amazon_release.provider_release_id = "offline-synthetic-amazon";
@@ -654,6 +664,8 @@ void cross_provider_release_and_cue() {
         request, reviewed, studio_sources, no_references, {amazon_device});
     CHECK(device_studio.rows.size() == 30);
     CHECK(device_studio.rows[0].optional_track_evidence[0].reported_field_unit_ms == 1);
+    CHECK(device_studio.rows[0].optional_track_evidence[0].signed_start_frame_delta == 0);
+    CHECK(device_studio.optional_provider_evidence[0].comparison_resolution_ms == 1000);
     CHECK(device_studio.rows[0].optional_track_evidence[0].
           conservative_comparison_resolution_ms == 1000);
     auto spoofed = amazon_optional;

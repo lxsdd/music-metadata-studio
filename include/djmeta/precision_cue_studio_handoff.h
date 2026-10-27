@@ -55,6 +55,9 @@ struct PrecisionCueStudioOptionalTrackEvidence {
     std::int64_t signed_start_cumulative_delta_ms = 0;
     std::int64_t signed_end_cumulative_delta_ms = 0;
     std::int64_t signed_end_frame_delta = 0;
+    // The actual CUE INDEX 01 marker. Kept separate from track-end drift.
+    // A coarse source still cannot establish frame-accurate timing.
+    std::int64_t signed_start_frame_delta = 0;
 };
 
 struct PrecisionCueStudioReviewRow {
@@ -372,7 +375,8 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
                         optional.format, evidence.field_unit_ms,
                         evidence.comparison_resolution_ms, delta.signed_delta_ms,
                         delta.signed_start_cumulative_delta_ms,
-                        delta.signed_cumulative_delta_ms, delta.signed_end_frame_delta});
+                        delta.signed_cumulative_delta_ms, delta.signed_end_frame_delta,
+                        delta.signed_start_frame_delta});
                 }
                 row.reference_has_extra_index_or_pregap =
                     reference_has_extra_index_or_pregap;

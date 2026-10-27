@@ -72,6 +72,12 @@ authentication, mastering identity, a second foobar workspace or CUE creation.
 - Whole album/edition/track/disc/title/artist/date mismatches, forged
   provider labels, missing offline review, repeated providers, excessive
   candidates and invalid durations are fail-closed.
+- Provider audit and native Studio handoff also expose independently
+  quantized **INDEX 01 start-frame differences** for each optional provider.
+  These differ from track-end frame deltas, reset to zero at the start of
+  every physical disc, and remain arithmetic-only for coarse Amazon sources.
+  A ±1 CUE-frame difference is neither a sample-accurate finding nor a
+  license to override the original Apple timing plan.
 - No new provider network transport, browser scraping, OAuth, playback,
   media/tag/embedded CUE write or external CUE write permission is added.
   The production writer remains disabled, and the single native Studio

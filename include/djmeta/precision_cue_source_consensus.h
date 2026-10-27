@@ -36,6 +36,10 @@ struct PrecisionCueSourceDifference {
     // Start of this track (INDEX 01), before adding its duration. Coarse
     // providers remain identity evidence only, never 75-fps proof.
     std::int64_t signed_start_cumulative_delta_ms = 0;
+    // Difference at INDEX 01: quantize each provider's elapsed start once
+    // against the same zero-based 75-fps disc clock. Never confuse this
+    // with signed_end_frame_delta or claim audio/sample accuracy.
+    std::int64_t signed_start_frame_delta = 0;
 };
 
 struct PrecisionCueCoarseDurationConflict {
@@ -206,13 +210,16 @@ inline PrecisionCueConsensusReport audit_precision_cue_source_consensus(
             const auto primary_ms = sources.front().release.tracks[i].duration_ms;
             const auto other_ms = track.duration_ms;
             const auto start_delta_ms = other_elapsed - primary_elapsed;
+            const auto start_frame_delta =
+                cue_frame(other_elapsed) - cue_frame(primary_elapsed);
             primary_elapsed += primary_ms;
             other_elapsed += other_ms;
             const auto delta = cue_frame(other_elapsed) - cue_frame(primary_elapsed);
             report.differences.push_back({
                 release.provider, track.disc_number, track.track_number,
                 other_ms - primary_ms, delta, source.resolution_ms,
-                other_elapsed - primary_elapsed, start_delta_ms
+                other_elapsed - primary_elapsed, start_delta_ms,
+                start_frame_delta
             });
             if (sources.front().resolution_ms <= kMaximumFrameResolutionMs &&
                 source.resolution_ms <= kMaximumFrameResolutionMs) {
