@@ -4,6 +4,7 @@
 // All rows are advisory: even exact 75-fps agreement is NOT audio proof.
 #include "djmeta/precision_cue_assemble.h"
 #include "djmeta/precision_cue_reference_diff.h"
+#include "djmeta/precision_cue_source_consensus.h"
 #include "djmeta/precision_cue_write_preflight.h"
 
 #include <cstddef>
@@ -49,6 +50,13 @@ struct PrecisionCueStudioReviewRow {
     std::string performer;
     std::string provider;
     std::string provider_release_id;
+    // Caller-supplied Deezer catalog evidence, never a transport attestation
+    // or an independent frame-resolution clock. Delta = Deezer minus Apple.
+    std::string corroborating_provider;
+    std::string corroborating_release_id;
+    unsigned corroborating_resolution_ms = 0;
+    std::optional<std::int64_t> signed_corroborating_track_delta_ms;
+    std::optional<std::int64_t> signed_corroborating_cumulative_delta_ms;
     std::int64_t elapsed_ms = 0;
     std::int64_t cue_frame = 0;
     PrecisionCueStudioReferenceState reference_state =
@@ -60,6 +68,12 @@ struct PrecisionCueStudioHandoff {
     PrecisionCueStudioHandoffState state =
         PrecisionCueStudioHandoffState::Blocked;
     const char* diagnostic = "STUDIO_HANDOFF_BLOCKED";
+    // Cross-provider catalog consistency is separate from reference CUE
+    // comparison and from physical source identity. No write authorization.
+    PrecisionCueConsensusState catalog_consensus_state =
+        PrecisionCueConsensusState::Rejected;
+    const char* catalog_diagnostic = "STUDIO_CATALOG_EVIDENCE_NOT_ATTESTED";
+    std::optional<PrecisionCueCoarseDurationConflict> first_coarse_conflict;
     std::vector<PrecisionCueStudioReviewRow> rows;
 };
 
@@ -125,6 +139,33 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
     if (edition.provider != "apple" || edition.provider_release_id.empty()) {
         out.diagnostic = "STUDIO_HIGH_RESOLUTION_EDITION_REQUIRED";
         return out;
+    }
+    // Deezer exposes whole-second album track durations. Do not silently
+    // promote them to Apple millisecond timing or imply authenticated HTTP.
+    // A malformed Deezer catalog claim must not reach the Studio review.
+    const bool deezer_reference =
+        precision_cue_consensus_detail::normalized(request.reference.provider) == "deezer";
+    PrecisionCueConsensusReport catalog;
+    if (deezer_reference) {
+        if (request.reference.provider_release_id.empty()) {
+            out.diagnostic = "STUDIO_DEEZER_RELEASE_ID_REQUIRED";
+            return out;
+        }
+        catalog = audit_precision_cue_source_consensus({
+            {edition, 1}, {request.reference, 1000}});
+        if (catalog.state == PrecisionCueConsensusState::Rejected ||
+            catalog.differences.size() != edition.tracks.size()) {
+            out.diagnostic = "STUDIO_DEEZER_CATALOG_EVIDENCE_UNQUALIFIED";
+            return out;
+        }
+        out.catalog_consensus_state = catalog.state;
+        out.first_coarse_conflict = catalog.first_coarse_conflict;
+        out.catalog_diagnostic =
+            catalog.state == PrecisionCueConsensusState::Review
+                ? "STUDIO_DEEZER_CUMULATIVE_DURATION_REVIEW"
+                : "STUDIO_DEEZER_SECONDS_IDENTITY_ONLY_NOT_FRAME_PROOF";
+    } else {
+        out.catalog_diagnostic = "STUDIO_NO_QUALIFIED_DEEZER_CORROBORATION";
     }
     try {
         const auto fresh = make_precision_cue_release_preview(request);
@@ -199,7 +240,8 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
                     out.rows.clear();
                     return out;
                 }
-                const auto& item = edition.tracks[release_offset++];
+                const auto release_index = release_offset++;
+                const auto& item = edition.tracks[release_index];
                 const auto& boundary = planned.boundaries[track];
                 const auto& expected = canonical.boundaries[track];
                 if (item.disc_number != disc + 1 ||
@@ -223,6 +265,25 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
                 row.performer = item.performer;
                 row.provider = edition.provider;
                 row.provider_release_id = edition.provider_release_id;
+                if (deezer_reference) {
+                    const auto& evidence = catalog.differences[release_index];
+                    if (evidence.disc_number != item.disc_number ||
+                        evidence.track_number != item.track_number ||
+                        evidence.provider != request.reference.provider ||
+                        evidence.resolution_ms != 1000) {
+                        out.diagnostic = "STUDIO_DEEZER_TRACK_EVIDENCE_CHANGED";
+                        out.rows.clear();
+                        return out;
+                    }
+                    row.corroborating_provider = evidence.provider;
+                    row.corroborating_release_id =
+                        request.reference.provider_release_id;
+                    row.corroborating_resolution_ms = evidence.resolution_ms;
+                    row.signed_corroborating_track_delta_ms =
+                        evidence.signed_delta_ms;
+                    row.signed_corroborating_cumulative_delta_ms =
+                        evidence.signed_cumulative_delta_ms;
+                }
                 row.elapsed_ms = boundary.elapsed_ms;
                 row.cue_frame = boundary.cue_frame;
                 row.reference_state = reference_state;
@@ -246,7 +307,9 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
         // Multi-disc assignment and physical/edition mastering identity
         // remain an explicit Studio review, even with exact CUE frames.
         if (displayed.state != PrecisionCueMatchState::Selected ||
-            !displayed.preview_qualified || reference_needs_review) {
+            !displayed.preview_qualified || reference_needs_review ||
+            !deezer_reference ||
+            out.catalog_consensus_state == PrecisionCueConsensusState::Review) {
             out.state = PrecisionCueStudioHandoffState::RowsRequireReview;
             out.diagnostic = "STUDIO_ROWS_PREVIEW_ONLY_REVIEW_REQUIRED";
         } else {

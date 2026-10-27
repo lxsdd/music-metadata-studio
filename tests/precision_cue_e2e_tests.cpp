@@ -506,6 +506,18 @@ void cross_provider_release_and_cue() {
         request, reviewed, studio_sources, no_references);
     CHECK(studio.state == PrecisionCueStudioHandoffState::RowsRequireReview);
     CHECK(studio.rows.size() == 30);
+    CHECK(studio.catalog_consensus_state ==
+          PrecisionCueConsensusState::SingleHighResolutionSource);
+    CHECK(std::string(studio.catalog_diagnostic) ==
+          "STUDIO_DEEZER_SECONDS_IDENTITY_ONLY_NOT_FRAME_PROOF");
+    CHECK(!studio.first_coarse_conflict);
+    CHECK(studio.rows[0].corroborating_provider == "deezer");
+    CHECK(studio.rows[0].corroborating_release_id == deezer.provider_release_id);
+    CHECK(studio.rows[0].corroborating_resolution_ms == 1000);
+    CHECK(studio.rows[0].signed_corroborating_track_delta_ms ==
+          consensus.differences[0].signed_delta_ms);
+    CHECK(studio.rows[15].signed_corroborating_cumulative_delta_ms ==
+          consensus.differences[15].signed_cumulative_delta_ms);
     CHECK(studio.rows[0].disc_number == 1 &&
           studio.rows[0].track_number == 1 &&
           studio.rows[0].cue_frame == 0 &&
@@ -518,6 +530,39 @@ void cross_provider_release_and_cue() {
     CHECK(studio.rows[0].reference_state ==
           PrecisionCueStudioReferenceState::NotProvided);
     CHECK(!studio.rows[0].signed_reference_delta_frames);
+
+    // A claimed Deezer catalog containing fractional milliseconds is not
+    // legitimate whole-second evidence, even when the matcher still finds
+    // the same release and the Apple CUE timeline is unchanged.
+    auto fractional_deezer = request;
+    fractional_deezer.reference.tracks[0].duration_ms += 1;
+    const auto fractional_preview =
+        make_precision_cue_release_preview(fractional_deezer);
+    CHECK(fractional_preview.discs.size() == 2);
+    const auto fractional_handoff = prepare_precision_cue_studio_review(
+        fractional_deezer, fractional_preview, studio_sources, no_references);
+    CHECK(fractional_handoff.state == PrecisionCueStudioHandoffState::Blocked);
+    CHECK(fractional_handoff.rows.empty());
+    CHECK(std::string(fractional_handoff.diagnostic) ==
+          "STUDIO_DEEZER_CATALOG_EVIDENCE_UNQUALIFIED");
+
+    // An unknown catalog provider is not silently presented as corroborated
+    // Deezer evidence. The same Apple CUE may be reviewed but not approved.
+    auto unknown_catalog = request;
+    unknown_catalog.reference.provider = "unverified";
+    const auto unknown_preview = make_precision_cue_release_preview(unknown_catalog);
+    CHECK(unknown_preview.discs.size() == 2);
+    const auto unknown_handoff = prepare_precision_cue_studio_review(
+        unknown_catalog, unknown_preview, studio_sources, no_references);
+    CHECK(unknown_handoff.state ==
+          PrecisionCueStudioHandoffState::RowsRequireReview);
+    CHECK(unknown_handoff.rows.size() == 30);
+    CHECK(unknown_handoff.catalog_consensus_state ==
+          PrecisionCueConsensusState::Rejected);
+    CHECK(std::string(unknown_handoff.catalog_diagnostic) ==
+          "STUDIO_NO_QUALIFIED_DEEZER_CORROBORATION");
+    CHECK(unknown_handoff.rows[0].corroborating_provider.empty());
+    CHECK(!unknown_handoff.rows[0].signed_corroborating_track_delta_ms);
 
     // Independent reference text stays in memory. Exact-frame and one-frame
     // matches are explicitly labelled NOT AUDIO PROOF, never write consent.
