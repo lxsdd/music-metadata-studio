@@ -5,6 +5,7 @@
 #include "djmeta/precision_cue_lookup_budget.h"
 #include "djmeta/precision_cue_http_status.h"
 #include "djmeta/precision_cue_window_geometry.h"
+#include "djmeta/precision_cue_request_revision.h"
 
 // GitHub CI uses Release: keep test assertions enabled on every platform.
 #ifdef NDEBUG

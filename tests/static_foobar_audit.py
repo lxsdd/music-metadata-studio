@@ -340,7 +340,8 @@ reopen_body = precision.split(
     "if (g_precision_workspace && IsWindow(g_precision_workspace)) {", 1
 )[-1].split("    try {\n        auto state = std::make_unique<Workspace>();", 1)[0]
 for token in (
-    "active->input_revision.input_changed();",
+    "active->input_revision.cancel_request();",
+    "active->job->worker.request_stop();",
     "active->job.reset();",
     "reset_disc_controls(*active);",
     "clear_search_results(*active);",
