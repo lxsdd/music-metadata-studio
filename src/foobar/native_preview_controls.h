@@ -629,6 +629,59 @@ inline constexpr const wchar_t* native_search_action_tooltip(
            L"not an approved metadata change.";
 }
 
+// Query EDIT is an explicit keyboard action surface in the same native
+// modeless workspace: Enter searches only when idle; Escape cancels an active
+// lookup (or closes the idle window). IME composition and modifier chords
+// remain ordinary text editing. Never launch a provider request from focus.
+enum class NativeQueryKeyAction : unsigned { None=0, Search=1, Cancel=2, Close=3 };
+inline constexpr UINT kNativeQueryKeyMessage = WM_APP + 0x353;
+struct NativeQueryKeyboardState { bool ime_composing=false; };
+inline constexpr NativeQueryKeyAction native_query_key_action(
+    UINT key, bool ctrl, bool shift, bool alt, bool find_tab,
+    bool pending, bool cancelling, bool action_enabled) noexcept {
+    if(!find_tab || ctrl || shift || alt) return NativeQueryKeyAction::None;
+    if(key==VK_RETURN)
+        return !pending && !cancelling && action_enabled
+            ? NativeQueryKeyAction::Search : NativeQueryKeyAction::None;
+    if(key==VK_ESCAPE) {
+        if(pending)
+            return !cancelling && action_enabled
+                ? NativeQueryKeyAction::Cancel : NativeQueryKeyAction::None;
+        return NativeQueryKeyAction::Close;
+    }
+    return NativeQueryKeyAction::None;
+}
+// Installed on the REAL search EDIT in production and the resource-backed
+// Win32 test. Parent verifies current tab/request state before dispatch.
+// Subclass lifetime is tied to its HWND; no timer or retained SDK pointer.
+inline LRESULT CALLBACK native_query_edit_keyboard_proc(
+    HWND edit, UINT message, WPARAM wp, LPARAM lp,
+    UINT_PTR subclass_id, DWORD_PTR data) {
+    auto* state=reinterpret_cast<NativeQueryKeyboardState*>(data);
+    if(message==WM_IME_STARTCOMPOSITION && state)
+        state->ime_composing=true;
+    if(message==WM_IME_ENDCOMPOSITION && state)
+        state->ime_composing=false;
+    const bool special=wp==VK_RETURN || wp==VK_ESCAPE;
+    if(message==WM_GETDLGCODE && special &&
+       state && !state->ime_composing)
+        return DefSubclassProc(edit,message,wp,lp)|DLGC_WANTMESSAGE;
+    if(message==WM_KEYDOWN && special &&
+       state && !state->ime_composing) {
+        const HWND parent=GetParent(edit);
+        if(parent && IsWindow(parent))
+            SendMessageW(parent,kNativeQueryKeyMessage,wp,
+                         reinterpret_cast<LPARAM>(edit));
+        return 0;
+    }
+    if(message==WM_CHAR && (wp==L'\r' || wp==L'\x1b') &&
+       state && !state->ime_composing)
+        return 0; // no beep or duplicate default-button command
+    if(message==WM_NCDESTROY)
+        RemoveWindowSubclass(edit,native_query_edit_keyboard_proc,subclass_id);
+    return DefSubclassProc(edit,message,wp,lp);
+}
+
 // Native review divider keyboard contract. Ctrl+Shift+Left/Right adjusts
 // the SOURCE pane in 24 logical pixels; Ctrl+Shift+Home resets to the
 // centered, DPI-aware split. Never changes row selection or source identity.

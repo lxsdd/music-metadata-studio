@@ -42,9 +42,16 @@ int blocked_online_rebind_notifications = 0;
 int read_only_worker_notifications = 0;
 int query_edit_events = 0;
 int split_notifications = 0;
+int query_key_notifications = 0;
+UINT last_query_key = 0;
 djmeta_foobar::NativeReviewSplitAction last_split_action = djmeta_foobar::NativeReviewSplitAction::None;
 djmeta_foobar::ReadOnlyContextVersion test_request_context;
 INT_PTR CALLBACK test_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
+    if(message==djmeta_foobar::kNativeQueryKeyMessage) {
+        ++query_key_notifications;
+        last_query_key=static_cast<UINT>(wp);
+        return TRUE;
+    }
     if(message==djmeta_foobar::kNativeReviewSplitMessage) {
         ++split_notifications;
         last_split_action=static_cast<djmeta_foobar::NativeReviewSplitAction>(wp);
@@ -2004,6 +2011,68 @@ int main() {
     check(GetDlgItem(dialog, IDC_BATCH_APPLY_ALL) &&
           GetDlgItem(dialog, IDC_BATCH_APPLY_SELECTED),
           "preview actions exist in production resource");
+
+    // Actual production EDIT receives keyboard messages via the same
+    // subclass used by Studio; no network, tag, CUE or file I/O in this test.
+    using djmeta_foobar::NativeQueryKeyAction;
+    using djmeta_foobar::native_query_key_action;
+    check(native_query_key_action(VK_RETURN,false,false,false,
+              true,false,false,true)==NativeQueryKeyAction::Search &&
+          native_query_key_action(VK_ESCAPE,false,false,false,
+              true,true,false,true)==NativeQueryKeyAction::Cancel &&
+          native_query_key_action(VK_ESCAPE,false,false,false,
+              true,false,false,true)==NativeQueryKeyAction::Close,
+          "Enter searches explicitly, Escape cancels active or closes idle");
+    for(const auto key:{VK_RETURN,VK_ESCAPE}) {
+        check(native_query_key_action(key,true,false,false,
+                  true,false,false,true)==NativeQueryKeyAction::None &&
+              native_query_key_action(key,false,true,false,
+                  true,false,false,true)==NativeQueryKeyAction::None &&
+              native_query_key_action(key,false,false,true,
+                  true,false,false,true)==NativeQueryKeyAction::None &&
+              native_query_key_action(key,false,false,false,
+                  false,false,false,true)==NativeQueryKeyAction::None,
+              "modified keys and inactive Find tab cannot dispatch a lookup");
+    }
+    check(native_query_key_action(VK_RETURN,false,false,false,
+              true,true,false,true)==NativeQueryKeyAction::None &&
+          native_query_key_action(VK_ESCAPE,false,false,false,
+              true,true,true,false)==NativeQueryKeyAction::None &&
+          native_query_key_action(VK_RETURN,false,false,false,
+              true,false,false,false)==NativeQueryKeyAction::None,
+          "pending, cancelling and disabled Search reject duplicate gestures");
+    djmeta_foobar::NativeQueryKeyboardState edit_keys{};
+    check(SetWindowSubclass(mb_query,
+              djmeta_foobar::native_query_edit_keyboard_proc,1,
+              reinterpret_cast<DWORD_PTR>(&edit_keys))!=FALSE,
+          "native query EDIT subclass installed on actual production resource");
+    check((SendMessageW(mb_query,WM_GETDLGCODE,VK_RETURN,0)&
+           DLGC_WANTMESSAGE)!=0 &&
+          (SendMessageW(mb_query,WM_GETDLGCODE,VK_ESCAPE,0)&
+           DLGC_WANTMESSAGE)!=0,
+          "native edit claims Enter/Escape before default Close button");
+    const int before_keys=query_key_notifications;
+    SendMessageW(mb_query,WM_KEYDOWN,VK_RETURN,0);
+    SendMessageW(mb_query,WM_CHAR,L'\r',0);
+    check(query_key_notifications==before_keys+1 &&
+          last_query_key==VK_RETURN,
+          "real EDIT Enter dispatches exactly one explicit parent action");
+    SendMessageW(mb_query,WM_KEYDOWN,VK_ESCAPE,0);
+    SendMessageW(mb_query,WM_CHAR,L'\x1b',0);
+    check(query_key_notifications==before_keys+2 &&
+          last_query_key==VK_ESCAPE,
+          "real EDIT Escape dispatches once without duplicate dialog command");
+    edit_keys.ime_composing=true;
+    check((SendMessageW(mb_query,WM_GETDLGCODE,VK_RETURN,0)&
+           DLGC_WANTMESSAGE)==0,
+          "IME composition leaves native edit dialog key handling intact");
+    edit_keys.ime_composing=false;
+    SendMessageW(mb_query,WM_KEYDOWN,VK_TAB,0);
+    check(query_key_notifications==before_keys+2,
+          "Tab and non-action keys do not issue provider actions");
+    check(RemoveWindowSubclass(mb_query,
+              djmeta_foobar::native_query_edit_keyboard_proc,1)!=FALSE,
+          "native query keyboard subclass cleans up without HWND retention");
 
     // Exact row counts from the real Windows RC/HWND, not guessed source IDs.
     const HWND evidence_view=GetDlgItem(dialog,IDC_METADATA_MB_DETAILS);

@@ -37,6 +37,18 @@ found = [token for token in forbidden if token in sources]
 if found:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: write-capable token(s): " + ", ".join(found))
 
+# The real native query EDIT, not a second dialog or automatic focus hook,
+# dispatches Enter/Escape to the guarded single Search/Cancel command.
+for token in ("native_query_edit_keyboard_proc",
+              "kNativeQueryKeyMessage",
+              "native_query_key_action(",
+              "state->online_user_cancel_requested",
+              "TabCtrl_GetCurSel(state->tabs)==0",
+              "MAKEWPARAM(IDC_METADATA_MB_SEARCH,BN_CLICKED)",
+              "SendMessageW(dialog,WM_CLOSE,0,0)"):
+    if token not in sources:
+        raise SystemExit("STATIC NATIVE QUERY KEYBOARD WIRING FAIL: "+token)
+
 # Native review splitter uses one geometry policy for mouse, context menu
 # and keyboard; no independent geometry/persistence implementation.
 for token in ("native_review_split_keyboard_proc",

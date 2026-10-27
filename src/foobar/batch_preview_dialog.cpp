@@ -213,6 +213,7 @@ struct PreviewState {
     std::wstring search_attempt_notice;
     std::size_t auto_search_track = (std::numeric_limits<std::size_t>::max)();
     bool modeless_registered = false;
+    NativeQueryKeyboardState query_keyboard;
     std::uint64_t workspace_generation = 0;
     bool stale = false;
 #if defined(MMS_ENABLE_PHYSICAL_WRITES)
@@ -5153,7 +5154,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_BATCH_TABS,L"1. Find and compare. 2. Review proposals. 3. File locations. 4. Session history. No writes."},
         {IDC_BATCH_GUIDE,L"Follow the steps from left to right. Online matches from any provider are evidence, never approved tag edits."},
         {IDC_METADATA_TRACK_LIST,L"Find tab: double-click/Enter searches MusicBrainz or Discogs, or opens Crates in Beatport mode using full TITLE and qualified ARTIST credits where available. Other tabs only navigate to Find without launching an online action."},
-        {IDC_METADATA_MB_QUERY,L"MusicBrainz: physical TITLE searches recordings; album: NAME searches releases. An exact release URL compares qualified physical tracks read-only. For CUEs use Inspect CUE. Discogs: title or exact release/master URL. Beatport: canonical public track URL or clipboard. Only an explicit Search makes a request."},
+        {IDC_METADATA_MB_QUERY,L"Enter explicitly searches MusicBrainz, Discogs or a public Beatport URL; Escape cancels a pending lookup, otherwise closes Studio. IME editing is preserved. MusicBrainz TITLE searches recordings; album: NAME searches releases. Exact release URLs compare qualified physical tracks read-only. CUEs require Inspect CUE."},
         {IDC_METADATA_ONLINE_PROVIDER,L"MusicBrainz and Discogs use official APIs. Beatport + Crates supports single public Beatport URLs, lawful clipboard evidence and a hand-off to the public Crates browser; no logged-in API impersonation."},
         {IDC_METADATA_DISCOGS_TOKEN_LABEL,L"Discogs token only lives in this password control."},
         {IDC_METADATA_DISCOGS_TOKEN,L"Personal Discogs API token. Not saved, logged, embedded or copied into URLs."},
@@ -7053,6 +7054,12 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         // Do not truncate long, valid Beatport track slugs at the old MB text cap.
         SendDlgItemMessageW(dialog, IDC_METADATA_MB_QUERY, EM_LIMITTEXT,
             djmeta::online::maximum_public_beatport_url_length, 0);
+        // Real EDIT subclass: Enter is an explicit user Search; Escape
+        // cancels a pending lookup without discarding the workspace.
+        if(!SetWindowSubclass(GetDlgItem(dialog,IDC_METADATA_MB_QUERY),
+              native_query_edit_keyboard_proc,1,
+              reinterpret_cast<DWORD_PTR>(&state->query_keyboard)))
+            throw std::runtime_error("Unable to attach search keyboard actions.");
         SendDlgItemMessageW(dialog, IDC_METADATA_DISCOGS_TOKEN, EM_LIMITTEXT, 256, 0);
         for(const wchar_t* target:{
                 L"Keep original date",L"DATE (year YYYY; explicit replace)",
@@ -7358,6 +7365,34 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         return TRUE;
     }
 
+    if(message==kNativeQueryKeyMessage) {
+        // The EDIT never executes a provider action itself. Recheck the
+        // currently focused native HWND, tab, request and button after the
+        // synchronous notification; no implicit network on tab switches.
+        const HWND query=GetDlgItem(dialog,IDC_METADATA_MB_QUERY);
+        if(reinterpret_cast<HWND>(lp)!=query || !IsWindow(query))
+            return TRUE;
+        const HWND button=GetDlgItem(dialog,IDC_METADATA_MB_SEARCH);
+        const bool pending=state->musicbrainz_request ||
+            state->discogs_request || state->beatport_public_request;
+        const auto action=native_query_key_action(
+            static_cast<UINT>(wp),
+            (GetKeyState(VK_CONTROL)&0x8000)!=0,
+            (GetKeyState(VK_SHIFT)&0x8000)!=0,
+            (GetKeyState(VK_MENU)&0x8000)!=0,
+            TabCtrl_GetCurSel(state->tabs)==0 &&
+                IsWindowVisible(query)!=FALSE,
+            pending,state->online_user_cancel_requested,
+            button && IsWindowEnabled(button)!=FALSE);
+        if(action==NativeQueryKeyAction::Search ||
+           action==NativeQueryKeyAction::Cancel)
+            SendMessageW(dialog,WM_COMMAND,
+                MAKEWPARAM(IDC_METADATA_MB_SEARCH,BN_CLICKED),
+                reinterpret_cast<LPARAM>(button));
+        else if(action==NativeQueryKeyAction::Close)
+            SendMessageW(dialog,WM_CLOSE,0,0);
+        return TRUE;
+    }
     if(message==kNativeReviewSplitMessage) {
         // HWND-only view geometry. No metadata/rule/provider state changes.
         const auto action=static_cast<NativeReviewSplitAction>(wp);
