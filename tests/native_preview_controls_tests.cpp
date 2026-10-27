@@ -342,6 +342,43 @@ int main() {
           history.append(PreviewHistoryKind::UndoReview,3,5,0) &&
           history.events().front().sequence==1,
           "refresh resets session-only history without old decisions");
+
+    // The same labels/scope as the native History grid must be exported in
+    // a bounded, path-free, source-ordinal-only receipt. Filter and selected
+    // row identity are recomputed, never trusted from ListView captions.
+    history.clear();
+    check(history.append(PreviewHistoryKind::Accept,1,2,0,7) &&
+          history.append(PreviewHistoryKind::Reject,3,4,1,8) &&
+          history.append(PreviewHistoryKind::Route,1,1,2,2) &&
+          history.append(PreviewHistoryKind::UndoRoute,1,1,0,2),
+          "export fixture captures exact source and bulk preview actions");
+    using djmeta_foobar::preview_history_export_tsv;
+    const auto all_history=preview_history_export_tsv(
+        history,PreviewHistoryFilter::All,std::nullopt,8);
+    check(all_history &&
+          all_history->find(L"Step\tAction\tScope\tTracks\tItems\tPhysical source #")!=std::wstring::npos &&
+          all_history->find(L"1\tAccept proposals\tSelected fields\t1\t2\t8\r\n")!=std::wstring::npos &&
+          all_history->find(L"2\tReject proposals\tSelected tracks\t3\t4\t(not captured / multiple)")!=std::wstring::npos &&
+          all_history->find(L"3\tRecalculate route\tAll tracks\t1\t1\t3\r\n")!=std::wstring::npos &&
+          all_history->find(L"No metadata, CUE or file operation was executed")!=std::wstring::npos,
+          "session receipt uses native action labels, original ordinals and zero-write notice");
+    const auto only_route=preview_history_export_tsv(
+        history,PreviewHistoryFilter::Routing,0,8);
+    check(only_route &&
+          only_route->find(L"3\tRecalculate route")!=std::wstring::npos &&
+          only_route->find(L"Accept proposals")==std::wstring::npos &&
+          only_route->find(L"Undo route")==std::wstring::npos,
+          "selected visible route row maps to its original immutable event");
+    check(!preview_history_export_tsv(history,PreviewHistoryFilter::Routing,1,8) &&
+          !preview_history_export_tsv(history,PreviewHistoryFilter::All,0,7) &&
+          !preview_history_export_tsv(history,PreviewHistoryFilter::All,0,0) &&
+          !preview_history_export_tsv(history,PreviewHistoryFilter::Routing,5,8),
+          "invalid selection, stale single-source ordinal and empty batch fail closed");
+    history.clear();
+    check(!preview_history_export_tsv(
+              history,PreviewHistoryFilter::All,std::nullopt,8),
+          "refresh invalidates all previous exported history");
+
     using djmeta_foobar::native_recheck_preserved_online_selection;
     const auto same_source_selection=[](bool online_pane_visible) {
         // The native tab switch is a presentation change: the guard has
