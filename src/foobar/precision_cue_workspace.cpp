@@ -849,9 +849,16 @@ void reset_disc_controls(Workspace& state) {
 // Dismissed results never authorize a CUE. An in-flight WinHTTP call may
 // finish in the bounded background pool; no worker is joined on the UI thread.
 void update_lookup_ui(Workspace& state, bool busy) noexcept {
+    const HWND cancel = GetDlgItem(state.dialog, IDC_PRECISION_CANCEL_LOOKUP);
+    const bool cancel_had_focus = GetFocus() == cancel;
     EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_SEARCH), !busy);
     EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_LOOKUP), !busy);
-    EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_CANCEL_LOOKUP), busy);
+    EnableWindow(cancel, busy);
+    // Keyboard users can immediately cancel; never leave focus on a
+    // disabled button when a request completes or is dismissed.
+    if (busy && cancel) SetFocus(cancel);
+    else if (!busy && cancel_had_focus)
+        SetFocus(GetDlgItem(state.dialog, IDC_PRECISION_APPLE_LINK));
 }
 
 void cancel_pending_lookup(Workspace& state, bool announce) {
@@ -1441,9 +1448,9 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
             MONITORINFO info{sizeof(info)};
             if (monitor && GetMonitorInfoW(monitor, &info)) {
                 bounds->ptMinTrackSize.x = (std::min)(
-                    bounds->ptMinTrackSize.x, (std::max)(1, info.rcWork.right - info.rcWork.left));
+                    bounds->ptMinTrackSize.x, (std::max)(1, static_cast<int>(info.rcWork.right - info.rcWork.left)));
                 bounds->ptMinTrackSize.y = (std::min)(
-                    bounds->ptMinTrackSize.y, (std::max)(1, info.rcWork.bottom - info.rcWork.top));
+                    bounds->ptMinTrackSize.y, (std::max)(1, static_cast<int>(info.rcWork.bottom - info.rcWork.top)));
             }
         }
         return TRUE;
