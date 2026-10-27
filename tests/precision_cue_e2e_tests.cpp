@@ -112,12 +112,51 @@ void reference_cue_timeline_regressions(const PrecisionCuePlan& plan) {
     CHECK(!diff.track_structure[1].pregap_frames);
     CHECK(!diff.track_structure[1].postgap_frames);
 
-    // Different descriptive metadata is not a different INDEX timeline,
-    // but it is NOT proof that two editions or audio masters coincide.
+    // A matching 75-fps timeline with a different track TITLE is not an
+    // exact-edition claim. Keep 15/15 frame matches but localize text REVIEW.
     auto metadata = original;
     replace_once(metadata, "Mix Track 1 (Mixed)", "Mix Track 1 (Other Edition)");
     diff = compare_precision_cue_external_reference(plan, metadata, basename);
+    CHECK(diff.state == State::ReviewRequired);
+    CHECK(diff.metadata_conflict && !diff.album_metadata_conflict);
+    CHECK(diff.track_metadata_conflicts.size() == 15);
+    CHECK(diff.track_metadata_conflicts[0] && !diff.track_metadata_conflicts[1]);
+    CHECK(diff.audit.exact_count == 15);
+    CHECK(std::string(diff.diagnostic) ==
+          "CUE_REFERENCE_TEXT_METADATA_CONFLICT_REQUIRES_REVIEW");
+
+    // Both the album header and individual track performers are advisory
+    // reference text, never proof of the selected Apple edition or master.
+    auto album_title = original;
+    replace_once(album_title, "TITLE \"Synthetic Continuous Mix (DJ Mix)\"",
+                 "TITLE \"Different Album Edition\"");
+    diff = compare_precision_cue_external_reference(plan, album_title, basename);
+    CHECK(diff.state == State::ReviewRequired);
+    CHECK(diff.album_metadata_conflict && diff.metadata_conflict);
+    CHECK(diff.audit.exact_count == 15);
+    CHECK(!diff.track_metadata_conflicts[0]);
+    auto album_artist = original;
+    replace_once(album_artist, "PERFORMER \"Various Artists\"",
+                 "PERFORMER \"Other Artists\"");
+    diff = compare_precision_cue_external_reference(plan, album_artist, basename);
+    CHECK(diff.state == State::ReviewRequired && diff.album_metadata_conflict);
+    auto track_artist = original;
+    replace_once(track_artist, "    PERFORMER \"Synthetic DJ\"",
+                 "    PERFORMER \"Different DJ\"");
+    diff = compare_precision_cue_external_reference(plan, track_artist, basename);
+    CHECK(diff.state == State::ReviewRequired && !diff.album_metadata_conflict);
+    CHECK(diff.track_metadata_conflicts[0] && !diff.track_metadata_conflicts[1]);
+
+    // Reference metadata is optional: omission must not fabricate a
+    // mismatch, and matching explicit metadata still proves no audio.
+    auto sparse_reference = original;
+    replace_once(sparse_reference, "    TITLE \"Mix Track 1 (Mixed)\"\n", "");
+    diff = compare_precision_cue_external_reference(
+        plan, sparse_reference, basename);
     CHECK(diff.state == State::ExactFramesPreviewOnly);
+    CHECK(!diff.metadata_conflict);
+    CHECK(!diff.album_metadata_conflict);
+    CHECK(diff.track_metadata_conflicts.size() == 15);
 
     auto one_frame = original;
     replace_once(one_frame, "INDEX 01 02:00:00", "INDEX 01 02:00:01");
@@ -651,6 +690,49 @@ void cross_provider_release_and_cue() {
           PrecisionCueStudioReferenceState::ReviewRequired);
     CHECK(!structured_studio.rows[15].reference_track_structure);
     CHECK(!structured_studio.rows[15].reference_has_extra_index_or_pregap);
+
+    // A second-edition track TITLE in an otherwise frame-identical external
+    // CUE is localized to its physical Studio row. No other track/disc
+    // receives a fabricated discrepancy or a writer authorization.
+    auto text_reference = reviewed.discs[0].external_cue_utf8;
+    replace_once(text_reference, "Mix Track 2 (Mixed)",
+                 "Mix Track 2 (Different Edition)");
+    auto text_selection = no_references;
+    text_selection[0] = text_reference;
+    const auto text_studio = prepare_precision_cue_studio_review(
+        request, reviewed, studio_sources, text_selection);
+    CHECK(text_studio.state == PrecisionCueStudioHandoffState::RowsRequireReview);
+    CHECK(text_studio.rows.size() == 30);
+    CHECK(!text_studio.rows[0].reference_track_metadata_conflict);
+    CHECK(text_studio.rows[0].reference_state ==
+          PrecisionCueStudioReferenceState::ExactFrameNotAudioProof);
+    CHECK(text_studio.rows[1].reference_track_metadata_conflict);
+    CHECK(!text_studio.rows[1].reference_album_metadata_conflict);
+    CHECK(text_studio.rows[1].reference_state ==
+          PrecisionCueStudioReferenceState::ReviewRequired);
+    CHECK(text_studio.rows[1].signed_reference_delta_frames == 0);
+    CHECK(!text_studio.rows[2].reference_track_metadata_conflict);
+    CHECK(text_studio.rows[2].reference_state ==
+          PrecisionCueStudioReferenceState::ExactFrameNotAudioProof);
+    CHECK(text_studio.rows[15].reference_state ==
+          PrecisionCueStudioReferenceState::NotProvided);
+
+    // A conflicting album TITLE applies to the entire referenced disc,
+    // while the other selected physical disc remains untouched.
+    auto album_text_reference = reviewed.discs[0].external_cue_utf8;
+    replace_once(album_text_reference, "TITLE \"Synthetic Continuous Mix (DJ Mix)\"",
+                 "TITLE \"Different Catalog Edition\"");
+    text_selection[0] = album_text_reference;
+    const auto album_text_studio = prepare_precision_cue_studio_review(
+        request, reviewed, studio_sources, text_selection);
+    CHECK(album_text_studio.rows.size() == 30);
+    CHECK(album_text_studio.rows[0].reference_album_metadata_conflict);
+    CHECK(album_text_studio.rows[14].reference_album_metadata_conflict);
+    CHECK(album_text_studio.rows[14].reference_state ==
+          PrecisionCueStudioReferenceState::ReviewRequired);
+    CHECK(!album_text_studio.rows[15].reference_album_metadata_conflict);
+    CHECK(album_text_studio.rows[15].reference_state ==
+          PrecisionCueStudioReferenceState::NotProvided);
 
     // Optional Spotify/Amazon evidence must appear in the existing Studio
     // handoff, not another foobar workspace or a new write authorization.
