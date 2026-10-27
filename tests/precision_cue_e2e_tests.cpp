@@ -542,6 +542,8 @@ void cross_provider_release_and_cue() {
     swapped_request.reviewed_physical_index_by_disc = {1, 0};
     const auto swapped_preview = make_precision_cue_release_preview(swapped_request);
     CHECK(swapped_preview.discs.size() == 2);
+    CHECK(swapped_preview.physical_index_by_disc ==
+          swapped_request.reviewed_physical_index_by_disc);
     std::vector<std::optional<std::string>> physical_references{
         swapped_preview.discs[1].external_cue_utf8,
         swapped_preview.discs[0].external_cue_utf8};
@@ -610,6 +612,8 @@ void cross_provider_release_and_cue() {
     cycle_request.reviewed_physical_index_by_disc = {2, 0, 1};
     const auto cycle_preview = make_precision_cue_release_preview(cycle_request);
     CHECK(cycle_preview.discs.size() == 3);
+    CHECK(cycle_preview.physical_index_by_disc ==
+          cycle_request.reviewed_physical_index_by_disc);
     const std::vector<PrecisionCueStudioSourceView> cycle_sources(3, {0, true});
     std::vector<std::optional<std::string>> cycle_references{
         cycle_preview.discs[1].external_cue_utf8,
@@ -667,6 +671,13 @@ void cross_provider_release_and_cue() {
         request, reviewed, virtual_sources, no_references).rows.empty());
     auto stale_preview = reviewed;
     ++stale_preview.discs[0].boundaries[1].cue_frame;
+    CHECK(prepare_precision_cue_studio_review(
+        request, stale_preview, studio_sources, no_references).rows.empty());
+    stale_preview = reviewed;
+    stale_preview.physical_index_by_disc = {1, 0};
+    CHECK(prepare_precision_cue_studio_review(
+        request, stale_preview, studio_sources, no_references).rows.empty());
+    stale_preview.physical_index_by_disc.clear();
     CHECK(prepare_precision_cue_studio_review(
         request, stale_preview, studio_sources, no_references).rows.empty());
     stale_preview = reviewed;

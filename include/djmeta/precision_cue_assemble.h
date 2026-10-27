@@ -35,6 +35,10 @@ struct PrecisionCuePreviewResult {
     std::string provider_release_id;
     // Never grants permission to create files or update embedded metadata.
     bool preview_qualified = false;
+    // Review-snapshot identity: exact release-disc -> physical selection map.
+    // Equal basenames/durations are not evidence of unchanged UI selection.
+    // Never a writer approval token.
+    std::vector<std::size_t> physical_index_by_disc;
 };
 
 

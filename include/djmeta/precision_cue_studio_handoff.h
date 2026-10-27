@@ -108,6 +108,10 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
             displayed.discs.size() != count ||
             fresh.state != displayed.state ||
             fresh.preview_qualified != displayed.preview_qualified ||
+            // A CUE text/filename match cannot prove that the user kept the
+            // same physical selection when equal-length discs are reordered.
+            fresh.physical_index_by_disc != displayed.physical_index_by_disc ||
+            fresh.physical_index_by_disc != request.reviewed_physical_index_by_disc ||
             fresh.provider != displayed.provider ||
             fresh.provider_release_id != displayed.provider_release_id ||
             fresh.provider != edition.provider ||

@@ -295,6 +295,7 @@ PrecisionCuePreviewResult make_precision_cue_release_preview(
         }
     }
     result.discs = std::move(staged);
+    result.physical_index_by_disc = mapping.physical_index_by_disc;
     result.provider = selected.provider;
     result.provider_release_id = selected.provider_release_id;
     result.state = mapping.state;
