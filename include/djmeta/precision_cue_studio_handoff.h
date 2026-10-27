@@ -42,6 +42,21 @@ enum class PrecisionCueStudioReferenceState {
     Unqualified
 };
 
+// One selected physical-track row carries each optional catalog source's
+// independent, offline-only timing evidence. A millisecond field unit is
+// not an authenticated provider request or a frame-accuracy guarantee.
+struct PrecisionCueStudioOptionalTrackEvidence {
+    std::string provider;
+    std::string provider_release_id;
+    PrecisionCueOptionalFormat format = PrecisionCueOptionalFormat::SpotifyWebMilliseconds;
+    unsigned reported_field_unit_ms = 0;
+    unsigned conservative_comparison_resolution_ms = 0;
+    std::int64_t signed_track_duration_delta_ms = 0;
+    std::int64_t signed_start_cumulative_delta_ms = 0;
+    std::int64_t signed_end_cumulative_delta_ms = 0;
+    std::int64_t signed_end_frame_delta = 0;
+};
+
 struct PrecisionCueStudioReviewRow {
     unsigned disc_number = 0;
     unsigned track_number = 0;
@@ -72,6 +87,7 @@ struct PrecisionCueStudioReviewRow {
     PrecisionCueStudioReferenceState reference_state =
         PrecisionCueStudioReferenceState::NotProvided;
     std::optional<std::int64_t> signed_reference_delta_frames;
+    std::vector<PrecisionCueStudioOptionalTrackEvidence> optional_track_evidence;
 };
 
 struct PrecisionCueStudioHandoff {
@@ -325,6 +341,34 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
                 row.cue_frame = boundary.cue_frame;
                 row.signed_quantization_offset_us =
                     precision_cue_quantization_offset_microseconds(boundary);
+                // Bind optional provider deltas to the actual physical row,
+                // after the reviewed disc permutation and per-disc reset.
+                // These values remain advisory; no provider may replace the
+                // selected Apple timing clock or authorize a writer.
+                for (std::size_t source = 0; source < optional_sources.size(); ++source) {
+                    const auto& optional = optional_sources[source];
+                    const auto& evidence = out.optional_provider_evidence[source];
+                    if (evidence.comparison.differences.size() != edition.tracks.size()) {
+                        out.diagnostic = "STUDIO_OPTIONAL_TRACK_EVIDENCE_INCOMPLETE";
+                        out.rows.clear();
+                        return out;
+                    }
+                    const auto& delta = evidence.comparison.differences[release_index];
+                    if (delta.disc_number != item.disc_number ||
+                        delta.track_number != item.track_number ||
+                        delta.provider != optional.release.provider ||
+                        delta.resolution_ms != evidence.comparison_resolution_ms) {
+                        out.diagnostic = "STUDIO_OPTIONAL_TRACK_EVIDENCE_CHANGED";
+                        out.rows.clear();
+                        return out;
+                    }
+                    row.optional_track_evidence.push_back({
+                        optional.release.provider, optional.release.provider_release_id,
+                        optional.format, evidence.field_unit_ms,
+                        evidence.comparison_resolution_ms, delta.signed_delta_ms,
+                        delta.signed_start_cumulative_delta_ms,
+                        delta.signed_cumulative_delta_ms, delta.signed_end_frame_delta});
+                }
                 row.reference_has_extra_index_or_pregap =
                     reference_has_extra_index_or_pregap;
                 row.reference_state = reference_state;

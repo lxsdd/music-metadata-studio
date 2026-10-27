@@ -117,6 +117,10 @@ inline PrecisionCueReferenceDiff compare_precision_cue_external_reference(
     bool file_seen = false;
     bool index_01_seen = false;
     bool index_00_seen = false;
+    bool pregap_seen = false;
+    bool postgap_seen = false;
+    std::int64_t index_00_frame = -1;
+    std::int64_t last_index_01_frame = -1;
     bool extra_index = false;
     unsigned current_track = 0;
     std::size_t line_count = 0;
@@ -149,19 +153,28 @@ inline PrecisionCueReferenceDiff compare_precision_cue_external_reference(
             ++current_track;
             index_01_seen = false;
             index_00_seen = false;
+            pregap_seen = false;
+            postgap_seen = false;
+            index_00_frame = -1;
         } else if (op == "INDEX") {
             const auto tokens = words(line);
             if (!file_seen || current_track == 0 || tokens.size() != 3)
                 return out;
             std::int64_t frame = -1;
             if (!cue_time(tokens[2], frame)) return out;
-            if (tokens[1] == "00" && !index_00_seen && !index_01_seen) {
+            if (tokens[1] == "00" && !index_00_seen && !index_01_seen &&
+                !pregap_seen && frame >= last_index_01_frame) {
                 index_00_seen = true;
+                index_00_frame = frame;
                 extra_index = true;
-            } else if (tokens[1] == "01" && !index_01_seen) {
+            } else if (tokens[1] == "01" && !index_01_seen &&
+                       (!index_00_seen || frame >= index_00_frame) &&
+                       (current_track == 1 || frame > last_index_01_frame)) {
                 index_01_seen = true;
+                last_index_01_frame = frame;
                 references.push_back({current_track, frame});
             } else {
+                out.diagnostic = "CUE_REFERENCE_INVALID_INDEX_OR_GAP_ORDER";
                 return out;
             }
         } else if (op == "REM" || op == "TITLE" || op == "PERFORMER" ||
@@ -174,6 +187,22 @@ inline PrecisionCueReferenceDiff compare_precision_cue_external_reference(
             const auto tokens = words(line);
             std::int64_t ignored = -1;
             if (tokens.size() != 2 || !cue_time(tokens[1], ignored)) return out;
+            // PREGAP is pre-INDEX 01 virtual silence, POSTGAP follows
+            // INDEX 01. Repetition or simultaneous INDEX 00/PREGAP is
+            // ambiguous; never label malformed structural data as exact.
+            if (op == "PREGAP") {
+                if (index_01_seen || index_00_seen || pregap_seen) {
+                    out.diagnostic = "CUE_REFERENCE_INVALID_INDEX_OR_GAP_ORDER";
+                    return out;
+                }
+                pregap_seen = true;
+            } else {
+                if (!index_01_seen || postgap_seen) {
+                    out.diagnostic = "CUE_REFERENCE_INVALID_INDEX_OR_GAP_ORDER";
+                    return out;
+                }
+                postgap_seen = true;
+            }
             extra_index = true;
         } else {
             return out;

@@ -136,6 +136,55 @@ void reference_cue_timeline_regressions(const PrecisionCuePlan& plan) {
     CHECK(diff.extra_index_or_pregap);
     CHECK(diff.audit.exact_count == 15);
 
+    // Valid structural gaps remain visible as disc-wide REVIEW, even with
+    // identical INDEX 01 positions. Impossible or duplicate gaps fail closed.
+    auto valid_pregap = original;
+    replace_once(valid_pregap, "    INDEX 01 02:00:00",
+                 "    PREGAP 00:00:05\n    INDEX 01 02:00:00");
+    diff = compare_precision_cue_external_reference(plan, valid_pregap, basename);
+    CHECK(diff.state == State::ReviewRequired && diff.extra_index_or_pregap);
+    auto valid_postgap = original;
+    replace_once(valid_postgap, "    INDEX 01 02:00:00",
+                 "    INDEX 01 02:00:00\n    POSTGAP 00:00:05");
+    diff = compare_precision_cue_external_reference(plan, valid_postgap, basename);
+    CHECK(diff.state == State::ReviewRequired && diff.extra_index_or_pregap);
+
+    auto backward_index00 = original;
+    replace_once(backward_index00, "    INDEX 01 02:00:00",
+                 "    INDEX 00 02:00:01\n    INDEX 01 02:00:00");
+    CHECK(compare_precision_cue_external_reference(
+        plan, backward_index00, basename).state == State::Unqualified);
+    auto overlap_previous = original;
+    replace_once(overlap_previous, "    INDEX 01 04:00:00",
+                 "    INDEX 00 01:59:70\n    INDEX 01 04:00:00");
+    CHECK(compare_precision_cue_external_reference(
+        plan, overlap_previous, basename).state == State::Unqualified);
+    auto duplicate_pregap = original;
+    replace_once(duplicate_pregap, "    INDEX 01 02:00:00",
+                 "    PREGAP 00:00:05\n    PREGAP 00:00:05\n    INDEX 01 02:00:00");
+    CHECK(compare_precision_cue_external_reference(
+        plan, duplicate_pregap, basename).state == State::Unqualified);
+    auto pregap_after_index = original;
+    replace_once(pregap_after_index, "    INDEX 01 02:00:00",
+                 "    INDEX 01 02:00:00\n    PREGAP 00:00:05");
+    CHECK(compare_precision_cue_external_reference(
+        plan, pregap_after_index, basename).state == State::Unqualified);
+    auto postgap_before_index = original;
+    replace_once(postgap_before_index, "    INDEX 01 02:00:00",
+                 "    POSTGAP 00:00:05\n    INDEX 01 02:00:00");
+    CHECK(compare_precision_cue_external_reference(
+        plan, postgap_before_index, basename).state == State::Unqualified);
+    auto duplicate_postgap = original;
+    replace_once(duplicate_postgap, "    INDEX 01 02:00:00",
+                 "    INDEX 01 02:00:00\n    POSTGAP 00:00:05\n    POSTGAP 00:00:05");
+    CHECK(compare_precision_cue_external_reference(
+        plan, duplicate_postgap, basename).state == State::Unqualified);
+    auto competing_gap = original;
+    replace_once(competing_gap, "    INDEX 01 02:00:00",
+                 "    INDEX 00 01:59:70\n    PREGAP 00:00:05\n    INDEX 01 02:00:00");
+    CHECK(compare_precision_cue_external_reference(
+        plan, competing_gap, basename).state == State::Unqualified);
+
     auto wrong_name = original;
     replace_once(wrong_name, "Disc 1.mp3", "Disc 2.mp3");
     CHECK(compare_precision_cue_external_reference(plan, wrong_name, basename).state ==
@@ -521,6 +570,25 @@ void cross_provider_release_and_cue() {
     CHECK(optional_studio.optional_provider_evidence.size() == 1);
     CHECK(optional_studio.optional_provider_evidence[0].comparison.differences.size() == 30);
     CHECK(optional_studio.optional_provider_evidence[0].comparison_resolution_ms == 1);
+    CHECK(optional_studio.rows[0].optional_track_evidence.size() == 1);
+    CHECK(optional_studio.rows[0].optional_track_evidence[0].provider == "spotify");
+    CHECK(optional_studio.rows[0].optional_track_evidence[0].provider_release_id ==
+          spotify_release.provider_release_id);
+    CHECK(optional_studio.rows[0].optional_track_evidence[0].reported_field_unit_ms == 1);
+    CHECK(optional_studio.rows[15].optional_track_evidence[0].signed_start_cumulative_delta_ms == 0);
+    auto shifted_spotify = spotify_optional;
+    shifted_spotify.release.tracks[0].duration_ms += 14;
+    shifted_spotify.release.tracks[1].duration_ms -= 14;
+    const auto shifted_optional_studio = prepare_precision_cue_studio_review(
+        request, reviewed, studio_sources, no_references, {shifted_spotify});
+    CHECK(shifted_optional_studio.state == PrecisionCueStudioHandoffState::RowsRequireReview);
+    CHECK(shifted_optional_studio.rows.size() == 30);
+    CHECK(shifted_optional_studio.rows[1].optional_track_evidence[0].
+          signed_start_cumulative_delta_ms == 14);
+    CHECK(shifted_optional_studio.rows[2].optional_track_evidence[0].
+          signed_start_cumulative_delta_ms == 0);
+    CHECK(shifted_optional_studio.rows[15].optional_track_evidence[0].
+          signed_start_cumulative_delta_ms == 0);
     auto amazon_release = apple;
     amazon_release.provider = "amazon_music";
     amazon_release.provider_release_id = "offline-synthetic-amazon";
@@ -535,6 +603,23 @@ void cross_provider_release_and_cue() {
     CHECK(optional_studio.rows.size() == 30);
     CHECK(optional_studio.optional_provider_evidence.size() == 2);
     CHECK(optional_studio.optional_provider_evidence[1].comparison_resolution_ms == 1000);
+    CHECK(optional_studio.rows[0].optional_track_evidence.size() == 2);
+    CHECK(optional_studio.rows[0].optional_track_evidence[1].provider == "amazon_music");
+    CHECK(optional_studio.rows[0].optional_track_evidence[1].
+          conservative_comparison_resolution_ms == 1000);
+    CHECK(optional_studio.rows[15].optional_track_evidence[1].
+          signed_start_cumulative_delta_ms == 0);
+    auto amazon_device = amazon_optional;
+    amazon_device.format = PrecisionCueOptionalFormat::AmazonDeviceApproximateMilliseconds;
+    amazon_device.release = apple;
+    amazon_device.release.provider = "amazon_music";
+    amazon_device.release.provider_release_id = "offline-synthetic-amazon-device";
+    const auto device_studio = prepare_precision_cue_studio_review(
+        request, reviewed, studio_sources, no_references, {amazon_device});
+    CHECK(device_studio.rows.size() == 30);
+    CHECK(device_studio.rows[0].optional_track_evidence[0].reported_field_unit_ms == 1);
+    CHECK(device_studio.rows[0].optional_track_evidence[0].
+          conservative_comparison_resolution_ms == 1000);
     auto spoofed = amazon_optional;
     spoofed.release.tracks[3].duration_ms += 7;
     CHECK(prepare_precision_cue_studio_review(
@@ -582,6 +667,7 @@ void cross_provider_release_and_cue() {
     CHECK(studio.rows[0].signed_quantization_offset_us == 0);
     CHECK(studio.rows[15].signed_quantization_offset_us == 0);
     CHECK(!studio.rows[0].reference_has_extra_index_or_pregap);
+    CHECK(studio.rows[0].optional_track_evidence.empty());
 
     // One Apple track starts 7 ms after a whole-second reference while the
     // physical disc total stays unchanged. Integer 75-fps rounding yields
