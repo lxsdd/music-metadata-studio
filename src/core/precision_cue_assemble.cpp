@@ -229,6 +229,37 @@ PrecisionCuePreviewResult make_precision_cue_release_preview(
         return result;
     }
     const auto& selected = request.candidates[*match.selected_candidate_index];
+    // A caller-supplied REM GENRE/DATE must not masquerade as Apple catalog
+    // evidence. Empty request fields inherit only actually sourced metadata.
+    const auto header_origin = [](const std::string& requested,
+                                  const std::string& catalog) {
+        if (requested.empty()) return catalog.empty()
+            ? PrecisionCueHeaderFieldOrigin::Absent
+            : PrecisionCueHeaderFieldOrigin::SelectedCatalog;
+        if (catalog.empty()) return PrecisionCueHeaderFieldOrigin::ManualUnverified;
+        return requested == catalog
+            ? PrecisionCueHeaderFieldOrigin::SelectedCatalog
+            : PrecisionCueHeaderFieldOrigin::ConflictsWithSelectedCatalog;
+    };
+    result.header_provenance = {
+        header_origin(request.genre, selected.genre),
+        header_origin(request.release_date, selected.release_date)
+    };
+    const auto flag_header_review = [&](PrecisionCueHeaderFieldOrigin origin,
+                                        const char* field) {
+        if (origin == PrecisionCueHeaderFieldOrigin::ManualUnverified) {
+            result.diagnostics.emplace_back(std::string(field) + "_MANUAL_UNVERIFIED_REVIEW");
+            return true;
+        }
+        if (origin == PrecisionCueHeaderFieldOrigin::ConflictsWithSelectedCatalog) {
+            result.diagnostics.emplace_back(std::string(field) + "_CATALOG_CONFLICT_REVIEW");
+            return true;
+        }
+        return false;
+    };
+    const bool genre_review = flag_header_review(result.header_provenance.genre, "CUE_GENRE");
+    const bool date_review = flag_header_review(result.header_provenance.release_date, "CUE_DATE");
+    const bool header_requires_review = genre_review || date_review;
     if (selected.tracks.empty()) {
         result.state = PrecisionCueMatchState::Rejected;
         result.diagnostics.emplace_back("EMPTY_RELEASE");
@@ -274,8 +305,9 @@ PrecisionCuePreviewResult make_precision_cue_release_preview(
         disc.album_title = selected.album_title;
         disc.album_performer = selected.album_performer;
         disc.audio_file_basename = physical.mp3_basename;
-        disc.genre = request.genre;
-        disc.release_date = request.release_date;
+        disc.genre = request.genre.empty() ? selected.genre : request.genre;
+        disc.release_date = request.release_date.empty()
+            ? selected.release_date : request.release_date;
         disc.disc_number = number;
         disc.total_discs = disc_count;
         for (const auto& track : selected.tracks)
@@ -300,8 +332,10 @@ PrecisionCuePreviewResult make_precision_cue_release_preview(
         request.physical_source_identity_by_selection;
     result.provider = selected.provider;
     result.provider_release_id = selected.provider_release_id;
-    result.state = mapping.state;
-    result.preview_qualified = mapping.state == PrecisionCueMatchState::Selected;
+    result.state = header_requires_review
+        ? PrecisionCueMatchState::Review : mapping.state;
+    result.preview_qualified = mapping.state == PrecisionCueMatchState::Selected &&
+        !header_requires_review;
     return result;
 }
 

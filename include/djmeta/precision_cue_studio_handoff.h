@@ -121,6 +121,10 @@ struct PrecisionCueStudioHandoff {
         PrecisionCueConsensusState::Rejected;
     const char* catalog_diagnostic = "STUDIO_CATALOG_EVIDENCE_NOT_ATTESTED";
     std::optional<PrecisionCueCoarseDurationConflict> first_coarse_conflict;
+    // REM GENRE/DATE are album-level provenance, not track or audio evidence.
+    // A manual value or catalog conflict must remain visible in the one
+    // canonical Studio review before any separate writer authorization.
+    PrecisionCueHeaderProvenance header_provenance;
     std::vector<PrecisionCueStudioReviewRow> rows;
     // Explicit offline provider evidence only. Never a CUE clock or write token.
     std::vector<PrecisionCueOptionalAudit> optional_provider_evidence;
@@ -243,6 +247,9 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
             displayed.discs.size() != count ||
             fresh.state != displayed.state ||
             fresh.preview_qualified != displayed.preview_qualified ||
+            fresh.header_provenance.genre != displayed.header_provenance.genre ||
+            fresh.header_provenance.release_date !=
+                displayed.header_provenance.release_date ||
             // A CUE text/filename match cannot prove that the user kept the
             // same physical selection when equal-length discs are reordered.
             fresh.physical_index_by_disc != displayed.physical_index_by_disc ||
@@ -254,6 +261,7 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
             out.diagnostic = "STUDIO_PREVIEW_CHANGED_SINCE_REVIEW";
             return out;
         }
+        out.header_provenance = fresh.header_provenance;
         std::vector<bool> used(count, false);
         std::size_t release_offset = 0;
         bool reference_needs_review = false;
@@ -463,7 +471,11 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
         if (displayed.state != PrecisionCueMatchState::Selected ||
             !displayed.preview_qualified || reference_needs_review ||
             !deezer_reference || !optional_sources.empty() ||
-            out.catalog_consensus_state == PrecisionCueConsensusState::Review) {
+            out.catalog_consensus_state == PrecisionCueConsensusState::Review ||
+            out.header_provenance.genre == PrecisionCueHeaderFieldOrigin::ManualUnverified ||
+            out.header_provenance.genre == PrecisionCueHeaderFieldOrigin::ConflictsWithSelectedCatalog ||
+            out.header_provenance.release_date == PrecisionCueHeaderFieldOrigin::ManualUnverified ||
+            out.header_provenance.release_date == PrecisionCueHeaderFieldOrigin::ConflictsWithSelectedCatalog) {
             out.state = PrecisionCueStudioHandoffState::RowsRequireReview;
             out.diagnostic = "STUDIO_ROWS_PREVIEW_ONLY_REVIEW_REQUIRED";
         } else {

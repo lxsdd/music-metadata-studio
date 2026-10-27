@@ -571,6 +571,30 @@ void cross_provider_release_and_cue() {
         request, reviewed, studio_sources, no_references);
     CHECK(studio.state == PrecisionCueStudioHandoffState::RowsRequireReview);
     CHECK(studio.rows.size() == 30);
+    CHECK(studio.header_provenance.genre ==
+          PrecisionCueHeaderFieldOrigin::SelectedCatalog ||
+          studio.header_provenance.genre == PrecisionCueHeaderFieldOrigin::Absent);
+    // The read-only Studio adapter must surface manually supplied header
+    // metadata without relabelling it as an Apple catalog fact.
+    auto manual_header_request = request;
+    manual_header_request.genre = "Synthetic user-supplied genre";
+    manual_header_request.release_date = "2025";
+    const auto manual_header_preview =
+        make_precision_cue_release_preview(manual_header_request);
+    const auto manual_header_studio = prepare_precision_cue_studio_review(
+        manual_header_request, manual_header_preview, studio_sources, no_references);
+    CHECK(manual_header_studio.rows.size() == 30);
+    CHECK(manual_header_studio.state == PrecisionCueStudioHandoffState::RowsRequireReview);
+    CHECK(manual_header_studio.header_provenance.genre ==
+          (apple.genre.empty() ? PrecisionCueHeaderFieldOrigin::ManualUnverified
+                               : PrecisionCueHeaderFieldOrigin::ConflictsWithSelectedCatalog));
+    CHECK(manual_header_studio.header_provenance.release_date ==
+          (apple.release_date.empty() ? PrecisionCueHeaderFieldOrigin::ManualUnverified
+                                      : PrecisionCueHeaderFieldOrigin::ConflictsWithSelectedCatalog));
+    auto forged_header_preview = manual_header_preview;
+    forged_header_preview.header_provenance.genre = PrecisionCueHeaderFieldOrigin::SelectedCatalog;
+    CHECK(prepare_precision_cue_studio_review(
+        manual_header_request, forged_header_preview, studio_sources, no_references).rows.empty());
     CHECK(!studio.rows[1].reference_track_structure);
     // An INDEX 00 belongs to track 2, not all 15 physical rows. The
     // complete disc still requires review; disc 2 is unaffected.

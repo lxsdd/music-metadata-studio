@@ -31,6 +31,19 @@ struct PrecisionCuePreviewRequest {
     std::string release_date;
 };
 
+// Header REM metadata must retain its catalog-vs-manual provenance.
+// Manual values are visible read-only proposals, never catalog attestations.
+enum class PrecisionCueHeaderFieldOrigin {
+    Absent,
+    SelectedCatalog,
+    ManualUnverified,
+    ConflictsWithSelectedCatalog
+};
+struct PrecisionCueHeaderProvenance {
+    PrecisionCueHeaderFieldOrigin genre = PrecisionCueHeaderFieldOrigin::Absent;
+    PrecisionCueHeaderFieldOrigin release_date = PrecisionCueHeaderFieldOrigin::Absent;
+};
+
 struct PrecisionCuePreviewResult {
     PrecisionCueMatchState state = PrecisionCueMatchState::Rejected;
     std::vector<std::string> diagnostics;
@@ -39,6 +52,7 @@ struct PrecisionCuePreviewResult {
     std::string provider_release_id;
     // Never grants permission to create files or update embedded metadata.
     bool preview_qualified = false;
+    PrecisionCueHeaderProvenance header_provenance;
     // Review-snapshot identity: exact release-disc -> physical selection map.
     // Equal basenames/durations are not evidence of unchanged UI selection.
     // Never a writer approval token.

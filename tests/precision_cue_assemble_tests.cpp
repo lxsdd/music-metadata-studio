@@ -31,6 +31,55 @@ PrecisionCuePreviewRequest fixture() {
     return r;
 }
 
+void header_catalog_provenance_regressions() {
+    auto f = fixture();
+    // One unambiguous physical disc isolates the header review gate from
+    // the independent multi-disc identity review.
+    f.reference.tracks.resize(2);
+    f.candidates[0].tracks.resize(2);
+    f.physical_discs.resize(1);
+    auto manual = make_precision_cue_release_preview(f);
+    assert(manual.state == PrecisionCueMatchState::Review);
+    assert(!manual.preview_qualified && manual.discs.size() == 1);
+    assert(manual.header_provenance.genre == PrecisionCueHeaderFieldOrigin::ManualUnverified);
+    assert(manual.header_provenance.release_date == PrecisionCueHeaderFieldOrigin::ManualUnverified);
+    assert(manual.discs[0].external_cue_utf8.find("REM GENRE \\"Electronic\\"\\n") != std::string::npos);
+    assert(manual.discs[0].external_cue_utf8.find("REM DATE \\"2026\\"\\n") != std::string::npos);
+
+    f.candidates[0].genre = "Electronic";
+    f.candidates[0].release_date = "2026";
+    auto catalog = make_precision_cue_release_preview(f);
+    assert(catalog.state == PrecisionCueMatchState::Selected && catalog.preview_qualified);
+    assert(catalog.header_provenance.genre == PrecisionCueHeaderFieldOrigin::SelectedCatalog);
+    assert(catalog.header_provenance.release_date == PrecisionCueHeaderFieldOrigin::SelectedCatalog);
+    f.genre.clear();
+    f.release_date.clear();
+    auto inherited = make_precision_cue_release_preview(f);
+    assert(inherited.state == PrecisionCueMatchState::Selected && inherited.preview_qualified);
+    assert(inherited.discs[0].external_cue_utf8 == catalog.discs[0].external_cue_utf8);
+    assert(inherited.header_provenance.genre == PrecisionCueHeaderFieldOrigin::SelectedCatalog);
+    assert(inherited.header_provenance.release_date == PrecisionCueHeaderFieldOrigin::SelectedCatalog);
+
+    f.genre = "Different Genre";
+    f.release_date = "2025";
+    auto conflict = make_precision_cue_release_preview(f);
+    assert(conflict.state == PrecisionCueMatchState::Review && !conflict.preview_qualified);
+    assert(conflict.header_provenance.genre ==
+           PrecisionCueHeaderFieldOrigin::ConflictsWithSelectedCatalog);
+    assert(conflict.header_provenance.release_date ==
+           PrecisionCueHeaderFieldOrigin::ConflictsWithSelectedCatalog);
+    assert(conflict.discs[0].external_cue_utf8.find("REM GENRE \\"Different Genre\\"\\n") != std::string::npos);
+    assert(conflict.discs[0].external_cue_utf8.find("REM DATE \\"2025\\"\\n") != std::string::npos);
+    f.genre.clear(); f.release_date.clear();
+    f.candidates[0].genre.clear(); f.candidates[0].release_date.clear();
+    auto absent = make_precision_cue_release_preview(f);
+    assert(absent.state == PrecisionCueMatchState::Selected && absent.preview_qualified);
+    assert(absent.header_provenance.genre == PrecisionCueHeaderFieldOrigin::Absent);
+    assert(absent.header_provenance.release_date == PrecisionCueHeaderFieldOrigin::Absent);
+    assert(absent.discs[0].external_cue_utf8.find("REM GENRE") == std::string::npos);
+    assert(absent.discs[0].external_cue_utf8.find("REM DATE") == std::string::npos);
+}
+
 void selected_two_discs() {
     const auto r = make_precision_cue_release_preview(fixture());
     assert(r.state == PrecisionCueMatchState::Review);
@@ -267,6 +316,7 @@ void eight_disc_end_to_end_read_only_preview() {
 }
 
 int main() {
+    header_catalog_provenance_regressions();
     selected_two_discs();
     fail_closed();
     duration_review();
