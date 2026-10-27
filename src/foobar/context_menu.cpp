@@ -6,6 +6,7 @@
 #include "prepare_dialog.h"
 #include "menu_settings.h"
 #include "routing_preview.h"
+#include "djmeta/single_source_tag_load.h"
 
 namespace djmeta_foobar {
 namespace {
@@ -110,9 +111,21 @@ public:
                 }
             });
 
+        // A single explicit physical source must be read from the actual
+        // file, not an unverified recently imported foobar cache snapshot.
+        // A host context command may arrive immediately after /add: the
+        // cached TITLE can still be empty although the FLAC is tagged.
+        // Larger batches retain change-only reads for library performance.
+        // Virtual subsongs must never be mistaken for physical sources.
+        const bool single_physical = retained.get_count() == 1 &&
+            retained[0]->get_subsong_index() == 0;
+        const auto mode = djmeta::single_source_tag_load_policy(
+            static_cast<std::size_t>(retained.get_count()), single_physical);
         metadb_io_v2::get()->load_info_async(
             retained,
-            metadb_io::load_info_check_if_changed,
+            mode == djmeta::SingleSourceTagLoad::ForcePhysicalRefresh
+                ? metadb_io::load_info_force
+                : metadb_io::load_info_check_if_changed,
             core_api::get_main_window(),
             metadb_io_v2::op_flag_delay_ui,
             notify);

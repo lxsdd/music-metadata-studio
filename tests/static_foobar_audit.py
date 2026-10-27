@@ -2540,3 +2540,33 @@ for token in ('row.reason.starts_with("album_batch_scope_")',
               '"local_selection_scope_group"'):
     if token not in native_candidate_labels and token not in workspace_dialog:
         raise SystemExit("STATIC ALBUM SCOPE SOURCE LABEL FAIL: "+token)
+
+# On a single explicitly selected physical file, async foobar metadata
+# loading must bypass an incomplete freshly imported cache, without forcing
+# 54k-track batches or any virtual CUE subsong. Never write or bypass
+# host selection; the real native protected QA checks original tagged TITLE.
+single_source_policy = (root / "include" / "djmeta" /
+                        "single_source_tag_load.h").read_text(encoding="utf-8")
+context_menu = (foobar / "context_menu.cpp").read_text(encoding="utf-8")
+for marker in ("selection_count == 1 && physical_subsong_zero",
+               "ForcePhysicalRefresh", "CheckIfChanged"):
+    if marker not in single_source_policy:
+        raise SystemExit("STATIC SINGLE SOURCE TAG LOAD FAIL: " + marker)
+for marker in ("retained.get_count() == 1",
+               "retained[0]->get_subsong_index() == 0",
+               "single_source_tag_load_policy(",
+               "metadb_io::load_info_force",
+               "metadb_io::load_info_check_if_changed",
+               "metadb_io_v2::get()->load_info_async("):
+    if marker not in context_menu:
+        raise SystemExit("STATIC SINGLE SOURCE TAG LOAD WIRING FAIL: " + marker)
+for changed in (
+    context_menu.replace("metadb_io::load_info_force",
+                         "metadb_io::load_info_check_if_changed", 1),
+    context_menu.replace("retained[0]->get_subsong_index() == 0",
+                         "retained[0]->get_subsong_index() != 0", 1),
+):
+    if ("metadb_io::load_info_force" not in changed or
+        "retained[0]->get_subsong_index() == 0" not in changed):
+        continue
+    raise SystemExit("STATIC SINGLE SOURCE TAG LOAD NEGATIVE MUTATION FAIL")

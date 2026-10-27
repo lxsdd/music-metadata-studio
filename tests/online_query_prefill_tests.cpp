@@ -1,4 +1,5 @@
 #include "djmeta/online_query_prefill.h"
+#include "djmeta/single_source_tag_load.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -27,6 +28,25 @@ int main() {
     check(should_replace_auto_online_query(L"Discogs https://discogs.com/release/1",
                                            L"", false),
           false, "a manually supplied lookup is not erased for a CUE");
+    // Explicit single physical selection always defeats a potentially
+    // incompletely imported metadata cache. Bulk and CUE virtual handles
+    // preserve foobar's asynchronous, change-only library-scale behavior.
+    using djmeta::SingleSourceTagLoad;
+    using djmeta::single_source_tag_load_policy;
+    check(single_source_tag_load_policy(1, true) ==
+              SingleSourceTagLoad::ForcePhysicalRefresh,
+          true, "single physical FLAC refreshes original tags from file");
+    check(single_source_tag_load_policy(1, false) ==
+              SingleSourceTagLoad::CheckIfChanged,
+          true, "virtual single subsong cannot force physical refresh");
+    check(single_source_tag_load_policy(2, true) ==
+              SingleSourceTagLoad::CheckIfChanged &&
+          single_source_tag_load_policy(54129, true) ==
+              SingleSourceTagLoad::CheckIfChanged,
+          true, "multi-track/large library remains change-only");
+    check(single_source_tag_load_policy(0, true) ==
+              SingleSourceTagLoad::CheckIfChanged,
+          true, "empty context has no forced load");
     using djmeta::ProviderQueryTransition;
     using djmeta::provider_query_transition;
     check(provider_query_transition(false,false)==
