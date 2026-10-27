@@ -402,7 +402,7 @@ int main() {
           source_receipt->find(L"Reject proposals")==std::wstring::npos &&
           source_receipt->find(L"Recalculate route")==std::wstring::npos &&
           source_receipt->find(L"Filtered to physical source #8")!=std::wstring::npos &&
-          !preview_history_export_tsv(history,PreviewHistoryFilter::All,0,8,2) &&
+          !preview_history_export_tsv(history,PreviewHistoryFilter::All,2,8,2) &&
           !preview_history_export_tsv(history,PreviewHistoryFilter::All,
                                       std::nullopt,8,8),
           "filtered receipt excludes other sources, bulk events and invalid selections");
