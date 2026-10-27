@@ -63,6 +63,9 @@ struct PrecisionCueStudioHandoff {
 // per-field decisions and eventual independently authorized write controller.
 // The caller passes its host selection and optional read-only reference CUE
 // bytes. This contract deliberately returns NO write/approval token.
+// Both sources and reference_cues are indexed by PHYSICAL SELECTION order,
+// not by release disc number. The reviewed permutation maps a release disc
+// to the matching selected physical source and its sibling reference CUE.
 // Recompute the entire provider/edition/disc plan: a mutated or stale UI
 // preview cannot be laundered into a trusted review row.
 inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
@@ -137,9 +140,9 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
             PrecisionCueStudioReferenceState reference_state =
                 PrecisionCueStudioReferenceState::NotProvided;
             std::vector<PrecisionCueBoundaryDifference> differences;
-            if (reference_cues[disc]) {
+            if (reference_cues[source_index]) {
                 const auto diff = compare_precision_cue_external_reference(
-                    planned, *reference_cues[disc],
+                    planned, *reference_cues[source_index],
                     request.physical_discs[source_index].mp3_basename);
                 switch (diff.state) {
                 case PrecisionCueReferenceDiffState::ExactFramesPreviewOnly:

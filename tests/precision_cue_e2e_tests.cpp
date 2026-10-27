@@ -19,6 +19,7 @@
 #include <iterator>
 #include <string>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 #define CHECK(x) do { if (!(x)) { \
@@ -532,6 +533,119 @@ void cross_provider_release_and_cue() {
     CHECK(frame_studio.rows[1].reference_state ==
           PrecisionCueStudioReferenceState::WithinOneFrameNotAudioProof);
     CHECK(frame_studio.rows[1].signed_reference_delta_frames == -1);
+
+    // A release-disc number is NOT a physical selection index. The CUE
+    // reference travels with its selected MP3 through a reviewed permutation.
+    auto swapped_request = request;
+    swapped_request.physical_discs = {
+        {"Disc 2.mp3", 1800000}, {"Disc 1.mp3", 1800000}};
+    swapped_request.reviewed_physical_index_by_disc = {1, 0};
+    const auto swapped_preview = make_precision_cue_release_preview(swapped_request);
+    CHECK(swapped_preview.discs.size() == 2);
+    std::vector<std::optional<std::string>> physical_references{
+        swapped_preview.discs[1].external_cue_utf8,
+        swapped_preview.discs[0].external_cue_utf8};
+    const auto swapped_exact = prepare_precision_cue_studio_review(
+        swapped_request, swapped_preview, studio_sources, physical_references);
+    CHECK(swapped_exact.rows.size() == 30);
+    CHECK(swapped_exact.rows[0].physical_selection_index == 1);
+    CHECK(swapped_exact.rows[15].physical_selection_index == 0);
+    CHECK(swapped_exact.rows[1].reference_state ==
+          PrecisionCueStudioReferenceState::ExactFrameNotAudioProof);
+    CHECK(swapped_exact.rows[16].reference_state ==
+          PrecisionCueStudioReferenceState::ExactFrameNotAudioProof);
+    auto only_physical_disc_two = physical_references;
+    only_physical_disc_two[1].reset();
+    const auto one_sided = prepare_precision_cue_studio_review(
+        swapped_request, swapped_preview, studio_sources, only_physical_disc_two);
+    CHECK(one_sided.rows.size() == 30);
+    CHECK(one_sided.rows[1].reference_state ==
+          PrecisionCueStudioReferenceState::NotProvided);
+    CHECK(!one_sided.rows[1].signed_reference_delta_frames);
+    CHECK(one_sided.rows[16].reference_state ==
+          PrecisionCueStudioReferenceState::ExactFrameNotAudioProof);
+    replace_once(*physical_references[0],
+                 "INDEX 01 02:00:00", "INDEX 01 02:00:01");
+    const auto swapped_one_frame = prepare_precision_cue_studio_review(
+        swapped_request, swapped_preview, studio_sources, physical_references);
+    CHECK(swapped_one_frame.rows.size() == 30);
+    CHECK(swapped_one_frame.rows[1].signed_reference_delta_frames == 0);
+    CHECK(swapped_one_frame.rows[16].physical_selection_index == 0);
+    CHECK(swapped_one_frame.rows[16].reference_state ==
+          PrecisionCueStudioReferenceState::WithinOneFrameNotAudioProof);
+    CHECK(swapped_one_frame.rows[16].signed_reference_delta_frames == -1);
+    auto misordered_references = physical_references;
+    std::swap(misordered_references[0], misordered_references[1]);
+    const auto mismatched = prepare_precision_cue_studio_review(
+        swapped_request, swapped_preview, studio_sources, misordered_references);
+    CHECK(mismatched.state == PrecisionCueStudioHandoffState::RowsRequireReview);
+    CHECK(mismatched.rows[0].reference_state ==
+          PrecisionCueStudioReferenceState::Unqualified);
+    CHECK(mismatched.rows[15].reference_state ==
+          PrecisionCueStudioReferenceState::Unqualified);
+    auto swapped_virtual = studio_sources;
+    swapped_virtual[0].subsong = 1;
+    CHECK(prepare_precision_cue_studio_review(
+        swapped_request, swapped_preview, swapped_virtual, physical_references).rows.empty());
+    swapped_virtual = studio_sources;
+    swapped_virtual[1].host_readonly_physical_probe_passed = false;
+    CHECK(prepare_precision_cue_studio_review(
+        swapped_request, swapped_preview, swapped_virtual, physical_references).rows.empty());
+    CHECK(prepare_precision_cue_studio_review(
+        swapped_request, reviewed, studio_sources, physical_references).rows.empty());
+
+    // Non-involutive three-disc cycle detects accidental inverse mapping.
+    auto cycle_request = request;
+    for (std::size_t i = 0; i < 30; ++i) {
+        const auto disc = static_cast<unsigned>(i / 10 + 1);
+        const auto track = static_cast<unsigned>(i % 10 + 1);
+        cycle_request.reference.tracks[i].disc_number = disc;
+        cycle_request.reference.tracks[i].track_number = track;
+        cycle_request.candidates[0].tracks[i].disc_number = disc;
+        cycle_request.candidates[0].tracks[i].track_number = track;
+    }
+    cycle_request.physical_discs = {
+        {"Disc 2.mp3", 1200000}, {"Disc 3.mp3", 1200000},
+        {"Disc 1.mp3", 1200000}};
+    cycle_request.reviewed_physical_index_by_disc = {2, 0, 1};
+    const auto cycle_preview = make_precision_cue_release_preview(cycle_request);
+    CHECK(cycle_preview.discs.size() == 3);
+    const std::vector<PrecisionCueStudioSourceView> cycle_sources(3, {0, true});
+    std::vector<std::optional<std::string>> cycle_references{
+        cycle_preview.discs[1].external_cue_utf8,
+        cycle_preview.discs[2].external_cue_utf8,
+        cycle_preview.discs[0].external_cue_utf8};
+    const auto cycle_exact = prepare_precision_cue_studio_review(
+        cycle_request, cycle_preview, cycle_sources, cycle_references);
+    CHECK(cycle_exact.rows.size() == 30);
+    CHECK(cycle_exact.rows[0].physical_selection_index == 2);
+    CHECK(cycle_exact.rows[10].physical_selection_index == 0);
+    CHECK(cycle_exact.rows[20].physical_selection_index == 1);
+    for (const auto& row : cycle_exact.rows)
+        CHECK(row.reference_state ==
+              PrecisionCueStudioReferenceState::ExactFrameNotAudioProof);
+    replace_once(*cycle_references[1],
+                 "INDEX 01 02:00:00", "INDEX 01 02:00:01");
+    const auto cycle_one_frame = prepare_precision_cue_studio_review(
+        cycle_request, cycle_preview, cycle_sources, cycle_references);
+    CHECK(cycle_one_frame.rows.size() == 30);
+    CHECK(cycle_one_frame.rows[1].signed_reference_delta_frames == 0);
+    CHECK(cycle_one_frame.rows[11].signed_reference_delta_frames == 0);
+    CHECK(cycle_one_frame.rows[21].physical_selection_index == 1);
+    CHECK(cycle_one_frame.rows[21].reference_state ==
+          PrecisionCueStudioReferenceState::WithinOneFrameNotAudioProof);
+    CHECK(cycle_one_frame.rows[21].signed_reference_delta_frames == -1);
+    auto cycle_missing = cycle_references;
+    cycle_missing[0].reset();
+    const auto cycle_partial = prepare_precision_cue_studio_review(
+        cycle_request, cycle_preview, cycle_sources, cycle_missing);
+    CHECK(cycle_partial.rows.size() == 30);
+    CHECK(cycle_partial.rows[11].reference_state ==
+          PrecisionCueStudioReferenceState::NotProvided);
+    CHECK(!cycle_partial.rows[11].signed_reference_delta_frames);
+    CHECK(cycle_partial.rows[1].reference_state ==
+          PrecisionCueStudioReferenceState::ExactFrameNotAudioProof);
+
     references_for_studio[0] = "not a CUE";
     const auto invalid_reference = prepare_precision_cue_studio_review(
         request, reviewed, studio_sources, references_for_studio);
