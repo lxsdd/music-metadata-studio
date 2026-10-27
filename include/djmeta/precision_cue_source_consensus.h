@@ -40,6 +40,9 @@ struct PrecisionCueSourceDifference {
     // against the same zero-based 75-fps disc clock. Never confuse this
     // with signed_end_frame_delta or claim audio/sample accuracy.
     std::int64_t signed_start_frame_delta = 0;
+    // The final track's end is not a new INDEX 01 marker; a different
+    // duration remains separate REVIEW evidence, not a CUE start error.
+    bool disc_terminal_track = false;
 };
 
 struct PrecisionCueCoarseDurationConflict {
@@ -155,6 +158,7 @@ inline PrecisionCueConsensusReport audit_precision_cue_source_consensus(
     std::set<std::string> independent_providers;
     bool conflicting_frames = false;
     bool one_frame_ambiguity = false;
+    bool terminal_duration_disagreement = false;
     bool coarse_reference_conflict = false;
     // One 75-fps frame is 13.333... ms: a claimed 14-ms resolution
     // cannot independently corroborate individual CUE frames.
@@ -207,6 +211,8 @@ inline PrecisionCueConsensusReport audit_precision_cue_source_consensus(
                 tracks_in_disc = 0;
             }
             ++tracks_in_disc;
+            const bool terminal_track = i + 1 == release.tracks.size() ||
+                release.tracks[i + 1].disc_number != track.disc_number;
             const auto primary_ms = sources.front().release.tracks[i].duration_ms;
             const auto other_ms = track.duration_ms;
             const auto start_delta_ms = other_elapsed - primary_elapsed;
@@ -219,12 +225,18 @@ inline PrecisionCueConsensusReport audit_precision_cue_source_consensus(
                 release.provider, track.disc_number, track.track_number,
                 other_ms - primary_ms, delta, source.resolution_ms,
                 other_elapsed - primary_elapsed, start_delta_ms,
-                start_frame_delta
+                start_frame_delta, terminal_track
             });
             if (sources.front().resolution_ms <= kMaximumFrameResolutionMs &&
                 source.resolution_ms <= kMaximumFrameResolutionMs) {
-                if (delta != 0) one_frame_ambiguity = true;
-                if (delta > 1 || delta < -1) conflicting_frames = true;
+                // Only INDEX 01 start markers are CUE boundaries. Do not
+                // misclassify an outro/last-track duration disagreement as a
+                // missing track start. Preserve a separate safety REVIEW.
+                if (start_frame_delta != 0) one_frame_ambiguity = true;
+                if (start_frame_delta > 1 || start_frame_delta < -1)
+                    conflicting_frames = true;
+                if (terminal_track && delta != 0)
+                    terminal_duration_disagreement = true;
             }
             // Whole-second reference durations are identity evidence only.
             // A large per-track or accumulated drift is contradictory,
@@ -262,6 +274,9 @@ inline PrecisionCueConsensusReport audit_precision_cue_source_consensus(
     } else if (one_frame_ambiguity) {
         report.state = PrecisionCueConsensusState::Review;
         report.diagnostics.emplace_back("ONE_FRAME_BOUNDARY_AMBIGUITY_REVIEW");
+    } else if (terminal_duration_disagreement) {
+        report.state = PrecisionCueConsensusState::Review;
+        report.diagnostics.emplace_back("DISC_TAIL_DURATION_DISAGREEMENT_REVIEW");
     } else if (report.high_resolution_sources < 2) {
         report.state = PrecisionCueConsensusState::SingleHighResolutionSource;
         report.diagnostics.emplace_back("NO_INDEPENDENT_FRAME_RESOLUTION_CORROBORATION");

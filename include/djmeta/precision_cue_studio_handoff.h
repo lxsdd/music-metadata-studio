@@ -42,6 +42,13 @@ enum class PrecisionCueStudioReferenceState {
     Unqualified
 };
 
+enum class PrecisionCueStudioOptionalStartState {
+    CoarseCatalogOnly,
+    ExactFrameAdvisoryNotAudioProof,
+    WithinOneFrameReview,
+    StartBoundaryDisagreementReview
+};
+
 // One selected physical-track row carries each optional catalog source's
 // independent, offline-only timing evidence. A millisecond field unit is
 // not an authenticated provider request or a frame-accuracy guarantee.
@@ -58,6 +65,11 @@ struct PrecisionCueStudioOptionalTrackEvidence {
     // The actual CUE INDEX 01 marker. Kept separate from track-end drift.
     // A coarse source still cannot establish frame-accurate timing.
     std::int64_t signed_start_frame_delta = 0;
+    // A per-track REVIEW classification for the native read-only detail UI.
+    // Coarse catalog durations never become 75-fps evidence even at delta 0.
+    PrecisionCueStudioOptionalStartState start_state =
+        PrecisionCueStudioOptionalStartState::CoarseCatalogOnly;
+    bool disc_tail_duration_disagreement = false;
 };
 
 struct PrecisionCueStudioReviewRow {
@@ -370,13 +382,23 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
                         out.rows.clear();
                         return out;
                     }
+                    const auto start_state =
+                        evidence.comparison_resolution_ms > 1000u / 75u
+                            ? PrecisionCueStudioOptionalStartState::CoarseCatalogOnly
+                            : delta.signed_start_frame_delta == 0
+                                ? PrecisionCueStudioOptionalStartState::ExactFrameAdvisoryNotAudioProof
+                                : (delta.signed_start_frame_delta == -1 ||
+                                   delta.signed_start_frame_delta == 1)
+                                    ? PrecisionCueStudioOptionalStartState::WithinOneFrameReview
+                                    : PrecisionCueStudioOptionalStartState::StartBoundaryDisagreementReview;
                     row.optional_track_evidence.push_back({
                         optional.release.provider, optional.release.provider_release_id,
                         optional.format, evidence.field_unit_ms,
                         evidence.comparison_resolution_ms, delta.signed_delta_ms,
                         delta.signed_start_cumulative_delta_ms,
                         delta.signed_cumulative_delta_ms, delta.signed_end_frame_delta,
-                        delta.signed_start_frame_delta});
+                        delta.signed_start_frame_delta, start_state,
+                        delta.disc_terminal_track && delta.signed_end_frame_delta != 0});
                 }
                 row.reference_has_extra_index_or_pregap =
                     reference_has_extra_index_or_pregap;

@@ -78,6 +78,14 @@ authentication, mastering identity, a second foobar workspace or CUE creation.
   every physical disc, and remain arithmetic-only for coarse Amazon sources.
   A ±1 CUE-frame difference is neither a sample-accurate finding nor a
   license to override the original Apple timing plan.
+- The read-only Studio handoff now classifies each optional provider's
+  actual INDEX 01 start evidence as coarse-only, exact arithmetic frame,
+  within-one-frame REVIEW, or larger disagreement REVIEW. Exact arithmetic
+  equality remains advisory, not audio validation. A duration deviation
+  **after the last track of a disc** does not create a phantom INDEX 01;
+  it receives a separate tail-duration REVIEW and the following disc still
+  starts at zero. This deliberately retains uncertainty without inventing
+  a CUE start marker.
 - No new provider network transport, browser scraping, OAuth, playback,
   media/tag/embedded CUE write or external CUE write permission is added.
   The production writer remains disabled, and the single native Studio

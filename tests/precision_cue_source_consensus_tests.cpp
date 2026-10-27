@@ -81,6 +81,29 @@ int main() {
            PrecisionCueConsensusState::SingleHighResolutionSource);
     assert(audit_precision_cue_source_consensus({apple, mb}).state ==
            PrecisionCueConsensusState::Agreed);
+    // A changed final track does NOT move an INDEX 01 start marker. It
+    // remains a separate tail-duration REVIEW, never "one-frame CUE".
+    mb.release.tracks[1].duration_ms += 14;
+    auto tail_report = audit_precision_cue_source_consensus({apple, mb});
+    assert(tail_report.state == PrecisionCueConsensusState::Review);
+    assert(tail_report.diagnostics[0] == "DISC_TAIL_DURATION_DISAGREEMENT_REVIEW");
+    assert(tail_report.differences[1].disc_terminal_track);
+    assert(tail_report.differences[1].signed_start_frame_delta == 0);
+    assert(tail_report.differences[1].signed_end_frame_delta == 1);
+    mb.release.tracks[1].duration_ms -= 14;
+    // Disc one tail is also NOT a start marker for disc two.
+    mb.release.tracks.push_back({2, 1, "Bonus Outro", "Artist Three", 90000});
+    apple.release.tracks.push_back({2, 1, "Bonus Outro", "Artist Three", 90000});
+    mb.release.tracks[1].duration_ms += 14;
+    tail_report = audit_precision_cue_source_consensus({apple, mb});
+    assert(tail_report.state == PrecisionCueConsensusState::Review);
+    assert(tail_report.diagnostics[0] == "DISC_TAIL_DURATION_DISAGREEMENT_REVIEW");
+    assert(tail_report.differences[2].signed_start_frame_delta == 0);
+    assert(tail_report.differences[1].disc_terminal_track);
+    assert(tail_report.differences[2].disc_terminal_track);
+    apple.release.tracks.pop_back();
+    mb.release.tracks.pop_back();
+    mb.release.tracks[1].duration_ms -= 14;
     const auto initial_coarse = audit_precision_cue_source_consensus({apple, deezer});
     assert(initial_coarse.differences.size() == 2);
     assert(initial_coarse.differences[0].signed_delta_ms == -234);

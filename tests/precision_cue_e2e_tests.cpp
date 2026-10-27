@@ -614,6 +614,11 @@ void cross_provider_release_and_cue() {
     CHECK(optional_studio.rows[15].optional_track_evidence[0].signed_start_cumulative_delta_ms == 0);
     CHECK(optional_studio.rows[0].optional_track_evidence[0].signed_start_frame_delta == 0);
     CHECK(optional_studio.rows[15].optional_track_evidence[0].signed_start_frame_delta == 0);
+    using OptionalStart = PrecisionCueStudioOptionalStartState;
+    CHECK(optional_studio.rows[0].optional_track_evidence[0].start_state ==
+          OptionalStart::ExactFrameAdvisoryNotAudioProof);
+    CHECK(optional_studio.rows[15].optional_track_evidence[0].start_state ==
+          OptionalStart::ExactFrameAdvisoryNotAudioProof);
     auto shifted_spotify = spotify_optional;
     shifted_spotify.release.tracks[0].duration_ms += 14;
     shifted_spotify.release.tracks[1].duration_ms -= 14;
@@ -635,6 +640,26 @@ void cross_provider_release_and_cue() {
           signed_start_frame_delta == 0);
     CHECK(shifted_optional_studio.rows[15].optional_track_evidence[0].
           signed_start_frame_delta == 0);
+    CHECK(shifted_optional_studio.rows[1].optional_track_evidence[0].start_state ==
+          OptionalStart::WithinOneFrameReview);
+    CHECK(shifted_optional_studio.rows[2].optional_track_evidence[0].start_state ==
+          OptionalStart::ExactFrameAdvisoryNotAudioProof);
+    auto changed_last_track = spotify_optional;
+    changed_last_track.release.tracks[14].duration_ms += 14;
+    const auto disc_tail_studio = prepare_precision_cue_studio_review(
+        request, reviewed, studio_sources, no_references, {changed_last_track});
+    CHECK(disc_tail_studio.state == PrecisionCueStudioHandoffState::RowsRequireReview);
+    CHECK(disc_tail_studio.rows.size() == 30);
+    CHECK(disc_tail_studio.optional_provider_evidence[0].comparison.diagnostics[0] ==
+          "DISC_TAIL_DURATION_DISAGREEMENT_REVIEW");
+    CHECK(disc_tail_studio.rows[14].optional_track_evidence[0].
+          disc_tail_duration_disagreement);
+    CHECK(disc_tail_studio.rows[14].optional_track_evidence[0].start_state ==
+          OptionalStart::ExactFrameAdvisoryNotAudioProof);
+    CHECK(disc_tail_studio.rows[15].optional_track_evidence[0].start_state ==
+          OptionalStart::ExactFrameAdvisoryNotAudioProof);
+    CHECK(!disc_tail_studio.rows[15].optional_track_evidence[0].
+          disc_tail_duration_disagreement);
     auto amazon_release = apple;
     amazon_release.provider = "amazon_music";
     amazon_release.provider_release_id = "offline-synthetic-amazon";
@@ -655,6 +680,10 @@ void cross_provider_release_and_cue() {
           conservative_comparison_resolution_ms == 1000);
     CHECK(optional_studio.rows[15].optional_track_evidence[1].
           signed_start_cumulative_delta_ms == 0);
+    CHECK(optional_studio.rows[0].optional_track_evidence[1].start_state ==
+          OptionalStart::CoarseCatalogOnly);
+    CHECK(optional_studio.rows[1].optional_track_evidence[1].start_state ==
+          OptionalStart::CoarseCatalogOnly);
     auto amazon_device = amazon_optional;
     amazon_device.format = PrecisionCueOptionalFormat::AmazonDeviceApproximateMilliseconds;
     amazon_device.release = apple;
@@ -665,6 +694,8 @@ void cross_provider_release_and_cue() {
     CHECK(device_studio.rows.size() == 30);
     CHECK(device_studio.rows[0].optional_track_evidence[0].reported_field_unit_ms == 1);
     CHECK(device_studio.rows[0].optional_track_evidence[0].signed_start_frame_delta == 0);
+    CHECK(device_studio.rows[0].optional_track_evidence[0].start_state ==
+          OptionalStart::CoarseCatalogOnly);
     CHECK(device_studio.optional_provider_evidence[0].comparison_resolution_ms == 1000);
     CHECK(device_studio.rows[0].optional_track_evidence[0].
           conservative_comparison_resolution_ms == 1000);

@@ -31,6 +31,15 @@ int main() {
     assert(r.comparison.differences[2].signed_start_cumulative_delta_ms == 0);
     assert(r.comparison.differences[0].signed_start_frame_delta == 0);
     assert(r.comparison.differences[2].signed_start_frame_delta == 0);
+    // Independent end-of-disc tail vs actual INDEX 01 marker evidence.
+    s.release.tracks[1].duration_ms += 14;
+    r = audit_precision_cue_optional_source(apple, s);
+    assert(r.state == PrecisionCueOptionalState::ReviewOnly);
+    assert(r.comparison.state == PrecisionCueConsensusState::Review);
+    assert(r.comparison.diagnostics[0] == "DISC_TAIL_DURATION_DISAGREEMENT_REVIEW");
+    assert(r.comparison.differences[1].signed_start_frame_delta == 0);
+    assert(r.comparison.differences[2].signed_start_frame_delta == 0);
+    s.release.tracks[1].duration_ms -= 14;
     s.release.tracks[0].duration_ms += 14;
     r = audit_precision_cue_optional_source(apple, s);
     assert(r.comparison.state == PrecisionCueConsensusState::Review);
