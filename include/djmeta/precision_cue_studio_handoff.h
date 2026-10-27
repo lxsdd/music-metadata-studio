@@ -5,6 +5,7 @@
 #include "djmeta/precision_cue_assemble.h"
 #include "djmeta/precision_cue_reference_diff.h"
 #include "djmeta/precision_cue_source_consensus.h"
+#include "djmeta/precision_cue_optional_provider_review.h"
 #include "djmeta/precision_cue_write_preflight.h"
 
 #include <cstddef>
@@ -78,6 +79,8 @@ struct PrecisionCueStudioHandoff {
     const char* catalog_diagnostic = "STUDIO_CATALOG_EVIDENCE_NOT_ATTESTED";
     std::optional<PrecisionCueCoarseDurationConflict> first_coarse_conflict;
     std::vector<PrecisionCueStudioReviewRow> rows;
+    // Explicit offline provider evidence only. Never a CUE clock or write token.
+    std::vector<PrecisionCueOptionalAudit> optional_provider_evidence;
 };
 
 // The existing Studio workspace owns the only UI, selected physical handles,
@@ -93,7 +96,8 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
     const PrecisionCuePreviewRequest& request,
     const PrecisionCuePreviewResult& displayed,
     const std::vector<PrecisionCueStudioSourceView>& sources,
-    const std::vector<std::optional<std::string>>& reference_cues) {
+    const std::vector<std::optional<std::string>>& reference_cues,
+    const std::vector<PrecisionCueOptionalSource>& optional_sources = {}) {
     PrecisionCueStudioHandoff out;
     const auto count = request.physical_discs.size();
     if (count == 0 || count > 8 || sources.size() != count ||
@@ -142,6 +146,26 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
     if (edition.provider != "apple" || edition.provider_release_id.empty()) {
         out.diagnostic = "STUDIO_HIGH_RESOLUTION_EDITION_REQUIRED";
         return out;
+    }
+    // Optional providers are not allowed to override the selected exact
+    // Apple-edition timing clock, physical identity, or CUE writer gate.
+    // Even a matching Spotify millisecond field is REVIEW-only provenance.
+    if (optional_sources.size() > 6) {
+        out.diagnostic = "STUDIO_TOO_MANY_OPTIONAL_PROVIDERS";
+        return out;
+    }
+    std::set<std::string> optional_provider_ids;
+    for (const auto& optional : optional_sources) {
+        const auto evidence = audit_precision_cue_optional_source(edition, optional);
+        const auto provider = precision_cue_consensus_detail::normalized(
+            optional.release.provider);
+        if (evidence.state != PrecisionCueOptionalState::ReviewOnly ||
+            !optional_provider_ids.insert(provider).second) {
+            out.diagnostic = "STUDIO_OPTIONAL_PROVIDER_EVIDENCE_UNQUALIFIED";
+            out.optional_provider_evidence.clear();
+            return out;
+        }
+        out.optional_provider_evidence.push_back(evidence);
     }
     // Deezer exposes whole-second album track durations. Do not silently
     // promote them to Apple millisecond timing or imply authenticated HTTP.
@@ -313,7 +337,7 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
         // remain an explicit Studio review, even with exact CUE frames.
         if (displayed.state != PrecisionCueMatchState::Selected ||
             !displayed.preview_qualified || reference_needs_review ||
-            !deezer_reference ||
+            !deezer_reference || !optional_sources.empty() ||
             out.catalog_consensus_state == PrecisionCueConsensusState::Review) {
             out.state = PrecisionCueStudioHandoffState::RowsRequireReview;
             out.diagnostic = "STUDIO_ROWS_PREVIEW_ONLY_REVIEW_REQUIRED";

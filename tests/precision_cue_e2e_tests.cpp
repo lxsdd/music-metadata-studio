@@ -506,6 +506,49 @@ void cross_provider_release_and_cue() {
         request, reviewed, studio_sources, no_references);
     CHECK(studio.state == PrecisionCueStudioHandoffState::RowsRequireReview);
     CHECK(studio.rows.size() == 30);
+
+    // Optional Spotify/Amazon evidence must appear in the existing Studio
+    // handoff, not another foobar workspace or a new write authorization.
+    auto spotify_release = apple;
+    spotify_release.provider = "spotify";
+    spotify_release.provider_release_id = "offline-synthetic-spotify";
+    const PrecisionCueOptionalSource spotify_optional{
+        spotify_release, PrecisionCueOptionalFormat::SpotifyWebMilliseconds, true};
+    auto optional_studio = prepare_precision_cue_studio_review(
+        request, reviewed, studio_sources, no_references, {spotify_optional});
+    CHECK(optional_studio.state == PrecisionCueStudioHandoffState::RowsRequireReview);
+    CHECK(optional_studio.rows.size() == 30);
+    CHECK(optional_studio.optional_provider_evidence.size() == 1);
+    CHECK(optional_studio.optional_provider_evidence[0].comparison.differences.size() == 30);
+    CHECK(optional_studio.optional_provider_evidence[0].comparison_resolution_ms == 1);
+    auto amazon_release = apple;
+    amazon_release.provider = "amazon_music";
+    amazon_release.provider_release_id = "offline-synthetic-amazon";
+    for (auto& track : amazon_release.tracks)
+        track.duration_ms = (track.duration_ms / 1000) * 1000;
+    const PrecisionCueOptionalSource amazon_optional{
+        amazon_release, PrecisionCueOptionalFormat::AmazonWebSeconds, true};
+    optional_studio = prepare_precision_cue_studio_review(
+        request, reviewed, studio_sources, no_references,
+        {spotify_optional, amazon_optional});
+    CHECK(optional_studio.state == PrecisionCueStudioHandoffState::RowsRequireReview);
+    CHECK(optional_studio.rows.size() == 30);
+    CHECK(optional_studio.optional_provider_evidence.size() == 2);
+    CHECK(optional_studio.optional_provider_evidence[1].comparison_resolution_ms == 1000);
+    auto spoofed = amazon_optional;
+    spoofed.release.tracks[3].duration_ms += 7;
+    CHECK(prepare_precision_cue_studio_review(
+        request, reviewed, studio_sources, no_references,
+        {spotify_optional, spoofed}).state == PrecisionCueStudioHandoffState::Blocked);
+    spoofed = spotify_optional;
+    spoofed.release.tracks[4].title = "Different Original Mix";
+    CHECK(prepare_precision_cue_studio_review(
+        request, reviewed, studio_sources, no_references,
+        {spoofed}).state == PrecisionCueStudioHandoffState::Blocked);
+    CHECK(prepare_precision_cue_studio_review(
+        request, reviewed, studio_sources, no_references,
+        {spotify_optional, spotify_optional}).state == PrecisionCueStudioHandoffState::Blocked);
+
     CHECK(studio.catalog_consensus_state ==
           PrecisionCueConsensusState::SingleHighResolutionSource);
     CHECK(std::string(studio.catalog_diagnostic) ==

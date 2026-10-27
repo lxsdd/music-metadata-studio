@@ -307,6 +307,16 @@ else()
 endif()
 
 # One offline, synthetic end-to-end album -> timing -> explicit external create gate.
+add_executable(djmeta_precision_cue_optional_provider_tests
+    tests/precision_cue_optional_provider_tests.cpp)
+target_link_libraries(djmeta_precision_cue_optional_provider_tests PRIVATE djmeta_core)
+target_compile_features(djmeta_precision_cue_optional_provider_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(djmeta_precision_cue_optional_provider_tests PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(djmeta_precision_cue_optional_provider_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 add_executable(djmeta_precision_cue_e2e_tests tests/precision_cue_e2e_tests.cpp)
 target_link_libraries(djmeta_precision_cue_e2e_tests PRIVATE djmeta_core)
 target_compile_features(djmeta_precision_cue_e2e_tests PRIVATE cxx_std_20)
@@ -463,6 +473,7 @@ add_test(NAME djmeta_precision_cue_apple_tests COMMAND djmeta_precision_cue_appl
 add_test(NAME djmeta_precision_cue_apple_link_tests COMMAND djmeta_precision_cue_apple_link_tests)
 add_test(NAME djmeta_precision_cue_deezer_tests COMMAND djmeta_precision_cue_deezer_tests)
 add_test(NAME djmeta_precision_cue_source_consensus_tests COMMAND djmeta_precision_cue_source_consensus_tests)
+add_test(NAME djmeta_precision_cue_optional_provider_tests COMMAND djmeta_precision_cue_optional_provider_tests)
 add_test(NAME djmeta_precision_cue_e2e_tests COMMAND djmeta_precision_cue_e2e_tests)
 add_test(NAME djmeta_precision_cue_assemble_tests COMMAND djmeta_precision_cue_assemble_tests)
 add_test(NAME djmeta_precision_cue_write_preflight_tests COMMAND djmeta_precision_cue_write_preflight_tests)

@@ -48,3 +48,40 @@ Issue #51, coordinated with #46/#50. Discovery and preview are read-only. Only a
 ## Qualification
 
 Use synthetic 2-disc/30-track fixtures and negative URL, malformed metadata, ambiguous mix, wrong edition, missing track, Unicode, Windows reserved filename, +/-1 frame and no-write tests. Compile with C++20 strict warnings, ASan/UBSan where available, then exact-head Windows Win32/x64 GitHub Actions and one final installed-host acceptance. Public repository must contain no private original CUE, personal music or credentials.
+
+## Spotify and Amazon optional offline corroboration (owner-approved 2026-10-27)
+
+The pure `precision_cue_optional_provider_review.h` adapter and canonical
+`prepare_precision_cue_studio_review` handoff accept **separately user-reviewed
+offline** catalog records for the *same independently selected Apple edition*.
+This does not grant Spotify/Amazon API access, audio retrieval, producer
+authentication, mastering identity, a second foobar workspace or CUE creation.
+
+- Spotify Web API: `duration_ms` is an integer millisecond field. Exact
+  matching can supply independent **reported clock** evidence with integer-ms
+  start/end comparisons, but not sample-perfect mix boundary proof. All
+  supplemental rows remain advisory `REVIEW` and may never substitute the
+  primary Apple CUE clock.
+- Amazon Music Web API V2: track `duration` is in **seconds**. The adapter
+  converts previously reviewed seconds to integer ms; a claimed fractional
+  second in that Web track field is rejected, not upgraded to 75fps accuracy.
+- Amazon Music Device API: an **approximate** millisecond duration has a
+  1ms *field unit* but does not establish 1ms accuracy. The conservative
+  comparison gate uses 1000ms uncertainty for review purposes; this is a
+  safety policy rather than a scientifically measured Amazon error bound.
+- Whole album/edition/track/disc/title/artist/date mismatches, forged
+  provider labels, missing offline review, repeated providers, excessive
+  candidates and invalid durations are fail-closed.
+- No new provider network transport, browser scraping, OAuth, playback,
+  media/tag/embedded CUE write or external CUE write permission is added.
+  The production writer remains disabled, and the single native Studio
+  integration remains independently unqualified.
+
+The full source-only regression covers Spotify 1ms reports, Amazon seconds
+and approximate milliseconds, 2-disc/30-track timing reset, forged fraction,
+one-frame disagreement, wrong mix, wrong date and duplicate candidates.
+CI qualification is exact-SHA source/host only, not installed owner GUI.
+Provider field documentation:
+https://developer.spotify.com/documentation/web-api/reference/get-track
+https://developer.amazon.com/docs/music/API_web_track_v2.html
+
