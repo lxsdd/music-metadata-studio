@@ -43,8 +43,8 @@ void header_catalog_provenance_regressions() {
     assert(!manual.preview_qualified && manual.discs.size() == 1);
     assert(manual.header_provenance.genre == PrecisionCueHeaderFieldOrigin::ManualUnverified);
     assert(manual.header_provenance.release_date == PrecisionCueHeaderFieldOrigin::ManualUnverified);
-    assert(manual.discs[0].external_cue_utf8.find("REM GENRE \\"Electronic\\"\\n") != std::string::npos);
-    assert(manual.discs[0].external_cue_utf8.find("REM DATE \\"2026\\"\\n") != std::string::npos);
+    assert(manual.discs[0].external_cue_utf8.find("REM GENRE \"Electronic\"\n") != std::string::npos);
+    assert(manual.discs[0].external_cue_utf8.find("REM DATE \"2026\"\n") != std::string::npos);
 
     f.candidates[0].genre = "Electronic";
     f.candidates[0].release_date = "2026";
@@ -68,8 +68,8 @@ void header_catalog_provenance_regressions() {
            PrecisionCueHeaderFieldOrigin::ConflictsWithSelectedCatalog);
     assert(conflict.header_provenance.release_date ==
            PrecisionCueHeaderFieldOrigin::ConflictsWithSelectedCatalog);
-    assert(conflict.discs[0].external_cue_utf8.find("REM GENRE \\"Different Genre\\"\\n") != std::string::npos);
-    assert(conflict.discs[0].external_cue_utf8.find("REM DATE \\"2025\\"\\n") != std::string::npos);
+    assert(conflict.discs[0].external_cue_utf8.find("REM GENRE \"Different Genre\"\n") != std::string::npos);
+    assert(conflict.discs[0].external_cue_utf8.find("REM DATE \"2025\"\n") != std::string::npos);
     f.genre.clear(); f.release_date.clear();
     f.candidates[0].genre.clear(); f.candidates[0].release_date.clear();
     auto absent = make_precision_cue_release_preview(f);
