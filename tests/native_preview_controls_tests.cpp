@@ -398,7 +398,7 @@ int main() {
     const auto source_receipt=preview_history_export_tsv(
         history,PreviewHistoryFilter::All,std::nullopt,8,7);
     check(source_receipt &&
-          source_receipt->find(L"1\\tAccept proposals")!=std::wstring::npos &&
+          source_receipt->find(L"1\tAccept proposals")!=std::wstring::npos &&
           source_receipt->find(L"Reject proposals")==std::wstring::npos &&
           source_receipt->find(L"Recalculate route")==std::wstring::npos &&
           source_receipt->find(L"Filtered to physical source #8")!=std::wstring::npos &&
