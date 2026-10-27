@@ -78,7 +78,7 @@ for marker in ('header->code==LVN_COLUMNCLICK',
                'native_sort_evidence_details(state.musicbrainz_details,',
                'native_evidence_source_row(',
                'state->online_detail_grid.sort_column'):
-    if marker not in workspace_dialog:
+    if marker not in sources:
         raise SystemExit("STATIC EVIDENCE SOURCE SORT FAIL: "+marker)
 
 # Read-only exact-source provenance receipt remains production-wired to
