@@ -81,6 +81,7 @@ def violations(config: str, script: str) -> list[str]:
     return issues
 
 def main() -> None:
+    global TITLE_QA
     assert not violations(CONFIG, SCRIPT), violations(CONFIG, SCRIPT)
     # Mutations MUST target the QA job, not the identically named
     # Win32/x64 build matrix belonging to another job.
