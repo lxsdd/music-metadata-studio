@@ -106,6 +106,11 @@ void reference_cue_timeline_regressions(const PrecisionCuePlan& plan) {
     CHECK(diff.audit.exact_count == 15);
     CHECK(diff.audit.within_one_frame_count == 0);
     CHECK(diff.audit.review_count == 0);
+    CHECK(diff.track_structure.size() == 15);
+    CHECK(diff.track_structure[1].track_number == 2);
+    CHECK(!diff.track_structure[1].index_00_frame);
+    CHECK(!diff.track_structure[1].pregap_frames);
+    CHECK(!diff.track_structure[1].postgap_frames);
 
     // Different descriptive metadata is not a different INDEX timeline,
     // but it is NOT proof that two editions or audio masters coincide.
@@ -135,6 +140,11 @@ void reference_cue_timeline_regressions(const PrecisionCuePlan& plan) {
     CHECK(diff.state == State::ReviewRequired);
     CHECK(diff.extra_index_or_pregap);
     CHECK(diff.audit.exact_count == 15);
+    CHECK(diff.track_structure.size() == 15);
+    CHECK(diff.track_structure[1].index_00_frame == 8995);
+    CHECK(diff.track_structure[1].index_00_to_01_frames == 5);
+    CHECK(!diff.track_structure[0].index_00_frame);
+    CHECK(!diff.track_structure[1].pregap_frames);
 
     // Valid structural gaps remain visible as disc-wide REVIEW, even with
     // identical INDEX 01 positions. Impossible or duplicate gaps fail closed.
@@ -143,11 +153,15 @@ void reference_cue_timeline_regressions(const PrecisionCuePlan& plan) {
                  "    PREGAP 00:00:05\n    INDEX 01 02:00:00");
     diff = compare_precision_cue_external_reference(plan, valid_pregap, basename);
     CHECK(diff.state == State::ReviewRequired && diff.extra_index_or_pregap);
+    CHECK(diff.track_structure[1].pregap_frames == 5);
+    CHECK(!diff.track_structure[1].index_00_frame);
     auto valid_postgap = original;
     replace_once(valid_postgap, "    INDEX 01 02:00:00",
                  "    INDEX 01 02:00:00\n    POSTGAP 00:00:05");
     diff = compare_precision_cue_external_reference(plan, valid_postgap, basename);
     CHECK(diff.state == State::ReviewRequired && diff.extra_index_or_pregap);
+    CHECK(diff.track_structure[1].postgap_frames == 5);
+    CHECK(!diff.track_structure[1].pregap_frames);
 
     auto backward_index00 = original;
     replace_once(backward_index00, "    INDEX 01 02:00:00",
@@ -162,8 +176,10 @@ void reference_cue_timeline_regressions(const PrecisionCuePlan& plan) {
     auto duplicate_pregap = original;
     replace_once(duplicate_pregap, "    INDEX 01 02:00:00",
                  "    PREGAP 00:00:05\n    PREGAP 00:00:05\n    INDEX 01 02:00:00");
-    CHECK(compare_precision_cue_external_reference(
-        plan, duplicate_pregap, basename).state == State::Unqualified);
+    const auto rejected_duplicate = compare_precision_cue_external_reference(
+        plan, duplicate_pregap, basename);
+    CHECK(rejected_duplicate.state == State::Unqualified);
+    CHECK(rejected_duplicate.track_structure.empty());
     auto pregap_after_index = original;
     replace_once(pregap_after_index, "    INDEX 01 02:00:00",
                  "    INDEX 01 02:00:00\n    PREGAP 00:00:05");
@@ -555,6 +571,26 @@ void cross_provider_release_and_cue() {
         request, reviewed, studio_sources, no_references);
     CHECK(studio.state == PrecisionCueStudioHandoffState::RowsRequireReview);
     CHECK(studio.rows.size() == 30);
+    CHECK(!studio.rows[1].reference_track_structure);
+    // An INDEX 00 belongs to track 2, not all 15 physical rows. The
+    // complete disc still requires review; disc 2 is unaffected.
+    auto structured_reference = reviewed.discs[0].external_cue_utf8;
+    replace_once(structured_reference, "    INDEX 01 02:00:00",
+                 "    INDEX 00 01:59:70\n    INDEX 01 02:00:00");
+    auto reference_selection = no_references;
+    reference_selection[0] = structured_reference;
+    const auto structured_studio = prepare_precision_cue_studio_review(
+        request, reviewed, studio_sources, reference_selection);
+    CHECK(structured_studio.rows.size() == 30);
+    CHECK(structured_studio.rows[1].reference_track_structure.has_value());
+    CHECK(structured_studio.rows[1].reference_track_structure->track_number == 2);
+    CHECK(structured_studio.rows[1].reference_track_structure->index_00_to_01_frames == 5);
+    CHECK(!structured_studio.rows[0].reference_track_structure->index_00_frame);
+    CHECK(structured_studio.rows[0].reference_has_extra_index_or_pregap);
+    CHECK(structured_studio.rows[0].reference_state ==
+          PrecisionCueStudioReferenceState::ReviewRequired);
+    CHECK(!structured_studio.rows[15].reference_track_structure);
+    CHECK(!structured_studio.rows[15].reference_has_extra_index_or_pregap);
 
     // Optional Spotify/Amazon evidence must appear in the existing Studio
     // handoff, not another foobar workspace or a new write authorization.
