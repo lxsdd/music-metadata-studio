@@ -56,10 +56,10 @@ inline TitleVersionReview review_title_version(
         }
     }
     if(!has_title) return ambiguous_title
-        ? TitleVersionReview{TitleVersionReviewState::Ambiguous} : TitleVersionReview{};
+        ? TitleVersionReview{TitleVersionReviewState::Ambiguous,{},{},{}} : TitleVersionReview{};
     if(ambiguous_title || !valid_utf8_metadata_text(title) ||
        !safe_scalar_metadata_field("TITLE",title))
-        return {TitleVersionReviewState::Ambiguous};
+        return {TitleVersionReviewState::Ambiguous,{},{},{}};
     const auto whole=title_version_trim(title);
     if(whole.size()<5 || (whole.back()!=')' && whole.back()!=']'))
         return {};
@@ -73,7 +73,7 @@ inline TitleVersionReview review_title_version(
     const auto base=title_version_trim(whole.substr(0,start));
     if(base.empty() || base.back()==')' || base.back()==']' ||
        !safe_scalar_metadata_field("TITLE",base))
-        return {TitleVersionReviewState::Ambiguous};
+        return {TitleVersionReviewState::Ambiguous,{},{},{}};
     TitleVersionReview result;
     result.base_title=std::string(base);
     result.suffix=std::string(suffix);
