@@ -2062,11 +2062,17 @@ int main() {
     check(query_key_notifications==before_keys+2 &&
           last_query_key==VK_ESCAPE,
           "real EDIT Escape dispatches once without duplicate dialog command");
-    edit_keys.ime_composing=true;
-    check((SendMessageW(mb_query,WM_GETDLGCODE,VK_RETURN,0)&
-           DLGC_WANTMESSAGE)==0,
-          "IME composition leaves native edit dialog key handling intact");
-    edit_keys.ime_composing=false;
+    SendMessageW(mb_query,WM_IME_STARTCOMPOSITION,0,0);
+    check(edit_keys.ime_composing &&
+          (SendMessageW(mb_query,WM_GETDLGCODE,VK_RETURN,0)&
+           DLGC_WANTMESSAGE)!=0,
+          "IME Enter stays inside edit, never activates default Close button");
+    SendMessageW(mb_query,WM_KEYDOWN,VK_RETURN,0);
+    check(query_key_notifications==before_keys+2,
+          "IME candidate confirmation cannot launch a provider request");
+    SendMessageW(mb_query,WM_IME_ENDCOMPOSITION,0,0);
+    check(!edit_keys.ime_composing,
+          "IME completion restores explicit Enter/Escape keyboard actions");
     SendMessageW(mb_query,WM_KEYDOWN,VK_TAB,0);
     check(query_key_notifications==before_keys+2,
           "Tab and non-action keys do not issue provider actions");

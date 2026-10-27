@@ -663,8 +663,10 @@ inline LRESULT CALLBACK native_query_edit_keyboard_proc(
     if(message==WM_IME_ENDCOMPOSITION && state)
         state->ime_composing=false;
     const bool special=wp==VK_RETURN || wp==VK_ESCAPE;
-    if(message==WM_GETDLGCODE && special &&
-       state && !state->ime_composing)
+    // Keep Enter/Escape routed to the EDIT even during IME composition.
+    // Otherwise IsDialogMessage may activate the default Close button while
+    // the user is merely confirming a Japanese/Chinese/Korean candidate.
+    if(message==WM_GETDLGCODE && special && state)
         return DefSubclassProc(edit,message,wp,lp)|DLGC_WANTMESSAGE;
     if(message==WM_KEYDOWN && special &&
        state && !state->ime_composing) {
