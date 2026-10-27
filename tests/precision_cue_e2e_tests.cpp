@@ -518,6 +518,12 @@ void cross_provider_release_and_cue() {
           consensus.differences[0].signed_delta_ms);
     CHECK(studio.rows[15].signed_corroborating_cumulative_delta_ms ==
           consensus.differences[15].signed_cumulative_delta_ms);
+    CHECK(studio.rows[0].signed_corroborating_start_delta_ms == 0);
+    CHECK(studio.rows[1].signed_corroborating_start_delta_ms ==
+          consensus.differences[1].signed_start_cumulative_delta_ms);
+    CHECK(studio.rows[15].signed_corroborating_start_delta_ms == 0);
+    CHECK(studio.rows[16].signed_corroborating_start_delta_ms ==
+          consensus.differences[16].signed_start_cumulative_delta_ms);
     CHECK(studio.rows[0].disc_number == 1 &&
           studio.rows[0].track_number == 1 &&
           studio.rows[0].cue_frame == 0 &&

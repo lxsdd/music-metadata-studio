@@ -57,6 +57,9 @@ struct PrecisionCueStudioReviewRow {
     unsigned corroborating_resolution_ms = 0;
     std::optional<std::int64_t> signed_corroborating_track_delta_ms;
     std::optional<std::int64_t> signed_corroborating_cumulative_delta_ms;
+    // Difference at the actual CUE INDEX 01 track start, not its end.
+    // Whole-second Deezer corroboration is never a frame-accurate clock.
+    std::optional<std::int64_t> signed_corroborating_start_delta_ms;
     std::int64_t elapsed_ms = 0;
     std::int64_t cue_frame = 0;
     PrecisionCueStudioReferenceState reference_state =
@@ -283,6 +286,8 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
                         evidence.signed_delta_ms;
                     row.signed_corroborating_cumulative_delta_ms =
                         evidence.signed_cumulative_delta_ms;
+                    row.signed_corroborating_start_delta_ms =
+                        evidence.signed_start_cumulative_delta_ms;
                 }
                 row.elapsed_ms = boundary.elapsed_ms;
                 row.cue_frame = boundary.cue_frame;

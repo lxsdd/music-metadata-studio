@@ -63,6 +63,20 @@ int main() {
     auto apple = source("apple", 1);
     auto mb = source("musicbrainz", 1);
     auto deezer = source("deezer", 1000);
+    // 14 ms is coarser than a 75-fps frame (13.333... ms): it must
+    // not count as independent frame-resolution corroboration.
+    auto borderline = source("musicbrainz", 14);
+    assert(audit_precision_cue_source_consensus({apple, borderline}).state ==
+           PrecisionCueConsensusState::SingleHighResolutionSource);
+    borderline.resolution_ms = 13;
+    assert(audit_precision_cue_source_consensus({apple, borderline}).state ==
+           PrecisionCueConsensusState::Agreed);
+    auto coarse_primary = source("apple", 14);
+    assert(audit_precision_cue_source_consensus({coarse_primary, mb}).state ==
+           PrecisionCueConsensusState::Review);
+    coarse_primary.resolution_ms = 13;
+    assert(audit_precision_cue_source_consensus({coarse_primary, mb}).state ==
+           PrecisionCueConsensusState::Agreed);
     assert(audit_precision_cue_source_consensus({apple}).state ==
            PrecisionCueConsensusState::SingleHighResolutionSource);
     assert(audit_precision_cue_source_consensus({apple, mb}).state ==
@@ -73,6 +87,8 @@ int main() {
     assert(initial_coarse.differences[0].signed_cumulative_delta_ms == -234);
     assert(initial_coarse.differences[1].signed_delta_ms == -456);
     assert(initial_coarse.differences[1].signed_cumulative_delta_ms == -690);
+    assert(initial_coarse.differences[0].signed_start_cumulative_delta_ms == 0);
+    assert(initial_coarse.differences[1].signed_start_cumulative_delta_ms == -234);
     assert(audit_precision_cue_source_consensus({apple}).differences.empty());
     // Both trusted release inputs must start at disc 1, track 1. Reject a
     // shifted first disc even when both providers share the same bad data.
@@ -197,6 +213,14 @@ int main() {
     assert(report.differences[16].signed_cumulative_delta_ms == 0);
     assert(report.differences[17].signed_cumulative_delta_ms == 14);
     assert(report.differences[18].signed_cumulative_delta_ms == 0);
+    // CUE INDEX 01 starts use the PREVIOUS track end, with a fresh
+    // zero offset for every disc; do not mislabel end deltas as starts.
+    assert(report.differences[0].signed_start_cumulative_delta_ms == 0);
+    assert(report.differences[1].signed_start_cumulative_delta_ms == 0);
+    assert(report.differences[2].signed_start_cumulative_delta_ms == 14);
+    assert(report.differences[16].signed_start_cumulative_delta_ms == 0);
+    assert(report.differences[17].signed_start_cumulative_delta_ms == 0);
+    assert(report.differences[18].signed_start_cumulative_delta_ms == 14);
     unsigned exact = 0, one_frame = 0;
     for (const auto& diff : report.differences) {
         if (diff.signed_end_frame_delta == 0) ++exact;

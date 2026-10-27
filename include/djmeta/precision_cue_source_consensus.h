@@ -33,6 +33,9 @@ struct PrecisionCueSourceDifference {
     unsigned resolution_ms = 0;
     // Corroborating minus primary cumulative duration; resets at each disc.
     std::int64_t signed_cumulative_delta_ms = 0;
+    // Start of this track (INDEX 01), before adding its duration. Coarse
+    // providers remain identity evidence only, never 75-fps proof.
+    std::int64_t signed_start_cumulative_delta_ms = 0;
 };
 
 struct PrecisionCueCoarseDurationConflict {
@@ -149,6 +152,9 @@ inline PrecisionCueConsensusReport audit_precision_cue_source_consensus(
     bool conflicting_frames = false;
     bool one_frame_ambiguity = false;
     bool coarse_reference_conflict = false;
+    // One 75-fps frame is 13.333... ms: a claimed 14-ms resolution
+    // cannot independently corroborate individual CUE frames.
+    constexpr unsigned kMaximumFrameResolutionMs = 1000u / 75u;
     const auto cue_frame = [](std::int64_t ms) {
         return (ms * 75 + 500) / 1000;
     };
@@ -182,7 +188,7 @@ inline PrecisionCueConsensusReport audit_precision_cue_source_consensus(
             report.diagnostics.emplace_back("DEEZER_DURATION_NOT_WHOLE_SECONDS");
             return report;
         }
-        if (source.resolution_ms <= 14) ++report.high_resolution_sources;
+        if (source.resolution_ms <= kMaximumFrameResolutionMs) ++report.high_resolution_sources;
         if (&source == &sources.front()) continue;
         std::int64_t primary_elapsed = 0;
         std::int64_t other_elapsed = 0;
@@ -199,22 +205,24 @@ inline PrecisionCueConsensusReport audit_precision_cue_source_consensus(
             ++tracks_in_disc;
             const auto primary_ms = sources.front().release.tracks[i].duration_ms;
             const auto other_ms = track.duration_ms;
+            const auto start_delta_ms = other_elapsed - primary_elapsed;
             primary_elapsed += primary_ms;
             other_elapsed += other_ms;
             const auto delta = cue_frame(other_elapsed) - cue_frame(primary_elapsed);
             report.differences.push_back({
                 release.provider, track.disc_number, track.track_number,
                 other_ms - primary_ms, delta, source.resolution_ms,
-                other_elapsed - primary_elapsed
+                other_elapsed - primary_elapsed, start_delta_ms
             });
-            if (sources.front().resolution_ms <= 14 && source.resolution_ms <= 14) {
+            if (sources.front().resolution_ms <= kMaximumFrameResolutionMs &&
+                source.resolution_ms <= kMaximumFrameResolutionMs) {
                 if (delta != 0) one_frame_ambiguity = true;
                 if (delta > 1 || delta < -1) conflicting_frames = true;
             }
             // Whole-second reference durations are identity evidence only.
             // A large per-track or accumulated drift is contradictory,
             // not independent corroboration of a mixed edition.
-            if (source.resolution_ms > 14) {
+            if (source.resolution_ms > kMaximumFrameResolutionMs) {
                 const auto resolution = static_cast<std::int64_t>(
                     (std::max)(source.resolution_ms, sources.front().resolution_ms));
                 const auto duration_delta = other_ms - primary_ms;
@@ -235,7 +243,7 @@ inline PrecisionCueConsensusReport audit_precision_cue_source_consensus(
             }
         }
     }
-    if (sources.front().resolution_ms > 14) {
+    if (sources.front().resolution_ms > kMaximumFrameResolutionMs) {
         report.state = PrecisionCueConsensusState::Review;
         report.diagnostics.emplace_back("PRIMARY_TIMING_TOO_COARSE");
     } else if (conflicting_frames) {
