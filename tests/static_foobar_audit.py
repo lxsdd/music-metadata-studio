@@ -2548,25 +2548,50 @@ for token in ('row.reason.starts_with("album_batch_scope_")',
 single_source_policy = (root / "include" / "djmeta" /
                         "single_source_tag_load.h").read_text(encoding="utf-8")
 context_menu = (foobar / "context_menu.cpp").read_text(encoding="utf-8")
-for marker in ("selection_count == 1 && physical_subsong_zero",
+for marker in ("selection_count == 1 && physical_subsong_zero && native_existing_file",
                "ForcePhysicalRefresh", "CheckIfChanged"):
     if marker not in single_source_policy:
         raise SystemExit("STATIC SINGLE SOURCE TAG LOAD FAIL: " + marker)
 for marker in ("retained.get_count() == 1",
                "retained[0]->get_subsong_index() == 0",
+               "probe_host_file_readonly(retained[0]->get_path())",
+               "HostFileState::ExistingFile",
                "single_source_tag_load_policy(",
                "metadb_io::load_info_force",
                "metadb_io::load_info_check_if_changed",
                "metadb_io_v2::get()->load_info_async("):
     if marker not in context_menu:
         raise SystemExit("STATIC SINGLE SOURCE TAG LOAD WIRING FAIL: " + marker)
+# Negative source-contract mutations must be detected, not merely present in
+# comments or bypassed by a wrong-host path. These checks never fetch music.
+def single_source_native_guard_valid(code: str) -> bool:
+    return all(marker in code for marker in (
+        "retained.get_count() == 1",
+        "retained[0]->get_subsong_index() == 0",
+        "probe_host_file_readonly(retained[0]->get_path())",
+        "HostFileState::ExistingFile",
+        "single_source_tag_load_policy(",
+        "mode == djmeta::SingleSourceTagLoad::ForcePhysicalRefresh",
+        "metadb_io::load_info_force",
+        "metadb_io_v2::get()->load_info_async(",
+    ))
+
+assert single_source_native_guard_valid(context_menu)
 for changed in (
     context_menu.replace("metadb_io::load_info_force",
                          "metadb_io::load_info_check_if_changed", 1),
     context_menu.replace("retained[0]->get_subsong_index() == 0",
                          "retained[0]->get_subsong_index() != 0", 1),
+    context_menu.replace("HostFileState::ExistingFile",
+                         "HostFileState::Unqualified", 1),
 ):
-    if ("metadb_io::load_info_force" not in changed or
-        "retained[0]->get_subsong_index() == 0" not in changed):
-        continue
-    raise SystemExit("STATIC SINGLE SOURCE TAG LOAD NEGATIVE MUTATION FAIL")
+    if single_source_native_guard_valid(changed):
+        raise SystemExit("STATIC SINGLE SOURCE TAG LOAD NEGATIVE MUTATION FAIL")
+
+# A fresh native workspace with the default priority must not start in a
+# URL-only manual Beatport/Crates mode: that deliberately erases TITLE.
+# Custom explicit choice of the Beatport mode is unaffected by auto mode.
+if ('if (provider == "beatport" || provider == "crates") return 2;' in
+        (root / "include" / "djmeta" / "online_match.h").read_text(encoding="utf-8")):
+    raise SystemExit("STATIC AUTO ONLINE PROVIDER FAIL: URL-only default")
+

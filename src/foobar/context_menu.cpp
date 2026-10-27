@@ -7,6 +7,7 @@
 #include "menu_settings.h"
 #include "routing_preview.h"
 #include "djmeta/single_source_tag_load.h"
+#include "host_file_probe.h"
 
 namespace djmeta_foobar {
 namespace {
@@ -119,8 +120,14 @@ public:
         // Virtual subsongs must never be mistaken for physical sources.
         const bool single_physical = retained.get_count() == 1 &&
             retained[0]->get_subsong_index() == 0;
+        // Never force the network/virtual streaming handler: a real native
+        // file identity must already be observable with read-only handles.
+        const bool native_existing = single_physical &&
+            probe_host_file_readonly(retained[0]->get_path()).state ==
+                HostFileState::ExistingFile;
         const auto mode = djmeta::single_source_tag_load_policy(
-            static_cast<std::size_t>(retained.get_count()), single_physical);
+            static_cast<std::size_t>(retained.get_count()),
+            single_physical, native_existing);
         metadb_io_v2::get()->load_info_async(
             retained,
             mode == djmeta::SingleSourceTagLoad::ForcePhysicalRefresh

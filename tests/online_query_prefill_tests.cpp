@@ -33,18 +33,21 @@ int main() {
     // preserve foobar's asynchronous, change-only library-scale behavior.
     using djmeta::SingleSourceTagLoad;
     using djmeta::single_source_tag_load_policy;
-    check(single_source_tag_load_policy(1, true) ==
+    check(single_source_tag_load_policy(1, true, true) ==
               SingleSourceTagLoad::ForcePhysicalRefresh,
           true, "single physical FLAC refreshes original tags from file");
-    check(single_source_tag_load_policy(1, false) ==
+    check(single_source_tag_load_policy(1, false, true) ==
               SingleSourceTagLoad::CheckIfChanged,
           true, "virtual single subsong cannot force physical refresh");
-    check(single_source_tag_load_policy(2, true) ==
+    check(single_source_tag_load_policy(1, true, false) ==
+              SingleSourceTagLoad::CheckIfChanged,
+          true, "remote/unsupported native stream never force-fetched");
+    check(single_source_tag_load_policy(2, true, true) ==
               SingleSourceTagLoad::CheckIfChanged &&
-          single_source_tag_load_policy(54129, true) ==
+          single_source_tag_load_policy(54129, true, true) ==
               SingleSourceTagLoad::CheckIfChanged,
           true, "multi-track/large library remains change-only");
-    check(single_source_tag_load_policy(0, true) ==
+    check(single_source_tag_load_policy(0, true, true) ==
               SingleSourceTagLoad::CheckIfChanged,
           true, "empty context has no forced load");
     using djmeta::ProviderQueryTransition;

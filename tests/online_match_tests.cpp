@@ -241,18 +241,21 @@ int main() {
            parse_provider_preferences(serialize_provider_preferences({})) ==
                ProviderPreferences{},
            "full five-provider priority round-trips without losing Crates");
-    expect(first_supported_search_mode({}) == 2 &&
+    expect(first_supported_search_mode({}) == 1 &&
            first_supported_search_mode(discogs_first) == 1 &&
            first_supported_search_mode(
                ProviderPreferences{{"deezer", "musicbrainz", "discogs",
                                     "crates", "beatport"}}) == 0 &&
            first_supported_search_mode(
                ProviderPreferences{{"deezer", "crates", "discogs",
-                                    "musicbrainz", "beatport"}}) == 2 &&
+                                    "musicbrainz", "beatport"}}) == 1 &&
+           first_supported_search_mode(
+               ProviderPreferences{{"beatport", "crates", "musicbrainz",
+                                    "deezer", "discogs"}}) == 0 &&
            first_supported_search_mode(
                ProviderPreferences{{"beatport", "beatport", "discogs",
                                     "deezer", "musicbrainz"}}) == 0,
-           "first available manual search source skips unqualified Deezer");
+           "auto Find provider skips URL-only Beatport/Crates and unavailable Deezer");
     const auto restored = rank(original,
         {beatport_equal, discogs_equal, musicbrainz_equal},
         parse_provider_preferences(saved_priority));
