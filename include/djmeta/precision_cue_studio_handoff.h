@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <exception>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -20,6 +21,9 @@ struct PrecisionCueStudioSourceView {
     // physical source from a virtual CUE subsong or a displayed filename.
     std::uint32_t subsong = 0;
     bool host_readonly_physical_probe_passed = false;
+    // Exact canonical identity from the independent physical-file host probe.
+    // A basename, virtual subsong path or mutable UI label is insufficient.
+    std::string physical_source_identity;
 };
 
 enum class PrecisionCueStudioHandoffState {
@@ -81,9 +85,29 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
         out.diagnostic = "STUDIO_SELECTION_OR_MAPPING_INCOMPLETE";
         return out;
     }
-    for (const auto& source : sources) {
+    // CUE text and durations can be identical for different physical files.
+    // Bind the exact host selection to the displayed read-only snapshot.
+    if (request.physical_source_identity_by_selection.size() != count ||
+        displayed.physical_source_identity_by_selection.size() != count ||
+        displayed.physical_source_identity_by_selection !=
+            request.physical_source_identity_by_selection) {
+        out.diagnostic = "STUDIO_PHYSICAL_SOURCE_SNAPSHOT_CHANGED";
+        return out;
+    }
+    std::set<std::string> seen_physical_sources;
+    for (std::size_t index = 0; index < count; ++index) {
+        const auto& source = sources[index];
         if (source.subsong != 0 || !source.host_readonly_physical_probe_passed) {
             out.diagnostic = "STUDIO_PHYSICAL_VIRTUAL_ISOLATION_UNQUALIFIED";
+            return out;
+        }
+        if (source.physical_source_identity.empty() ||
+            source.physical_source_identity.size() > 4096 ||
+            !precision_cue_safe_unicode_text(source.physical_source_identity) ||
+            source.physical_source_identity !=
+                request.physical_source_identity_by_selection[index] ||
+            !seen_physical_sources.insert(source.physical_source_identity).second) {
+            out.diagnostic = "STUDIO_PHYSICAL_SOURCE_IDENTITY_CHANGED_OR_DUPLICATE";
             return out;
         }
     }

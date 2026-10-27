@@ -20,6 +20,10 @@ struct PrecisionCuePreviewRequest {
     PrecisionCueRelease reference;
     std::vector<PrecisionCueRelease> candidates;
     std::vector<PrecisionCuePhysicalDisc> physical_discs;
+    // Independent host-probed canonical physical file identities in selection
+    // order. Never use display basenames, CUE virtual subsongs or provider IDs.
+    // Optional for core previews; mandatory for a Studio source-bound handoff.
+    std::vector<std::string> physical_source_identity_by_selection;
     // Only set after an explicit per-disc UI choice; never inferred from filenames.
     // Still requires release/MP3 identity review and NEVER authorizes writes.
     std::vector<std::size_t> reviewed_physical_index_by_disc;
@@ -39,6 +43,8 @@ struct PrecisionCuePreviewResult {
     // Equal basenames/durations are not evidence of unchanged UI selection.
     // Never a writer approval token.
     std::vector<std::size_t> physical_index_by_disc;
+    // Frozen alongside the generated CUE plans; not a write approval token.
+    std::vector<std::string> physical_source_identity_by_selection;
 };
 
 

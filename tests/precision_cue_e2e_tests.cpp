@@ -480,6 +480,8 @@ void cross_provider_release_and_cue() {
     request.reference = deezer;
     request.candidates = {apple};
     request.physical_discs = {{"Disc 1.mp3", 1800000}, {"Disc 2.mp3", 1800000}};
+    request.physical_source_identity_by_selection =
+        {"synthetic-physical-1", "synthetic-physical-2"};
     // Equal-length discs cannot be mapped from filenames or durations.
     const auto ambiguous = make_precision_cue_release_preview(request);
     CHECK(ambiguous.state == PrecisionCueMatchState::Ambiguous);
@@ -497,7 +499,8 @@ void cross_provider_release_and_cue() {
     // The canonical Studio workspace can consume rows without acquiring a
     // second window/writer engine or treating a 75-fps match as audio proof.
     const std::vector<PrecisionCueStudioSourceView> studio_sources{
-        {0, true}, {0, true}};
+        {0, true, "synthetic-physical-1"},
+        {0, true, "synthetic-physical-2"}};
     const std::vector<std::optional<std::string>> no_references(2);
     const auto studio = prepare_precision_cue_studio_review(
         request, reviewed, studio_sources, no_references);
@@ -540,6 +543,11 @@ void cross_provider_release_and_cue() {
     swapped_request.physical_discs = {
         {"Disc 2.mp3", 1800000}, {"Disc 1.mp3", 1800000}};
     swapped_request.reviewed_physical_index_by_disc = {1, 0};
+    swapped_request.physical_source_identity_by_selection =
+        {"synthetic-physical-2", "synthetic-physical-1"};
+    const std::vector<PrecisionCueStudioSourceView> swapped_sources{
+        {0, true, "synthetic-physical-2"},
+        {0, true, "synthetic-physical-1"}};
     const auto swapped_preview = make_precision_cue_release_preview(swapped_request);
     CHECK(swapped_preview.discs.size() == 2);
     CHECK(swapped_preview.physical_index_by_disc ==
@@ -548,7 +556,7 @@ void cross_provider_release_and_cue() {
         swapped_preview.discs[1].external_cue_utf8,
         swapped_preview.discs[0].external_cue_utf8};
     const auto swapped_exact = prepare_precision_cue_studio_review(
-        swapped_request, swapped_preview, studio_sources, physical_references);
+        swapped_request, swapped_preview, swapped_sources, physical_references);
     CHECK(swapped_exact.rows.size() == 30);
     CHECK(swapped_exact.rows[0].physical_selection_index == 1);
     CHECK(swapped_exact.rows[15].physical_selection_index == 0);
@@ -559,7 +567,7 @@ void cross_provider_release_and_cue() {
     auto only_physical_disc_two = physical_references;
     only_physical_disc_two[1].reset();
     const auto one_sided = prepare_precision_cue_studio_review(
-        swapped_request, swapped_preview, studio_sources, only_physical_disc_two);
+        swapped_request, swapped_preview, swapped_sources, only_physical_disc_two);
     CHECK(one_sided.rows.size() == 30);
     CHECK(one_sided.rows[1].reference_state ==
           PrecisionCueStudioReferenceState::NotProvided);
@@ -569,7 +577,7 @@ void cross_provider_release_and_cue() {
     replace_once(*physical_references[0],
                  "INDEX 01 02:00:00", "INDEX 01 02:00:01");
     const auto swapped_one_frame = prepare_precision_cue_studio_review(
-        swapped_request, swapped_preview, studio_sources, physical_references);
+        swapped_request, swapped_preview, swapped_sources, physical_references);
     CHECK(swapped_one_frame.rows.size() == 30);
     CHECK(swapped_one_frame.rows[1].signed_reference_delta_frames == 0);
     CHECK(swapped_one_frame.rows[16].physical_selection_index == 0);
@@ -579,13 +587,13 @@ void cross_provider_release_and_cue() {
     auto misordered_references = physical_references;
     std::swap(misordered_references[0], misordered_references[1]);
     const auto mismatched = prepare_precision_cue_studio_review(
-        swapped_request, swapped_preview, studio_sources, misordered_references);
+        swapped_request, swapped_preview, swapped_sources, misordered_references);
     CHECK(mismatched.state == PrecisionCueStudioHandoffState::RowsRequireReview);
     CHECK(mismatched.rows[0].reference_state ==
           PrecisionCueStudioReferenceState::Unqualified);
     CHECK(mismatched.rows[15].reference_state ==
           PrecisionCueStudioReferenceState::Unqualified);
-    auto swapped_virtual = studio_sources;
+    auto swapped_virtual = swapped_sources;
     swapped_virtual[0].subsong = 1;
     CHECK(prepare_precision_cue_studio_review(
         swapped_request, swapped_preview, swapped_virtual, physical_references).rows.empty());
@@ -594,7 +602,7 @@ void cross_provider_release_and_cue() {
     CHECK(prepare_precision_cue_studio_review(
         swapped_request, swapped_preview, swapped_virtual, physical_references).rows.empty());
     CHECK(prepare_precision_cue_studio_review(
-        swapped_request, reviewed, studio_sources, physical_references).rows.empty());
+        swapped_request, reviewed, swapped_sources, physical_references).rows.empty());
 
     // Non-involutive three-disc cycle detects accidental inverse mapping.
     auto cycle_request = request;
@@ -610,11 +618,16 @@ void cross_provider_release_and_cue() {
         {"Disc 2.mp3", 1200000}, {"Disc 3.mp3", 1200000},
         {"Disc 1.mp3", 1200000}};
     cycle_request.reviewed_physical_index_by_disc = {2, 0, 1};
+    cycle_request.physical_source_identity_by_selection =
+        {"synthetic-physical-2", "synthetic-physical-3", "synthetic-physical-1"};
     const auto cycle_preview = make_precision_cue_release_preview(cycle_request);
     CHECK(cycle_preview.discs.size() == 3);
     CHECK(cycle_preview.physical_index_by_disc ==
           cycle_request.reviewed_physical_index_by_disc);
-    const std::vector<PrecisionCueStudioSourceView> cycle_sources(3, {0, true});
+    const std::vector<PrecisionCueStudioSourceView> cycle_sources{
+        {0, true, "synthetic-physical-2"},
+        {0, true, "synthetic-physical-3"},
+        {0, true, "synthetic-physical-1"}};
     std::vector<std::optional<std::string>> cycle_references{
         cycle_preview.discs[1].external_cue_utf8,
         cycle_preview.discs[2].external_cue_utf8,
@@ -661,6 +674,35 @@ void cross_provider_release_and_cue() {
 
     // Stale, forged, virtual and incomplete selections must fail CLOSED,
     // with no partial row handoff and no hidden disc permutation.
+    // Same names, durations, CUE bytes and disc permutation must not mask
+    // a different physical file, an aliased selection or a stale snapshot.
+    auto changed_host = studio_sources;
+    changed_host[0].physical_source_identity = "different-physical-file";
+    CHECK(prepare_precision_cue_studio_review(
+        request, reviewed, changed_host, no_references).rows.empty());
+    auto duplicate_host = studio_sources;
+    duplicate_host[1].physical_source_identity =
+        duplicate_host[0].physical_source_identity;
+    CHECK(prepare_precision_cue_studio_review(
+        request, reviewed, duplicate_host, no_references).rows.empty());
+    auto missing_host = studio_sources;
+    missing_host[0].physical_source_identity.clear();
+    CHECK(prepare_precision_cue_studio_review(
+        request, reviewed, missing_host, no_references).rows.empty());
+    auto changed_request_identity = request;
+    changed_request_identity.physical_source_identity_by_selection[0] =
+        "different-physical-file";
+    CHECK(prepare_precision_cue_studio_review(
+        changed_request_identity, reviewed, studio_sources, no_references).rows.empty());
+    auto changed_displayed_identity = reviewed;
+    changed_displayed_identity.physical_source_identity_by_selection[0] =
+        "different-physical-file";
+    CHECK(prepare_precision_cue_studio_review(
+        request, changed_displayed_identity, studio_sources, no_references).rows.empty());
+    auto missing_request_identity = request;
+    missing_request_identity.physical_source_identity_by_selection.clear();
+    CHECK(prepare_precision_cue_studio_review(
+        missing_request_identity, reviewed, studio_sources, no_references).rows.empty());
     auto virtual_sources = studio_sources;
     virtual_sources[0].subsong = 1;
     CHECK(prepare_precision_cue_studio_review(
