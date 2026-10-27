@@ -70,6 +70,9 @@ struct PrecisionCueStudioOptionalTrackEvidence {
     PrecisionCueStudioOptionalStartState start_state =
         PrecisionCueStudioOptionalStartState::CoarseCatalogOnly;
     bool disc_tail_duration_disagreement = false;
+    // Distinct millisecond durations can quantize to identical start/end
+    // frames. Only a high-resolution catalog field can carry this warning.
+    bool same_frame_duration_disagreement = false;
 };
 
 struct PrecisionCueStudioReviewRow {
@@ -398,7 +401,11 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
                         delta.signed_start_cumulative_delta_ms,
                         delta.signed_cumulative_delta_ms, delta.signed_end_frame_delta,
                         delta.signed_start_frame_delta, start_state,
-                        delta.disc_terminal_track && delta.signed_end_frame_delta != 0});
+                        delta.disc_terminal_track && delta.signed_delta_ms != 0,
+                        evidence.comparison_resolution_ms <= 1000u / 75u &&
+                            delta.signed_delta_ms != 0 &&
+                            delta.signed_start_frame_delta == 0 &&
+                            delta.signed_end_frame_delta == 0});
                 }
                 row.reference_has_extra_index_or_pregap =
                     reference_has_extra_index_or_pregap;

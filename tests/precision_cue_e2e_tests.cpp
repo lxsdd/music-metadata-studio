@@ -660,6 +660,46 @@ void cross_provider_release_and_cue() {
           OptionalStart::ExactFrameAdvisoryNotAudioProof);
     CHECK(!disc_tail_studio.rows[15].optional_track_evidence[0].
           disc_tail_duration_disagreement);
+    // A +1-ms final-track change does not move the CUE frame, but must
+    // remain a separately visible disc-tail duration REVIEW.
+    changed_last_track.release.tracks[14].duration_ms -= 13;
+    const auto subframe_tail_studio = prepare_precision_cue_studio_review(
+        request, reviewed, studio_sources, no_references, {changed_last_track});
+    CHECK(subframe_tail_studio.rows.size() == 30);
+    CHECK(subframe_tail_studio.optional_provider_evidence[0].comparison.state ==
+          PrecisionCueConsensusState::Review);
+    CHECK(subframe_tail_studio.optional_provider_evidence[0].comparison.diagnostics[0] ==
+          "DISC_TAIL_DURATION_DISAGREEMENT_REVIEW");
+    CHECK(subframe_tail_studio.rows[14].optional_track_evidence[0].
+          disc_tail_duration_disagreement);
+    CHECK(subframe_tail_studio.rows[14].optional_track_evidence[0].
+          same_frame_duration_disagreement);
+    CHECK(subframe_tail_studio.rows[14].optional_track_evidence[0].
+          signed_end_frame_delta == 0);
+    CHECK(subframe_tail_studio.rows[14].optional_track_evidence[0].start_state ==
+          OptionalStart::ExactFrameAdvisoryNotAudioProof);
+    CHECK(!subframe_tail_studio.rows[15].optional_track_evidence[0].
+          disc_tail_duration_disagreement);
+    // +1/-1 ms can cancel within a disc while both INDEX 01 and end
+    // frame deltas stay zero; expose both affected physical track rows.
+    auto compensated_spotify = spotify_optional;
+    compensated_spotify.release.tracks[0].duration_ms += 1;
+    compensated_spotify.release.tracks[1].duration_ms -= 1;
+    const auto compensated_studio = prepare_precision_cue_studio_review(
+        request, reviewed, studio_sources, no_references, {compensated_spotify});
+    CHECK(compensated_studio.rows.size() == 30);
+    CHECK(compensated_studio.optional_provider_evidence[0].comparison.state ==
+          PrecisionCueConsensusState::Review);
+    CHECK(compensated_studio.optional_provider_evidence[0].comparison.diagnostics[0] ==
+          "SUBFRAME_TRACK_DURATION_DISAGREEMENT_REVIEW");
+    CHECK(compensated_studio.rows[0].optional_track_evidence[0].
+          same_frame_duration_disagreement);
+    CHECK(compensated_studio.rows[1].optional_track_evidence[0].
+          same_frame_duration_disagreement);
+    CHECK(!compensated_studio.rows[15].optional_track_evidence[0].
+          same_frame_duration_disagreement);
+    CHECK(compensated_studio.rows[1].optional_track_evidence[0].
+          signed_start_frame_delta == 0);
     auto amazon_release = apple;
     amazon_release.provider = "amazon_music";
     amazon_release.provider_release_id = "offline-synthetic-amazon";

@@ -40,6 +40,21 @@ int main() {
     assert(r.comparison.differences[1].signed_start_frame_delta == 0);
     assert(r.comparison.differences[2].signed_start_frame_delta == 0);
     s.release.tracks[1].duration_ms -= 14;
+    s.release.tracks[1].duration_ms += 1;
+    r = audit_precision_cue_optional_source(apple, s);
+    assert(r.comparison.state == PrecisionCueConsensusState::Review);
+    assert(r.comparison.diagnostics[0] == "DISC_TAIL_DURATION_DISAGREEMENT_REVIEW");
+    assert(r.comparison.differences[1].signed_end_frame_delta == 0);
+    s.release.tracks[1].duration_ms -= 1;
+    s.release.tracks[0].duration_ms += 1;
+    s.release.tracks[1].duration_ms -= 1;
+    r = audit_precision_cue_optional_source(apple, s);
+    assert(r.comparison.state == PrecisionCueConsensusState::Review);
+    assert(r.comparison.diagnostics[0] ==
+           "SUBFRAME_TRACK_DURATION_DISAGREEMENT_REVIEW");
+    assert(r.comparison.differences[1].signed_start_frame_delta == 0);
+    s.release.tracks[0].duration_ms -= 1;
+    s.release.tracks[1].duration_ms += 1;
     s.release.tracks[0].duration_ms += 14;
     r = audit_precision_cue_optional_source(apple, s);
     assert(r.comparison.state == PrecisionCueConsensusState::Review);
@@ -70,6 +85,12 @@ int main() {
     assert(r.state == PrecisionCueOptionalState::ReviewOnly);
     assert(r.field_unit_ms == 1 && r.comparison_resolution_ms == 1000);
     assert(r.comparison.state == PrecisionCueConsensusState::SingleHighResolutionSource);
+    // Device-millisecond display is conservatively 1000-ms evidence;
+    // it must not trigger the high-resolution subframe review rule.
+    s.release.tracks[1].duration_ms += 1;
+    r = audit_precision_cue_optional_source(apple, s);
+    assert(r.comparison.state == PrecisionCueConsensusState::SingleHighResolutionSource);
+    s.release.tracks[1].duration_ms -= 1;
     s.release.tracks[1].duration_ms += 5000;
     r = audit_precision_cue_optional_source(apple, s);
     assert(r.comparison.state == PrecisionCueConsensusState::Review);

@@ -159,6 +159,7 @@ inline PrecisionCueConsensusReport audit_precision_cue_source_consensus(
     bool conflicting_frames = false;
     bool one_frame_ambiguity = false;
     bool terminal_duration_disagreement = false;
+    bool subframe_duration_disagreement = false;
     bool coarse_reference_conflict = false;
     // One 75-fps frame is 13.333... ms: a claimed 14-ms resolution
     // cannot independently corroborate individual CUE frames.
@@ -235,8 +236,17 @@ inline PrecisionCueConsensusReport audit_precision_cue_source_consensus(
                 if (start_frame_delta != 0) one_frame_ambiguity = true;
                 if (start_frame_delta > 1 || start_frame_delta < -1)
                     conflicting_frames = true;
-                if (terminal_track && delta != 0)
+                // A disc tail is a duration, not another INDEX 01 marker.
+                // Even a 1-ms disagreement that rounds to the SAME CUE frame
+                // must remain REVIEW instead of silently becoming consensus.
+                if (terminal_track && other_ms != primary_ms)
                     terminal_duration_disagreement = true;
+                // Opposing sub-frame differences can cancel before the next
+                // INDEX 01. Equal frame numbers alone do not imply equal
+                // provider durations or a sample-perfect match.
+                if (other_ms != primary_ms &&
+                    start_frame_delta == 0 && delta == 0)
+                    subframe_duration_disagreement = true;
             }
             // Whole-second reference durations are identity evidence only.
             // A large per-track or accumulated drift is contradictory,
@@ -277,6 +287,9 @@ inline PrecisionCueConsensusReport audit_precision_cue_source_consensus(
     } else if (terminal_duration_disagreement) {
         report.state = PrecisionCueConsensusState::Review;
         report.diagnostics.emplace_back("DISC_TAIL_DURATION_DISAGREEMENT_REVIEW");
+    } else if (subframe_duration_disagreement) {
+        report.state = PrecisionCueConsensusState::Review;
+        report.diagnostics.emplace_back("SUBFRAME_TRACK_DURATION_DISAGREEMENT_REVIEW");
     } else if (report.high_resolution_sources < 2) {
         report.state = PrecisionCueConsensusState::SingleHighResolutionSource;
         report.diagnostics.emplace_back("NO_INDEPENDENT_FRAME_RESOLUTION_CORROBORATION");

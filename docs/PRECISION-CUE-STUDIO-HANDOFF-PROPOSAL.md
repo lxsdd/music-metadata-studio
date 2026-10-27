@@ -60,3 +60,17 @@ in review, even when all INDEX 01 markers agree. Invalid reference syntax
 remains unqualified. The row also exposes signed integer-microsecond 75-fps
 quantization error and the structural-gap flag; neither is audio evidence.
 The entire Studio handoff remains read-only with no create/write token.
+
+## High-resolution sub-frame duration conflicts (2026-10-27)
+
+Independent high-resolution catalog durations can differ by 1 ms yet round to
+identical 75-fps CUE frames. The consensus engine now keeps those discrepancies
+as REVIEW, including the last track of each disc (which has no following INDEX
+01) and compensated +1/-1 ms pairs that cancel before the next frame boundary.
+The optional Studio row exposes `same_frame_duration_disagreement` alongside
+`disc_tail_duration_disagreement` and the signed millisecond deltas; coarse
+Deezer seconds and approximate Amazon-device milliseconds are never upgraded
+to frame-resolution evidence. These warnings are **catalog disagreements**, not
+proof of audible drift, mastering identity or sample-perfect positions.
+No native writer, external CUE publication, second foobar workspace, or provider
+network access is enabled by this change.

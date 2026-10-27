@@ -91,6 +91,32 @@ int main() {
     assert(tail_report.differences[1].signed_start_frame_delta == 0);
     assert(tail_report.differences[1].signed_end_frame_delta == 1);
     mb.release.tracks[1].duration_ms -= 14;
+    // Regression: a +1/-1 ms tail still differs even when both the
+    // terminal end and every INDEX 01 quantize to identical frames.
+    for (const auto tail_delta : {1, -1}) {
+        mb.release.tracks[1].duration_ms += tail_delta;
+        const auto subframe_tail = audit_precision_cue_source_consensus({apple, mb});
+        assert(subframe_tail.state == PrecisionCueConsensusState::Review);
+        assert(subframe_tail.diagnostics[0] == "DISC_TAIL_DURATION_DISAGREEMENT_REVIEW");
+        assert(subframe_tail.differences[1].signed_delta_ms == tail_delta);
+        assert(subframe_tail.differences[1].signed_start_frame_delta == 0);
+        assert(subframe_tail.differences[1].signed_end_frame_delta == 0);
+        mb.release.tracks[1].duration_ms -= tail_delta;
+    }
+    // Compensated sub-frame differences are not an exact-duration match.
+    mb.release.tracks[0].duration_ms += 1;
+    mb.release.tracks[1].duration_ms -= 1;
+    const auto cancelled_subframe = audit_precision_cue_source_consensus({apple, mb});
+    assert(cancelled_subframe.state == PrecisionCueConsensusState::Review);
+    assert(cancelled_subframe.diagnostics[0] ==
+           "SUBFRAME_TRACK_DURATION_DISAGREEMENT_REVIEW");
+    assert(cancelled_subframe.differences[0].signed_end_frame_delta == 0);
+    assert(cancelled_subframe.differences[1].signed_start_frame_delta == 0);
+    assert(cancelled_subframe.differences[1].signed_end_frame_delta == 0);
+    mb.release.tracks[0].duration_ms -= 1;
+    mb.release.tracks[1].duration_ms += 1;
+    assert(audit_precision_cue_source_consensus({apple, mb}).state ==
+           PrecisionCueConsensusState::Agreed);
     // Disc one tail is also NOT a start marker for disc two.
     mb.release.tracks.push_back({2, 1, "Bonus Outro", "Artist Three", 90000});
     apple.release.tracks.push_back({2, 1, "Bonus Outro", "Artist Three", 90000});
