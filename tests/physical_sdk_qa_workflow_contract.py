@@ -50,8 +50,8 @@ def violations(config: str, script: str) -> list[str]:
        github.event.pull_request.head.repo.full_name == github.repository &&
        github.event.pull_request.head.ref == 'feature/studio-precision-cue-integration-20261026' &&
        github.event.pull_request.base.ref == 'feature/online-metadata-discovery-foundation-20261009')"""
-    actual_condition = "    if: >-\\n" + qa.split("    if: >-\\n", 1)[1].split("    needs: static-audit\\n", 1)[0] if "    if: >-\\n" in qa else ""
-    if actual_condition != expected_condition + "\\n":
+    actual_condition = "    if: >-\n" + qa.split("    if: >-\n", 1)[1].split("    needs: static-audit\n", 1)[0] if "    if: >-\n" in qa else ""
+    if actual_condition != expected_condition + "\n":
         issues.append("untrusted physical QA event predicate")
     for item in requirements:
         if item not in qa:
