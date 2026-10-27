@@ -42,6 +42,26 @@ private:
     std::size_t sequence_=0;
     std::vector<PreviewHistoryEvent> events_;
 };
+// Optional exact 1-based physical source filter. Invalid input must not
+// silently fall back to exporting every source's history.
+struct PreviewHistorySourceQuery {
+    bool valid=true;
+    std::optional<std::size_t> source;
+};
+inline PreviewHistorySourceQuery preview_history_parse_source(
+    std::wstring_view text,std::size_t captured_batch_size) noexcept {
+    if(text.empty()) return {};
+    if(text.size()>7 || captured_batch_size==0 ||
+       captured_batch_size>1000000) return {false,std::nullopt};
+    std::size_t ordinal=0;
+    for(wchar_t ch:text) {
+        if(ch<L'0' || ch>L'9') return {false,std::nullopt};
+        ordinal=ordinal*10+static_cast<std::size_t>(ch-L'0');
+        if(ordinal>captured_batch_size) return {false,std::nullopt};
+    }
+    if(ordinal==0) return {false,std::nullopt};
+    return {true,ordinal-1};
+}
 // A display filter never mutates, renumbers or authorizes the source events.
 inline bool preview_history_matches(PreviewHistoryKind kind,
                                     PreviewHistoryFilter filter) noexcept {
@@ -62,12 +82,15 @@ inline bool preview_history_copy_hotkey(unsigned key,bool ctrl,bool alt,
            ctrl && !alt && !shift;
 }
 inline std::vector<std::size_t> preview_history_visible_indices(
-    const SessionPreviewHistory& history,PreviewHistoryFilter filter) {
+    const SessionPreviewHistory& history,PreviewHistoryFilter filter,
+    std::optional<std::size_t> source=std::nullopt) {
     std::vector<std::size_t> out;
     const auto& events=history.events();
     out.reserve(events.size());
     for(std::size_t i=0;i<events.size();++i)
-        if(preview_history_matches(events[i].kind,filter)) out.push_back(i);
+        if(preview_history_matches(events[i].kind,filter) &&
+           (!source || (events[i].sources==1 &&
+                        events[i].source_index==*source))) out.push_back(i);
     return out;
 }
 inline std::optional<std::size_t> preview_history_single_source(
@@ -112,12 +135,14 @@ inline const wchar_t* preview_history_receipt_scope(const PreviewHistoryEvent& e
 inline std::optional<std::wstring> preview_history_export_tsv(
     const SessionPreviewHistory& history, PreviewHistoryFilter filter,
     std::optional<std::size_t> selected_visible_row,
-    std::size_t captured_batch_size) {
+    std::size_t captured_batch_size,
+    std::optional<std::size_t> source=std::nullopt) {
+    if(source && *source>=captured_batch_size) return std::nullopt;
     if(captured_batch_size==0 || captured_batch_size>1000000 ||
        history.events().empty() ||
        history.events().size()>SessionPreviewHistory::limit)
         return std::nullopt;
-    const auto visible=preview_history_visible_indices(history,filter);
+    const auto visible=preview_history_visible_indices(history,filter,source);
     if(visible.empty() ||
        (selected_visible_row && *selected_visible_row>=visible.size()))
         return std::nullopt;
@@ -156,6 +181,8 @@ inline std::optional<std::wstring> preview_history_export_tsv(
         report+=L"\r\n";
         if(report.size()>65536) return std::nullopt;
     }
+    if(source) report+=L"Filtered to physical source #"+
+                       std::to_wstring(*source+1)+L" (single-source events only).\r\n";
     report+=L"Only in-memory preview decisions are listed. "
             L"No metadata, CUE or file operation was executed by this history.\r\n";
     return report.size()<=65536 ? std::optional<std::wstring>(std::move(report))
