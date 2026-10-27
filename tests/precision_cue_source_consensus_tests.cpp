@@ -104,6 +104,10 @@ int main() {
         mb.release.tracks[1].duration_ms -= tail_delta;
     }
     // Compensated sub-frame differences are not an exact-duration match.
+    // Keep the compensated pair NON-terminal: a changed final track has
+    // its own separate, higher-priority tail-duration diagnostic.
+    apple.release.tracks.push_back({1, 3, "Third Track", "Artist Three", 90000});
+    mb.release.tracks.push_back({1, 3, "Third Track", "Artist Three", 90000});
     mb.release.tracks[0].duration_ms += 1;
     mb.release.tracks[1].duration_ms -= 1;
     const auto cancelled_subframe = audit_precision_cue_source_consensus({apple, mb});
@@ -115,6 +119,8 @@ int main() {
     assert(cancelled_subframe.differences[1].signed_end_frame_delta == 0);
     mb.release.tracks[0].duration_ms -= 1;
     mb.release.tracks[1].duration_ms += 1;
+    apple.release.tracks.pop_back();
+    mb.release.tracks.pop_back();
     assert(audit_precision_cue_source_consensus({apple, mb}).state ==
            PrecisionCueConsensusState::Agreed);
     // Disc one tail is also NOT a start marker for disc two.

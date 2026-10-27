@@ -46,15 +46,22 @@ int main() {
     assert(r.comparison.diagnostics[0] == "DISC_TAIL_DURATION_DISAGREEMENT_REVIEW");
     assert(r.comparison.differences[1].signed_end_frame_delta == 0);
     s.release.tracks[1].duration_ms -= 1;
-    s.release.tracks[0].duration_ms += 1;
-    s.release.tracks[1].duration_ms -= 1;
-    r = audit_precision_cue_optional_source(apple, s);
+    // Make the compensated pair non-terminal. Otherwise the final-track
+    // mismatch correctly takes precedence as DISC_TAIL review.
+    auto three_track_apple = apple;
+    auto three_track_spotify = s;
+    three_track_apple.tracks.insert(three_track_apple.tracks.begin() + 2,
+        {1, 3, "Extra Track (Mixed)", "Artist Three", 90000});
+    three_track_spotify.release.tracks.insert(
+        three_track_spotify.release.tracks.begin() + 2,
+        {1, 3, "Extra Track (Mixed)", "Artist Three", 90000});
+    three_track_spotify.release.tracks[0].duration_ms += 1;
+    three_track_spotify.release.tracks[1].duration_ms -= 1;
+    r = audit_precision_cue_optional_source(three_track_apple, three_track_spotify);
     assert(r.comparison.state == PrecisionCueConsensusState::Review);
     assert(r.comparison.diagnostics[0] ==
            "SUBFRAME_TRACK_DURATION_DISAGREEMENT_REVIEW");
     assert(r.comparison.differences[1].signed_start_frame_delta == 0);
-    s.release.tracks[0].duration_ms -= 1;
-    s.release.tracks[1].duration_ms += 1;
     s.release.tracks[0].duration_ms += 14;
     r = audit_precision_cue_optional_source(apple, s);
     assert(r.comparison.state == PrecisionCueConsensusState::Review);
