@@ -1045,7 +1045,8 @@ inline std::optional<std::size_t> native_evidence_source_row(
     if(!list || visible<0 || visible>=ListView_GetItemCount(list))
         return std::nullopt;
     LVITEMW item{}; item.mask=LVIF_PARAM; item.iItem=visible;
-    if(!ListView_GetItem(list,&item) || item.lParam<0 ||
+    if(!SendMessageW(list,LVM_GETITEMW,0,reinterpret_cast<LPARAM>(&item)) ||
+       item.lParam<0 ||
        item.lParam>=1024 ||
        static_cast<std::size_t>(item.lParam)>=source_count)
         return std::nullopt;
@@ -1080,7 +1081,8 @@ inline bool native_sort_evidence_details(HWND list,int column,bool descending) {
     std::vector<bool> seen(static_cast<std::size_t>(count),false);
     for(int row=0;row<count;++row) {
         LVITEMW item{}; item.mask=LVIF_PARAM; item.iItem=row;
-        if(!ListView_GetItem(list,&item)) return false;
+        if(!SendMessageW(list,LVM_GETITEMW,0,
+                         reinterpret_cast<LPARAM>(&item))) return false;
         if(item.lParam<0) {
             if(item.lParam!=-1 && item.lParam!=-2) return false;
             continue;
@@ -1090,7 +1092,14 @@ inline bool native_sort_evidence_details(HWND list,int column,bool descending) {
         seen[static_cast<std::size_t>(item.lParam)]=true;
         for(int col=0;col<4;++col) {
             wchar_t value[4096]{};
-            ListView_GetItemText(list,row,col,value,4096);
+            LVITEMW text{};
+            text.mask=LVIF_TEXT;
+            text.iItem=row;
+            text.iSubItem=col;
+            text.pszText=value;
+            text.cchTextMax=4096;
+            SendMessageW(list,LVM_GETITEMTEXTW,static_cast<WPARAM>(row),
+                         reinterpret_cast<LPARAM>(&text));
             context.cells[static_cast<std::size_t>(item.lParam)][col]=value;
         }
     }
