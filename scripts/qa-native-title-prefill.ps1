@@ -66,7 +66,7 @@ public static class MmsSyntheticTitleHost {
 $title='Music Metadata Studio - Prepare Tracks (Read-only)'
 $dialog=[IntPtr]::Zero
 try {
- foreach($context in @('Music Metadata Studio/Prepare Tracks','Prepare Tracks')) {
+ foreach($context in @('Music Metadata Studio/Prepare Tracks (Preview)...','Prepare Tracks (Preview)...')) {
     $arg='/context_command:"'+$context+'" "'+$physical+'"'
     $entry=Start-Process -FilePath $Exe -WorkingDirectory $HostDir -ArgumentList $arg -Wait -PassThru
     if($entry.ExitCode -ne 0) {throw 'MMS_NATIVE_TITLE_QA_CONTEXT_COMMAND_FAILED'}
