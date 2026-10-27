@@ -74,6 +74,7 @@
 #include "djmeta/unified_review_batch_preflight.h"
 #include "djmeta/review_display.h"
 #include "djmeta/track_review.h"
+#include "djmeta/title_version_review.h"
 #include "djmeta/table_layout.h"
 #include "djmeta/staging.h"
 #include "djmeta/rules_snapshot.h"
@@ -2271,6 +2272,35 @@ void update_local_review_hint(PreviewState& state) {
     notice+=L" Staged edits: "+std::to_wstring(summary.staged_changes)+
             L"; pending proposals: "+std::to_wstring(summary.pending_proposals)+
             L". Filter changes only the visible review queue.";
+    // Read-only exact physical ORIGINAL: never a new rule or proposal.
+    // No virtual/CUE carrier, batch scan, provider fetch or metadata write.
+    if(!state.stale && !state.refreshing &&
+       state.selected_track_index<state.entries.size() &&
+       state.selected_track_index<state.analyses.size()) {
+        const auto& entry=state.entries[state.selected_track_index];
+        if(entry.input.physical_source_qualified &&
+           !is_external_cue_locator(entry.input.source_path) &&
+           entry.handle->get_subsong_index()==0) {
+            const auto info=entry.handle->get_info_ref();
+            const auto original=metadata_from_file_info(info->info());
+            if(djmeta::fingerprint(original)==entry.input_fingerprint) {
+                const auto mix=djmeta::review_title_version(original);
+                if(mix.state==djmeta::TitleVersionReviewState::Candidate)
+                    notice+=L" TITLE suffix '"+from_utf8(mix.suffix)+
+                        L"' has no VERSION field. Review only; no automatic split.";
+                else if(mix.state==djmeta::TitleVersionReviewState::Consistent)
+                    notice+=L" TITLE suffix '"+from_utf8(mix.suffix)+
+                        L"' matches VERSION. No change.";
+                else if(mix.state==djmeta::TitleVersionReviewState::Conflict)
+                    notice+=L" TITLE suffix '"+from_utf8(mix.suffix)+
+                        L"' conflicts with VERSION '"+from_utf8(mix.version)+
+                        L"'. Review manually; no automatic split.";
+                else if(mix.state==djmeta::TitleVersionReviewState::Ambiguous)
+                    notice+=L" TITLE/VERSION identity ambiguous. Original values preserved.";
+            } else
+                notice+=L" TITLE/VERSION diagnostic unavailable: source changed; refresh.";
+        }
+    }
     SetDlgItemTextW(state.dialog,IDC_BATCH_HINT,
         native_workspace_display_hint(state.stale,notice.c_str()));
 }

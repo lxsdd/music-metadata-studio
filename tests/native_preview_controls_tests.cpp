@@ -1,5 +1,6 @@
 #include "../src/foobar/native_preview_controls.h"
 #include "../src/foobar/field_evidence_receipt.h"
+#include "../include/djmeta/title_version_review.h"
 #include "../src/foobar/session_preview_history.h"
 #include "../src/foobar/readonly_network_request.h"
 #include "../src/foobar/review_grid_controls.h"
@@ -467,6 +468,26 @@ int main() {
     HWND dialog = CreateDialogParamW(GetModuleHandleW(nullptr),
         MAKEINTRESOURCEW(IDD_BATCH_PREVIEW), nullptr, test_dialog_proc, 0);
     check(dialog != nullptr, "actual production dialog template instantiation");
+    // Actual native resource-backed hint; no new dialog or write control.
+    const HWND mix_hint=GetDlgItem(dialog,IDC_BATCH_HINT);
+    check(mix_hint!=nullptr && IsWindow(mix_hint)!=FALSE,
+          "native Review has an existing source-bound hint surface");
+    const auto mix=djmeta::review_title_version(
+        {{{"TITLE",{"Track (DJ Version)"}}}});
+    check(mix.state==djmeta::TitleVersionReviewState::Candidate &&
+          mix.suffix=="DJ Version",
+          "native review uses the same read-only mix evidence core");
+    wchar_t previous_mix_hint[2048]{};
+    GetWindowTextW(mix_hint,previous_mix_hint,2048);
+    check(SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+          L"TITLE suffix 'DJ Version' has no VERSION field. Review only; no automatic split.")!=FALSE,
+          "native read-only mix diagnostic displays without new controls");
+    wchar_t visible_mix_hint[256]{};
+    check(GetDlgItemTextW(dialog,IDC_BATCH_HINT,visible_mix_hint,256)>0 &&
+          std::wstring(visible_mix_hint).find(L"no automatic split")!=std::wstring::npos,
+          "original Windows HWND renders bounded version warning");
+    SetDlgItemTextW(dialog,IDC_BATCH_HINT,previous_mix_hint);
+
     const HWND field_scope_control=GetDlgItem(dialog,IDC_METADATA_REVIEW_SCOPE);
     check(field_scope_control!=nullptr &&
           (GetWindowLongPtrW(field_scope_control,GWL_STYLE)&CBS_DROPDOWNLIST)==CBS_DROPDOWNLIST &&

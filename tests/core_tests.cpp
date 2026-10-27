@@ -1,4 +1,5 @@
 #include "djmeta/normalizer.h"
+#include "djmeta/title_version_review.h"
 #include "djmeta/rule_loader.h"
 #include "djmeta/rules_snapshot.h"
 #include "djmeta/structural_guard.h"
@@ -480,6 +481,56 @@ void test_disabled_semantic_candidates_are_opt_in() {
             "rule revision provenance lost in semantic analysis");
 }
 
+void test_readonly_title_version_suffix_diagnostic() {
+    using djmeta::MetadataDocument;
+    using djmeta::TitleVersionReviewState;
+    const MetadataDocument klf{{{"TITLE", {"The KLF — What Time Is Love (Original Version)"}},
+                                 {"ARTIST", {"The KLF"}}}};
+    const auto unchanged=klf;
+    const auto before=djmeta::fingerprint(klf);
+    const auto candidate=djmeta::review_title_version(klf);
+    require(candidate.state==TitleVersionReviewState::Candidate &&
+            candidate.suffix=="Original Version" &&
+            candidate.base_title=="The KLF — What Time Is Love" &&
+            candidate.version.empty(), "original version suffix read-only hint");
+    require(klf==unchanged && djmeta::fingerprint(klf)==before,
+            "title/version inspection must not mutate originals");
+    const MetadataDocument same{{{"TITLE", {"Song [Extended Mix]"}},
+                                 {"VERSION", {"extended mix"}}}};
+    require(djmeta::review_title_version(same).state==
+            TitleVersionReviewState::Consistent,
+            "matching explicit VERSION does not propose a split");
+    const MetadataDocument conflict{{{"TITLE", {"Song (Extended Mix)"}},
+                                     {"VERSION", {"Radio Edit"}}}};
+    const auto disputed=djmeta::review_title_version(conflict);
+    require(disputed.state==TitleVersionReviewState::Conflict &&
+            disputed.version=="Radio Edit" && disputed.suffix=="Extended Mix",
+            "contradictory TITLE/VERSION retained for manual review");
+    for(const auto& source: {
+        MetadataDocument{{{"TITLE", {"Song (Live)"}}}},
+        MetadataDocument{{{"TITLE", {"Song (1992)"}}}},
+        MetadataDocument{{{"TITLE", {"Song(Extended Mix)"}}}},
+        MetadataDocument{{{"TITLE", {"Song"}}}}
+    }) require(djmeta::review_title_version(source).state==
+               TitleVersionReviewState::NoEvidence,
+               "unknown/unbalanced/undelimited suffix is not a version");
+    for(const auto& source: {
+        MetadataDocument{{{"TITLE", {"Song (Extended Mix) (Radio Edit)"}}}},
+        MetadataDocument{{{"TITLE", {"Song (Original Mix)"}},
+                          {"VERSION", {"Original Mix","Radio Edit"}}}},
+        MetadataDocument{{{"TITLE", {"Song (Original Mix)"}},
+                          {"TITLE", {"Other"}}}},
+        MetadataDocument{{{"TITLE", {"Song (Original Mix)"}},
+                          {"VERSION", {std::string("bad\0value",9)}}}},
+        MetadataDocument{{{"TITLE", {"Song\n(Original Mix)"}}}}
+    }) require(djmeta::review_title_version(source).state==
+               TitleVersionReviewState::Ambiguous,
+               "duplicate/multivalue/structural/unsafe mix identity fails closed");
+    require(djmeta::review_title_version({}).state==
+            TitleVersionReviewState::NoEvidence,
+            "missing TITLE never fabricates a mix");
+}
+
 void test_fingerprint_contract() {
     const djmeta::MetadataDocument a{{{"ARTIST", {"A", "B"}}, {"TITLE", {"Track"}}}};
     const djmeta::MetadataDocument b = a;
@@ -514,6 +565,7 @@ int main() {
     test_bridge_metadata_vector_loader();
     test_persisted_ruleset_loader();
     test_fingerprint_contract();
+    test_readonly_title_version_suffix_diagnostic();
     test_disabled_semantic_candidates_are_opt_in();
     std::cout << "PASS: djmeta core deterministic preview tests\n";
     return 0;
