@@ -579,6 +579,25 @@ void cross_provider_release_and_cue() {
     CHECK(studio.rows[0].reference_state ==
           PrecisionCueStudioReferenceState::NotProvided);
     CHECK(!studio.rows[0].signed_reference_delta_frames);
+    CHECK(studio.rows[0].signed_quantization_offset_us == 0);
+    CHECK(studio.rows[15].signed_quantization_offset_us == 0);
+    CHECK(!studio.rows[0].reference_has_extra_index_or_pregap);
+
+    // One Apple track starts 7 ms after a whole-second reference while the
+    // physical disc total stays unchanged. Integer 75-fps rounding yields
+    // 120013.333 ms, i.e. +6333 us: never describe this as audio proof.
+    auto quantized_request = request;
+    quantized_request.candidates[0].tracks[0].duration_ms += 7;
+    quantized_request.candidates[0].tracks[1].duration_ms -= 7;
+    const auto quantized_preview =
+        make_precision_cue_release_preview(quantized_request);
+    const auto quantized_studio = prepare_precision_cue_studio_review(
+        quantized_request, quantized_preview, studio_sources, no_references);
+    CHECK(quantized_studio.rows.size() == 30);
+    CHECK(quantized_studio.rows[1].elapsed_ms == 120007);
+    CHECK(quantized_studio.rows[1].cue_frame == 9001);
+    CHECK(quantized_studio.rows[1].signed_quantization_offset_us == 6333);
+    CHECK(quantized_studio.rows[2].signed_quantization_offset_us == 0);
 
     // A claimed Deezer catalog containing fractional milliseconds is not
     // legitimate whole-second evidence, even when the matcher still finds
@@ -630,6 +649,43 @@ void cross_provider_release_and_cue() {
     CHECK(frame_studio.rows[1].reference_state ==
           PrecisionCueStudioReferenceState::WithinOneFrameNotAudioProof);
     CHECK(frame_studio.rows[1].signed_reference_delta_frames == -1);
+    CHECK(frame_studio.rows[0].reference_state ==
+          PrecisionCueStudioReferenceState::ExactFrameNotAudioProof);
+    CHECK(frame_studio.rows[2].reference_state ==
+          PrecisionCueStudioReferenceState::ExactFrameNotAudioProof);
+    CHECK(!frame_studio.rows[1].reference_has_extra_index_or_pregap);
+
+    // A two-frame error requires review only for the affected track; exact
+    // neighbors stay exact, but the complete handoff remains review-only.
+    replace_once(*references_for_studio[0],
+                 "INDEX 01 02:00:01", "INDEX 01 02:00:03");
+    const auto two_frame_studio = prepare_precision_cue_studio_review(
+        request, reviewed, studio_sources, references_for_studio);
+    CHECK(two_frame_studio.state ==
+          PrecisionCueStudioHandoffState::RowsRequireReview);
+    CHECK(two_frame_studio.rows[0].reference_state ==
+          PrecisionCueStudioReferenceState::ExactFrameNotAudioProof);
+    CHECK(two_frame_studio.rows[1].reference_state ==
+          PrecisionCueStudioReferenceState::ReviewRequired);
+    CHECK(two_frame_studio.rows[1].signed_reference_delta_frames == -3);
+    CHECK(two_frame_studio.rows[2].reference_state ==
+          PrecisionCueStudioReferenceState::ExactFrameNotAudioProof);
+
+    // An INDEX 00 is a structural disc-level warning. All rows must stay
+    // REVIEW, even though every INDEX 01 still agrees exactly.
+    references_for_studio[0] = reviewed.discs[0].external_cue_utf8;
+    replace_once(*references_for_studio[0], "    INDEX 01 02:00:00",
+                 "    INDEX 00 01:59:70\n    INDEX 01 02:00:00");
+    const auto gap_studio = prepare_precision_cue_studio_review(
+        request, reviewed, studio_sources, references_for_studio);
+    CHECK(gap_studio.rows.size() == 30);
+    CHECK(gap_studio.state == PrecisionCueStudioHandoffState::RowsRequireReview);
+    CHECK(gap_studio.rows[0].reference_state ==
+          PrecisionCueStudioReferenceState::ReviewRequired);
+    CHECK(gap_studio.rows[1].reference_state ==
+          PrecisionCueStudioReferenceState::ReviewRequired);
+    CHECK(gap_studio.rows[1].reference_has_extra_index_or_pregap);
+    CHECK(gap_studio.rows[1].signed_reference_delta_frames == 0);
 
     // A release-disc number is NOT a physical selection index. The CUE
     // reference travels with its selected MP3 through a reviewed permutation.

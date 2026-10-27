@@ -63,6 +63,12 @@ struct PrecisionCueStudioReviewRow {
     std::optional<std::int64_t> signed_corroborating_start_delta_ms;
     std::int64_t elapsed_ms = 0;
     std::int64_t cue_frame = 0;
+    // Quantization error is a signed integer microsecond audit only, not
+    // an independent audio clock or a sample-perfect timing assertion.
+    std::int64_t signed_quantization_offset_us = 0;
+    // A reference INDEX 00/PREGAP/POSTGAP affects the whole disc's
+    // structural review even when every INDEX 01 frame is identical.
+    bool reference_has_extra_index_or_pregap = false;
     PrecisionCueStudioReferenceState reference_state =
         PrecisionCueStudioReferenceState::NotProvided;
     std::optional<std::int64_t> signed_reference_delta_frames;
@@ -236,6 +242,7 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
             PrecisionCueStudioReferenceState reference_state =
                 PrecisionCueStudioReferenceState::NotProvided;
             std::vector<PrecisionCueBoundaryDifference> differences;
+            bool reference_has_extra_index_or_pregap = false;
             if (reference_cues[source_index]) {
                 const auto diff = compare_precision_cue_external_reference(
                     planned, *reference_cues[source_index],
@@ -259,6 +266,7 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
                     break;
                 }
                 differences = diff.audit.differences;
+                reference_has_extra_index_or_pregap = diff.extra_index_or_pregap;
             }
             std::int64_t elapsed = 0;
             for (std::size_t track = 0; track < planned.boundaries.size(); ++track) {
@@ -315,10 +323,35 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
                 }
                 row.elapsed_ms = boundary.elapsed_ms;
                 row.cue_frame = boundary.cue_frame;
+                row.signed_quantization_offset_us =
+                    precision_cue_quantization_offset_microseconds(boundary);
+                row.reference_has_extra_index_or_pregap =
+                    reference_has_extra_index_or_pregap;
                 row.reference_state = reference_state;
-                if (differences.size() == planned.boundaries.size())
+                if (differences.size() == planned.boundaries.size()) {
+                    const auto& difference = differences[track];
+                    if (difference.track_number != boundary.track_number ||
+                        difference.predicted_frame != boundary.cue_frame) {
+                        out.diagnostic = "STUDIO_REFERENCE_BOUNDARY_CHANGED";
+                        out.rows.clear();
+                        return out;
+                    }
                     row.signed_reference_delta_frames =
-                        differences[track].signed_delta_frames;
+                        difference.signed_delta_frames;
+                    // A one-frame discrepancy on track 2 must not label
+                    // 29 exact tracks as one-frame mismatches. Conversely,
+                    // structural gap/INDEX 00 evidence is disc-wide REVIEW,
+                    // even if the individual INDEX 01 positions match.
+                    if (!reference_has_extra_index_or_pregap &&
+                        reference_state != PrecisionCueStudioReferenceState::Unqualified) {
+                        const auto delta = difference.signed_delta_frames;
+                        row.reference_state = delta == 0
+                            ? PrecisionCueStudioReferenceState::ExactFrameNotAudioProof
+                            : (delta == -1 || delta == 1)
+                                ? PrecisionCueStudioReferenceState::WithinOneFrameNotAudioProof
+                                : PrecisionCueStudioReferenceState::ReviewRequired;
+                    }
+                }
                 out.rows.push_back(std::move(row));
                 elapsed += item.duration_ms;
             }

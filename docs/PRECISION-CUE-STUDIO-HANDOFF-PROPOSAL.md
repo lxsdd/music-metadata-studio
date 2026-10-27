@@ -48,3 +48,15 @@ basenames, missing physical probe and virtual subsong rejection. CI evidence
 must be checked against the exact new proposal SHA. These tests do NOT
 establish installed foobar GUI, real provider access rights, audio mastering
 identity, source-distribution permission or productive-write authorization.
+
+## Per-track reference fidelity (2026-10-27)
+
+The read-only handoff now distinguishes **per-track** INDEX 01 evidence from
+**disc-wide** structural CUE warnings. A 30-track comparison with one
+one-frame discrepancy labels 29 individual rows exact-frame and only the
+changed row within-one-frame; two-or-more-frame errors require review on the
+specific row. Any INDEX 00, PREGAP or POSTGAP keeps the entire reference disc
+in review, even when all INDEX 01 markers agree. Invalid reference syntax
+remains unqualified. The row also exposes signed integer-microsecond 75-fps
+quantization error and the structural-gap flag; neither is audio evidence.
+The entire Studio handoff remains read-only with no create/write token.
