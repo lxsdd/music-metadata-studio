@@ -36,8 +36,26 @@ using System;
 using System.Runtime.InteropServices;
 using System.Text;
 public static class MmsSyntheticTitleHost {
- [DllImport("user32.dll", CharSet=CharSet.Unicode, EntryPoint="FindWindowW")]
- public static extern IntPtr FindWindow(string cls, string caption);
+ private delegate bool Scan(IntPtr h, IntPtr data);
+ [DllImport("user32.dll")] private static extern bool EnumWindows(Scan callback, IntPtr data);
+ [DllImport("user32.dll", CharSet=CharSet.Unicode, EntryPoint="GetWindowTextW")]
+ private static extern int Caption(IntPtr h, StringBuilder buffer, int count);
+ public static IntPtr FindStudio(uint expectedPid) {
+    IntPtr found=IntPtr.Zero;
+    EnumWindows((h,p)=>{
+       uint actualPid;
+       GetWindowThreadProcessId(h,out actualPid);
+       if(actualPid != expectedPid) return true;
+       var title=new StringBuilder(256);
+       Caption(h,title,title.Capacity);
+       if(title.ToString().StartsWith("Music Metadata Studio - ",StringComparison.Ordinal)) {
+          found=h;
+          return false;
+       }
+       return true;
+    },IntPtr.Zero);
+    return found;
+ }
  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
  [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr h, int id);
  [DllImport("user32.dll", CharSet=CharSet.Unicode, EntryPoint="SendMessageTimeoutW")]
@@ -63,7 +81,6 @@ public static class MmsSyntheticTitleHost {
 }
 '@
 
-$title='Music Metadata Studio - Prepare Tracks (Read-only)'
 $dialog=[IntPtr]::Zero
 try {
  foreach($context in @('Music Metadata Studio/Prepare Tracks (Preview)...','Prepare Tracks (Preview)...')) {
@@ -72,17 +89,16 @@ try {
     if($entry.ExitCode -ne 0) {throw 'MMS_NATIVE_TITLE_QA_CONTEXT_COMMAND_FAILED'}
     for($attempt=0;$attempt -lt 28;$attempt++) {
        Start-Sleep -Milliseconds 250
-       $candidate=[MmsSyntheticTitleHost]::FindWindow($null,$title)
+       $candidate=[MmsSyntheticTitleHost]::FindStudio($FoobarPid)
        if($candidate -eq [IntPtr]::Zero) {continue}
-       [uint32]$pid=0
-       [void][MmsSyntheticTitleHost]::GetWindowThreadProcessId($candidate,[ref]$pid)
-       if($pid -ne $FoobarPid) {throw 'MMS_NATIVE_TITLE_QA_WRONG_PROCESS'}
        $dialog=$candidate
        break
     }
     if($dialog -ne [IntPtr]::Zero) {break}
  }
- if($dialog -eq [IntPtr]::Zero) {throw 'MMS_NATIVE_TITLE_QA_NO_WORKSPACE'}
+ if($dialog -eq [IntPtr]::Zero) {
+    throw 'MMS_NATIVE_TITLE_QA_NO_STUDIO_WINDOW_FOR_CONTEXT'
+ }
  $actual=''
  for($attempt=0;$attempt -lt 24;$attempt++) {
     $actual=[MmsSyntheticTitleHost]::EditText($dialog,291)
