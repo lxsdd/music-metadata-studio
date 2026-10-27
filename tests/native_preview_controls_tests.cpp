@@ -311,6 +311,13 @@ int main() {
           history.events().back().sequence==300 &&
           history.events().back().scope==2,
           "history retains the latest 256 events and stable ordinal");
+    check(djmeta_foobar::preview_history_copy_hotkey(L'C',true,false,false,true) &&
+          !djmeta_foobar::preview_history_copy_hotkey(L'C',false,false,false,true) &&
+          !djmeta_foobar::preview_history_copy_hotkey(L'C',true,true,false,true) &&
+          !djmeta_foobar::preview_history_copy_hotkey(L'C',true,false,true,true) &&
+          !djmeta_foobar::preview_history_copy_hotkey(L'C',true,false,false,false) &&
+          !djmeta_foobar::preview_history_copy_hotkey(VK_RETURN,true,false,false,true),
+          "History Ctrl+C only with exact modifiers on visible native tab");
     using djmeta_foobar::PreviewHistoryFilter;
     using djmeta_foobar::preview_history_visible_indices;
     using djmeta_foobar::preview_history_single_source;
@@ -468,6 +475,24 @@ int main() {
     HWND dialog = CreateDialogParamW(GetModuleHandleW(nullptr),
         MAKEINTRESOURCEW(IDD_BATCH_PREVIEW), nullptr, test_dialog_proc, 0);
     check(dialog != nullptr, "actual production dialog template instantiation");
+    HWND history_hwnd=GetDlgItem(dialog,IDC_BATCH_HISTORY_LIST);
+    check(history_hwnd && IsWindow(history_hwnd)!=FALSE,
+          "production native History ListView exists");
+    wchar_t history_caption[]=L"1";
+    LVITEMW history_item{};
+    history_item.mask=LVIF_TEXT;
+    history_item.iItem=0;
+    history_item.pszText=history_caption;
+    check(ListView_InsertItem(history_hwnd,&history_item)==0,
+          "native History accepts a captured session event row");
+    ListView_SetItemState(history_hwnd,0,LVIS_SELECTED|LVIS_FOCUSED,
+                          LVIS_SELECTED|LVIS_FOCUSED);
+    check(ListView_GetSelectedCount(history_hwnd)==1 &&
+          ListView_GetNextItem(history_hwnd,-1,LVNI_SELECTED)==0,
+          "native selected History row identity for one-row receipt");
+    ListView_SetItemState(history_hwnd,0,0,LVIS_SELECTED);
+    check(ListView_GetSelectedCount(history_hwnd)==0,
+          "native empty selection cannot authorize selected-only receipt");
     // Actual native resource-backed hint; no new dialog or write control.
     const HWND mix_hint=GetDlgItem(dialog,IDC_BATCH_HINT);
     check(mix_hint!=nullptr && IsWindow(mix_hint)!=FALSE,

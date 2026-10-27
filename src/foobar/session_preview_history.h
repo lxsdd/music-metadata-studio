@@ -55,6 +55,12 @@ inline bool preview_history_matches(PreviewHistoryKind kind,
            kind==PreviewHistoryKind::Reset ||
            kind==PreviewHistoryKind::Manual;
 }
+// Only visible History Ctrl+C, without other modifiers, requests a receipt.
+inline bool preview_history_copy_hotkey(unsigned key,bool ctrl,bool alt,
+                                        bool shift,bool visible) noexcept {
+    return visible && key==static_cast<unsigned>(L'C') &&
+           ctrl && !alt && !shift;
+}
 inline std::vector<std::size_t> preview_history_visible_indices(
     const SessionPreviewHistory& history,PreviewHistoryFilter filter) {
     std::vector<std::size_t> out;

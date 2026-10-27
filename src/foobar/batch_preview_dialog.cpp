@@ -2909,7 +2909,7 @@ void show_history_page(HWND dialog,PreviewState& state) {
     for(int id:{IDC_BATCH_HISTORY_FILTER,IDC_BATCH_HISTORY_FILTER_LABEL})
         ShowWindow(GetDlgItem(dialog,id),SW_SHOW);
     SetDlgItemTextW(dialog,IDC_BATCH_GUIDE,
-        L"4. Filter history; double-click a single-source action to inspect its current preview. No writes.");
+        L"4. Filter history; double-click to inspect, Ctrl+C to copy selected, or right-click to copy filtered actions. No writes.");
     SetDlgItemTextW(dialog,IDC_BATCH_HINT,
         L"Session only (last 256 actions). Multi-track actions are summaries. Refresh clears history.");
 }
@@ -5219,7 +5219,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_METADATA_USE_VALUE,L"Use the entered value for one proposal or the selected scalar field across visible/all qualified physical tracks. Bulk requires default-No confirmation; no writes."},
         {IDC_METADATA_VISIBLE_WHITESPACE,L"Display tabs, spaces and other invisible characters visibly; original tags remain unchanged."},
         {IDC_BATCH_LIST,L"Proposed source-to-target rows. Right-click one physical source to inspect its uniquely linked, previously inspected CUE carrier. Multiple or stale CUE links are not guessed. Final foobar File Operations targets remain unqualified."},
-        {IDC_BATCH_HISTORY_LIST,L"Last 256 session actions. Double-click a single-source action to inspect its current preview, never replay it."},
+        {IDC_BATCH_HISTORY_LIST,L"Last 256 session actions. Double-click to inspect; Ctrl+C copies the selected action, right-click copies filtered actions. Never replay or write."},
         {IDC_BATCH_HISTORY_FILTER,L"Filter session actions; source order and original event identities remain unchanged."},
         {IDC_BATCH_LOCATION_FILTER,L"Display-only full-batch raw route and staged FileAction queues: BLOCKED, RAW ONLY or SKIP. Selected/visible previews use only visible original source IDs; Preview all and Audit include hidden rows. No final FileOps/CUE approval."},
         {IDC_BATCH_FILE_ACTION,L"Explicit action intent for the next selected/visible/all preview: Move, Copy, Rename or No file action. Each track retains its own intent; Rename awaits verified same-parent host destination. Nothing is executed."},
@@ -6991,6 +6991,44 @@ void change_online_field_preview(PreviewState& state,int action) {
     SetDlgItemTextW(state.dialog,IDC_BATCH_HINT,notice.c_str());
 }
 
+// Read-only History receipt; a selected row maps to its original filtered
+// event identity, never to a mutable ListView caption or a write approval.
+void copy_session_preview_history(HWND dialog,PreviewState& state,
+                                  bool selected_only) {
+    if(!state.tabs || TabCtrl_GetCurSel(state.tabs)!=3 ||
+       !state.history_list || state.stale || state.refreshing ||
+       state.checking_snapshot || state.entries.empty())
+        throw std::invalid_argument("History requires a fresh visible workspace.");
+    const auto visible=preview_history_visible_indices(
+        state.preview_history,state.history_filter);
+    if(visible.empty() || visible!=state.history_view_order)
+        throw std::invalid_argument("History filter changed; refresh the view.");
+    std::optional<std::size_t> selected;
+    if(selected_only) {
+        if(ListView_GetSelectedCount(state.history_list)!=1)
+            throw std::invalid_argument(
+                "Select exactly one History row or copy the filtered view.");
+        const int row=ListView_GetNextItem(state.history_list,-1,LVNI_SELECTED);
+        if(row<0 || static_cast<std::size_t>(row)>=visible.size())
+            throw std::invalid_argument("History selection is out of range.");
+        selected=static_cast<std::size_t>(row);
+    }
+    // Full captured-source and rule recheck before an exact-session receipt.
+    revalidate_workspace(state,true);
+    if(state.stale || state.refreshing || state.checking_snapshot ||
+       state.history_view_order!=preview_history_visible_indices(
+           state.preview_history,state.history_filter))
+        throw std::invalid_argument("History source changed; refresh before copying.");
+    const auto receipt=preview_history_export_tsv(
+        state.preview_history,state.history_filter,selected,state.entries.size());
+    if(!receipt)
+        throw std::invalid_argument("History receipt empty, invalid or too large.");
+    native_copy_audit_text_to_clipboard(dialog,*receipt);
+    SetDlgItemTextW(dialog,IDC_BATCH_HINT,selected_only
+        ? L"Selected History action copied (preview only; no writes)."
+        : L"Filtered session History copied (preview only; no writes).");
+}
+
 INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
     if (message == WM_INITDIALOG) {
         auto* state = reinterpret_cast<PreviewState*>(lp);
@@ -7459,6 +7497,18 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             else show_preview_page(dialog, *state,
                 selected_tab != 2, selected_tab == 0);
             return TRUE;
+        }
+        if(header && header->idFrom==IDC_BATCH_HISTORY_LIST &&
+           header->code==LVN_KEYDOWN) {
+            const auto* key=reinterpret_cast<const NMLVKEYDOWN*>(lp);
+            if(key && preview_history_copy_hotkey(
+                  key->wVKey,(GetKeyState(VK_CONTROL)&0x8000)!=0,
+                  (GetKeyState(VK_MENU)&0x8000)!=0,
+                  (GetKeyState(VK_SHIFT)&0x8000)!=0,
+                  TabCtrl_GetCurSel(state->tabs)==3)) {
+                SendMessageW(dialog,WM_COMMAND,MAKEWPARAM(41540u,0),0);
+                return TRUE;
+            }
         }
         if(header && header->idFrom==IDC_BATCH_HISTORY_LIST &&
            (header->code==NM_DBLCLK || header->code==LVN_KEYDOWN)) {
@@ -8274,6 +8324,35 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         // Fallback for dialog-forwarded header notifications; the subclass
         // handles native keyboard and right-click delivery directly.
         const HWND requested = reinterpret_cast<HWND>(wp);
+        if(requested==state->history_list &&
+           state->tabs && TabCtrl_GetCurSel(state->tabs)==3) {
+            const HMENU menu=CreatePopupMenu();
+            if(!menu) return TRUE;
+            const bool has_rows=!state->stale && !state->refreshing &&
+                !state->history_view_order.empty();
+            const bool one=has_rows &&
+                ListView_GetSelectedCount(state->history_list)==1;
+            AppendMenuW(menu,MF_STRING|(one?MF_ENABLED:MF_GRAYED),
+                        41540u,L"Copy selected History action (Ctrl+C)");
+            AppendMenuW(menu,MF_STRING|(has_rows?MF_ENABLED:MF_GRAYED),
+                        41541u,L"Copy filtered History (read-only)");
+            POINT point{};
+            if(lp==static_cast<LPARAM>(-1)) {
+                RECT rect{};
+                GetWindowRect(state->history_list,&rect);
+                point={rect.left+16,rect.top+16};
+            } else {
+                point={static_cast<short>(LOWORD(lp)),
+                       static_cast<short>(HIWORD(lp))};
+            }
+            const UINT command=TrackPopupMenu(menu,
+                TPM_RETURNCMD|TPM_RIGHTBUTTON|TPM_NONOTIFY,
+                point.x,point.y,0,dialog,nullptr);
+            DestroyMenu(menu);
+            if(command==41540u || command==41541u)
+                SendMessageW(dialog,WM_COMMAND,MAKEWPARAM(command,0),0);
+            return TRUE;
+        }
         if(requested==dialog && state->show_metadata) {
             // Right-click only the actual gap; ordinary list/header menus
             // and keyboard context menus keep their existing semantics.
@@ -9534,6 +9613,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 ? djmeta::ReviewAction::Pending
                 : djmeta::ReviewAction::ManualValue;
             apply_review_action(dialog, *state, action);
+            return TRUE;
+        }
+        if(id==41540u || id==41541u) {
+            copy_session_preview_history(dialog,*state,id==41540u);
             return TRUE;
         }
         if(id==IDC_BATCH_HISTORY_FILTER && HIWORD(wp)==CBN_SELCHANGE) {
