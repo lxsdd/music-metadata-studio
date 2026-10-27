@@ -168,7 +168,8 @@ inline PrecisionCueReferenceDiff compare_precision_cue_external_reference(
                 !decimal(tokens[1], number, 99, 2) ||
                 number != current_track + 1) return out;
             ++current_track;
-            structures.push_back({current_track});
+            structures.emplace_back();
+            structures.back().track_number = current_track;
             index_01_seen = false;
             index_00_seen = false;
             pregap_seen = false;
