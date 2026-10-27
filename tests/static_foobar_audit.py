@@ -178,6 +178,21 @@ for token in (
 ):
     if token not in precision:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: native Cancel/tooltip binding missing " + token)
+# The actual native focus path and bounded cancellation checks must remain
+# wired after refactors. This is a source guard, not installed DPI acceptance.
+for token in (
+    "const bool cancel_had_focus = GetFocus() == cancel;",
+    "if (busy && cancel) SetFocus(cancel);",
+    "else if (!busy && cancel_had_focus)",
+    "std::jthread([job, request](std::stop_token stop)",
+    "std::jthread([job, deezer_request](std::stop_token stop)",
+    "(std::max)(1L, info.rcWork.right - info.rcWork.left)",
+    "(std::max)(1L, info.rcWork.bottom - info.rcWork.top)",
+):
+    if token not in precision:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: cancel focus/monitor bound missing " + token)
+if precision.count("stop.stop_requested()") < 8:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: provider follow-up ignores cancellation")
 resources_for_batch = (foobar / "component.rc").read_text(encoding="utf-8")
 if "IDC_PRECISION_CANCEL_LOOKUP" not in resources_for_batch:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: native Cancel lookup control missing")

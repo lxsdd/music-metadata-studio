@@ -1448,9 +1448,9 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
             MONITORINFO info{sizeof(info)};
             if (monitor && GetMonitorInfoW(monitor, &info)) {
                 bounds->ptMinTrackSize.x = (std::min)(
-                    bounds->ptMinTrackSize.x, (std::max)(1, static_cast<int>(info.rcWork.right - info.rcWork.left)));
+                    bounds->ptMinTrackSize.x, (std::max)(1L, info.rcWork.right - info.rcWork.left));
                 bounds->ptMinTrackSize.y = (std::min)(
-                    bounds->ptMinTrackSize.y, (std::max)(1, static_cast<int>(info.rcWork.bottom - info.rcWork.top)));
+                    bounds->ptMinTrackSize.y, (std::max)(1L, info.rcWork.bottom - info.rcWork.top));
             }
         }
         return TRUE;
