@@ -949,6 +949,29 @@ int main() {
     HWND mb_load = GetDlgItem(dialog, IDC_METADATA_MB_LOAD_RELEASE);
     check(mb_query != nullptr && mb_search != nullptr && mb_load != nullptr,
           "production official MusicBrainz online search/query and release controls exist");
+    check(djmeta_foobar::native_online_lookup_can_cancel(true,false) &&
+          !djmeta_foobar::native_online_lookup_can_cancel(true,true) &&
+          !djmeta_foobar::native_online_lookup_can_cancel(false,false),
+          "only a pending uncancelled provider request offers cancellation");
+    check(djmeta_foobar::native_apply_online_cancel_button(
+              mb_search,true,false) && IsWindowEnabled(mb_search),
+          "real production Search HWND exposes Cancel lookup");
+    wchar_t cancel_label[64]{};
+    GetWindowTextW(mb_search,cancel_label,64);
+    check(std::wcscmp(cancel_label,L"Cancel lookup")==0,
+          "native Search button caption advertises cancellation");
+    check(djmeta_foobar::native_apply_online_cancel_button(
+              mb_search,true,true) && !IsWindowEnabled(mb_search),
+          "native Cancelling state prevents repeat request");
+    GetWindowTextW(mb_search,cancel_label,64);
+    check(std::wcscmp(cancel_label,L"Cancelling...")==0 &&
+          !djmeta_foobar::native_apply_online_cancel_button(
+              nullptr,true,false) &&
+          !djmeta_foobar::native_apply_online_cancel_button(
+              mb_search,false,false),
+          "missing HWND or completed request never mutates the native button");
+    SetWindowTextW(mb_search,L"Search MusicBrainz");
+    EnableWindow(mb_search,TRUE);
     RECT mb_query_rect{}, mb_search_rect{}, mb_load_rect{};
     check(GetWindowRect(mb_query, &mb_query_rect) != FALSE &&
           GetWindowRect(mb_search, &mb_search_rect) != FALSE &&
@@ -2093,7 +2116,15 @@ int main() {
               SetWindowTextW(mb_query,L"New query cancels pending provider")!=FALSE &&
               !test_request_context.matches(pending_context),
               "real native edit invalidates pending transport without blocking UI");
+        check(djmeta_foobar::native_apply_online_cancel_button(
+                  mb_search,true,false) && IsWindowEnabled(mb_search),
+              "native Cancel lookup remains responsive during network wait");
+        test_request_context.invalidate();
         djmeta_foobar::request_readonly_network_stop(*pending);
+        check(djmeta_foobar::native_apply_online_cancel_button(
+                  mb_search,true,true) && !IsWindowEnabled(mb_search) &&
+              !test_request_context.matches(pending_context),
+              "native cancellation stops worker and invalidates response epoch");
         for(int n=0;n<200 && !djmeta_foobar::readonly_network_finished(*pending);++n)
             Sleep(5);
         check(djmeta_foobar::readonly_network_finished(*pending) &&
@@ -2103,6 +2134,10 @@ int main() {
               "close cancellation prevents stale provider reply");
         if(pending->worker.joinable()) pending->worker.join();
         pending.reset();
+        SetWindowTextW(mb_search,L"Search MusicBrainz");
+        EnableWindow(mb_search,TRUE);
+        check(IsWindowEnabled(mb_search),
+              "native Search is restored after asynchronous cancel completion");
         while(PeekMessageW(&notification,dialog,
                            djmeta_foobar::kReadOnlyNetworkDoneMessage,
                            djmeta_foobar::kReadOnlyNetworkDoneMessage,PM_REMOVE))

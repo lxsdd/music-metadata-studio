@@ -293,6 +293,7 @@ struct PreviewState {
     std::shared_ptr<ReadOnlyNetworkJob> beatport_public_request;
     std::optional<PendingBeatportPageContext> beatport_public_context;
     bool online_close_requested=false;
+    bool online_user_cancel_requested=false; // UI-only, never a write authorization
     ReadOnlyContextVersion online_context_version;
     bool discogs_provider_selected = false; // visible runtime-only source selector
     bool beatport_offline_selected = false; // no approved Beatport API transport
@@ -2322,10 +2323,13 @@ void update_metadata_table(PreviewState& state) {
               state.entries[state.selected_track_index].handle->get_subsong_index() != 0));
         EnableWindow(GetDlgItem(state.dialog, IDC_METADATA_INSPECT_CUE),
                      native_workspace_action_ready(state.stale,cue_readable)?TRUE:FALSE);
+        const bool pending_online=state.discogs_request ||
+            state.musicbrainz_request || state.beatport_public_request;
         EnableWindow(GetDlgItem(state.dialog, IDC_METADATA_MB_SEARCH),
-                     (physical || (!state.beatport_offline_selected && cue_readable)) &&
-                     !state.discogs_request && !state.musicbrainz_request &&
-                     !state.beatport_public_request && !state.stale ? TRUE : FALSE);
+            native_online_lookup_can_cancel(
+                pending_online,state.online_user_cancel_requested) ||
+            ((physical || (!state.beatport_offline_selected && cue_readable)) &&
+             !pending_online && !state.stale) ? TRUE : FALSE);
         // Preserve the candidate, not its old sorted view row.
         std::string selected_browser_id;
         const int selected_before=ListView_GetNextItem(
@@ -2580,15 +2584,18 @@ void update_live_provider_controls(PreviewState& state) {
         !state.discogs_result_first_path.empty() &&
         state.search_plan_identity==state.discogs_result_identity &&
         !state.discogs_results.empty();
-    SetDlgItemTextW(state.dialog,IDC_METADATA_MB_SEARCH,
-        state.beatport_offline_selected ? L"Load Beatport URL" :
-        native_discogs_search_caption(state.discogs_provider_selected,
-            next_master,published_search,
-            state.candidate_source_index==state.selected_track_index,
-            state.musicbrainz_release_loaded,pending,
-            state.discogs_result_attempt_index,
-            state.discogs_result_attempt_total));
-    if(state.beatport_offline_selected) {
+    const HWND search=GetDlgItem(state.dialog,IDC_METADATA_MB_SEARCH);
+    if(!native_apply_online_cancel_button(
+          search,pending,state.online_user_cancel_requested))
+        SetDlgItemTextW(state.dialog,IDC_METADATA_MB_SEARCH,
+            state.beatport_offline_selected ? L"Load Beatport URL" :
+            native_discogs_search_caption(state.discogs_provider_selected,
+                next_master,published_search,
+                state.candidate_source_index==state.selected_track_index,
+                state.musicbrainz_release_loaded,pending,
+                state.discogs_result_attempt_index,
+                state.discogs_result_attempt_total));
+    if(state.beatport_offline_selected && !pending) {
         const bool selected=state.selected_track_index<state.entries.size();
         const bool physical=selected &&
             state.entries[state.selected_track_index].input.physical_source_qualified &&
@@ -5330,7 +5337,8 @@ void begin_discogs_network(HWND dialog, PreviewState& state,
     auto job=start_readonly_network(dialog,std::move(transport));
     state.discogs_context.emplace(std::move(context));
     state.discogs_request=std::move(job);
-    EnableWindow(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH),FALSE);
+    state.online_user_cancel_requested=false;
+    update_live_provider_controls(state); // actual native button: Cancel lookup
     EnableWindow(GetDlgItem(dialog,IDC_METADATA_MB_LOAD_RELEASE),FALSE);
     EnableWindow(GetDlgItem(dialog,IDC_METADATA_DISCOGS_NEXT_PAGE),FALSE);
 }
@@ -5472,7 +5480,8 @@ void perform_beatport_public_page_lookup(HWND dialog,PreviewState& state) {
         });
     state.beatport_public_context.emplace(std::move(ctx));
     state.beatport_public_request=std::move(job);
-    EnableWindow(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH),FALSE);
+    state.online_user_cancel_requested=false;
+    update_live_provider_controls(state); // actual native button: Cancel lookup
     SetDlgItemTextW(dialog,IDC_BATCH_HINT,
         L"Loading ONE public Beatport page. Access denials stop without "
         L"retry, bypass or changes to your files.");
@@ -5484,11 +5493,21 @@ void consume_beatport_public_network(HWND dialog,PreviewState& state) {
     auto ctx=std::move(state.beatport_public_context);
     state.beatport_public_request.reset();
     state.beatport_public_context.reset();
+    const bool cancelled=state.online_user_cancel_requested;
+    state.online_user_cancel_requested=false;
     if(state.online_close_requested) {
         DestroyWindow(dialog);
         return;
     }
     try {
+        update_live_provider_controls(state);
+        if(cancelled) {
+            update_metadata_table(state);
+            SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                L"Lookup cancelled. Existing comparisons and review decisions "
+                L"were preserved; no files changed.");
+            return;
+        }
         if(!ctx || !state.online_context_version.matches(ctx->context_version)) {
             update_metadata_table(state);
             return; // provider/track/source changed while HTTP was running
@@ -6265,6 +6284,8 @@ void consume_discogs_network(HWND dialog, PreviewState& state) {
     auto context=std::move(state.discogs_context);
     state.discogs_request.reset();
     state.discogs_context.reset();
+    const bool cancelled=state.online_user_cancel_requested;
+    state.online_user_cancel_requested=false;
     if(state.online_close_requested) {
         DestroyWindow(dialog);
         return;
@@ -6272,6 +6293,14 @@ void consume_discogs_network(HWND dialog, PreviewState& state) {
     EnableWindow(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH),
                  native_workspace_action_ready(state.stale,true)?TRUE:FALSE);
     try {
+        update_live_provider_controls(state);
+        if(cancelled) {
+            update_metadata_table(state);
+            SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                L"Lookup cancelled. Existing comparisons and review decisions "
+                L"were preserved; no files changed.");
+            return;
+        }
         if(context && !state.online_context_version.matches(context->context_version)) {
             // Context changes deliberately cancel this reply, without a popup.
             update_metadata_table(state);
@@ -6313,7 +6342,8 @@ void begin_musicbrainz_network(HWND dialog, PreviewState& state,
         });
     state.musicbrainz_context.emplace(std::move(ctx));
     state.musicbrainz_request=std::move(job);
-    EnableWindow(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH),FALSE);
+    state.online_user_cancel_requested=false;
+    update_live_provider_controls(state); // actual native button: Cancel lookup
     EnableWindow(GetDlgItem(dialog,IDC_METADATA_MB_LOAD_RELEASE),FALSE);
 }
 
@@ -6638,6 +6668,8 @@ void consume_musicbrainz_network(HWND dialog, PreviewState& state) {
     auto request=std::move(state.musicbrainz_context);
     state.musicbrainz_request.reset();
     state.musicbrainz_context.reset();
+    const bool cancelled=state.online_user_cancel_requested;
+    state.online_user_cancel_requested=false;
     if(state.online_close_requested) {
         DestroyWindow(dialog);
         return;
@@ -6645,6 +6677,14 @@ void consume_musicbrainz_network(HWND dialog, PreviewState& state) {
     EnableWindow(GetDlgItem(dialog,IDC_METADATA_MB_SEARCH),
                  native_workspace_action_ready(state.stale,true)?TRUE:FALSE);
     try {
+        update_live_provider_controls(state);
+        if(cancelled) {
+            update_metadata_table(state);
+            SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                L"Lookup cancelled. Existing comparisons and review decisions "
+                L"were preserved; no files changed.");
+            return;
+        }
         if(request && !state.online_context_version.matches(request->context_version)) {
             update_metadata_table(state); // stale responses cannot interrupt foobar
             return;
@@ -8758,6 +8798,28 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             return TRUE;
         }
         if (id == IDC_METADATA_MB_SEARCH && HIWORD(wp) == BN_CLICKED) {
+            // Cancel the pending request on the same native Search button.
+            // Invalidate ONLY the network response epoch, preserving every
+            // existing local/online review and CUE/naming what-if postimage.
+            // Completion joins the stopped worker asynchronously.
+            const bool pending=state->musicbrainz_request ||
+                state->discogs_request || state->beatport_public_request;
+            if(pending) {
+                if(state->online_user_cancel_requested) return TRUE;
+                state->online_context_version.invalidate();
+                state->online_user_cancel_requested=true;
+                if(state->musicbrainz_request)
+                    request_readonly_network_stop(*state->musicbrainz_request);
+                if(state->discogs_request)
+                    request_readonly_network_stop(*state->discogs_request);
+                if(state->beatport_public_request)
+                    request_readonly_network_stop(*state->beatport_public_request);
+                update_live_provider_controls(*state);
+                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                    L"Cancelling read-only provider lookup. Existing comparisons "
+                    L"and review decisions remain intact.");
+                return TRUE;
+            }
             if(!state->online_included_fields.empty())
                 throw std::runtime_error(
                     "Reset included Discogs fields before starting another search. "

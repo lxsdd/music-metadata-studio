@@ -48,6 +48,18 @@ for token in ("native_review_split_keyboard_proc",
     if token not in sources:
         raise SystemExit("STATIC NATIVE DIVIDER CONTRACT FAIL: "+token)
 
+# Pending MusicBrainz/Discogs/Beatport requests must offer a native
+# cancellation path that invalidates only the network epoch and stops workers.
+for token in ("native_apply_online_cancel_button(",
+              "state->online_context_version.invalidate();",
+              "state->online_user_cancel_requested=true;",
+              "request_readonly_network_stop(*state->discogs_request)",
+              "request_readonly_network_stop(*state->musicbrainz_request)",
+              "request_readonly_network_stop(*state->beatport_public_request)",
+              "Lookup cancelled. Existing comparisons and review decisions"):
+    if token not in sources:
+        raise SystemExit("STATIC NATIVE CANCEL CONTRACT FAIL: "+token)
+
 # Read-only exact-source provenance receipt remains production-wired to
 # native HWND/menu/keyboard, bounded clipboard and explicit identity guards.
 for token in ("native_evidence_receipt_allowed(",

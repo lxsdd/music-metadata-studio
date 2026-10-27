@@ -992,6 +992,23 @@ inline bool native_browser_selection_requires_reset(
         static_cast<std::size_t>(actual_selected_row)!=verified_view_row;
 }
 
+// Explicit cancellation of one pending user-requested provider lookup reuses
+// the existing Search button. Stop and response-epoch invalidation are owned
+// by the dialog; this helper only changes the real Win32 button presentation.
+inline constexpr bool native_online_lookup_can_cancel(
+    bool pending, bool cancelling) noexcept {
+    return pending && !cancelling;
+}
+inline bool native_apply_online_cancel_button(
+    HWND button, bool pending, bool cancelling) noexcept {
+    if(!button || !pending) return false;
+    if(!SetWindowTextW(button,cancelling
+        ? L"Cancelling..." : L"Cancel lookup")) return false;
+    EnableWindow(button,native_online_lookup_can_cancel(
+        pending,cancelling)?TRUE:FALSE);
+    return true;
+}
+
 // Search progress is visible in the actual native button, not buried in a
 // status label: a second deliberate click broadens nonmatching first-page
 // Discogs hits without browsing an artist tree. No request starts merely
