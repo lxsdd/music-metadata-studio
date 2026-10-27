@@ -45,7 +45,7 @@ for token in ("native_review_split_keyboard_proc",
               "apply_review_split_offset(*state,next)",
               "review_split_gap_hit(master,detail,hit.x,hit.y)",
               "store_review_split_offset(state->review_split_offset_96)"):
-    if token not in workspace_dialog and token not in native_controls:
+    if token not in sources:
         raise SystemExit("STATIC NATIVE DIVIDER CONTRACT FAIL: "+token)
 
 # Read-only exact-source provenance receipt remains production-wired to
