@@ -413,6 +413,15 @@ int main() {
     HWND cue_lookup = GetDlgItem(cue_dialog, IDC_PRECISION_LOOKUP);
     HWND cue_search = GetDlgItem(cue_dialog, IDC_PRECISION_SEARCH);
     HWND cue_results = GetDlgItem(cue_dialog, IDC_PRECISION_ALBUM_RESULTS);
+    HWND cue_cancel = GetDlgItem(cue_dialog, IDC_PRECISION_CANCEL_LOOKUP);
+    check(cue_cancel && !IsWindowEnabled(cue_cancel),
+          "native Cancel lookup exists and is disabled without a pending request");
+    check((GetWindowLongPtrW(cue_cancel, GWL_STYLE) & WS_TABSTOP) != 0,
+          "native Cancel lookup participates in keyboard focus order");
+    EnableWindow(cue_cancel, TRUE);
+    check(IsWindowEnabled(cue_cancel), "Cancel lookup can be enabled while busy");
+    EnableWindow(cue_cancel, FALSE);
+    check(!IsWindowEnabled(cue_cancel), "Cancel lookup disables after completion");
     check(cue_search && cue_results, "native Apple search and explicit candidate selection exist");
     check((static_cast<DWORD>(GetWindowLongPtrW(cue_results, GWL_STYLE)) & 0x3u)
               == CBS_DROPDOWNLIST, "Apple candidates cannot be entered or silently substituted");
@@ -425,6 +434,11 @@ int main() {
           "candidate selection is explicit and stable");
     HWND cue_text = GetDlgItem(cue_dialog, IDC_PRECISION_PREVIEW_TEXT);
     HWND cue_hint = GetDlgItem(cue_dialog, IDC_PRECISION_SOURCE_HINT);
+    RECT cue_hint_rect{}, cue_cancel_rect{};
+    check(GetWindowRect(cue_hint, &cue_hint_rect) &&
+          GetWindowRect(cue_cancel, &cue_cancel_rect) &&
+          cue_hint_rect.right < cue_cancel_rect.left,
+          "native Cancel lookup does not obscure provenance/status hint");
     check(cue_link && cue_lookup && cue_text && cue_hint,
           "Precision CUE has actual Apple link, lookup, status and preview controls");
     const auto link_style = static_cast<DWORD>(
@@ -504,7 +518,7 @@ int main() {
                       << cue_client.right << "x" << cue_client.bottom << "\\n";
         return inside;
     };
-    for (HWND item : {cue_edition, cue_copy, cue_save, cue_save_all, cue_close})
+    for (HWND item : {cue_cancel, cue_edition, cue_copy, cue_save, cue_save_all, cue_close})
         check(inside_client(item),
               "all CUE review/create controls fit inside production minimum window");
     RECT cue_single_rect{}, cue_batch_rect{}, cue_close_rect{};
@@ -522,7 +536,7 @@ int main() {
 
     DestroyWindow(dialog);
     std::cout << "PASS: Win32 reviewed bindings, master/detail resizing and 96-192 DPI column geometry; "
-                 "native preview resource, editable profile, "
+                 "native preview resource, Cancel lookup and keyboard tab-stop, editable profile, "
                  "virtual master/detail controls and shared label alignment\n";
     return 0;
 }

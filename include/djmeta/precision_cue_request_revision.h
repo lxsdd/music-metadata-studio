@@ -17,6 +17,12 @@ public:
         else
             ++revision_;
     }
+    // Dismissal is stronger than a text change: even identical later input
+    // cannot revive a previously completed worker's result.
+    void cancel_request() noexcept {
+        input_changed();
+        requested_ = 0;
+    }
     void begin_request() noexcept {
         requested_ = exhausted_ ? 0 : revision_;
     }

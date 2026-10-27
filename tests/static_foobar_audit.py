@@ -151,7 +151,36 @@ for token in (
     if token not in batch_handler:
         raise SystemExit(
             "STATIC FOOBAR AUDIT FAIL: lost partial CUE publication evidence: " + token)
+# Dismissal must invalidate the pending request and its reviewed export
+# without joining a network worker on the foobar UI thread.
+cancel_block = precision.split(
+    "void cancel_pending_lookup(Workspace& state, bool announce) {", 1
+)[-1].split("void initialize_disc_controls(Workspace& state) {", 1)[0]
+for token in (
+    "state.input_revision.cancel_request()",
+    "state.job->worker.request_stop()",
+    "state.job.reset()",
+    "KillTimer(state.dialog, kPollTimer)",
+    "update_lookup_ui(state, false)",
+    "reset_disc_controls(state)",
+    "clear_search_results(state)",
+):
+    if token not in cancel_block:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: native lookup cancel guard missing " + token)
+if "job->worker.join()" in cancel_block or "job->worker.joinable()" in cancel_block:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: network worker joined on UI cancel")
+for token in (
+    "IDC_PRECISION_CANCEL_LOOKUP && HIWORD(wp) == BN_CLICKED",
+    "cancel_pending_lookup(*state, true)",
+    "install_precision_tooltips(*state)",
+    "TTM_ADDTOOLW",
+    "TTF_IDISHWND | TTF_SUBCLASS",
+):
+    if token not in precision:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: native Cancel/tooltip binding missing " + token)
 resources_for_batch = (foobar / "component.rc").read_text(encoding="utf-8")
+if "IDC_PRECISION_CANCEL_LOOKUP" not in resources_for_batch:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: native Cancel lookup control missing")
 if "IDC_PRECISION_SAVE_ALL_CUES" not in resources_for_batch:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: batch create lacks a native control")
 

@@ -582,6 +582,23 @@ void test_catalog_http_fail_closed_diagnostics() {
 }
 
 
+void test_request_revision_cancel_and_stale_result() {
+    djmeta::PrecisionCueRequestRevision revision;
+    assert(!revision.request_is_current());
+    revision.begin_request();
+    assert(revision.request_is_current());
+    revision.cancel_request();
+    assert(!revision.request_is_current());
+    revision.begin_request();
+    assert(revision.request_is_current()); // only a NEW user request
+    revision.input_changed(); // edit while a request is running
+    assert(!revision.request_is_current());
+    revision.cancel_request(); // repeated dismissal remains fail-closed
+    assert(!revision.request_is_current());
+    revision.begin_request();
+    assert(revision.request_is_current());
+}
+
 void test_precision_cue_window_geometry_persistence() {
     using namespace djmeta;
     PrecisionCueWindowGeometry original{-1400, 75, 1100, 780, true};
@@ -631,6 +648,7 @@ int main() {
     test_foobar_scheme_diagnostics_are_bounded();
     test_integer_cumulative_rounding();
     test_precision_cue_window_geometry_persistence();
+    test_request_revision_cancel_and_stale_result();
     test_physical_cue_index_bounds_and_create_gate();
     test_long_indices_and_unicode();
     test_frame_classification();

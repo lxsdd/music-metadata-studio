@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include <commctrl.h>
 
 #include "guid.h"
 #include "resource.h"
@@ -47,6 +48,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <stop_token>
 #include <thread>
 #include <vector>
 
@@ -132,13 +134,14 @@ struct Workspace {
         unsigned flags = 0;
         RECT original{};
     };
-    std::array<ControlAnchor, 13> anchors{};
+    std::array<ControlAnchor, 14> anchors{};
     int initial_client_width = 0;
     int initial_client_height = 0;
     int min_window_width = 0;
     int min_window_height = 0;
     bool restore_maximized = false;
     HWND dialog = nullptr;
+    HWND tooltips = nullptr;
     bool registered = false;
     std::vector<LocalFile> files;
     std::shared_ptr<LookupJob> job;
@@ -168,12 +171,13 @@ void capture_precision_window_layout(Workspace& state) noexcept {
     state.initial_client_height = client.bottom - client.top;
     state.min_window_width = outer.right - outer.left;
     state.min_window_height = outer.bottom - outer.top;
-    const std::array<std::pair<int, unsigned>, 13> controls{{
+    const std::array<std::pair<int, unsigned>, 14> controls{{
         {IDC_PRECISION_APPLE_LINK, kGrowWidth},
         {IDC_PRECISION_SEARCH, kShiftX},
         {IDC_PRECISION_ALBUM_RESULTS, kGrowWidth},
         {IDC_PRECISION_LOOKUP, kShiftX},
         {IDC_PRECISION_SOURCE_HINT, kGrowWidth},
+        {IDC_PRECISION_CANCEL_LOOKUP, kShiftX},
         {IDC_PRECISION_MP3_PICKER, kGrowWidth},
         {IDC_PRECISION_ASSIGN_DISC, kShiftX},
         {IDC_PRECISION_PREVIEW_TEXT, kGrowWidth | kGrowHeight},
@@ -218,6 +222,43 @@ void resize_precision_window_controls(Workspace& state) noexcept {
             SetWindowPos(child, nullptr, x, y, width, height,
                 SWP_NOACTIVATE | SWP_NOZORDER);
     }
+}
+
+// Native tooltips are bound to the actual production HWNDs and remain valid
+// for the modeless window lifetime. No provider or media access.
+void install_precision_tooltips(Workspace& state) noexcept {
+    INITCOMMONCONTROLSEX init{sizeof(init), ICC_WIN95_CLASSES};
+    if (!InitCommonControlsEx(&init)) return;
+    const HWND tip = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr,
+        WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX, 0, 0, 0, 0,
+        state.dialog, nullptr, core_api::get_my_instance(), nullptr);
+    if (!tip) return;
+    static constexpr std::array<std::pair<int, const wchar_t*>, 8> hints{{
+        {IDC_PRECISION_APPLE_LINK, L"Enter an exact Apple/Deezer album URL or artist and album search terms."},
+        {IDC_PRECISION_SEARCH, L"Search the official Apple album catalog; select the exact edition."},
+        {IDC_PRECISION_LOOKUP, L"Read the selected release tracklist. No CUE or audio is written."},
+        {IDC_PRECISION_CANCEL_LOOKUP, L"Discard pending results. In-flight HTTPS may finish in the background."},
+        {IDC_PRECISION_PREVIEW_ASSIGNED, L"Review every physical MP3-to-disc assignment before export."},
+        {IDC_PRECISION_EDITION_CONFIRMED, L"Confirm the exact mixed edition; not permission to overwrite audio or tags."},
+        {IDC_PRECISION_SAVE_CUE, L"Creates a new external .cue only after separate explicit confirmation."},
+        {IDC_PRECISION_SAVE_ALL_CUES, L"Create-only batch; targets are rechecked, never overwritten."}
+    }};
+    for (const auto& [id, message] : hints) {
+        const HWND control = GetDlgItem(state.dialog, id);
+        if (!control) { DestroyWindow(tip); return; }
+        TOOLINFOW tool{};
+        tool.cbSize = sizeof(tool);
+        tool.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+        tool.hwnd = state.dialog;
+        tool.uId = reinterpret_cast<UINT_PTR>(control);
+        tool.lpszText = const_cast<LPWSTR>(message);
+        if (!SendMessageW(tip, TTM_ADDTOOLW, 0,
+                reinterpret_cast<LPARAM>(&tool))) {
+            DestroyWindow(tip);
+            return;
+        }
+    }
+    state.tooltips = tip;
 }
 
 void restore_precision_window_geometry(Workspace& state) noexcept {
@@ -805,6 +846,34 @@ void reset_disc_controls(Workspace& state) {
         EnableWindow(GetDlgItem(state.dialog, id), FALSE);
 }
 
+// Dismissed results never authorize a CUE. An in-flight WinHTTP call may
+// finish in the bounded background pool; no worker is joined on the UI thread.
+void update_lookup_ui(Workspace& state, bool busy) noexcept {
+    EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_SEARCH), !busy);
+    EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_LOOKUP), !busy);
+    EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_CANCEL_LOOKUP), busy);
+}
+
+void cancel_pending_lookup(Workspace& state, bool announce) {
+    if (!state.job) return;
+    state.input_revision.cancel_request();
+    state.job->worker.request_stop();
+    state.job.reset(); // The bounded global pool retains the worker.
+    KillTimer(state.dialog, kPollTimer);
+    update_lookup_ui(state, false);
+    reset_disc_controls(state);
+    clear_search_results(state);
+    state.deezer_reference.reset();
+    state.lookup_url.clear();
+    if (announce) {
+        show_text(state.dialog,
+            L"Lookup cancelled. Pending results will not be displayed.\r\n"
+            L"An already-started HTTPS request may finish in the background.\r\n"
+            L"Review the exact album again; no CUE, audio or tags changed.");
+        SetFocus(GetDlgItem(state.dialog, IDC_PRECISION_APPLE_LINK));
+    }
+}
+
 void initialize_disc_controls(Workspace& state) {
     if (!state.release || state.release->tracks.empty())
         throw std::invalid_argument("Album has no disc tracklist");
@@ -1126,9 +1195,11 @@ void start_search(Workspace& state) {
     state.deezer_reference.reset();
     auto job = std::make_shared<LookupJob>();
     job->kind = PrecisionCueJobKind::AppleSearch;
-    job->worker = std::jthread([job, request] {
+    job->worker = std::jthread([job, request](std::stop_token stop) {
         try {
+            if (stop.stop_requested()) throw std::runtime_error("Lookup cancelled");
             const auto json = djmeta::fetch_apple_precision_cue_json(request);
+            if (stop.stop_requested()) throw std::runtime_error("Lookup cancelled");
             job->hits = djmeta::parse_apple_precision_cue_album_search(json);
         } catch (const std::exception& error) {
             job->error = error.what();
@@ -1141,8 +1212,7 @@ void start_search(Workspace& state) {
     state.input_revision.begin_request();
     g_lookup_pool.jobs.push_back(job);
     state.job = std::move(job);
-    EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_SEARCH), FALSE);
-    EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_LOOKUP), FALSE);
+    update_lookup_ui(state, true);
     show_text(state.dialog, L"Searching official Apple album catalog...\r\n"
                             L"Choose an exact candidate; search results never authorize a CUE.");
     SetTimer(state.dialog, kPollTimer, 250, nullptr);
@@ -1171,9 +1241,11 @@ void start_lookup(Workspace& state) {
         state.deezer_reference.reset();
         auto job = std::make_shared<LookupJob>();
         job->kind = PrecisionCueJobKind::DeezerSearch;
-        job->worker = std::jthread([job, deezer_request] {
+        job->worker = std::jthread([job, deezer_request](std::stop_token stop) {
             try {
+                if (stop.stop_requested()) throw std::runtime_error("Lookup cancelled");
                 const auto json = djmeta::fetch_deezer_precision_cue_json(deezer_request);
+                if (stop.stop_requested()) throw std::runtime_error("Lookup cancelled");
                 djmeta::PrecisionCueRelease reference;
                 try {
                     reference = djmeta::parse_deezer_precision_cue_album(
@@ -1188,11 +1260,15 @@ void start_lookup(Workspace& state) {
                     std::vector<std::string> pages;
                     for (std::size_t index = 0; index < count; index += 100) {
                         // Sleep only on the background worker, never foobar's UI.
-                        std::this_thread::sleep_for(std::chrono::milliseconds(3200));
+                        for (unsigned tick = 0; tick < 32; ++tick) {
+                            if (stop.stop_requested()) throw std::runtime_error("Lookup cancelled");
+                            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                        }
                         auto page_request = deezer_request;
                         page_request.track_page = true;
                         page_request.track_index = index;
                         pages.push_back(djmeta::fetch_deezer_precision_cue_json(page_request));
+                        if (stop.stop_requested()) throw std::runtime_error("Lookup cancelled");
                     }
                     reference = djmeta::parse_deezer_precision_cue_album_pages(
                         json, deezer_request.album_id, pages);
@@ -1202,7 +1278,9 @@ void start_lookup(Workspace& state) {
                 apple_search.parameter = reference.album_title;
                 apple_search.storefront = "DE";
                 apple_search.user_initiated = true;
+                if (stop.stop_requested()) throw std::runtime_error("Lookup cancelled");
                 const auto apple_json = djmeta::fetch_apple_precision_cue_json(apple_search);
+                if (stop.stop_requested()) throw std::runtime_error("Lookup cancelled");
                 job->hits = djmeta::parse_apple_precision_cue_album_search(apple_json);
                 job->deezer_reference = std::move(reference);
             } catch (const std::exception& error) {
@@ -1216,8 +1294,7 @@ void start_lookup(Workspace& state) {
         state.input_revision.begin_request();
         g_lookup_pool.jobs.push_back(job);
         state.job = std::move(job);
-        EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_SEARCH), FALSE);
-        EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_LOOKUP), FALSE);
+        update_lookup_ui(state, true);
         show_text(state.dialog,
             L"Reading the official Deezer album identity, then searching Apple's "
             L"high-resolution duration catalog. No audio is downloaded.\r\n"
@@ -1266,9 +1343,11 @@ void start_lookup(Workspace& state) {
     job->kind = PrecisionCueJobKind::AppleLookup;
     job->selected_album = std::move(selected_album);
     if (deezer_link) job->deezer_reference = state.deezer_reference;
-    job->worker = std::jthread([job, request] {
+    job->worker = std::jthread([job, request](std::stop_token stop) {
         try {
+            if (stop.stop_requested()) throw std::runtime_error("Lookup cancelled");
             const auto json = djmeta::fetch_apple_precision_cue_json(request);
+            if (stop.stop_requested()) throw std::runtime_error("Lookup cancelled");
             auto looked_up = djmeta::parse_apple_precision_cue_lookup(json, request.parameter);
             if (job->selected_album &&
                 !djmeta::apple_precision_cue_selection_matches_lookup(
@@ -1324,8 +1403,7 @@ void start_lookup(Workspace& state) {
     state.input_revision.begin_request();
     g_lookup_pool.jobs.push_back(job);
     state.job = std::move(job);
-    EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_SEARCH), FALSE);
-    EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_LOOKUP), FALSE);
+    update_lookup_ui(state, true);
     show_text(state.dialog, L"Requesting official Apple album metadata...\r\n"
                             L"foobar2000 remains usable. No files are modified.");
     SetTimer(state.dialog, kPollTimer, 250, nullptr);
@@ -1343,6 +1421,8 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
         g_precision_workspace = dialog;
         capture_precision_window_layout(*state);
         restore_precision_window_geometry(*state);
+        install_precision_tooltips(*state);
+        update_lookup_ui(*state, false);
         reset_disc_controls(*state);
         show_text(dialog, L"Paste an Apple Music or Deezer album URL, or enter artist and album terms and Search albums.\r\n"
                           L"Select the exact candidate before Look up selected. All local files are read only.");
@@ -1355,6 +1435,16 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
         if (bounds) {
             bounds->ptMinTrackSize.x = state->min_window_width;
             bounds->ptMinTrackSize.y = state->min_window_height;
+            // Remote desktop, high DPI and a removed monitor can reduce
+            // the work area below the original dialog template minimum.
+            const HMONITOR monitor = MonitorFromWindow(dialog, MONITOR_DEFAULTTONEAREST);
+            MONITORINFO info{sizeof(info)};
+            if (monitor && GetMonitorInfoW(monitor, &info)) {
+                bounds->ptMinTrackSize.x = (std::min)(
+                    bounds->ptMinTrackSize.x, (std::max)(1, info.rcWork.right - info.rcWork.left));
+                bounds->ptMinTrackSize.y = (std::min)(
+                    bounds->ptMinTrackSize.y, (std::max)(1, info.rcWork.bottom - info.rcWork.top));
+            }
         }
         return TRUE;
     }
@@ -1365,8 +1455,7 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
     if (message == WM_TIMER && wp == kPollTimer) {
         if (state->job && state->job->ready.load(std::memory_order_acquire)) {
             KillTimer(dialog, kPollTimer);
-            EnableWindow(GetDlgItem(dialog, IDC_PRECISION_SEARCH), TRUE);
-            EnableWindow(GetDlgItem(dialog, IDC_PRECISION_LOOKUP), TRUE);
+            update_lookup_ui(*state, false);
             try {
                 if (!state->input_revision.request_is_current() ||
                     to_utf8(url_entry(dialog)) != state->lookup_url) {
@@ -1419,6 +1508,7 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
     }
     if (message == WM_COMMAND) {
         if (LOWORD(wp) == IDC_PRECISION_APPLE_LINK && HIWORD(wp) == EN_CHANGE) {
+            cancel_pending_lookup(*state, false);
             state->input_revision.input_changed();
             reset_disc_controls(*state);
             clear_search_results(*state);
@@ -1428,6 +1518,10 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
         if (LOWORD(wp) == IDC_PRECISION_ALBUM_RESULTS && HIWORD(wp) == CBN_SELCHANGE) {
             state->input_revision.input_changed();
             reset_disc_controls(*state);
+            return TRUE;
+        }
+        if (LOWORD(wp) == IDC_PRECISION_CANCEL_LOOKUP && HIWORD(wp) == BN_CLICKED) {
+            cancel_pending_lookup(*state, true);
             return TRUE;
         }
         if (LOWORD(wp) == IDC_PRECISION_SEARCH && HIWORD(wp) == BN_CLICKED) {
@@ -1485,6 +1579,11 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
             return TRUE;
         }
         if (LOWORD(wp) == IDCANCEL && HIWORD(wp) == BN_CLICKED) {
+            // ESC sends IDCANCEL without a button HWND; Close has its HWND.
+            if (lp == 0 && state->job) {
+                cancel_pending_lookup(*state, true);
+                return TRUE;
+            }
             DestroyWindow(dialog);
             return TRUE;
         }
@@ -1497,6 +1596,7 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
     }
     if (message == WM_NCDESTROY) {
         KillTimer(dialog, kPollTimer);
+        if (state->tooltips && IsWindow(state->tooltips)) DestroyWindow(state->tooltips);
         if (state->registered) modeless_dialog_manager::g_remove(dialog);
         if (g_precision_workspace == dialog) g_precision_workspace = nullptr;
         SetWindowLongPtrW(dialog, GWLP_USERDATA, 0);
@@ -1516,15 +1616,15 @@ void open_precision_workspace(metadb_handle_list_cref handles) {
             GetWindowLongPtrW(g_precision_workspace, GWLP_USERDATA));
         if (active) {
             KillTimer(g_precision_workspace, kPollTimer);
-            active->input_revision.input_changed();
+            active->input_revision.cancel_request();
+            if (active->job) active->job->worker.request_stop();
             active->job.reset();
             reset_disc_controls(*active);
             clear_search_results(*active);
             active->deezer_reference.reset();
             active->lookup_url.clear();
             active->files.clear(); // A rejected new selection cannot reuse old files.
-            EnableWindow(GetDlgItem(g_precision_workspace, IDC_PRECISION_SEARCH), TRUE);
-            EnableWindow(GetDlgItem(g_precision_workspace, IDC_PRECISION_LOOKUP), TRUE);
+            update_lookup_ui(*active, false);
             try {
                 active->files = capture_files(handles); // physical read-only revalidation
                 show_text(g_precision_workspace,
