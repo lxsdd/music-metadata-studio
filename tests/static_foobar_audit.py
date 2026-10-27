@@ -2502,3 +2502,32 @@ if "g_precision_context_factory" in precision_native or (
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: duplicate standalone Precision CUE menu")
 if studio_native.count("open_studio_precision_cue_generator(selected)") != 1:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: ambiguous Studio generator dispatch")
+
+# The independently unqualified Deezer API may remain as experimental parser/
+# prototype code in Draft #52, but Studio integration must fail closed before
+# any user-triggered HTTP request, or local preview reset, can begin.
+def integrated_deezer_blocked(precision_source: str) -> bool:
+    marker = "    const bool deezer_link =\n"
+    guard = ('    if (deezer_link)\n'
+             '        throw std::invalid_argument(\n'
+             '            "Deezer online lookup is disabled in Music Metadata Studio until "')
+    start = precision_source.find("void start_lookup(Workspace& state) {")
+    end = precision_source.find("INT_PTR CALLBACK precision_dialog_proc", start)
+    if start < 0 or end < 0:
+        return False
+    section = precision_source[start:end]
+    return (marker in section and guard in section and
+            section.find(marker) < section.find(guard) <
+            section.find("djmeta::DeezerPrecisionCueHttpRequest") and
+            "no Deezer request was sent." in section)
+
+if not integrated_deezer_blocked(precision_native):
+    raise SystemExit("STATIC PRECISION CUE PROVIDER FAIL: unverified Deezer transport not blocked")
+for changed in (
+    precision_native.replace("    if (deezer_link)\n        throw std::invalid_argument(",
+                             "    if (deezer_link)\n        (void)std::invalid_argument(", 1),
+    precision_native.replace("Deezer online lookup is disabled in Music Metadata Studio until ",
+                             "Deezer is approved ", 1),
+):
+    if integrated_deezer_blocked(changed):
+        raise SystemExit("STATIC PRECISION CUE PROVIDER FAIL: negative deployment-policy regression escaped")

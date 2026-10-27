@@ -128,7 +128,7 @@ STYLE DS_SETFONT | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIM
 CAPTION "Precision CUE - Preview / External CUE Create"
 FONT 9, "Segoe UI"
 BEGIN
-    LTEXT           "Apple/Deezer URL or album:", -1, 10, 12, 137, 12
+    LTEXT           "Apple Music URL or album:", -1, 10, 12, 137, 12
     EDITTEXT        IDC_PRECISION_APPLE_LINK, 148, 9, 309, 16, ES_AUTOHSCROLL | WS_TABSTOP
     PUSHBUTTON      "Search albums", IDC_PRECISION_SEARCH, 464, 9, 86, 18, WS_TABSTOP
     LTEXT           "Apple duration candidate:", -1, 10, 35, 137, 12

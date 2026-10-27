@@ -1113,7 +1113,7 @@ void start_search(Workspace& state) {
     if (query.find("://") != std::string::npos)
         throw std::invalid_argument(
             "Search requires artist and album text, not a provider URL. "
-            "For an Apple or Deezer album URL use Look up selected.");
+            "For an Apple album URL use Look up selected.");
     djmeta::ApplePrecisionCueHttpRequest request;
     request.kind = djmeta::ApplePrecisionCueHttpKind::AlbumSearch;
     request.parameter = query;
@@ -1159,6 +1159,16 @@ void start_lookup(Workspace& state) {
     const bool deezer_link =
         input.starts_with("https://www.deezer.com/") ||
         input.starts_with("https://deezer.com/");
+    // The separate #52 prototype may qualify its transport later. The
+    // integrated Studio release cannot advertise or request an unverified
+    // Deezer developer API without independently established deployment rights.
+    // Reject BEFORE creating a worker, starting a network request or clearing
+    // the user's currently reviewed local/Apple state.
+    if (deezer_link)
+        throw std::invalid_argument(
+            "Deezer online lookup is disabled in Music Metadata Studio until "
+            "developer API access and deployment rights are verified. "
+            "Use Apple Music search or an exact Apple album link; no Deezer request was sent.");
     if (deezer_link && (!state.deezer_reference ||
         state.search_query != input || state.search_hits.empty())) {
         djmeta::DeezerPrecisionCueHttpRequest deezer_request;
@@ -1344,7 +1354,7 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
         capture_precision_window_layout(*state);
         restore_precision_window_geometry(*state);
         reset_disc_controls(*state);
-        show_text(dialog, L"Paste an Apple Music or Deezer album URL, or enter artist and album terms and Search albums.\r\n"
+        show_text(dialog, L"Paste an Apple Music album URL, or enter artist and album terms and Search albums.\r\n"
                           L"Select the exact candidate before Look up selected. All local files are read only.");
         return TRUE;
     }
