@@ -629,6 +629,67 @@ inline constexpr const wchar_t* native_search_action_tooltip(
            L"not an approved metadata change.";
 }
 
+// Native review divider keyboard contract. Ctrl+Shift+Left/Right adjusts
+// the SOURCE pane in 24 logical pixels; Ctrl+Shift+Home resets to the
+// centered, DPI-aware split. Never changes row selection or source identity.
+enum class NativeReviewSplitAction : unsigned {
+    None=0, NarrowSource=1, WidenSource=2, Reset=3
+};
+inline constexpr UINT kNativeReviewSplitMessage = WM_APP + 0x352;
+inline constexpr NativeReviewSplitAction native_review_split_key_action(
+    UINT key, bool ctrl, bool shift, bool alt, bool active) noexcept {
+    if(!active || !ctrl || !shift || alt) return NativeReviewSplitAction::None;
+    if(key==VK_LEFT) return NativeReviewSplitAction::NarrowSource;
+    if(key==VK_RIGHT) return NativeReviewSplitAction::WidenSource;
+    if(key==VK_HOME) return NativeReviewSplitAction::Reset;
+    return NativeReviewSplitAction::None;
+}
+inline constexpr bool native_review_split_valid_action(
+    NativeReviewSplitAction action) noexcept {
+    return action==NativeReviewSplitAction::NarrowSource ||
+           action==NativeReviewSplitAction::WidenSource ||
+           action==NativeReviewSplitAction::Reset;
+}
+inline constexpr int native_review_split_next_offset(
+    int previous, NativeReviewSplitAction action) noexcept {
+    const int bounded=(std::clamp)(previous,-2000,2000);
+    switch(action) {
+    case NativeReviewSplitAction::NarrowSource:
+        return (std::max)(-2000,bounded-24);
+    case NativeReviewSplitAction::WidenSource:
+        return (std::min)(2000,bounded+24);
+    case NativeReviewSplitAction::Reset:
+        return 0;
+    default:
+        return bounded;
+    }
+}
+// Installed on the actual native ListViews in production and in HWND tests.
+// Intercept before ListView arrow-key selection changes; no synthetic
+// WM_NOTIFY pointers, timers, tag actions or host-side callbacks.
+inline LRESULT CALLBACK native_review_split_keyboard_proc(
+    HWND list, UINT message, WPARAM wp, LPARAM lp,
+    UINT_PTR subclass_id, DWORD_PTR) {
+    if(message==WM_KEYDOWN) {
+        const auto action=native_review_split_key_action(
+            static_cast<UINT>(wp),
+            (GetKeyState(VK_CONTROL)&0x8000)!=0,
+            (GetKeyState(VK_SHIFT)&0x8000)!=0,
+            (GetKeyState(VK_MENU)&0x8000)!=0,
+            IsWindowVisible(list)!=FALSE);
+        if(action!=NativeReviewSplitAction::None) {
+            const HWND parent=GetParent(list);
+            if(parent && IsWindow(parent))
+                SendMessageW(parent,kNativeReviewSplitMessage,
+                             static_cast<WPARAM>(action),0);
+            return 0;
+        }
+    }
+    if(message==WM_NCDESTROY)
+        RemoveWindowSubclass(list,native_review_split_keyboard_proc,subclass_id);
+    return DefSubclassProc(list,message,wp,lp);
+}
+
 // Keep the two real master/detail ListViews balanced across a resize.
 // Rectangles use the dialog client coordinate system and remain separate
 // from review identity, normalization and write logic.

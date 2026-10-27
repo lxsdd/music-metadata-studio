@@ -2736,9 +2736,9 @@ void show_preview_page(HWND dialog, PreviewState& state,
     state.show_metadata = metadata;
     state.show_candidate = candidate;
     SetDlgItemTextW(dialog, IDC_BATCH_GUIDE, candidate
-        ? L"1. Select a track. Double-click it to search, or edit the title and click Search. Compare hits on the right."
+        ? L"1. Select a track. Double-click to search or click Search. Compare right-hand evidence; drag the divider or use Ctrl+Shift+arrows."
         : metadata
-        ? L"2. Review normalization proposals. Only Accept/Manual affects the proposed filenames; nothing is written."
+        ? L"2. Review proposals. Ctrl+Shift+arrows resize panes; Accept/Manual affects only preview filenames, never files."
         : L"3. Preview file names and folders from accepted values only. Paths remain unverified; nothing is moved.");
     if (candidate) prefill_musicbrainz_query(state);
     ShowWindow(GetDlgItem(dialog,IDC_BATCH_UNDO),
@@ -3437,6 +3437,31 @@ void resize_batch_dialog(PreviewState& state, int width, int height) {
     // painting for every WM_SIZE while the user is dragging the border.
     RedrawWindow(state.dialog, nullptr, nullptr,
                  RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_ERASE);
+}
+
+// Mouse, context menu and keyboard share the same clamped geometry and
+// persisted 96-DPI offset. Only move HWNDs when a real visible change occurs.
+bool apply_review_split_offset(PreviewState& state, int requested_96) {
+    RECT original_master{},original_detail{},client{};
+    if(!state.show_metadata ||
+       !review_split_originals(state,original_master,original_detail) ||
+       !GetClientRect(state.dialog,&client) || state.active_dpi<96)
+        return false;
+    const int dx=client.right-state.initial_client_width;
+    const int dy=client.bottom-state.initial_client_height;
+    const auto bounded=review_split_geometry(
+        original_master,original_detail,dx,dy,
+        MulDiv((std::clamp)(requested_96,-2000,2000),state.active_dpi,96),
+        MulDiv(160,state.active_dpi,96),
+        MulDiv(180,state.active_dpi,96));
+    const int effective_px=bounded.master.right-
+        (original_master.right+dx/2);
+    const int effective_96=(std::clamp)(
+        MulDiv(effective_px,96,state.active_dpi),-2000,2000);
+    if(state.review_split_offset_96==effective_96) return false;
+    state.review_split_offset_96=effective_96;
+    resize_batch_dialog(state,client.right,client.bottom);
+    return true;
 }
 
 void restore_batch_dialog_window_size(PreviewState& state) {
@@ -5139,7 +5164,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_METADATA_MB_DETAILS,L"Read-only field evidence: select rows; right-click or Ctrl+C copies full origin, scope, reason and ordered original/proposed values."},
         {IDC_ONLINE_DATE_TARGET_LABEL,L"Do not infer an edition date from your current physical DATE."},
         {IDC_ONLINE_DATE_TARGET,L"Choose a tag for each verified release date. DATE keeps only the four-digit year (YYYY); RELEASEDATE and DATE_RAW keep the full ISO date. PAIR stages Master -> ORIGINALDATE (or year-only DATE) plus Edition -> RELEASEDATE. Memory-only preview, no file write."},
-        {IDC_METADATA_FILTER,L"Limit the local normalization review to music, extended or all tags."},
+        {IDC_METADATA_FILTER,L"Limit normalization review to music, extended or all tags. In source/detail lists, Ctrl+Shift+Left/Right resizes the divider; Ctrl+Shift+Home resets it."},
         {IDC_METADATA_TRACK_FILTER,L"Review queue: all, proposals, pending REVIEW, pending any, staged edits, completed review, or no proposals. Filtering never changes source files or approvals."},
         {IDC_METADATA_REVIEW_SCOPE,L"Review selected changes/tracks, all tracks, visible queue, or one selected field across visible/all qualified physical tracks. Bulk Manual applies one scalar value per source; multivalues/duplicate fields/CUE are excluded. Default-No confirmation; preview only."},
         {IDC_METADATA_ACCEPT,L"Mark chosen rule proposals as accepted in memory. No music file is written."},
@@ -7064,7 +7089,13 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             if (!header || !SetWindowSubclass(header, batch_header_proc, 1,
                      reinterpret_cast<DWORD_PTR>(state)))
                 throw std::runtime_error("Unable to attach review column menu.");
+            if(!SetWindowSubclass(grid,native_review_split_keyboard_proc,1,0))
+                throw std::runtime_error("Unable to attach accessible divider keys.");
         }
+        // Provider detail is another native pane on the same right-hand side.
+        if(!SetWindowSubclass(state->musicbrainz_details,
+                native_review_split_keyboard_proc,1,0))
+            throw std::runtime_error("Unable to attach online detail divider keys.");
         for (const int id : {IDC_BATCH_DESTINATION, IDC_BATCH_PATTERN})
             SendDlgItemMessageW(dialog, id, EM_LIMITTEXT, 16384, 0);
         SendDlgItemMessageW(dialog, IDC_BATCH_PROFILE_PICKER, CB_LIMITTEXT, 16384, 0);
@@ -7264,28 +7295,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         }
     }
     if (message == WM_MOUSEMOVE && state->split_dragging) {
-        RECT original_master{},original_detail{},client{};
-        if(review_split_originals(*state,original_master,original_detail) &&
-           GetClientRect(dialog,&client)) {
-            const int x=static_cast<short>(LOWORD(lp));
-            const int dx=client.right-state->initial_client_width;
-            const int dy=client.bottom-state->initial_client_height;
-            const int wanted_96=state->split_drag_start_offset_96+
-                MulDiv(x-state->split_drag_start_x,96,state->active_dpi);
-            const auto bounded=review_split_geometry(
-                original_master,original_detail,dx,dy,
-                MulDiv((std::clamp)(wanted_96,-2000,2000),state->active_dpi,96),
-                MulDiv(160,state->active_dpi,96),
-                MulDiv(180,state->active_dpi,96));
-            const int effective_px=bounded.master.right-
-                (original_master.right+dx/2);
-            const int effective_96=(std::clamp)(
-                MulDiv(effective_px,96,state->active_dpi),-2000,2000);
-            if(state->review_split_offset_96!=effective_96) {
-                state->review_split_offset_96=effective_96;
-                resize_batch_dialog(*state,client.right,client.bottom);
-            }
-        }
+        const int x=static_cast<short>(LOWORD(lp));
+        const int wanted_96=state->split_drag_start_offset_96+
+            MulDiv(x-state->split_drag_start_x,96,state->active_dpi);
+        apply_review_split_offset(*state,wanted_96);
         return TRUE;
     }
     if (message == WM_LBUTTONUP && state->split_dragging) {
@@ -7305,6 +7318,22 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         return TRUE;
     }
 
+    if(message==kNativeReviewSplitMessage) {
+        // HWND-only view geometry. No metadata/rule/provider state changes.
+        const auto action=static_cast<NativeReviewSplitAction>(wp);
+        if(state->show_metadata && !state->split_dragging &&
+           native_review_split_valid_action(action)) {
+            const int next=native_review_split_next_offset(
+                state->review_split_offset_96,action);
+            const bool changed=apply_review_split_offset(*state,next);
+            if(changed || action==NativeReviewSplitAction::Reset)
+                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                    L"Source/detail divider adjusted (read-only). "
+                    L"Ctrl+Shift+Left/Right resizes; Ctrl+Shift+Home resets. "
+                    L"Pane geometry is saved with this foobar profile.");
+        }
+        return TRUE;
+    }
     if (message == WM_NOTIFY) {
         const auto* header = reinterpret_cast<const NMHDR*>(lp);
         if (header && header->idFrom == IDC_BATCH_TABS &&
@@ -8108,6 +8137,52 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         // Fallback for dialog-forwarded header notifications; the subclass
         // handles native keyboard and right-click delivery directly.
         const HWND requested = reinterpret_cast<HWND>(wp);
+        if(requested==dialog && state->show_metadata) {
+            // Right-click only the actual gap; ordinary list/header menus
+            // and keyboard context menus keep their existing semantics.
+            RECT master{},detail{};
+            POINT point{};
+            if(lp==static_cast<LPARAM>(-1)) {
+                if(current_review_split_rects(*state,master,detail)) {
+                    point.x=(master.right+detail.left)/2;
+                    point.y=(std::max)(master.top,detail.top)+12;
+                    ClientToScreen(dialog,&point);
+                }
+            } else {
+                point.x=static_cast<short>(LOWORD(lp));
+                point.y=static_cast<short>(HIWORD(lp));
+            }
+            POINT hit=point;
+            if(ScreenToClient(dialog,&hit) &&
+               current_review_split_rects(*state,master,detail) &&
+               review_split_gap_hit(master,detail,hit.x,hit.y)) {
+                const HMENU menu=CreatePopupMenu();
+                if(!menu) return TRUE;
+                constexpr UINT narrow=41520u,widen=41521u,reset=41522u;
+                AppendMenuW(menu,MF_STRING,narrow,
+                            L"Narrow source pane (Ctrl+Shift+Left)");
+                AppendMenuW(menu,MF_STRING,widen,
+                            L"Widen source pane (Ctrl+Shift+Right)");
+                AppendMenuW(menu,MF_SEPARATOR,0,nullptr);
+                AppendMenuW(menu,MF_STRING,reset,
+                            L"Reset divider (Ctrl+Shift+Home)");
+                const UINT selected=TrackPopupMenu(menu,
+                    TPM_RIGHTBUTTON|TPM_RETURNCMD|TPM_NONOTIFY,
+                    point.x,point.y,0,dialog,nullptr);
+                DestroyMenu(menu);
+                const auto action=selected==narrow
+                    ? NativeReviewSplitAction::NarrowSource
+                    : selected==widen
+                    ? NativeReviewSplitAction::WidenSource
+                    : selected==reset
+                    ? NativeReviewSplitAction::Reset
+                    : NativeReviewSplitAction::None;
+                if(native_review_split_valid_action(action))
+                    SendMessageW(dialog,kNativeReviewSplitMessage,
+                                 static_cast<WPARAM>(action),0);
+                return TRUE;
+            }
+        }
         if (requested == state->list) {
             const HMENU menu = CreatePopupMenu();
             if (!menu) return TRUE;

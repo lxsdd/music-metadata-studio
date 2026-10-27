@@ -41,8 +41,15 @@ std::size_t current_included_physical_source = 0;
 int blocked_online_rebind_notifications = 0;
 int read_only_worker_notifications = 0;
 int query_edit_events = 0;
+int split_notifications = 0;
+djmeta_foobar::NativeReviewSplitAction last_split_action = djmeta_foobar::NativeReviewSplitAction::None;
 djmeta_foobar::ReadOnlyContextVersion test_request_context;
 INT_PTR CALLBACK test_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
+    if(message==djmeta_foobar::kNativeReviewSplitMessage) {
+        ++split_notifications;
+        last_split_action=static_cast<djmeta_foobar::NativeReviewSplitAction>(wp);
+        return TRUE;
+    }
     if(message==WM_COMMAND && LOWORD(wp)==IDC_METADATA_MB_QUERY &&
        HIWORD(wp)==EN_CHANGE) {
         ++query_edit_events;
@@ -1713,6 +1720,40 @@ int main() {
           !djmeta_foobar::native_focus_exact_release_row(detail,3),
           "real native activation rejects empty, unselected and stale result rows");
 
+    // Keyboard actions share mouse geometry; modifier leakage, inactive
+    // views and unrelated keys cannot change the pane offset or track row.
+    using djmeta_foobar::NativeReviewSplitAction;
+    using djmeta_foobar::native_review_split_key_action;
+    using djmeta_foobar::native_review_split_next_offset;
+    check(native_review_split_key_action(VK_LEFT,true,true,false,true)==
+              NativeReviewSplitAction::NarrowSource &&
+          native_review_split_key_action(VK_RIGHT,true,true,false,true)==
+              NativeReviewSplitAction::WidenSource &&
+          native_review_split_key_action(VK_HOME,true,true,false,true)==
+              NativeReviewSplitAction::Reset &&
+          native_review_split_key_action(VK_LEFT,true,false,false,true)==
+              NativeReviewSplitAction::None &&
+          native_review_split_key_action(VK_LEFT,false,true,false,true)==
+              NativeReviewSplitAction::None &&
+          native_review_split_key_action(VK_LEFT,true,true,true,true)==
+              NativeReviewSplitAction::None &&
+          native_review_split_key_action(VK_LEFT,true,true,false,false)==
+              NativeReviewSplitAction::None &&
+          native_review_split_key_action(VK_RETURN,true,true,false,true)==
+              NativeReviewSplitAction::None,
+          "divider hotkeys are exact and cannot steal normal selection/navigation");
+    check(native_review_split_next_offset(72,NativeReviewSplitAction::NarrowSource)==48 &&
+          native_review_split_next_offset(72,NativeReviewSplitAction::WidenSource)==96 &&
+          native_review_split_next_offset(72,NativeReviewSplitAction::Reset)==0 &&
+          native_review_split_next_offset(1999,NativeReviewSplitAction::WidenSource)==2000 &&
+          native_review_split_next_offset(-1999,NativeReviewSplitAction::NarrowSource)==-2000 &&
+          native_review_split_next_offset((std::numeric_limits<int>::max)(),
+              NativeReviewSplitAction::WidenSource)==2000 &&
+          native_review_split_next_offset((std::numeric_limits<int>::min)(),
+              NativeReviewSplitAction::NarrowSource)==-2000 &&
+          native_review_split_next_offset(72,NativeReviewSplitAction::None)==72,
+          "keyboard and context menu offsets are bounded and resettable");
+
     // Exercise the same shared split-layout function on the actual RC HWNDs.
     auto client_rect = [](HWND parent, HWND child) {
         RECT rect{};
@@ -1777,6 +1818,35 @@ int main() {
     check(moved_master.right==dragged.master.right &&
           moved_detail.left==dragged.detail.left,
           "real HWND pane positions match draggable geometry");
+
+    // Exercise the real common-controls keyboard subclass on BOTH production
+    // HWNDs. Ctrl+Shift+Right must be consumed before the owner-data list
+    // changes the selected track; ordinary arrows remain native.
+    check(SetWindowSubclass(master,
+              djmeta_foobar::native_review_split_keyboard_proc,7,0) &&
+          SetWindowSubclass(detail,
+              djmeta_foobar::native_review_split_keyboard_proc,7,0),
+          "actual Win32 source/detail grids accept divider key subclasses");
+    BYTE old_keyboard[256]{}, pressed_keyboard[256]{};
+    check(GetKeyboardState(old_keyboard)!=FALSE,
+          "native test can snapshot thread keyboard state");
+    std::copy(std::begin(old_keyboard),std::end(old_keyboard),
+              std::begin(pressed_keyboard));
+    pressed_keyboard[VK_CONTROL]=0x80;
+    pressed_keyboard[VK_SHIFT]=0x80;
+    pressed_keyboard[VK_MENU]=0;
+    check(SetKeyboardState(pressed_keyboard)!=FALSE,
+          "native test can set exact modifier state");
+    const int before_split_notifications=split_notifications;
+    SendMessageW(master,WM_KEYDOWN,VK_RIGHT,0);
+    SendMessageW(detail,WM_KEYDOWN,VK_HOME,0);
+    check(SetKeyboardState(old_keyboard)!=FALSE,
+          "native test restores keyboard state after synthetic key gesture");
+    check(split_notifications==before_split_notifications+2 &&
+          last_split_action==NativeReviewSplitAction::Reset,
+          "real ListView subclasses dispatch resize and reset to parent");
+    check(ListView_GetSelectedCount(master)==0,
+          "resize hotkey does not select an unrelated owner-data track");
 
     // Real Windows header widths at 100%, 125%, 150%, 200% DPI. This is
     // programmatic column-DPI qualification, not a visual host acceptance.

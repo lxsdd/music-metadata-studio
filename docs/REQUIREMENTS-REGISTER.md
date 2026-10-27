@@ -63,7 +63,7 @@
 | MMS-UI-06 | PARTIAL | Accessible icons, high-DPI scaling and consistent spacing; no horizontal page scroll when reasonable; column context menu/reset and keyboard alternatives. | #33 |
 | MMS-UI-07 | PARTIAL | Track/result filters, source provenance and clear field comparison; optional invisible-character display; selection remains stable across sort/filter. | #49 |
 | MMS-UI-08 | OPEN | Consistent design/behavior across all Studio subviews: shared control metrics, dialog policy, tooltip lifecycle, status/loading style and keyboard semantics; regression tests common to foobar products where applicable. | #33 |
-| MMS-UI-09 | OPEN | Compact, responsive wide-window layout: source list, grouped review details, and provider/conflict evidence; panes resize with sensible minima and preserve user geometry. | #48, #49 |
+| MMS-UI-09 | OPEN | Compact, responsive wide-window layout: source list, grouped review details, and provider/conflict evidence; panes resize with sensible minima and preserve user geometry. Keyboard Ctrl+Shift+Left/Right/Home, right-click gap menu, shared mouse/keyboard clamping, profile-local 96-DPI persistence and Win32 HWND positive/negative tests added; remains OPEN pending owner visual DPI/focus acceptance. | #48, #49 |
 
 ## CFG — zwei Ebenen von Einstellungen
 

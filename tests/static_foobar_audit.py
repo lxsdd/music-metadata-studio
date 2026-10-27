@@ -37,6 +37,17 @@ found = [token for token in forbidden if token in sources]
 if found:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: write-capable token(s): " + ", ".join(found))
 
+# Native review splitter uses one geometry policy for mouse, context menu
+# and keyboard; no independent geometry/persistence implementation.
+for token in ("native_review_split_keyboard_proc",
+              "kNativeReviewSplitMessage",
+              "apply_review_split_offset(*state,wanted_96)",
+              "apply_review_split_offset(*state,next)",
+              "review_split_gap_hit(master,detail,hit.x,hit.y)",
+              "store_review_split_offset(state->review_split_offset_96)"):
+    if token not in workspace_dialog and token not in native_controls:
+        raise SystemExit("STATIC NATIVE DIVIDER CONTRACT FAIL: "+token)
+
 # Read-only exact-source provenance receipt remains production-wired to
 # native HWND/menu/keyboard, bounded clipboard and explicit identity guards.
 for token in ("native_evidence_receipt_allowed(",
