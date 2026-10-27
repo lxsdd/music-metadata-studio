@@ -339,6 +339,24 @@ int main() {
           preview_history_visible_indices(history,PreviewHistoryFilter::Undo)==
               std::vector<std::size_t>({3}),
           "history filtering preserves stable source event indexes");
+    using djmeta_foobar::preview_history_parse_source;
+    const auto source8=preview_history_parse_source(L"8",8);
+    const auto all_sources=preview_history_parse_source(L"",8);
+    check(source8.valid && source8.source==7 &&
+          all_sources.valid && !all_sources.source &&
+          !preview_history_parse_source(L"0",8).valid &&
+          !preview_history_parse_source(L"9",8).valid &&
+          !preview_history_parse_source(L"1x",8).valid &&
+          !preview_history_parse_source(L" 1",8).valid &&
+          !preview_history_parse_source(L"10000000",1000000).valid &&
+          !preview_history_parse_source(L"1",0).valid,
+          "source filter accepts only exact 1-based captured ordinals");
+    check(preview_history_visible_indices(history,PreviewHistoryFilter::All,7)==
+              std::vector<std::size_t>({0}) &&
+          preview_history_visible_indices(history,PreviewHistoryFilter::All,2)==
+              std::vector<std::size_t>({2,3}) &&
+          preview_history_visible_indices(history,PreviewHistoryFilter::Review,2).empty(),
+          "source filter never attributes multi-track events to one source");
     check(preview_history_single_source(history.events()[0],8)==7 &&
           !preview_history_single_source(history.events()[0],7) &&
           !preview_history_single_source(history.events()[1],100) &&
@@ -377,6 +395,17 @@ int main() {
           only_route->find(L"Accept proposals")==std::wstring::npos &&
           only_route->find(L"Undo route")==std::wstring::npos,
           "selected visible route row maps to its original immutable event");
+    const auto source_receipt=preview_history_export_tsv(
+        history,PreviewHistoryFilter::All,std::nullopt,8,7);
+    check(source_receipt &&
+          source_receipt->find(L"1\\tAccept proposals")!=std::wstring::npos &&
+          source_receipt->find(L"Reject proposals")==std::wstring::npos &&
+          source_receipt->find(L"Recalculate route")==std::wstring::npos &&
+          source_receipt->find(L"Filtered to physical source #8")!=std::wstring::npos &&
+          !preview_history_export_tsv(history,PreviewHistoryFilter::All,0,8,2) &&
+          !preview_history_export_tsv(history,PreviewHistoryFilter::All,
+                                      std::nullopt,8,8),
+          "filtered receipt excludes other sources, bulk events and invalid selections");
     check(!preview_history_export_tsv(history,PreviewHistoryFilter::Routing,1,8) &&
           !preview_history_export_tsv(history,PreviewHistoryFilter::All,0,7) &&
           !preview_history_export_tsv(history,PreviewHistoryFilter::All,0,0) &&
@@ -475,6 +504,18 @@ int main() {
     HWND dialog = CreateDialogParamW(GetModuleHandleW(nullptr),
         MAKEINTRESOURCEW(IDD_BATCH_PREVIEW), nullptr, test_dialog_proc, 0);
     check(dialog != nullptr, "actual production dialog template instantiation");
+    const HWND history_source=GetDlgItem(dialog,IDC_BATCH_HISTORY_SOURCE);
+    const HWND history_source_label=GetDlgItem(dialog,IDC_BATCH_HISTORY_SOURCE_LABEL);
+    check(history_source && history_source_label &&
+          (GetWindowLongPtrW(history_source,GWL_STYLE)&ES_NUMBER)==ES_NUMBER &&
+          (GetWindowLongPtrW(history_source,GWL_STYLE)&WS_TABSTOP)!=0,
+          "native History numeric source filter is keyboard accessible");
+    RECT source_box{},source_label{};
+    GetWindowRect(history_source,&source_box);
+    GetWindowRect(history_source_label,&source_label);
+    check(source_label.right<source_box.left &&
+          source_box.left>=source_label.left,
+          "native source filter label and edit do not overlap");
     HWND history_hwnd=GetDlgItem(dialog,IDC_BATCH_HISTORY_LIST);
     check(history_hwnd && IsWindow(history_hwnd)!=FALSE,
           "production native History ListView exists");
