@@ -1838,7 +1838,7 @@ int main() {
     check(SetKeyboardState(pressed_keyboard)!=FALSE,
           "native test can set exact modifier state");
     const int before_split_notifications=split_notifications;
-    const int before_master_selected=ListView_GetSelectedCount(master);
+    const auto before_master_selected=ListView_GetSelectedCount(master);
     SendMessageW(master,WM_KEYDOWN,VK_RIGHT,0);
     SendMessageW(detail,WM_KEYDOWN,VK_HOME,0);
     check(SetKeyboardState(old_keyboard)!=FALSE,
