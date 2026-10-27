@@ -84,6 +84,9 @@ struct PrecisionCueStudioReviewRow {
     // A reference INDEX 00/PREGAP/POSTGAP affects the whole disc's
     // structural review even when every INDEX 01 frame is identical.
     bool reference_has_extra_index_or_pregap = false;
+    // Track-specific INDEX 00 / PREGAP / POSTGAP audit for the one native
+    // Studio review. Absent for no reference or an unqualified reference.
+    std::optional<PrecisionCueReferenceTrackStructure> reference_track_structure;
     PrecisionCueStudioReferenceState reference_state =
         PrecisionCueStudioReferenceState::NotProvided;
     std::optional<std::int64_t> signed_reference_delta_frames;
@@ -258,6 +261,7 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
             PrecisionCueStudioReferenceState reference_state =
                 PrecisionCueStudioReferenceState::NotProvided;
             std::vector<PrecisionCueBoundaryDifference> differences;
+            std::vector<PrecisionCueReferenceTrackStructure> structures;
             bool reference_has_extra_index_or_pregap = false;
             if (reference_cues[source_index]) {
                 const auto diff = compare_precision_cue_external_reference(
@@ -282,6 +286,7 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
                     break;
                 }
                 differences = diff.audit.differences;
+                structures = diff.track_structure;
                 reference_has_extra_index_or_pregap = diff.extra_index_or_pregap;
             }
             std::int64_t elapsed = 0;
@@ -372,6 +377,16 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
                 row.reference_has_extra_index_or_pregap =
                     reference_has_extra_index_or_pregap;
                 row.reference_state = reference_state;
+                if (reference_cues[source_index] &&
+                    reference_state != PrecisionCueStudioReferenceState::Unqualified) {
+                    if (structures.size() != planned.boundaries.size() ||
+                        structures[track].track_number != boundary.track_number) {
+                        out.diagnostic = "STUDIO_REFERENCE_TRACK_STRUCTURE_CHANGED";
+                        out.rows.clear();
+                        return out;
+                    }
+                    row.reference_track_structure = structures[track];
+                }
                 if (differences.size() == planned.boundaries.size()) {
                     const auto& difference = differences[track];
                     if (difference.track_number != boundary.track_number ||
