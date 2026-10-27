@@ -178,9 +178,8 @@ jobs:
   # RUNNER_TEMP. This custom QA-DLL is NEVER packaged, uploaded or installed
   # in a user profile. Both first write and exact no-op are mandatory gates.
   physical-sdk-runtime-qa:
-    # The canonical Studio PR generates pull_request runs, NOT push runs in
-    # this repository configuration. Previously this legitimate disposable
-    # real-SDK QA was permanently SKIPPED despite green build status.
+    # Qualify real physical/CUE SDK behavior on either trusted same-repo
+    # Studio PR #45 or integration PR #63 (each with its exact parent).
     # Never run on forks, other branches, releases, or external user media.
     if: >-
       (github.event_name == 'push' &&
@@ -188,7 +187,13 @@ jobs:
       (github.event_name == 'pull_request' &&
        github.event.pull_request.head.repo.full_name == github.repository &&
        github.event.pull_request.head.ref == 'feature/online-metadata-discovery-foundation-20261009' &&
-       github.event.pull_request.base.ref == 'main')
+       github.event.pull_request.base.ref == 'main') ||
+      (github.event_name == 'push' &&
+       github.ref == 'refs/heads/feature/studio-precision-cue-integration-20261026') ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.event.pull_request.head.ref == 'feature/studio-precision-cue-integration-20261026' &&
+       github.event.pull_request.base.ref == 'feature/online-metadata-discovery-foundation-20261009')
     needs: static-audit
     runs-on: windows-2022
     timeout-minutes: 25

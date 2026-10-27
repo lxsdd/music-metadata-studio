@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """No-network negative checks for the disposable real-foobar SDK runtime gate.
 
-A same-repo Studio pull_request must be eligible; a fork, arbitrary PR,
-release or unrelated branch cannot run the QA-only writing component.
+Only canonical same-repo Studio and Studio/Precision CUE integration
+pull_requests (or their exact branch pushes) are eligible; a fork,
+arbitrary PR, release or unrelated branch must not run the QA writer.
 Even on an eligible event, the component may only touch CI-generated
 RUNNER_TEMP fixtures, never owner profiles/music or published artifacts.
 """
@@ -34,6 +35,24 @@ def violations(config: str, script: str) -> list[str]:
         "if: always()",
         "Remove-Item -LiteralPath 'out/physical-write-qa','build/physical-write-qa'",
     ]
+    # The full event predicate is intentionally pinned. Presence checks alone
+    # would allow an accidentally appended '|| true' to bypass all restrictions.
+    expected_condition = """    if: >-
+      (github.event_name == 'push' &&
+       github.ref == 'refs/heads/feature/online-metadata-discovery-foundation-20261009') ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.event.pull_request.head.ref == 'feature/online-metadata-discovery-foundation-20261009' &&
+       github.event.pull_request.base.ref == 'main') ||
+      (github.event_name == 'push' &&
+       github.ref == 'refs/heads/feature/studio-precision-cue-integration-20261026') ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.event.pull_request.head.ref == 'feature/studio-precision-cue-integration-20261026' &&
+       github.event.pull_request.base.ref == 'feature/online-metadata-discovery-foundation-20261009')"""
+    actual_condition = "    if: >-\\n" + qa.split("    if: >-\\n", 1)[1].split("    needs: static-audit\\n", 1)[0] if "    if: >-\\n" in qa else ""
+    if actual_condition != expected_condition + "\\n":
+        issues.append("untrusted physical QA event predicate")
     for item in requirements:
         if item not in qa:
             issues.append("missing restricted event/runner/cleanup gate: " + item)
@@ -66,8 +85,8 @@ def main() -> None:
     def mutate_qa(needle: str, replacement: str) -> str:
         prefix, rest = CONFIG.split(START, 1)
         qa, tail = rest.split(END, 1)
-        assert qa.count(needle) == 1, "ambiguous QA mutation target"
-        return prefix + START + qa.replace(needle, replacement, 1) + END + tail
+        assert qa.count(needle) >= 1, "missing QA mutation target"
+        return prefix + START + qa.replace(needle, replacement) + END + tail
 
     for altered in (
         mutate_qa(
@@ -76,6 +95,13 @@ def main() -> None:
         mutate_qa("github.event.pull_request.base.ref == 'main'",
                   "github.event.pull_request.base.ref == 'develop'"),
         mutate_qa("platform: [Win32, x64]", "platform: [x64]"),
+        mutate_qa("github.ref == 'refs/heads/feature/studio-precision-cue-integration-20261026'",
+                  "github.ref == 'refs/heads/any-other-branch'"),
+        mutate_qa("github.event.pull_request.base.ref == 'feature/online-metadata-discovery-foundation-20261009'",
+                  "github.event.pull_request.base.ref == 'main'"),
+        mutate_qa("github.event.pull_request.head.ref == 'feature/studio-precision-cue-integration-20261026'",
+                  "github.event.pull_request.head.ref == 'feature/any-other-branch'"),
+        mutate_qa("    needs: static-audit", "    needs: static-audit || true"),
         mutate_qa("./scripts/qa-physical-writer-host.ps1",
                   "./scripts/fake-writer-qa.ps1"),
         mutate_qa("needs: static-audit", "needs: []"),
@@ -88,7 +114,7 @@ def main() -> None:
         SCRIPT.replace("MMS_NATIVE_SDK_POSTWRITE_NOOP=PASS", "QA_UNCHECKED"),
     ):
         assert violations(CONFIG, mutated), "unsafe host script mutation escaped"
-    print("PASS: real SDK physical/CUE QA allowed only trusted same-repo Studio PR, synthetic runner fixtures, zero artifacts and full no-op checks")
+    print("PASS: real SDK physical/CUE QA allowed only trusted same-repo Studio/integration PRs, synthetic runner fixtures, zero artifacts and full no-op checks")
 
 if __name__ == "__main__":
     main()
