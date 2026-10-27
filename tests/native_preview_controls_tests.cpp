@@ -1838,6 +1838,7 @@ int main() {
     check(SetKeyboardState(pressed_keyboard)!=FALSE,
           "native test can set exact modifier state");
     const int before_split_notifications=split_notifications;
+    const int before_master_selected=ListView_GetSelectedCount(master);
     SendMessageW(master,WM_KEYDOWN,VK_RIGHT,0);
     SendMessageW(detail,WM_KEYDOWN,VK_HOME,0);
     check(SetKeyboardState(old_keyboard)!=FALSE,
@@ -1845,8 +1846,8 @@ int main() {
     check(split_notifications==before_split_notifications+2 &&
           last_split_action==NativeReviewSplitAction::Reset,
           "real ListView subclasses dispatch resize and reset to parent");
-    check(ListView_GetSelectedCount(master)==0,
-          "resize hotkey does not select an unrelated owner-data track");
+    check(ListView_GetSelectedCount(master)==before_master_selected,
+          "resize hotkey preserves the current owner-data selection");
 
     // Real Windows header widths at 100%, 125%, 150%, 200% DPI. This is
     // programmatic column-DPI qualification, not a visual host acceptance.
