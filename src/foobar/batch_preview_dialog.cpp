@@ -263,6 +263,7 @@ struct PreviewState {
     HWND history_list = nullptr;
     SessionPreviewHistory preview_history;
     PreviewHistoryFilter history_filter=PreviewHistoryFilter::All;
+    PreviewHistorySourceQuery history_source_query;
     std::vector<std::size_t> history_view_order;
     bool show_metadata = true;
     bool show_candidate = false; // third tab, never a write path
@@ -2716,8 +2717,10 @@ void refresh_preview_history_list(PreviewState& state) {
     if(!state.history_list) return;
     ListView_DeleteAllItems(state.history_list);
     const auto& events=state.preview_history.events();
-    state.history_view_order=preview_history_visible_indices(
-        state.preview_history,state.history_filter);
+    state.history_view_order=state.history_source_query.valid
+        ? preview_history_visible_indices(state.preview_history,
+              state.history_filter,state.history_source_query.source)
+        : std::vector<std::size_t>{};
     for(std::size_t i=0;i<state.history_view_order.size();++i) {
         const auto& event=events[state.history_view_order[i]];
         std::wstring sequence=std::to_wstring(event.sequence);
@@ -2749,7 +2752,8 @@ void record_preview_history(PreviewState& state,PreviewHistoryKind kind,
 void show_preview_page(HWND dialog, PreviewState& state,
                        bool metadata, bool candidate = false) {
     if(state.history_list) ShowWindow(state.history_list,SW_HIDE);
-    for(int id:{IDC_BATCH_HISTORY_FILTER,IDC_BATCH_HISTORY_FILTER_LABEL})
+    for(int id:{IDC_BATCH_HISTORY_FILTER,IDC_BATCH_HISTORY_FILTER_LABEL,
+                IDC_BATCH_HISTORY_SOURCE,IDC_BATCH_HISTORY_SOURCE_LABEL})
         ShowWindow(GetDlgItem(dialog,id),SW_HIDE);
     if (metadata && state.native_grid_candidate_mode!=candidate &&
         state.metadata_track_list && state.metadata_list) {
@@ -2906,12 +2910,15 @@ void show_history_page(HWND dialog,PreviewState& state) {
         ShowWindow(GetDlgItem(dialog,id),SW_HIDE);
     refresh_preview_history_list(state);
     ShowWindow(state.history_list,SW_SHOW);
-    for(int id:{IDC_BATCH_HISTORY_FILTER,IDC_BATCH_HISTORY_FILTER_LABEL})
+    for(int id:{IDC_BATCH_HISTORY_FILTER,IDC_BATCH_HISTORY_FILTER_LABEL,
+                IDC_BATCH_HISTORY_SOURCE,IDC_BATCH_HISTORY_SOURCE_LABEL})
         ShowWindow(GetDlgItem(dialog,id),SW_SHOW);
     SetDlgItemTextW(dialog,IDC_BATCH_GUIDE,
         L"4. Filter history; double-click to inspect, Ctrl+C to copy selected, or right-click to copy filtered actions. No writes.");
     SetDlgItemTextW(dialog,IDC_BATCH_HINT,
-        L"Session only (last 256 actions). Multi-track actions are summaries. Refresh clears history.");
+        state.history_source_query.valid
+            ? L"Session only (last 256 actions). Source # shows single-source events; Refresh clears history."
+            : L"Invalid source #: enter a captured source number, or clear for all.");
 }
 
 // Fail closed on stale source/rules/route evidence even when invoked from
@@ -5221,6 +5228,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_BATCH_LIST,L"Proposed source-to-target rows. Right-click one physical source to inspect its uniquely linked, previously inspected CUE carrier. Multiple or stale CUE links are not guessed. Final foobar File Operations targets remain unqualified."},
         {IDC_BATCH_HISTORY_LIST,L"Last 256 session actions. Double-click to inspect; Ctrl+C copies the selected action, right-click copies filtered actions. Never replay or write."},
         {IDC_BATCH_HISTORY_FILTER,L"Filter session actions; source order and original event identities remain unchanged."},
+        {IDC_BATCH_HISTORY_SOURCE,L"Optional physical source number (1-based). Only actions on that exact single source are shown and copied; multi-track summaries cannot be attributed to one track. Clear to see all."},
         {IDC_BATCH_LOCATION_FILTER,L"Display-only full-batch raw route and staged FileAction queues: BLOCKED, RAW ONLY or SKIP. Selected/visible previews use only visible original source IDs; Preview all and Audit include hidden rows. No final FileOps/CUE approval."},
         {IDC_BATCH_FILE_ACTION,L"Explicit action intent for the next selected/visible/all preview: Move, Copy, Rename or No file action. Each track retains its own intent; Rename awaits verified same-parent host destination. Nothing is executed."},
         {IDC_BATCH_BACK_TO_CUE,L"Return to the original CUE carrier and reread its full physical FILE reference and sidecar action evidence. Rechecks all sources; never writes files."},
@@ -6995,12 +7003,13 @@ void change_online_field_preview(PreviewState& state,int action) {
 // event identity, never to a mutable ListView caption or a write approval.
 void copy_session_preview_history(HWND dialog,PreviewState& state,
                                   bool selected_only) {
-    if(!state.tabs || TabCtrl_GetCurSel(state.tabs)!=3 ||
+    if(!state.history_source_query.valid ||
+       !state.tabs || TabCtrl_GetCurSel(state.tabs)!=3 ||
        !state.history_list || state.stale || state.refreshing ||
        state.checking_snapshot || state.entries.empty())
         throw std::invalid_argument("History requires a fresh visible workspace.");
     const auto visible=preview_history_visible_indices(
-        state.preview_history,state.history_filter);
+        state.preview_history,state.history_filter,state.history_source_query.source);
     if(visible.empty() || visible!=state.history_view_order)
         throw std::invalid_argument("History filter changed; refresh the view.");
     std::optional<std::size_t> selected;
@@ -7017,10 +7026,12 @@ void copy_session_preview_history(HWND dialog,PreviewState& state,
     revalidate_workspace(state,true);
     if(state.stale || state.refreshing || state.checking_snapshot ||
        state.history_view_order!=preview_history_visible_indices(
-           state.preview_history,state.history_filter))
+           state.preview_history,state.history_filter,
+           state.history_source_query.source))
         throw std::invalid_argument("History source changed; refresh before copying.");
     const auto receipt=preview_history_export_tsv(
-        state.preview_history,state.history_filter,selected,state.entries.size());
+        state.preview_history,state.history_filter,selected,state.entries.size(),
+        state.history_source_query.source);
     if(!receipt)
         throw std::invalid_argument("History receipt empty, invalid or too large.");
     native_copy_audit_text_to_clipboard(dialog,*receipt);
@@ -7051,6 +7062,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         state->tabs = GetDlgItem(dialog, IDC_BATCH_TABS);
         if (!state->list || !state->history_list ||
             !GetDlgItem(dialog,IDC_BATCH_HISTORY_FILTER) ||
+            !GetDlgItem(dialog,IDC_BATCH_HISTORY_SOURCE) ||
             !state->metadata_list || !state->musicbrainz_details ||
             !state->musicbrainz_details_label || !state->metadata_track_list ||
             !state->metadata_filter || !state->metadata_track_filter ||
@@ -7077,6 +7089,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             SendDlgItemMessageW(dialog,IDC_BATCH_HISTORY_FILTER,CB_ADDSTRING,
                 0,reinterpret_cast<LPARAM>(choice));
         SendDlgItemMessageW(dialog,IDC_BATCH_HISTORY_FILTER,CB_SETCURSEL,0,0);
+        SendDlgItemMessageW(dialog,IDC_BATCH_HISTORY_SOURCE,EM_LIMITTEXT,7,0);
         ListView_SetExtendedListViewStyle(state->metadata_track_list,
             LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_INFOTIP |
             LVS_EX_HEADERDRAGDROP);
@@ -9617,6 +9630,24 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         }
         if(id==41540u || id==41541u) {
             copy_session_preview_history(dialog,*state,id==41540u);
+            return TRUE;
+        }
+        if(id==IDC_BATCH_HISTORY_SOURCE && HIWORD(wp)==EN_CHANGE) {
+            wchar_t source_text[16]{};
+            const HWND edit=GetDlgItem(dialog,IDC_BATCH_HISTORY_SOURCE);
+            const int length=GetWindowTextLengthW(edit);
+            if(length>=0 && length<=7) GetWindowTextW(edit,source_text,16);
+            state->history_source_query=length>=0 && length<=7
+                ? preview_history_parse_source(
+                    std::wstring_view(source_text,static_cast<std::size_t>(length)),
+                    state->entries.size())
+                : PreviewHistorySourceQuery{false,std::nullopt};
+            refresh_preview_history_list(*state);
+            if(state->tabs && TabCtrl_GetCurSel(state->tabs)==3)
+                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                    state->history_source_query.valid
+                    ? L"History filtered to one captured source; multi-track actions are excluded. No writes."
+                    : L"Invalid physical source number. Clear or enter a captured source #.");
             return TRUE;
         }
         if(id==IDC_BATCH_HISTORY_FILTER && HIWORD(wp)==CBN_SELCHANGE) {
