@@ -19,7 +19,11 @@ namespace djmeta {
 // The exact unrounded difference is (cue_frame*1000 - elapsed_ms*75)/75 ms.
 inline std::int64_t precision_cue_quantization_offset_microseconds(
     const PrecisionCueBoundary& boundary) {
-    if (boundary.elapsed_ms < 0 || boundary.cue_frame < 0 ||
+    // Bound untrusted read-only review rows before any signed multiply.
+    // The production planner admits at most one 24-hour disc clock.
+    constexpr std::int64_t kMaximumDiscMs = 24LL * 60 * 60 * 1000;
+    if (boundary.elapsed_ms < 0 || boundary.elapsed_ms > kMaximumDiscMs ||
+        boundary.cue_frame < 0 ||
         boundary.cue_frame != milliseconds_to_cue_frame(boundary.elapsed_ms))
         throw std::invalid_argument("Invalid quantized CUE boundary");
     const auto numerator = boundary.cue_frame * 1000 - boundary.elapsed_ms * 75;
@@ -82,7 +86,10 @@ inline PrecisionCueAuditResult audit_precision_cue_boundaries(
             predicted.cue_frame < 0 || predicted.cue_frame >= total_frames ||
             predicted.cue_frame > max_frame ||
             predicted.cue_frame != milliseconds_to_cue_frame(predicted.elapsed_ms) ||
-            expected.cue_frame < 0 || expected.cue_frame > max_frame ||
+            // A reference INDEX 01 at/after the generated disc end is
+            // outside the physical audio clock, not merely a large drift.
+            expected.cue_frame < 0 || expected.cue_frame >= total_frames ||
+            expected.cue_frame > max_frame ||
             (i == 0 && (predicted.cue_frame != 0 || expected.cue_frame != 0)) ||
             (i != 0 && (predicted.cue_frame <= last_predicted ||
                         expected.cue_frame <= last_reference))) {

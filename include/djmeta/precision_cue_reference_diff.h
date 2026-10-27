@@ -114,8 +114,11 @@ inline PrecisionCueReferenceDiff compare_precision_cue_external_reference(
     PrecisionCueReferenceDiff out;
     if (reference_cue_bytes.empty() ||
         reference_cue_bytes.size() > 1024 * 1024 ||
-        generated.boundaries.empty() || generated.boundaries.size() > 99)
+        generated.boundaries.empty() || generated.boundaries.size() > 99 ||
+        generated.total_duration_ms <= 0 ||
+        generated.total_duration_ms > 24LL * 60 * 60 * 1000)
         return out;
+    const auto total_frames = milliseconds_to_cue_frame(generated.total_duration_ms);
     const auto inventory = inspect_external_cue(reference_cue_bytes);
     if (inventory.status != CueSyntaxStatus::Parsed ||
         inventory.references.size() != 1 ||
@@ -180,7 +183,10 @@ inline PrecisionCueReferenceDiff compare_precision_cue_external_reference(
             if (!file_seen || current_track == 0 || tokens.size() != 3)
                 return out;
             std::int64_t frame = -1;
-            if (!cue_time(tokens[2], frame)) return out;
+            if (!cue_time(tokens[2], frame) || frame >= total_frames) {
+                out.diagnostic = "CUE_REFERENCE_INDEX_OUTSIDE_DISC_CLOCK";
+                return out;
+            }
             if (tokens[1] == "00" && !index_00_seen && !index_01_seen &&
                 !pregap_seen && frame >= last_index_01_frame) {
                 index_00_seen = true;
@@ -209,6 +215,12 @@ inline PrecisionCueReferenceDiff compare_precision_cue_external_reference(
             const auto tokens = words(line);
             std::int64_t ignored = -1;
             if (tokens.size() != 2 || !cue_time(tokens[1], ignored)) return out;
+            // Virtual gaps remain review-only; a gap at/after the entire
+            // physical disc duration cannot be trusted as a bounded cue.
+            if (ignored >= total_frames) {
+                out.diagnostic = "CUE_REFERENCE_GAP_OUTSIDE_DISC_CLOCK";
+                return out;
+            }
             // PREGAP is pre-INDEX 01 virtual silence, POSTGAP follows
             // INDEX 01. Repetition or simultaneous INDEX 00/PREGAP is
             // ambiguous; never label malformed structural data as exact.

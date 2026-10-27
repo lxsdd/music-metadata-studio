@@ -133,6 +133,27 @@ void reference_cue_timeline_regressions(const PrecisionCuePlan& plan) {
     CHECK(diff.state == State::ReviewRequired);
     CHECK(diff.audit.review_count == 1);
 
+    // A reference INDEX 01 may be late and still physically in-bounds:
+    // preserve REVIEW, not a fabricated exact match or write permission.
+    auto near_end = original;
+    replace_once(near_end, "INDEX 01 28:00:00", "INDEX 01 29:59:74");
+    diff = compare_precision_cue_external_reference(plan, near_end, basename);
+    CHECK(diff.state == State::ReviewRequired);
+    CHECK(diff.audit.review_count == 1);
+    // At or beyond the actual 30-minute disc end is unqualified, even
+    // though the timestamp is valid CUE syntax and the order is monotonic.
+    for (const auto* outside : {"INDEX 01 30:00:00", "INDEX 01 30:00:01"}) {
+        auto out_of_disc = original;
+        replace_once(out_of_disc, "INDEX 01 28:00:00", outside);
+        const auto rejected = compare_precision_cue_external_reference(
+            plan, out_of_disc, basename);
+        CHECK(rejected.state == State::Unqualified);
+        CHECK(rejected.audit.differences.empty());
+        CHECK(rejected.track_structure.empty());
+        CHECK(std::string(rejected.diagnostic) ==
+              "CUE_REFERENCE_INDEX_OUTSIDE_DISC_CLOCK");
+    }
+
     auto pregap = original;
     replace_once(pregap, "    INDEX 01 02:00:00",
                  "    INDEX 00 01:59:70\n    INDEX 01 02:00:00");
@@ -162,6 +183,21 @@ void reference_cue_timeline_regressions(const PrecisionCuePlan& plan) {
     CHECK(diff.state == State::ReviewRequired && diff.extra_index_or_pregap);
     CHECK(diff.track_structure[1].postgap_frames == 5);
     CHECK(!diff.track_structure[1].pregap_frames);
+
+    // A syntactically valid virtual gap longer than the physical disc
+    // cannot be treated as bounded structural review evidence.
+    for (const auto* op : {"PREGAP", "POSTGAP"}) {
+        auto oversized_gap = original;
+        const std::string replacement =
+            std::string("    INDEX 01 02:00:00\n    ") + op + " 31:00:00";
+        replace_once(oversized_gap, "    INDEX 01 02:00:00", replacement);
+        const auto rejected = compare_precision_cue_external_reference(
+            plan, oversized_gap, basename);
+        CHECK(rejected.state == State::Unqualified);
+        CHECK(rejected.track_structure.empty());
+        CHECK(std::string(rejected.diagnostic) ==
+              "CUE_REFERENCE_GAP_OUTSIDE_DISC_CLOCK");
+    }
 
     auto backward_index00 = original;
     replace_once(backward_index00, "    INDEX 01 02:00:00",

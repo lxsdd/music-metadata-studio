@@ -104,6 +104,12 @@ void test_quantization_audit_exact_integer_offsets() {
     invalid = plan.boundaries[1];
     invalid.elapsed_ms = -1;
     must_reject([&] { (void)djmeta::precision_cue_quantization_offset_microseconds(invalid); });
+    // A forged enormous elapsed time must not overflow the signed
+    // intermediate products before the preview rejects it.
+    invalid = plan.boundaries[1];
+    invalid.elapsed_ms = std::numeric_limits<std::int64_t>::max();
+    invalid.cue_frame = 0;
+    must_reject([&] { (void)djmeta::precision_cue_quantization_offset_microseconds(invalid); });
 }
 
 void test_frame_classification() {
@@ -271,6 +277,25 @@ void test_boundary_audit_multidisc_synthetic() {
         assert(exact.exact_count == count);
         assert(exact.within_one_frame_count == 0);
         assert(exact.review_count == 0);
+
+        // Each disc's final INDEX 01 must precede its OWN physical end.
+        // A late but still in-bounds marker is reviewable, while an
+        // at-end/after-end reference fails closed with no partial rows.
+        const auto total_frames = djmeta::milliseconds_to_cue_frame(
+            generated.total_duration_ms);
+        auto late_reference = reference;
+        late_reference.back().cue_frame = total_frames - 1;
+        const auto late_review = djmeta::audit_precision_cue_boundaries(
+            generated, late_reference);
+        assert(late_review.state == PrecisionCueAuditState::Review);
+        assert(late_review.review_count == 1);
+        for (const auto outside_frame : {total_frames, total_frames + 1}) {
+            late_reference.back().cue_frame = outside_frame;
+            const auto rejected = djmeta::audit_precision_cue_boundaries(
+                generated, late_reference);
+            assert(rejected.state == PrecisionCueAuditState::Rejected);
+            assert(rejected.differences.empty());
+        }
 
         const unsigned changed = disc_number == 1 ? 8 : 4;
         // Opposite signed deltas in the two independently timed mixes.
