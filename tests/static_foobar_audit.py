@@ -37,6 +37,16 @@ found = [token for token in forbidden if token in sources]
 if found:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: write-capable token(s): " + ", ".join(found))
 
+# Read-only exact-source provenance receipt remains production-wired to
+# native HWND/menu/keyboard, bounded clipboard and explicit identity guards.
+for token in ("native_evidence_receipt_allowed(",
+              "native_render_evidence_receipt(",
+              "native_copy_audit_text_to_clipboard(dialog,*receipt)",
+              "copyEvidenceCommand=41411u",
+              "native_evidence_copy_hotkey("):
+    if token not in sources:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: missing field receipt "+token)
+
 # The new SDK tag-writer has a distinct audited source boundary. Its
 # source may contain update APIs, while the default foobar preview sources
 # above MUST remain read-only. No generic FileOps or direct Win32 mutations.

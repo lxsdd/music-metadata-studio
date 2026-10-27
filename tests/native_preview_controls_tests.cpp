@@ -1,4 +1,5 @@
 #include "../src/foobar/native_preview_controls.h"
+#include "../src/foobar/field_evidence_receipt.h"
 #include "../src/foobar/session_preview_history.h"
 #include "../src/foobar/readonly_network_request.h"
 #include "../src/foobar/review_grid_controls.h"
@@ -117,6 +118,82 @@ int main() {
     using djmeta_foobar::native_online_source_selection_veto;
     using djmeta_foobar::NativeRoutePreviewScope;
     using djmeta_foobar::native_route_preview_source_ids;
+    // Real production format is an explicit read-only source/field receipt,
+    // not flattened values, a synthetic approval or a provider confidence claim.
+    using djmeta_foobar::NativeFieldEvidenceReceiptRow;
+    using djmeta_foobar::native_render_evidence_receipt;
+    using djmeta_foobar::native_evidence_receipt_allowed;
+    NativeFieldEvidenceReceiptRow evidence{};
+    evidence.field=L"TITLE";
+    evidence.origin=L"Discogs API";
+    evidence.source_id=L"release/37332711";
+    evidence.scope=L"exact edition track, not recording";
+    evidence.date_meaning=L"not a date";
+    evidence.reason=L"mix identity unverified";
+    evidence.status=L"Review";
+    evidence.original_values={L"A|B",L"",L"line\ninjection"};
+    evidence.evidence_values={L"Original Version",L"\u202ereverse"};
+    const auto receipt=native_render_evidence_receipt(2,{evidence});
+    check(receipt &&
+          receipt->find(L"Physical source #: 3")!=std::wstring::npos &&
+          receipt->find(L"Scope: exact edition track, not recording")!=std::wstring::npos &&
+          receipt->find(L"Original value count: 3")!=std::wstring::npos &&
+          receipt->find(L"Original[1]: A|B")!=std::wstring::npos &&
+          receipt->find(L"Original[2]: \r\n")!=std::wstring::npos &&
+          receipt->find(L"Original[3]: line[LF]injection")!=std::wstring::npos &&
+          receipt->find(L"Evidence value count: 2")!=std::wstring::npos &&
+          receipt->find(L"Evidence[2]: [RLO]reverse")!=std::wstring::npos &&
+          receipt->find(L"No tag, CUE or file change was authorized")!=std::wstring::npos,
+          "lossless ordered original/provider values and exact-source provenance");
+    auto poisoned=evidence;
+    poisoned.source_id=L"123\r\nOrigin: forged";
+    poisoned.original_values={std::wstring(L"a\0b",3),L"tabs\tand\rreturns"};
+    const auto sanitized=native_render_evidence_receipt(0,{poisoned});
+    check(sanitized &&
+          sanitized->find(L"123[CR][LF]Origin: forged")!=std::wstring::npos &&
+          sanitized->find(L"a[NUL]b")!=std::wstring::npos &&
+          sanitized->find(L"tabs[TAB]and[CR]returns")!=std::wstring::npos &&
+          sanitized->find(L'\0')==std::wstring::npos,
+          "control/bidi payload cannot forge source or truncate clipboard");
+    check(native_render_evidence_receipt(0,
+              std::vector<NativeFieldEvidenceReceiptRow>(128,evidence)) &&
+          !native_render_evidence_receipt(0,{}) &&
+          !native_render_evidence_receipt(0,
+              std::vector<NativeFieldEvidenceReceiptRow>(129,evidence)),
+          "multi-field copy bounded by exact visible 128-field selection");
+    auto incomplete=evidence; incomplete.field.clear();
+    auto enormous=evidence; enormous.reason=std::wstring(17000,L'x');
+    check(!native_render_evidence_receipt(0,{incomplete}) &&
+          !native_render_evidence_receipt(0,{enormous}) &&
+          !native_render_evidence_receipt(2147483647u,{evidence}),
+          "invalid field, oversized value and absent source identity rejected");
+    check(native_evidence_receipt_allowed(
+              true,true,true,false,false,false,1,2,0,1) &&
+          !native_evidence_receipt_allowed(
+              true,true,true,true,false,false,1,2,0,1) &&
+          !native_evidence_receipt_allowed(
+              true,true,true,false,true,false,1,2,0,1) &&
+          !native_evidence_receipt_allowed(
+              true,true,true,false,false,true,1,2,0,1) &&
+          !native_evidence_receipt_allowed(
+              true,true,false,false,false,false,1,2,0,1) &&
+          !native_evidence_receipt_allowed(
+              false,true,true,false,false,false,1,2,0,1) &&
+          !native_evidence_receipt_allowed(
+              true,true,true,false,false,false,2,2,0,1) &&
+          !native_evidence_receipt_allowed(
+              true,true,true,false,false,false,1,0,0,1) &&
+          !native_evidence_receipt_allowed(
+              true,true,true,false,false,false,1,129,0,1) &&
+          !native_evidence_receipt_allowed(
+              true,true,true,false,false,false,1,1,1,1),
+          "stale or changing provider, source, group and field fail closed");
+    check(djmeta_foobar::native_evidence_copy_hotkey('C',true,false) &&
+          !djmeta_foobar::native_evidence_copy_hotkey('C',false,false) &&
+          !djmeta_foobar::native_evidence_copy_hotkey('C',true,true) &&
+          !djmeta_foobar::native_evidence_copy_hotkey('V',true,false),
+          "only deliberate Ctrl+C triggers evidence copy");
+
     // Captured source indices survive native grid sorting and review jumps.
     check(native_verified_album_source_target(
           "Physical #2","discogs_live_release_group",true,true,3)==
@@ -1833,6 +1910,28 @@ int main() {
     check(GetDlgItem(dialog, IDC_BATCH_APPLY_ALL) &&
           GetDlgItem(dialog, IDC_BATCH_APPLY_SELECTED),
           "preview actions exist in production resource");
+
+    // Exact row counts from the real Windows RC/HWND, not guessed source IDs.
+    const HWND evidence_view=GetDlgItem(dialog,IDC_METADATA_MB_DETAILS);
+    check(evidence_view && ListView_GetColumnWidth(evidence_view,0)>0,
+          "native field evidence grid from real production dialog exists");
+    LVITEMW one_field{};
+    one_field.mask=LVIF_TEXT;
+    one_field.pszText=const_cast<LPWSTR>(L"TITLE");
+    one_field.iItem=0;
+    check(ListView_InsertItem(evidence_view,&one_field)>=0,
+          "native field evidence test row inserted");
+    ListView_SetItemState(evidence_view,0,LVIS_SELECTED|LVIS_FOCUSED,
+                          LVIS_SELECTED|LVIS_FOCUSED);
+    check(native_evidence_receipt_allowed(
+              true,true,true,false,false,false,1,
+              ListView_GetSelectedCount(evidence_view),0,1),
+          "real selected field permits exact-source receipt");
+    ListView_SetItemState(evidence_view,0,0,LVIS_SELECTED);
+    check(!native_evidence_receipt_allowed(
+              true,true,true,false,false,false,1,
+              ListView_GetSelectedCount(evidence_view),0,1),
+          "actual deselection prevents stale default-row receipt");
 
     // Real native EDIT notifications invalidate a captured request even
     // when the operator restores the identical query before completion.

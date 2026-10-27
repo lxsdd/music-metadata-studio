@@ -14,6 +14,7 @@
 #include "legacy_routing_profiles.h"
 #include "djmeta/named_route_profiles.h"
 #include "native_preview_controls.h"
+#include "field_evidence_receipt.h"
 #include "session_preview_history.h"
 #include "review_grid_controls.h"
 #include "metadata_adapter.h"
@@ -5135,7 +5136,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_METADATA_INSPECT_CUE,L"Inspect original CUE FILE sources and sidecar actions. Double-click/Enter a linked FILE routing row to jump to its exact physical source, or the carrier row to stage its sidecar action in File locations. No file changes."},
         {IDC_METADATA_IMPORT_CANDIDATE,L"Import structured clipboard evidence for Beatport/Crates, MusicBrainz, Discogs, Deezer or Spotify. Manual @provider claims are unverified, even if an ID is supplied. No authentication claim, tag change or file write."},
         {IDC_METADATA_LIST,L"Select a candidate or proposed change to inspect its source and status."},
-        {IDC_METADATA_MB_DETAILS,L"Field-by-field evidence for the selected online candidate. REVIEW is not a tag-write authorization."},
+        {IDC_METADATA_MB_DETAILS,L"Read-only field evidence: select rows; right-click or Ctrl+C copies full origin, scope, reason and ordered original/proposed values."},
         {IDC_ONLINE_DATE_TARGET_LABEL,L"Do not infer an edition date from your current physical DATE."},
         {IDC_ONLINE_DATE_TARGET,L"Choose a tag for each verified release date. DATE keeps only the four-digit year (YYYY); RELEASEDATE and DATE_RAW keep the full ISO date. PAIR stages Master -> ORIGINALDATE (or year-only DATE) plus Edition -> RELEASEDATE. Memory-only preview, no file write."},
         {IDC_METADATA_FILTER,L"Limit the local normalization review to music, extended or all tags."},
@@ -7833,6 +7834,16 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             }
             return TRUE;
         }
+        if(header && header->idFrom==IDC_METADATA_MB_DETAILS &&
+           header->code==LVN_KEYDOWN) {
+            const auto* key=reinterpret_cast<const NMLVKEYDOWN*>(lp);
+            if(key && native_evidence_copy_hotkey(
+                  key->wVKey,(GetKeyState(VK_CONTROL)&0x8000)!=0,
+                  (GetKeyState(VK_MENU)&0x8000)!=0)) {
+                SendMessageW(dialog,WM_COMMAND,MAKEWPARAM(41411u,0),0);
+                return TRUE;
+            }
+        }
         // Field-level source identity, evidence scope and date meaning are
         // available on the real lower native ListView, not just the summary.
         if (header && header->idFrom == IDC_METADATA_MB_DETAILS &&
@@ -8151,6 +8162,24 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             // Contextual single-field read-only action. Disabled for search
             // snippets, unverified clipboard, physical tags and stale CUEs.
             constexpr UINT cuePreviewCommand=41410u;
+            constexpr UINT copyEvidenceCommand=41411u;
+            const int selected_group=ListView_GetNextItem(
+                state->metadata_list,-1,LVNI_SELECTED);
+            std::size_t evidence_group=state->musicbrainz_detail_groups.size();
+            if(selected_group>=0 &&
+               static_cast<std::size_t>(selected_group)<state->candidate_view_order.size())
+                evidence_group=state->candidate_view_order[
+                    static_cast<std::size_t>(selected_group)];
+            const bool can_copy=native_evidence_receipt_allowed(
+                state->show_candidate,state->musicbrainz_live_view,
+                state->candidate_source_index==state->selected_track_index &&
+                state->selected_track_index<state->entries.size(),
+                state->stale,state->refreshing,
+                state->musicbrainz_request || state->discogs_request ||
+                state->beatport_public_request,
+                ListView_GetSelectedCount(state->metadata_list),
+                ListView_GetSelectedCount(state->musicbrainz_details),
+                evidence_group,state->musicbrainz_detail_groups.size());
             const bool possible=state->show_candidate &&
                 state->musicbrainz_release_loaded &&
                 state->cue_postimage_snapshot.has_value() &&
@@ -8164,6 +8193,9 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             AppendMenuW(menu,MF_STRING | (possible?MF_ENABLED:MF_GRAYED),
                         cuePreviewCommand,
                         L"Preview selected CUE values (read-only)");
+            AppendMenuW(menu,MF_STRING | (can_copy?MF_ENABLED:MF_GRAYED),
+                        copyEvidenceCommand,
+                        L"Copy selected field evidence (Ctrl+C, read-only)");
             POINT point{};
             if(lp==static_cast<LPARAM>(-1)) {
                 RECT rect{};
@@ -8177,8 +8209,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 menu,TPM_RETURNCMD|TPM_RIGHTBUTTON,
                 point.x,point.y,0,dialog,nullptr);
             DestroyMenu(menu);
-            if(selected==cuePreviewCommand)
-                SendMessageW(dialog,WM_COMMAND,MAKEWPARAM(cuePreviewCommand,0),0);
+            if(selected==cuePreviewCommand || selected==copyEvidenceCommand)
+                SendMessageW(dialog,WM_COMMAND,MAKEWPARAM(selected,0),0);
             return TRUE;
         }
         if (requested == ListView_GetHeader(state->list)) {
@@ -8408,6 +8440,77 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         if ((id==IDC_ONLINE_INCLUDE_FIELDS || id==IDC_ONLINE_IGNORE_FIELDS ||
              id==IDC_ONLINE_RESET_FIELDS) && HIWORD(wp)==BN_CLICKED) {
             change_online_field_preview(*state,id);
+            return TRUE;
+        }
+        if(id==41411u) {
+            // Explicit clipboard action, with a fresh immutable source probe.
+            // The current selected candidate/field identities are checked
+            // before constructing anything; no provider request or SDK writer.
+            revalidate_workspace(*state);
+            const int selected_group=ListView_GetNextItem(
+                state->metadata_list,-1,LVNI_SELECTED);
+            std::size_t group=state->musicbrainz_detail_groups.size();
+            if(selected_group>=0 &&
+               static_cast<std::size_t>(selected_group)<state->candidate_view_order.size())
+                group=state->candidate_view_order[
+                    static_cast<std::size_t>(selected_group)];
+            const int field_count=ListView_GetSelectedCount(state->musicbrainz_details);
+            if(!native_evidence_receipt_allowed(
+                  state->show_candidate,state->musicbrainz_live_view,
+                  state->candidate_source_index==state->selected_track_index &&
+                  state->selected_track_index<state->entries.size(),
+                  state->stale,state->refreshing,
+                  state->musicbrainz_request || state->discogs_request ||
+                  state->beatport_public_request,
+                  ListView_GetSelectedCount(state->metadata_list),field_count,
+                  group,state->musicbrainz_detail_groups.size()))
+                throw std::invalid_argument(
+                    "Select one current provider result and 1-128 evidence fields.");
+            const auto& rows=state->musicbrainz_detail_groups[group];
+            std::vector<NativeFieldEvidenceReceiptRow> receipt_rows;
+            receipt_rows.reserve(static_cast<std::size_t>(field_count));
+            int selected=-1;
+            while((selected=ListView_GetNextItem(
+                       state->musicbrainz_details,selected,LVNI_SELECTED))>=0) {
+                if(selected>=1024 || selected<0 ||
+                   static_cast<std::size_t>(selected)>=rows.size())
+                    throw std::invalid_argument(
+                        "Selected field is outside the current displayed evidence.");
+                const auto& item=rows[static_cast<std::size_t>(selected)];
+                const bool local=djmeta::online::is_local_physical_original(item);
+                const bool cue=djmeta::online::is_local_cue_inventory(item);
+                NativeFieldEvidenceReceiptRow field;
+                field.field=from_utf8(item.field);
+                field.origin=cue?from_utf8(item.candidate.provider):
+                    from_utf8(djmeta::online::online_evidence_origin_label(item));
+                field.source_id=local?L"(local physical tag; no provider ID)":
+                    from_utf8(item.candidate.source_id);
+                field.scope=local?L"original physical audio metadata":
+                    cue?L"original CUE carrier inventory":
+                    from_utf8(djmeta::online::online_evidence_scope_label(
+                        item.candidate.scope));
+                field.date_meaning=from_utf8(
+                    djmeta::online::online_evidence_date_label(
+                        item.candidate.date_meaning));
+                field.reason=from_utf8(item.reason);
+                wchar_t status[512]{};
+                ListView_GetItemText(state->musicbrainz_details,selected,3,status,512);
+                field.status=status;
+                for(const auto& value:item.original_values)
+                    field.original_values.push_back(from_utf8(value));
+                if(!local && !cue)
+                    for(const auto& value:item.candidate.values)
+                        field.evidence_values.push_back(from_utf8(value));
+                receipt_rows.push_back(std::move(field));
+            }
+            const auto receipt=native_render_evidence_receipt(
+                state->selected_track_index,receipt_rows);
+            if(!receipt)
+                throw std::invalid_argument("Evidence receipt invalid or too large.");
+            native_copy_audit_text_to_clipboard(dialog,*receipt);
+            SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                L"Selected exact-source field evidence copied with provenance, "
+                L"status and ordered multivalues. Read-only; nothing written.");
             return TRUE;
         }
         if(id==41410u) {
