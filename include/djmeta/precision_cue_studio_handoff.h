@@ -102,6 +102,11 @@ struct PrecisionCueStudioReviewRow {
     // A reference INDEX 00/PREGAP/POSTGAP affects the whole disc's
     // structural review even when every INDEX 01 frame is identical.
     bool reference_has_extra_index_or_pregap = false;
+    // A reference CUE can have matching frames but claim a different
+    // album/track title, performer, genre or date. Localize such claims
+    // without treating any text match as release/mastering proof.
+    bool reference_album_metadata_conflict = false;
+    bool reference_track_metadata_conflict = false;
     // Track-specific INDEX 00 / PREGAP / POSTGAP audit for the one native
     // Studio review. Absent for no reference or an unqualified reference.
     std::optional<PrecisionCueReferenceTrackStructure> reference_track_structure;
@@ -289,6 +294,8 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
             std::vector<PrecisionCueBoundaryDifference> differences;
             std::vector<PrecisionCueReferenceTrackStructure> structures;
             bool reference_has_extra_index_or_pregap = false;
+            bool reference_album_metadata_conflict = false;
+            std::vector<bool> reference_track_metadata_conflicts;
             if (reference_cues[source_index]) {
                 const auto diff = compare_precision_cue_external_reference(
                     planned, *reference_cues[source_index],
@@ -314,6 +321,14 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
                 differences = diff.audit.differences;
                 structures = diff.track_structure;
                 reference_has_extra_index_or_pregap = diff.extra_index_or_pregap;
+                reference_album_metadata_conflict = diff.album_metadata_conflict;
+                reference_track_metadata_conflicts = diff.track_metadata_conflicts;
+                if (reference_state != PrecisionCueStudioReferenceState::Unqualified &&
+                    reference_track_metadata_conflicts.size() != planned.boundaries.size()) {
+                    out.diagnostic = "STUDIO_REFERENCE_TEXT_METADATA_INCOMPLETE";
+                    out.rows.clear();
+                    return out;
+                }
             }
             std::int64_t elapsed = 0;
             for (std::size_t track = 0; track < planned.boundaries.size(); ++track) {
@@ -417,6 +432,11 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
                 }
                 row.reference_has_extra_index_or_pregap =
                     reference_has_extra_index_or_pregap;
+                row.reference_album_metadata_conflict =
+                    reference_album_metadata_conflict;
+                row.reference_track_metadata_conflict =
+                    track < reference_track_metadata_conflicts.size() &&
+                    reference_track_metadata_conflicts[track];
                 row.reference_state = reference_state;
                 if (reference_cues[source_index] &&
                     reference_state != PrecisionCueStudioReferenceState::Unqualified) {
@@ -445,11 +465,14 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
                     if (!reference_has_extra_index_or_pregap &&
                         reference_state != PrecisionCueStudioReferenceState::Unqualified) {
                         const auto delta = difference.signed_delta_frames;
-                        row.reference_state = delta == 0
-                            ? PrecisionCueStudioReferenceState::ExactFrameNotAudioProof
-                            : (delta == -1 || delta == 1)
-                                ? PrecisionCueStudioReferenceState::WithinOneFrameNotAudioProof
-                                : PrecisionCueStudioReferenceState::ReviewRequired;
+                        row.reference_state = row.reference_album_metadata_conflict ||
+                            row.reference_track_metadata_conflict
+                            ? PrecisionCueStudioReferenceState::ReviewRequired
+                            : delta == 0
+                                ? PrecisionCueStudioReferenceState::ExactFrameNotAudioProof
+                                : (delta == -1 || delta == 1)
+                                    ? PrecisionCueStudioReferenceState::WithinOneFrameNotAudioProof
+                                    : PrecisionCueStudioReferenceState::ReviewRequired;
                     }
                 }
                 out.rows.push_back(std::move(row));
