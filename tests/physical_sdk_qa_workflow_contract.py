@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = (ROOT / ".github/workflows/foobar.yml").read_text(encoding="utf-8")
 SCRIPT = (ROOT / "scripts/qa-physical-writer-host.ps1").read_text(encoding="utf-8")
+TITLE_QA = (ROOT / "scripts/qa-native-title-prefill.ps1").read_text(encoding="utf-8")
 START = "  physical-sdk-runtime-qa:\n"
 END = "  discogs-authorized-native:\n"
 
@@ -57,6 +58,26 @@ def violations(config: str, script: str) -> list[str]:
     ):
         if item not in script:
             issues.append("synthetic isolated writer host evidence missing: " + item)
+    if "qa-native-title-prefill.ps1" not in script:
+        issues.append("real GUI original-tag prefill regression was not executed")
+    for marker in (
+        "GITHUB_ACTIONS -cne 'true'",
+        "mms-writer-qa.flac",
+        "[IO.Path]::GetFullPath($Source)",
+        "StartsWith($root+",
+        "MmsSyntheticTitleHost",
+        "SendText(edit,0x000D",
+        "GetWindowThreadProcessId",
+        "EditText($dialog,291)",
+        "$actual -ceq '1000 Years'",
+        "MMS_NATIVE_ORIGINAL_TITLE_PREFILL_",
+        "ReadAllBytes($physical)",
+        "LastWriteTimeUtc",
+    ):
+        if marker not in TITLE_QA:
+            issues.append("missing native GUI synthetic-only protected title check: " + marker)
+    if "GetWindowTextW(edit" in TITLE_QA:
+        issues.append("cross-process EDIT cannot be verified via GetWindowTextW")
     return issues
 
 def main() -> None:
@@ -86,9 +107,26 @@ def main() -> None:
                        "$env:GITHUB_ACTIONS -ceq 'true'", 1),
         SCRIPT.replace("MMS_QA_CUE_SOURCE", "MMS_EXTERNAL_CUE_PATH"),
         SCRIPT.replace("MMS_NATIVE_SDK_POSTWRITE_NOOP=PASS", "QA_UNCHECKED"),
+        SCRIPT.replace("qa-native-title-prefill.ps1", "no-native-qa.ps1"),
     ):
         assert violations(CONFIG, mutated), "unsafe host script mutation escaped"
-    print("PASS: real SDK physical/CUE QA allowed only trusted same-repo Studio PR, synthetic runner fixtures, zero artifacts and full no-op checks")
+    for altered in (
+        TITLE_QA.replace("SendText(edit,0x000D",
+                         "GetWindowTextW(edit,0x000D"),
+        TITLE_QA.replace("GetWindowThreadProcessId",
+                         "GetUntrustedProcessId"),
+        TITLE_QA.replace("$actual -ceq '1000 Years'",
+                         "$actual -cne '1000 Years'"),
+        TITLE_QA.replace("mms-writer-qa.flac", "user-library.flac"),
+        TITLE_QA.replace("LastWriteTimeUtc", "CreationTimeUtc"),
+    ):
+        old = TITLE_QA
+        TITLE_QA = altered
+        try:
+            assert violations(CONFIG, SCRIPT), "negative GUI QA mutation escaped"
+        finally:
+            TITLE_QA = old
+    print("PASS: trusted synthetic real SDK physical/CUE + native cross-process original TITLE QA, no public artifacts")
 
 if __name__ == "__main__":
     main()

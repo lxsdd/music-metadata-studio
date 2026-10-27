@@ -79,6 +79,13 @@ try {
  $dispatch=Start-Process -FilePath $exe -WorkingDirectory $hostDir -ArgumentList @('/add','/immediate',$source) -Wait -PassThru
  if($dispatch.ExitCode -ne 0) {throw 'QA FLAC source not accepted'}
  Start-Sleep -Seconds 2
+ # Independent, local-only native GUI regression. Unlike the external
+ # protected host-smoke helper, use cross-process WM_GETTEXT for the EDIT;
+ # GetWindowTextW on another process's EDIT incorrectly returns EMPTY.
+ # Never paste synthetic TITLE into the app: it must come from real tags.
+ & (Join-Path $PSScriptRoot 'qa-native-title-prefill.ps1') -Architecture $Architecture `
+   -Exe $exe -HostDir $hostDir -Source $source -FoobarPid ([uint32]$proc.Id)
+ if(-not $?) {throw 'Read-only original TITLE GUI verification failed'}
  # Exercise the actual C++ no-op gate BEFORE changing the synthetic fixture.
  # The CLI may accept a full group path or only its leaf command.
  $baselineNoop=[IO.File]::ReadAllBytes($source)
