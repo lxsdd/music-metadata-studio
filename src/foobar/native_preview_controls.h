@@ -6,6 +6,7 @@
 #include <windows.h>
 #include <commctrl.h>
 #include <algorithm>
+#include <array>
 #include <initializer_list>
 #include <cstddef>
 #include <numeric>
@@ -1008,10 +1009,12 @@ inline MusicBrainzPaneBounds musicbrainz_pane_bounds(RECT frame,int dpi) {
 // Caller keeps metadata data in its own immutable candidate model.
 inline bool insert_native_preview_detail_row(HWND list, int index,
     const std::wstring& field, const std::wstring& original,
-    const std::wstring& proposed, const std::wstring& status) {
+    const std::wstring& proposed, const std::wstring& status,
+    LPARAM source_row=-1) {
     if (!list || index<0) return false;
     LVITEMW first{};
-    first.mask=LVIF_TEXT;
+    first.mask=LVIF_TEXT|LVIF_PARAM;
+    first.lParam=source_row;
     first.iItem=index;
     first.iSubItem=0;
     first.pszText=const_cast<LPWSTR>(field.c_str());
@@ -1032,6 +1035,67 @@ inline bool insert_native_preview_detail_row(HWND list, int index,
         }
     }
     return true;
+}
+
+
+// Exact-edition field identity is the immutable LVIF_PARAM source index.
+// A visible row changes under sort; -1/-2 are synthetic non-field rows.
+inline std::optional<std::size_t> native_evidence_source_row(
+    HWND list,int visible,std::size_t source_count) noexcept {
+    if(!list || visible<0 || visible>=ListView_GetItemCount(list))
+        return std::nullopt;
+    LVITEMW item{}; item.mask=LVIF_PARAM; item.iItem=visible;
+    if(!ListView_GetItem(list,&item) || item.lParam<0 ||
+       item.lParam>=1024 ||
+       static_cast<std::size_t>(item.lParam)>=source_count)
+        return std::nullopt;
+    return static_cast<std::size_t>(item.lParam);
+}
+struct NativeEvidenceSortContext {
+    std::vector<std::array<std::wstring,4>> cells;
+    int column=0;
+    bool descending=false;
+};
+inline int CALLBACK native_evidence_compare(LPARAM lhs,LPARAM rhs,
+                                            LPARAM opaque) noexcept {
+    const auto& c=*reinterpret_cast<const NativeEvidenceSortContext*>(opaque);
+    const bool left=lhs>=0 && static_cast<std::size_t>(lhs)<c.cells.size();
+    const bool right=rhs>=0 && static_cast<std::size_t>(rhs)<c.cells.size();
+    if(left!=right) return left?-1:1;
+    if(!left) return lhs==rhs?0:lhs>rhs?-1:1;
+    const auto& a=c.cells[static_cast<std::size_t>(lhs)][c.column];
+    const auto& b=c.cells[static_cast<std::size_t>(rhs)][c.column];
+    const int comparison=CompareStringOrdinal(a.c_str(),-1,b.c_str(),-1,TRUE);
+    if(comparison==CSTR_LESS_THAN) return c.descending?1:-1;
+    if(comparison==CSTR_GREATER_THAN) return c.descending?-1:1;
+    return lhs==rhs?0:lhs<rhs?-1:1;
+}
+inline bool native_sort_evidence_details(HWND list,int column,bool descending) {
+    if(!list || column<0 || column>=4) return false;
+    const int count=ListView_GetItemCount(list);
+    if(count<0 || count>1026) return false;
+    NativeEvidenceSortContext context;
+    context.cells.resize(static_cast<std::size_t>(count));
+    context.column=column; context.descending=descending;
+    std::vector<bool> seen(static_cast<std::size_t>(count),false);
+    for(int row=0;row<count;++row) {
+        LVITEMW item{}; item.mask=LVIF_PARAM; item.iItem=row;
+        if(!ListView_GetItem(list,&item)) return false;
+        if(item.lParam<0) {
+            if(item.lParam!=-1 && item.lParam!=-2) return false;
+            continue;
+        }
+        if(item.lParam>=1024 || item.lParam>=count ||
+           seen[static_cast<std::size_t>(item.lParam)]) return false;
+        seen[static_cast<std::size_t>(item.lParam)]=true;
+        for(int col=0;col<4;++col) {
+            wchar_t value[4096]{};
+            ListView_GetItemText(list,row,col,value,4096);
+            context.cells[static_cast<std::size_t>(item.lParam)][col]=value;
+        }
+    }
+    return ListView_SortItems(list,native_evidence_compare,
+                              reinterpret_cast<LPARAM>(&context))!=FALSE;
 }
 
 // After a new provider query or a changed track, a virtual ListView may

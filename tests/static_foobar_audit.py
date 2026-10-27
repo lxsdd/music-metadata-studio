@@ -72,6 +72,15 @@ for token in ("native_apply_online_cancel_button(",
     if token not in sources:
         raise SystemExit("STATIC NATIVE CANCEL CONTRACT FAIL: "+token)
 
+# Native provider field sorting must preserve immutable source indices
+# across real GUI display, CUE, staging, tooltip and evidence export.
+for marker in ('header->code==LVN_COLUMNCLICK',
+               'native_sort_evidence_details(state.musicbrainz_details,',
+               'native_evidence_source_row(',
+               'state->online_detail_grid.sort_column'):
+    if marker not in workspace_dialog:
+        raise SystemExit("STATIC EVIDENCE SOURCE SORT FAIL: "+marker)
+
 # Read-only exact-source provenance receipt remains production-wired to
 # native HWND/menu/keyboard, bounded clipboard and explicit identity guards.
 for token in ("native_evidence_receipt_allowed(",

@@ -2102,6 +2102,55 @@ int main() {
               ListView_GetSelectedCount(evidence_view),0,1),
           "actual deselection prevents stale default-row receipt");
 
+    // Actual Windows HWND: display sorting never changes selected source IDs.
+    ListView_DeleteAllItems(evidence_view);
+    check(djmeta_foobar::insert_native_preview_detail_row(
+              evidence_view,0,L"ZETA",L"z",L"z",L"Review",0) &&
+          djmeta_foobar::insert_native_preview_detail_row(
+              evidence_view,1,L"ALPHA",L"a",L"a",L"Blocked",1) &&
+          djmeta_foobar::insert_native_preview_detail_row(
+              evidence_view,2,L"Beta",L"b",L"b",L"Review",2) &&
+          djmeta_foobar::insert_native_preview_detail_row(
+              evidence_view,3,L"Raw filename (what-if)",L"x",L"y",L"RAW",-2),
+          "native HWND field IDs and non-source route warning");
+    ListView_SetItemState(evidence_view,0,LVIS_SELECTED,LVIS_SELECTED);
+    check(djmeta_foobar::native_sort_evidence_details(evidence_view,0,false) &&
+          djmeta_foobar::native_evidence_source_row(evidence_view,0,3)==
+              std::optional<std::size_t>{1} &&
+          djmeta_foobar::native_evidence_source_row(evidence_view,1,3)==
+              std::optional<std::size_t>{2} &&
+          djmeta_foobar::native_evidence_source_row(evidence_view,2,3)==
+              std::optional<std::size_t>{0} &&
+          !djmeta_foobar::native_evidence_source_row(evidence_view,3,3) &&
+          ListView_GetNextItem(evidence_view,-1,LVNI_SELECTED)==2,
+          "ascending field sort retains selected original field, pins warning");
+    check(djmeta_foobar::native_sort_evidence_details(evidence_view,3,true) &&
+          djmeta_foobar::native_evidence_source_row(evidence_view,0,3)==
+              std::optional<std::size_t>{0} &&
+          djmeta_foobar::native_evidence_source_row(evidence_view,1,3)==
+              std::optional<std::size_t>{2} &&
+          djmeta_foobar::native_evidence_source_row(evidence_view,2,3)==
+              std::optional<std::size_t>{1} &&
+          ListView_GetNextItem(evidence_view,-1,LVNI_SELECTED)==0,
+          "descending status sort retains selected original field");
+    check(!djmeta_foobar::native_sort_evidence_details(evidence_view,-1,false) &&
+          !djmeta_foobar::native_sort_evidence_details(evidence_view,4,false) &&
+          !djmeta_foobar::native_evidence_source_row(evidence_view,0,0) &&
+          !djmeta_foobar::native_evidence_source_row(evidence_view,-1,3),
+          "invalid sort and stale source identity rejected");
+    ListView_DeleteAllItems(evidence_view);
+    check(djmeta_foobar::insert_native_preview_detail_row(
+              evidence_view,0,L"TITLE",L"x",L"y",L"Review",0) &&
+          djmeta_foobar::insert_native_preview_detail_row(
+              evidence_view,1,L"TITLE",L"x",L"y",L"Review",0) &&
+          !djmeta_foobar::native_sort_evidence_details(evidence_view,0,false),
+          "duplicate field identity is rejected");
+    ListView_DeleteAllItems(evidence_view);
+    check(djmeta_foobar::insert_native_preview_detail_row(
+              evidence_view,0,L"TITLE",L"x",L"y",L"Review",0) &&
+          djmeta_foobar::native_sort_evidence_details(evidence_view,0,false),
+          "new provider snapshot restores clean source identity");
+
     // Real native EDIT notifications invalidate a captured request even
     // when the operator restores the identical query before completion.
     const auto old_query_version=test_request_context.current();

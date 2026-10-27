@@ -2131,7 +2131,8 @@ void refresh_musicbrainz_detail_rows(PreviewState& state) {
             : row.state==djmeta::online::FieldReviewState::Unchanged
             ? L"No change" : L"Review";
         if (!insert_native_preview_detail_row(state.musicbrainz_details,
-              static_cast<int>(i),field,original,proposed,status))
+              static_cast<int>(i),field,original,proposed,status,
+              static_cast<LPARAM>(i)))
             throw std::runtime_error("Native candidate detail columns could not be populated.");
     }
     if (detail.size()>max_detail_rows) {
@@ -2139,7 +2140,7 @@ void refresh_musicbrainz_detail_rows(PreviewState& state) {
         if (!insert_native_preview_detail_row(state.musicbrainz_details,
               static_cast<int>(max_detail_rows),
               L"Additional fields not displayed",count,L"",
-              L"Limit reached; no writes"))
+              L"Limit reached; no writes",-1))
             throw std::runtime_error("Native detail overflow warning could not be displayed.");
     }
     // The online selection changes the actual foobar raw naming expression
@@ -2155,9 +2156,15 @@ void refresh_musicbrainz_detail_rows(PreviewState& state) {
              from_utf8(state.online_raw_route_before),
              from_utf8(state.online_raw_route_after),
              state.online_raw_route_before==state.online_raw_route_after
-                ? L"No naming delta" : L"Raw delta; not FileOps"))
+                ? L"No naming delta" : L"Raw delta; not FileOps",-2))
             throw std::runtime_error("Online naming comparison could not be shown.");
     }
+    if(!native_sort_evidence_details(state.musicbrainz_details,
+          state.online_detail_grid.sort_column,
+          state.online_detail_grid.sort_descending))
+        throw std::runtime_error("Native evidence sort source identity failed.");
+    show_review_grid_sort_arrow(state.musicbrainz_details,
+                                state.online_detail_grid);
 }
 
 void update_musicbrainz_browse_headers(PreviewState& state) {
@@ -5169,7 +5176,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_METADATA_INSPECT_CUE,L"Inspect original CUE FILE sources and sidecar actions. Double-click/Enter a linked FILE routing row to jump to its exact physical source, or the carrier row to stage its sidecar action in File locations. No file changes."},
         {IDC_METADATA_IMPORT_CANDIDATE,L"Import structured clipboard evidence for Beatport/Crates, MusicBrainz, Discogs, Deezer or Spotify. Manual @provider claims are unverified, even if an ID is supplied. No authentication claim, tag change or file write."},
         {IDC_METADATA_LIST,L"Select a candidate or proposed change to inspect its source and status."},
-        {IDC_METADATA_MB_DETAILS,L"Read-only field evidence: select rows; right-click or Ctrl+C copies full origin, scope, reason and ordered original/proposed values."},
+        {IDC_METADATA_MB_DETAILS,L"Read-only field evidence: click a header to sort without changing source identities. Right-click or Ctrl+C copies provenance and ordered values."},
         {IDC_ONLINE_DATE_TARGET_LABEL,L"Do not infer an edition date from your current physical DATE."},
         {IDC_ONLINE_DATE_TARGET,L"Choose a tag for each verified release date. DATE keeps only the four-digit year (YYYY); RELEASEDATE and DATE_RAW keep the full ISO date. PAIR stages Master -> ORIGINALDATE (or year-only DATE) plus Edition -> RELEASEDATE. Memory-only preview, no file write."},
         {IDC_METADATA_FILTER,L"Limit normalization review to music, extended or all tags. In source/detail lists, Ctrl+Shift+Left/Right resizes the divider; Ctrl+Shift+Home resets it."},
@@ -6783,9 +6790,11 @@ void change_online_field_preview(PreviewState& state,int action) {
         std::size_t selected_count=0;
         while((row=ListView_GetNextItem(
                 state.musicbrainz_details,row,LVNI_SELECTED))>=0) {
-            if(static_cast<std::size_t>(row)>=rows.size() || row>=1024)
-                throw std::invalid_argument("Visible edition field index expired.");
-            const auto& detail=rows[static_cast<std::size_t>(row)];
+            const auto original=native_evidence_source_row(
+                state.musicbrainz_details,row,rows.size());
+            if(!original)
+                throw std::invalid_argument("Visible edition field identity expired.");
+            const auto& detail=rows[*original];
             const bool is_date=djmeta::online::online_date_requires_explicit_target(
                 detail.candidate);
             const int target_choice=chosen_target;
@@ -7939,6 +7948,28 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             return TRUE;
         }
         if(header && header->idFrom==IDC_METADATA_MB_DETAILS &&
+           header->code==LVN_COLUMNCLICK) {
+            const auto* click=reinterpret_cast<const NMLISTVIEW*>(lp);
+            if(click && click->iSubItem>=0 && click->iSubItem<4) {
+                const int column=click->iSubItem;
+                if(state->online_detail_grid.sort_column==column)
+                    state->online_detail_grid.sort_descending=
+                        !state->online_detail_grid.sort_descending;
+                else {
+                    state->online_detail_grid.sort_column=column;
+                    state->online_detail_grid.sort_descending=false;
+                }
+                if(!native_sort_evidence_details(state->musicbrainz_details,
+                       state->online_detail_grid.sort_column,
+                       state->online_detail_grid.sort_descending))
+                    throw std::runtime_error(
+                        "Evidence sort refused ambiguous source-row identity.");
+                show_review_grid_sort_arrow(state->musicbrainz_details,
+                                             state->online_detail_grid);
+            }
+            return TRUE;
+        }
+        if(header && header->idFrom==IDC_METADATA_MB_DETAILS &&
            header->code==LVN_KEYDOWN) {
             const auto* key=reinterpret_cast<const NMLVKEYDOWN*>(lp);
             if(key && native_evidence_copy_hotkey(
@@ -7964,9 +7995,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                         static_cast<std::size_t>(selected)];
                     if (idx<state->musicbrainz_detail_groups.size()) {
                         const auto& rows=state->musicbrainz_detail_groups[idx];
-                        const auto row=static_cast<std::size_t>(tip->iItem);
-                        if (row<rows.size() && row<1024) {
-                            const auto& item=rows[row];
+                        const auto row=native_evidence_source_row(
+                            state->musicbrainz_details,tip->iItem,rows.size());
+                        if (row) {
+                            const auto& item=rows[*row];
                             const bool physical_source=
                                 djmeta::online::is_local_physical_original(item);
                             const bool cue_source=
@@ -8622,11 +8654,12 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             int selected=-1;
             while((selected=ListView_GetNextItem(
                        state->musicbrainz_details,selected,LVNI_SELECTED))>=0) {
-                if(selected>=1024 || selected<0 ||
-                   static_cast<std::size_t>(selected)>=rows.size())
+                const auto original=native_evidence_source_row(
+                    state->musicbrainz_details,selected,rows.size());
+                if(!original)
                     throw std::invalid_argument(
                         "Selected field is outside the current displayed evidence.");
-                const auto& item=rows[static_cast<std::size_t>(selected)];
+                const auto& item=rows[*original];
                 const bool local=djmeta::online::is_local_physical_original(item);
                 const bool cue=djmeta::online::is_local_cue_inventory(item);
                 NativeFieldEvidenceReceiptRow field;
@@ -8694,8 +8727,13 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             std::vector<std::size_t> selected_display_rows;
             int chosen=-1;
             while((chosen=ListView_GetNextItem(
-                state->musicbrainz_details,chosen,LVNI_SELECTED))>=0)
-                selected_display_rows.push_back(static_cast<std::size_t>(chosen));
+                       state->musicbrainz_details,chosen,LVNI_SELECTED))>=0) {
+                const auto original=native_evidence_source_row(
+                    state->musicbrainz_details,chosen,displayed.size());
+                if(!original) throw std::invalid_argument(
+                    "CUE field selection no longer identifies original evidence.");
+                selected_display_rows.push_back(*original);
+            }
             const auto selected_indices=
                 djmeta::online::resolve_cue_detail_selection(
                     *state->cue_postimage_snapshot,displayed,selected_display_rows);
@@ -8757,9 +8795,16 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                    djmeta::online::FieldReviewState::NeedsReview)
                     ++changed;
             refresh_musicbrainz_detail_rows(*state);
-            for(const auto row:selected_display_rows)
-                ListView_SetItemState(state->musicbrainz_details,
-                    static_cast<int>(row),LVIS_SELECTED,LVIS_SELECTED);
+            for(int visible=0;
+                visible<ListView_GetItemCount(state->musicbrainz_details);++visible) {
+                const auto original=native_evidence_source_row(
+                    state->musicbrainz_details,visible,displayed.size());
+                if(original && std::find(selected_display_rows.begin(),
+                       selected_display_rows.end(),*original)!=
+                       selected_display_rows.end())
+                    ListView_SetItemState(state->musicbrainz_details,
+                        visible,LVIS_SELECTED,LVIS_SELECTED);
+            }
             const std::wstring cue_preview_notice=L"CUE preview: "+
                 std::to_wstring(selected_indices.size())+L" selected; "+
                 std::to_wstring(changed)+L" proposed changes; "+
