@@ -4,6 +4,8 @@
 #include <cstddef>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace djmeta_foobar {
@@ -68,10 +70,10 @@ inline std::optional<std::size_t> preview_history_single_source(
     return event.source_index;
 }
 
-// The on-screen History labels and clipboard report deliberately share the
+// The clipboard receipt mirrors the on-screen History labels using the
 // same vocabulary. This is an audit of PREVIEW decisions, never an execution
 // receipt or an implicit authorization to write.
-inline const wchar_t* preview_history_action(PreviewHistoryKind kind) noexcept {
+inline const wchar_t* preview_history_receipt_action(PreviewHistoryKind kind) noexcept {
     switch(kind) {
     case PreviewHistoryKind::Accept: return L"Accept proposals";
     case PreviewHistoryKind::Reject: return L"Reject proposals";
@@ -83,7 +85,7 @@ inline const wchar_t* preview_history_action(PreviewHistoryKind kind) noexcept {
     }
     return L"Unknown";
 }
-inline const wchar_t* preview_history_scope(const PreviewHistoryEvent& event) noexcept {
+inline const wchar_t* preview_history_receipt_scope(const PreviewHistoryEvent& event) noexcept {
     if(event.kind==PreviewHistoryKind::Route)
         return event.scope==2 ? L"All tracks" : L"Selected tracks";
     if(event.kind==PreviewHistoryKind::UndoReview ||
@@ -125,7 +127,7 @@ inline std::optional<std::wstring> preview_history_export_tsv(
         if(event.sequence<=previous_sequence || event.sources==0 ||
            event.sources>captured_batch_size || event.items==0 ||
            event.items>1000000 || event.scope>3 ||
-           std::wstring_view(preview_history_action(event.kind))==L"Unknown" ||
+           std::wstring_view(preview_history_receipt_action(event.kind))==L"Unknown" ||
            (event.sources!=1 &&
             event.source_index!=static_cast<std::size_t>(-1)) ||
            (event.sources==1 &&
@@ -135,9 +137,9 @@ inline std::optional<std::wstring> preview_history_export_tsv(
         previous_sequence=event.sequence;
         report+=std::to_wstring(event.sequence);
         report+=L"\t";
-        report+=preview_history_action(event.kind);
+        report+=preview_history_receipt_action(event.kind);
         report+=L"\t";
-        report+=preview_history_scope(event);
+        report+=preview_history_receipt_scope(event);
         report+=L"\t";
         report+=std::to_wstring(event.sources);
         report+=L"\t";
