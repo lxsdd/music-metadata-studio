@@ -7,7 +7,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace djmeta {
@@ -19,10 +21,24 @@ enum class PrecisionCueReferenceDiffState {
     Unqualified
 };
 
+// Read-only per-track structure from the supplied reference CUE. The
+// difference between INDEX 00 and INDEX 01 is expressed in exact CUE frames,
+// not inferred audio samples. No field is a writer authorization.
+struct PrecisionCueReferenceTrackStructure {
+    unsigned track_number = 0;
+    std::optional<std::int64_t> index_00_frame;
+    std::optional<std::int64_t> index_00_to_01_frames;
+    std::optional<std::int64_t> pregap_frames;
+    std::optional<std::int64_t> postgap_frames;
+};
+
 struct PrecisionCueReferenceDiff {
     PrecisionCueReferenceDiffState state = PrecisionCueReferenceDiffState::Unqualified;
     PrecisionCueAuditResult audit;
     bool extra_index_or_pregap = false;
+    // Populated only after complete syntax and timeline validation.
+    // Preserve the actual affected track while keeping disc-wide REVIEW.
+    std::vector<PrecisionCueReferenceTrackStructure> track_structure;
     // Stable, path-free diagnostics; do not log user-provided CUE text.
     const char* diagnostic = "CUE_REFERENCE_UNQUALIFIED";
 };
@@ -114,6 +130,7 @@ inline PrecisionCueReferenceDiff compare_precision_cue_external_reference(
         input.size() >= 3) input.remove_prefix(3);
 
     std::vector<PrecisionCueReferenceBoundary> references;
+    std::vector<PrecisionCueReferenceTrackStructure> structures;
     bool file_seen = false;
     bool index_01_seen = false;
     bool index_00_seen = false;
@@ -151,6 +168,7 @@ inline PrecisionCueReferenceDiff compare_precision_cue_external_reference(
                 !decimal(tokens[1], number, 99, 2) ||
                 number != current_track + 1) return out;
             ++current_track;
+            structures.push_back({current_track});
             index_01_seen = false;
             index_00_seen = false;
             pregap_seen = false;
@@ -166,12 +184,15 @@ inline PrecisionCueReferenceDiff compare_precision_cue_external_reference(
                 !pregap_seen && frame >= last_index_01_frame) {
                 index_00_seen = true;
                 index_00_frame = frame;
+                structures.back().index_00_frame = frame;
                 extra_index = true;
             } else if (tokens[1] == "01" && !index_01_seen &&
                        (!index_00_seen || frame >= index_00_frame) &&
                        (current_track == 1 || frame > last_index_01_frame)) {
                 index_01_seen = true;
                 last_index_01_frame = frame;
+                if (index_00_seen)
+                    structures.back().index_00_to_01_frames = frame - index_00_frame;
                 references.push_back({current_track, frame});
             } else {
                 out.diagnostic = "CUE_REFERENCE_INVALID_INDEX_OR_GAP_ORDER";
@@ -196,12 +217,14 @@ inline PrecisionCueReferenceDiff compare_precision_cue_external_reference(
                     return out;
                 }
                 pregap_seen = true;
+                structures.back().pregap_frames = ignored;
             } else {
                 if (!index_01_seen || postgap_seen) {
                     out.diagnostic = "CUE_REFERENCE_INVALID_INDEX_OR_GAP_ORDER";
                     return out;
                 }
                 postgap_seen = true;
+                structures.back().postgap_frames = ignored;
             }
             extra_index = true;
         } else {
@@ -213,6 +236,7 @@ inline PrecisionCueReferenceDiff compare_precision_cue_external_reference(
         return out;
     out.audit = audit_precision_cue_boundaries(generated, references);
     if (out.audit.state == PrecisionCueAuditState::Rejected) return out;
+    out.track_structure = std::move(structures);
     out.extra_index_or_pregap = extra_index;
     if (extra_index || out.audit.state == PrecisionCueAuditState::Review) {
         out.state = PrecisionCueReferenceDiffState::ReviewRequired;
