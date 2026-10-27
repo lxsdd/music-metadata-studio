@@ -5,6 +5,7 @@
 #include "djmeta/external_cue.h"
 #include "djmeta/precision_cue_boundary_audit.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -36,6 +37,13 @@ struct PrecisionCueReferenceDiff {
     PrecisionCueReferenceDiffState state = PrecisionCueReferenceDiffState::Unqualified;
     PrecisionCueAuditResult audit;
     bool extra_index_or_pregap = false;
+    // Explicit reference TITLE/PERFORMER and album REM GENRE/DATE are
+    // untrusted textual claims, not audio/edition proof. A conflicting or
+    // duplicate supplied value forces REVIEW even when INDEX 01 agrees.
+    // Missing optional text does not imply a mismatch.
+    bool album_metadata_conflict = false;
+    bool metadata_conflict = false;
+    std::vector<bool> track_metadata_conflicts;
     // Populated only after complete syntax and timeline validation.
     // Preserve the actual affected track while keeping disc-wide REVIEW.
     std::vector<PrecisionCueReferenceTrackStructure> track_structure;
@@ -98,6 +106,62 @@ inline bool cue_time(std::string_view token, std::int64_t& frames) {
     frames = (static_cast<std::int64_t>(minutes) * 60 + seconds) * 75 + sector;
     return frames <= 24LL * 60 * 60 * 75;
 }
+// Compare only metadata that the reference explicitly declares. The
+// generator's canonical lines are the comparison baseline, not a provider
+// attestation. Exact text is advisory; different quoting/case is REVIEW,
+// never an automatic edition rejection or a write permission.
+struct ReferenceMetadataField {
+    std::string_view expected;
+    bool observed = false;
+};
+struct ReferenceMetadataScope {
+    ReferenceMetadataField title;
+    ReferenceMetadataField performer;
+    ReferenceMetadataField genre;
+    ReferenceMetadataField date;
+};
+inline ReferenceMetadataField* metadata_field(
+    ReferenceMetadataScope& scope, std::string_view line,
+    std::string_view op) {
+    if (op == "TITLE") return &scope.title;
+    if (op == "PERFORMER") return &scope.performer;
+    if (op != "REM") return nullptr;
+    const auto rest = trim(line.substr(3));
+    const auto end = rest.find_first_of(" \t");
+    const auto name = rest.substr(0, end);
+    if (name == "GENRE") return &scope.genre;
+    if (name == "DATE") return &scope.date;
+    return nullptr;
+}
+inline bool expected_metadata_scopes(
+    std::string_view generated,
+    std::vector<ReferenceMetadataScope>& scopes) {
+    std::size_t track = 0, cursor = 0;
+    while (cursor < generated.size()) {
+        const auto end = generated.find('\n', cursor);
+        auto line = trim(generated.substr(cursor, end == std::string_view::npos
+            ? generated.size() - cursor : end - cursor));
+        cursor = end == std::string_view::npos ? generated.size() : end + 1;
+        if (line.empty()) continue;
+        const auto sep = line.find_first_of(" \t");
+        const auto op = line.substr(0, sep);
+        if (op == "TRACK") {
+            if (++track >= scopes.size()) return false;
+            continue;
+        }
+        if (auto* field = metadata_field(scopes[track], line, op)) {
+            if (!field->expected.empty()) return false;
+            field->expected = line;
+        }
+    }
+    if (track + 1 != scopes.size() ||
+        scopes[0].title.expected.empty() ||
+        scopes[0].performer.expected.empty()) return false;
+    for (std::size_t i = 1; i < scopes.size(); ++i)
+        if (scopes[i].title.expected.empty() ||
+            scopes[i].performer.expected.empty()) return false;
+    return true;
+}
 } // namespace precision_cue_reference_detail
 
 // Input bytes may come from an independently read, existing sibling CUE.
@@ -119,6 +183,9 @@ inline PrecisionCueReferenceDiff compare_precision_cue_external_reference(
         generated.total_duration_ms > 24LL * 60 * 60 * 1000)
         return out;
     const auto total_frames = milliseconds_to_cue_frame(generated.total_duration_ms);
+    std::vector<ReferenceMetadataScope> metadata(generated.boundaries.size() + 1);
+    if (!expected_metadata_scopes(generated.external_cue_utf8, metadata))
+        return out;
     const auto inventory = inspect_external_cue(reference_cue_bytes);
     if (inventory.status != CueSyntaxStatus::Parsed ||
         inventory.references.size() != 1 ||
@@ -134,6 +201,8 @@ inline PrecisionCueReferenceDiff compare_precision_cue_external_reference(
 
     std::vector<PrecisionCueReferenceBoundary> references;
     std::vector<PrecisionCueReferenceTrackStructure> structures;
+    bool album_metadata_conflict = false;
+    std::vector<bool> track_metadata_conflicts(generated.boundaries.size(), false);
     bool file_seen = false;
     bool index_01_seen = false;
     bool index_00_seen = false;
@@ -208,8 +277,18 @@ inline PrecisionCueReferenceDiff compare_precision_cue_external_reference(
         } else if (op == "REM" || op == "TITLE" || op == "PERFORMER" ||
                    op == "SONGWRITER" || op == "ISRC" ||
                    op == "CATALOG" || op == "FLAGS") {
-            // These textual directives are NOT identity evidence. No
-            // embedded directives or unknown parser extensions are trusted.
+            // An explicitly conflicting or duplicate metadata claim is
+            // review evidence, not an edition/mastering match. Absent
+            // optional text is allowed; unrelated REM directives are not
+            // treated as authenticated release facts.
+            if (auto* field = metadata_field(metadata[current_track], line, op)) {
+                const bool conflict = field->observed || field->expected != line;
+                field->observed = true;
+                if (conflict) {
+                    if (current_track == 0) album_metadata_conflict = true;
+                    else track_metadata_conflicts[current_track - 1] = true;
+                }
+            }
         } else if (op == "PREGAP" || op == "POSTGAP") {
             if (current_track == 0) return out;
             const auto tokens = words(line);
@@ -251,11 +330,20 @@ inline PrecisionCueReferenceDiff compare_precision_cue_external_reference(
     if (out.audit.state == PrecisionCueAuditState::Rejected) return out;
     out.track_structure = std::move(structures);
     out.extra_index_or_pregap = extra_index;
-    if (extra_index || out.audit.state == PrecisionCueAuditState::Review) {
+    out.album_metadata_conflict = album_metadata_conflict;
+    out.track_metadata_conflicts = std::move(track_metadata_conflicts);
+    out.metadata_conflict = album_metadata_conflict ||
+        std::any_of(out.track_metadata_conflicts.begin(),
+                    out.track_metadata_conflicts.end(),
+                    [](bool conflict) { return conflict; });
+    if (extra_index || out.metadata_conflict ||
+        out.audit.state == PrecisionCueAuditState::Review) {
         out.state = PrecisionCueReferenceDiffState::ReviewRequired;
         out.diagnostic = extra_index
             ? "CUE_REFERENCE_EXTRA_INDEX_OR_GAP_REQUIRES_REVIEW"
-            : "CUE_REFERENCE_BOUNDARY_DIFFERENCE_REQUIRES_REVIEW";
+            : out.metadata_conflict
+                ? "CUE_REFERENCE_TEXT_METADATA_CONFLICT_REQUIRES_REVIEW"
+                : "CUE_REFERENCE_BOUNDARY_DIFFERENCE_REQUIRES_REVIEW";
     } else if (out.audit.state == PrecisionCueAuditState::WithinOneFrame) {
         out.state = PrecisionCueReferenceDiffState::WithinOneFramePreviewOnly;
         out.diagnostic = "CUE_REFERENCE_WITHIN_ONE_FRAME_NOT_AUDIO_PROOF";
