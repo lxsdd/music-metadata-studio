@@ -176,8 +176,8 @@ inline std::optional<std::wstring> preview_history_export_tsv(
         report+=L"\t";
         report+=std::to_wstring(event.items);
         report+=L"\t";
-        const auto source=preview_history_single_source(event,captured_batch_size);
-        report+=source ? std::to_wstring(*source+1) : L"(not captured / multiple)";
+        const auto event_source=preview_history_single_source(event,captured_batch_size);
+        report+=event_source ? std::to_wstring(*event_source+1) : L"(not captured / multiple)";
         report+=L"\r\n";
         if(report.size()>65536) return std::nullopt;
     }
