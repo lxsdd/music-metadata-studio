@@ -627,6 +627,54 @@ void create_only_external_writer_regressions() {
 #endif
 }
 
+// The physical MP3 is read only. The hash reader must reject links and
+// non-regular paths rather than following a substituted source after preflight.
+void source_digest_no_follow_regressions() {
+    namespace fs = std::filesystem;
+    const auto root = fs::canonical(fs::temp_directory_path()) /
+        ("precision-cue-source-digest-" +
+         precision_cue_external_detail::random_suffix());
+    VERIFY(fs::create_directory(root));
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { std::error_code ec; fs::remove_all(path, ec); }
+    } cleanup{root};
+    const auto source = root / "Mix.mp3";
+    const std::string original = "synthetic source only; no actual MP3 audio";
+    {
+        std::ofstream out(source, std::ios::binary);
+        out << original;
+        VERIFY(out.good());
+    }
+    const auto digest = precision_cue_review_source_sha256(
+        source, root, "Mix.mp3");
+    VERIFY(digest && *digest == precision_cue_sha256(original));
+    VERIFY(precision_cue_review_source_sha256(
+        source, root, "Other.mp3") == std::nullopt);
+    VERIFY(!precision_cue_review_source_sha256(root, root.parent_path(),
+                                             root.filename().string()));
+    {
+        std::ofstream out(source, std::ios::binary | std::ios::trunc);
+        out << "synthetic replacement; no actual MP3 audio";
+        VERIFY(out.good());
+    }
+    const auto changed = precision_cue_review_source_sha256(
+        source, root, "Mix.mp3");
+    VERIFY(changed && *changed != *digest);
+#ifndef _WIN32
+    const auto link = root / "Alias.mp3";
+    fs::create_symlink(source, link);
+    VERIFY(!precision_cue_review_source_sha256(link, root, "Alias.mp3"));
+    fs::remove(link);
+    fs::create_symlink(root / "missing.mp3", link);
+    VERIFY(!precision_cue_review_source_sha256(link, root, "Alias.mp3"));
+    fs::remove(link);
+    const auto fifo = root / "Pipe.mp3";
+    VERIFY(::mkfifo(fifo.c_str(), 0600) == 0);
+    VERIFY(!precision_cue_review_source_sha256(fifo, root, "Pipe.mp3"));
+#endif
+}
+
 void native_host_review_and_create_regressions() {
     namespace fs = std::filesystem;
     using Status = PrecisionCueExternalCreateStatus;
@@ -889,6 +937,7 @@ int main() {
         physical_file_identity_sentinel_regressions();
         create_only_external_writer_regressions();
         readonly_existing_target_handle_regressions();
+        source_digest_no_follow_regressions();
         native_host_review_and_create_regressions();
         embedded_textual_cuesheet_readonly_inventory_regressions();
         return 0;
