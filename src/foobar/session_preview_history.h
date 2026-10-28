@@ -93,6 +93,57 @@ inline std::vector<std::size_t> preview_history_visible_indices(
                         events[i].source_index==*source))) out.push_back(i);
     return out;
 }
+
+struct PreviewHistoryImpactSummary {
+    std::size_t actions=0, review=0, routing=0, undo=0;
+    // These are action-scoped counts, NOT unique physical tracks or edits.
+    std::size_t track_action_touches=0, item_action_touches=0;
+};
+// Only summarize the exact currently visible immutable event identities.
+// Selected receipts summarize one visible row, never the whole unfiltered batch.
+inline std::optional<PreviewHistoryImpactSummary> preview_history_impact_summary(
+    const SessionPreviewHistory& history,
+    const std::vector<std::size_t>& visible,
+    std::optional<std::size_t> selected_row=std::nullopt) noexcept {
+    if(selected_row && *selected_row>=visible.size()) return std::nullopt;
+    PreviewHistoryImpactSummary out;
+    std::size_t previous=0;
+    for(std::size_t row=0;row<visible.size();++row) {
+        const auto index=visible[row];
+        if(index>=history.events().size()) return std::nullopt;
+        const auto& event=history.events()[index];
+        if(event.sequence<=previous || event.sources==0 || event.items==0 ||
+           event.sources>1000000 || event.items>1000000 || event.scope>3)
+            return std::nullopt;
+        previous=event.sequence;
+        if(selected_row && row!=*selected_row) continue;
+        ++out.actions;
+        out.track_action_touches+=event.sources;
+        out.item_action_touches+=event.items;
+        switch(event.kind) {
+        case PreviewHistoryKind::Accept:
+        case PreviewHistoryKind::Reject:
+        case PreviewHistoryKind::Reset:
+        case PreviewHistoryKind::Manual: ++out.review; break;
+        case PreviewHistoryKind::Route: ++out.routing; break;
+        case PreviewHistoryKind::UndoReview:
+        case PreviewHistoryKind::UndoRoute: ++out.undo; break;
+        default: return std::nullopt;
+        }
+    }
+    return out;
+}
+inline std::wstring preview_history_impact_caption(
+    const PreviewHistoryImpactSummary& s) {
+    return L"Actions "+std::to_wstring(s.actions)+
+        L" (review "+std::to_wstring(s.review)+
+        L", route "+std::to_wstring(s.routing)+
+        L", undo "+std::to_wstring(s.undo)+
+        L"); track-action touches "+std::to_wstring(s.track_action_touches)+
+        L", items "+std::to_wstring(s.item_action_touches)+
+        L". Preview only; no writes.";
+}
+
 // The native ListView stores immutable event sequence in LVIF_PARAM. Never
 // interpret its mutable caption or a recycled filtered row as event identity.
 inline bool preview_history_row_identity_matches(
@@ -167,9 +218,15 @@ inline std::optional<std::wstring> preview_history_export_tsv(
     if(visible.empty() ||
        (selected_visible_row && *selected_visible_row>=visible.size()))
         return std::nullopt;
+    const auto summary=preview_history_impact_summary(history,visible,selected_visible_row);
+    if(!summary || summary->actions==0) return std::nullopt;
     std::wstring report=
-        L"Music Metadata Studio - read-only session preview history\r\n"
+        L"Music Metadata Studio - read-only session preview history\r\n";
+    report+=L"Summary: "+preview_history_impact_caption(*summary)+L"\r\n";
+    report+=
         L"Step\tAction\tScope\tTracks\tItems\tPhysical source #\r\n";
+    /* Header is a stable read-only TSV schema. */
+
     std::size_t previous_sequence=0;
     for(std::size_t pos=0;pos<visible.size();++pos) {
         if(selected_visible_row && pos!=*selected_visible_row) continue;
