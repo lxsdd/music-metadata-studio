@@ -666,8 +666,25 @@ void cross_provider_release_and_cue() {
         studio_sources, no_references);
     CHECK(conflicting_genre_studio.state == PrecisionCueStudioHandoffState::Blocked);
     CHECK(conflicting_genre_studio.rows.empty());
+    // An unqualified preview has no physical-source snapshot: the Studio
+    // handoff fails at that earlier independent identity gate, before rows.
+    CHECK(conflicting_genre_preview.discs.empty());
     CHECK(std::string(conflicting_genre_studio.diagnostic) ==
-          "STUDIO_RELEASE_EDITION_NOT_UNIQUE");
+          "STUDIO_PHYSICAL_SOURCE_SNAPSHOT_CHANGED");
+    // The same known genre, normalized for ASCII case and whitespace, must
+    // preserve the existing 30-track read-only Studio review path.
+    auto matching_genre_request = request;
+    matching_genre_request.reference.genre = "  ELECTRONIC  ";
+    matching_genre_request.candidates[0].genre = "Electronic";
+    const auto matching_genre_preview =
+        make_precision_cue_release_preview(matching_genre_request);
+    CHECK(matching_genre_preview.discs.size() == 2);
+    const auto matching_genre_studio = prepare_precision_cue_studio_review(
+        matching_genre_request, matching_genre_preview,
+        studio_sources, no_references);
+    CHECK(matching_genre_studio.rows.size() == 30);
+    CHECK(matching_genre_studio.state ==
+          PrecisionCueStudioHandoffState::RowsRequireReview);
     // The read-only Studio adapter must surface manually supplied header
     // metadata without relabelling it as an Apple catalog fact.
     auto manual_header_request = request;
