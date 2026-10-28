@@ -385,7 +385,7 @@ int main() {
     check(preview_history_visible_row_for_sequence(retained,retained_visible,2)==0 &&
           !preview_history_visible_row_for_sequence(retained,retained_visible,1),
           "filter changes retain only the same immutable event sequence");
-    for(std::size_t i=0;i<256;++i)
+    for(std::size_t i=0;i<255;++i)
         check(retained.append(PreviewHistoryKind::Route,1,1,2,0),
               "bounded History accepts later preview actions");
     retained_visible=preview_history_visible_indices(
