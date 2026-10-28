@@ -4,6 +4,7 @@
 #undef NDEBUG
 #endif
 #include <cassert>
+#include <algorithm>
 #include <string>
 
 using namespace djmeta;
@@ -56,6 +57,55 @@ void calendar_date_studio_preview_gates() {
     f.candidates[0].release_date = "2025-02-29";
     preview = make_precision_cue_release_preview(f);
     assert(preview.state == PrecisionCueMatchState::Rejected && preview.discs.empty());
+}
+
+
+void sourced_partial_date_single_disc_review() {
+    auto f = fixture();
+    f.reference.tracks.resize(2);
+    f.candidates[0].tracks.resize(2);
+    f.physical_discs.resize(1);
+    f.genre.clear();
+    f.release_date.clear();
+    f.reference.release_date = "2024";
+    f.candidates[0].release_date = "2024-02-29";
+    // A compatible edition can be discovered, but a standalone preview
+    // must not silently promote the missing month/day to sourced proof.
+    assert(match_precision_cue_releases(f.reference, f.candidates).state ==
+           PrecisionCueMatchState::Selected);
+    auto preview = make_precision_cue_release_preview(f);
+    assert(preview.state == PrecisionCueMatchState::Review);
+    assert(!preview.preview_qualified && preview.discs.size() == 1);
+    assert(preview.header_provenance.release_date ==
+           PrecisionCueHeaderFieldOrigin::SelectedCatalog);
+    assert(preview.discs[0].external_cue_utf8.find(
+        "REM DATE \"2024-02-29\"\n") != std::string::npos);
+    assert(preview.discs[0].boundaries.front().cue_frame == 0);
+    assert(std::find(preview.diagnostics.begin(), preview.diagnostics.end(),
+                     "CUE_RELEASE_DATE_PRECISION_REVIEW") != preview.diagnostics.end());
+
+    // Both directions are conservative: do not manufacture a day when the
+    // selected provider knows only the year.
+    f.reference.release_date = "2024-02-29";
+    f.candidates[0].release_date = "2024";
+    preview = make_precision_cue_release_preview(f);
+    assert(preview.state == PrecisionCueMatchState::Review);
+    assert(!preview.preview_qualified && preview.discs.size() == 1);
+    assert(preview.discs[0].external_cue_utf8.find(
+        "REM DATE \"2024\"\n") != std::string::npos);
+
+    // Equal precision and equal evidence remain a valid preview.
+    f.reference.release_date = "2024";
+    preview = make_precision_cue_release_preview(f);
+    assert(preview.state == PrecisionCueMatchState::Selected);
+    assert(preview.preview_qualified && preview.discs.size() == 1);
+
+    // Incompatible known months cannot be rescued by a review checkbox.
+    f.reference.release_date = "2024-03";
+    f.candidates[0].release_date = "2024-02-29";
+    preview = make_precision_cue_release_preview(f);
+    assert(preview.state == PrecisionCueMatchState::Review);
+    assert(!preview.preview_qualified && preview.discs.empty());
 }
 
 void header_catalog_provenance_regressions() {
@@ -345,6 +395,7 @@ void eight_disc_end_to_end_read_only_preview() {
 int main() {
     header_catalog_provenance_regressions();
     calendar_date_studio_preview_gates();
+    sourced_partial_date_single_disc_review();
     selected_two_discs();
     fail_closed();
     duration_review();

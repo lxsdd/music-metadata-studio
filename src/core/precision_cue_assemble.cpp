@@ -266,7 +266,22 @@ PrecisionCuePreviewResult make_precision_cue_release_preview(
     };
     const bool genre_review = flag_header_review(result.header_provenance.genre, "CUE_GENRE");
     const bool date_review = flag_header_review(result.header_provenance.release_date, "CUE_DATE");
-    const bool header_requires_review = genre_review || date_review;
+    // A year/month-only catalog reference can identify the same release as
+    // a full-date candidate without proving its missing calendar fields.
+    // Preserve the exact selected catalog REM DATE, but do not elevate the
+    // standalone single-disc preview to qualified before explicit review.
+    // The matcher deliberately permits a compatible partial date for search;
+    // this is the separate preview/commit provenance boundary.
+    const bool sourced_date_precision_review =
+        !request.reference.release_date.empty() &&
+        !selected.release_date.empty() &&
+        request.reference.release_date.size() != selected.release_date.size() &&
+        precision_cue_calendar_dates_compatible(
+            request.reference.release_date, selected.release_date);
+    if (sourced_date_precision_review)
+        result.diagnostics.emplace_back("CUE_RELEASE_DATE_PRECISION_REVIEW");
+    const bool header_requires_review =
+        genre_review || date_review || sourced_date_precision_review;
     if (selected.tracks.empty()) {
         result.state = PrecisionCueMatchState::Rejected;
         result.diagnostics.emplace_back("EMPTY_RELEASE");

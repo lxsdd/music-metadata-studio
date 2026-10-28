@@ -12,6 +12,7 @@
 #include "djmeta/precision_cue_external_batch.h"
 #include "djmeta/precision_cue_studio_handoff.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -696,6 +697,12 @@ void cross_provider_release_and_cue() {
     const auto partial_catalog_preview =
         make_precision_cue_release_preview(partial_catalog_date);
     CHECK(partial_catalog_preview.discs.size() == 2);
+    CHECK(partial_catalog_preview.state == PrecisionCueMatchState::Review);
+    CHECK(!partial_catalog_preview.preview_qualified);
+    CHECK(std::find(partial_catalog_preview.diagnostics.begin(),
+                    partial_catalog_preview.diagnostics.end(),
+                    "CUE_RELEASE_DATE_PRECISION_REVIEW") !=
+          partial_catalog_preview.diagnostics.end());
     const auto partial_catalog_studio = prepare_precision_cue_studio_review(
         partial_catalog_date, partial_catalog_preview, studio_sources, no_references);
     CHECK(partial_catalog_studio.rows.size() == 30);
