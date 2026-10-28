@@ -8128,7 +8128,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             const auto* key=reinterpret_cast<const NMLVKEYDOWN*>(lp);
             if(key && native_evidence_copy_hotkey(
                   key->wVKey,(GetKeyState(VK_CONTROL)&0x8000)!=0,
-                  (GetKeyState(VK_MENU)&0x8000)!=0)) {
+                  (GetKeyState(VK_MENU)&0x8000)!=0,
+                  (GetKeyState(VK_SHIFT)&0x8000)!=0)) {
                 SendMessageW(dialog,WM_COMMAND,MAKEWPARAM(41411u,0),0);
                 return TRUE;
             }

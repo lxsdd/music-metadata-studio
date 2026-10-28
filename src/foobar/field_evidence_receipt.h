@@ -27,8 +27,8 @@ inline constexpr bool native_evidence_receipt_allowed(
 }
 
 inline constexpr bool native_evidence_copy_hotkey(
-    unsigned virtual_key, bool ctrl, bool alt) noexcept {
-    return virtual_key==static_cast<unsigned>('C') && ctrl && !alt;
+    unsigned virtual_key, bool ctrl, bool alt, bool shift) noexcept {
+    return virtual_key==static_cast<unsigned>('C') && ctrl && !alt && !shift;
 }
 
 // Never flatten multivalues with a literal "|" or allow CR/LF/NUL/bidi
@@ -57,7 +57,22 @@ inline std::wstring native_evidence_receipt_escape(std::wstring_view raw) {
         case L'\u2068':out+=L"[FSI]";break;
         case L'\u2069':out+=L"[PDI]";break;
         default:
-            if(ch<0x20) {
+            // Invisible Unicode format controls and line separators must not
+            // impersonate another source, field or value in a copied receipt.
+            // The marker records the exact code point; tags remain unchanged.
+            if ((ch>=L'\u0080' && ch<=L'\u009f') ||
+                ch==L'\u034f' || ch==L'\u061c' || ch==L'\u180e' ||
+                (ch>=L'\u200b' && ch<=L'\u200d') ||
+                ch==L'\u2028' || ch==L'\u2029' ||
+                (ch>=L'\u2060' && ch<=L'\u206f') ||
+                ch==L'\ufeff' || (ch>=L'\ufff9' && ch<=L'\ufffb')) {
+                static constexpr wchar_t hex[]=L"0123456789ABCDEF";
+                const unsigned code=static_cast<unsigned>(ch);
+                out+=L"[U+";
+                for(int shift=12;shift>=0;shift-=4)
+                    out.push_back(hex[(code>>shift)&15]);
+                out+=L"]";
+            } else if(ch<0x20) {
                 static constexpr wchar_t hex[]=L"0123456789ABCDEF";
                 out+=L"[U+00";
                 out.push_back(hex[(static_cast<unsigned>(ch)>>4)&15]);

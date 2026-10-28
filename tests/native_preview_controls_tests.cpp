@@ -170,6 +170,16 @@ int main() {
           sanitized->find(L"tabs[TAB]and[CR]returns")!=std::wstring::npos &&
           sanitized->find(L'\0')==std::wstring::npos,
           "control/bidi payload cannot forge source or truncate clipboard");
+    auto invisible=evidence;
+    invisible.reason=L"start\u2028next\u2029line\u0085control\u200bhidden\u2060join\ufeffbom";
+    invisible.source_id=L"edition\u061cspoof\u206aformat\u206fend";
+    const auto invisible_receipt=native_render_evidence_receipt(0,{invisible});
+    check(invisible_receipt &&
+          invisible_receipt->find(L"start[U+2028]next[U+2029]line[U+0085]control[U+200B]hidden[U+2060]join[U+FEFF]bom")!=std::wstring::npos &&
+          invisible_receipt->find(L"edition[U+061C]spoof[U+206A]format[U+206F]end")!=std::wstring::npos &&
+          invisible_receipt->find(L'\u2028')==std::wstring::npos &&
+          invisible_receipt->find(L'\u2029')==std::wstring::npos,
+          "invisible Unicode separators and format controls are explicitly labelled");
     check(native_render_evidence_receipt(0,
               std::vector<NativeFieldEvidenceReceiptRow>(128,evidence)) &&
           !native_render_evidence_receipt(0,{}) &&
@@ -203,10 +213,11 @@ int main() {
           !native_evidence_receipt_allowed(
               true,true,true,false,false,false,1,1,1,1),
           "stale or changing provider, source, group and field fail closed");
-    check(djmeta_foobar::native_evidence_copy_hotkey('C',true,false) &&
-          !djmeta_foobar::native_evidence_copy_hotkey('C',false,false) &&
-          !djmeta_foobar::native_evidence_copy_hotkey('C',true,true) &&
-          !djmeta_foobar::native_evidence_copy_hotkey('V',true,false),
+    check(djmeta_foobar::native_evidence_copy_hotkey('C',true,false,false) &&
+          !djmeta_foobar::native_evidence_copy_hotkey('C',false,false,false) &&
+          !djmeta_foobar::native_evidence_copy_hotkey('C',true,true,false) &&
+          !djmeta_foobar::native_evidence_copy_hotkey('V',true,false,false) &&
+          !djmeta_foobar::native_evidence_copy_hotkey('C',true,false,true),
           "only deliberate Ctrl+C triggers evidence copy");
 
     // Captured source indices survive native grid sorting and review jumps.
