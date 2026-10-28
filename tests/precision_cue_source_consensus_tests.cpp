@@ -50,6 +50,28 @@ int main() {
         assert(audit_precision_cue_source_consensus({primary, second}).state ==
                PrecisionCueConsensusState::Rejected);
     }
+    // The consensus function is independently callable without the provider
+    // parsers. Equal invalid catalog dates must not become an agreed edition.
+    for (const auto* invalid : {"0000", "2026-13", "2026-02-30",
+                                "2025-02-29", "1900-02-29", "2026-04-31",
+                                "2026-10-16T00:00:00Z"}) {
+        auto first = source("apple", 1);
+        auto second = source("musicbrainz", 1);
+        first.release.release_date = second.release.release_date = invalid;
+        assert(audit_precision_cue_source_consensus({first, second}).state ==
+               PrecisionCueConsensusState::Rejected);
+        first.release.release_date.clear();
+        assert(audit_precision_cue_source_consensus({first, second}).state ==
+               PrecisionCueConsensusState::Rejected);
+    }
+    for (const auto* valid : {"2026", "2026-02", "2024-02-29", "2000-02-29"}) {
+        auto first = source("apple", 1);
+        auto second = source("musicbrainz", 1);
+        first.release.release_date = second.release.release_date = valid;
+        assert(audit_precision_cue_source_consensus({first, second}).state ==
+               PrecisionCueConsensusState::Agreed);
+    }
+
     auto international_primary = source("apple", 1);
     auto international_second = source("musicbrainz", 1);
     international_primary.release.album_title =

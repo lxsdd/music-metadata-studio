@@ -175,6 +175,23 @@ void test_unicode_control_and_bidi_safety() {
     }
 }
 
+void test_calendar_date_cue_headers() {
+    auto disc = synthetic_disc();
+    for (const auto* valid : {"2026", "2026-02", "2024-02-29",
+                              "2000-02-29", "1900-02-28"}) {
+        disc.release_date = valid;
+        const auto plan = djmeta::make_precision_cue(disc);
+        assert(plan.external_cue_utf8.find(
+            std::string("REM DATE \"") + valid + "\"\n") != std::string::npos);
+    }
+    for (const auto* invalid : {"0000", "2026-00", "2026-13",
+                                "2026-02-30", "2025-02-29", "1900-02-29",
+                                "2026-04-31", "2026-10-16T00:00:00Z"}) {
+        disc.release_date = invalid;
+        must_reject([&] { (void)djmeta::make_precision_cue(disc); });
+    }
+}
+
 void test_invalid_input_fail_closed() {
     const auto good = synthetic_disc();
     {
@@ -683,6 +700,7 @@ int main() {
     test_read_only_edition_scoped_cue_diff();
     test_cue_diff_rejects_incoherent_generated_plan();
     test_invalid_input_fail_closed();
+    test_calendar_date_cue_headers();
     test_generated_utf8_validation();
     test_unicode_control_and_bidi_safety();
     test_eight_disc_99_track_plan();

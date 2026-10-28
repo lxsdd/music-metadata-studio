@@ -1,6 +1,7 @@
 #include "djmeta/precision_cue.h"
 #include "djmeta/precision_cue_filename.h"
 #include "djmeta/precision_cue_unicode_text.h"
+#include "djmeta/precision_cue_calendar_date.h"
 #include "djmeta/external_cue.h"
 
 #include <algorithm>
@@ -66,6 +67,8 @@ PrecisionCuePlan make_precision_cue(const PrecisionCueDisc& disc) {
     validate_cue_text(disc.album_performer, "album performer");
     validate_cue_text(disc.genre, "genre", false);
     validate_cue_text(disc.release_date, "release date", false);
+    if (!precision_cue_valid_calendar_date(disc.release_date))
+        throw std::invalid_argument("release date is not a supported calendar date");
     validate_cue_text(disc.audio_file_basename, "audio filename");
     if (!precision_cue_safe_mp3_basename(disc.audio_file_basename)) {
         throw std::invalid_argument("audio file must be an MP3 basename, not a path");

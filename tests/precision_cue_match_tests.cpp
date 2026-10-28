@@ -42,6 +42,30 @@ void strong_match_and_rounded_reference() {
 }
 
 
+void calendar_provenance_fail_closed() {
+    auto reference = release("deezer", "synthetic-ref");
+    auto candidate = release("apple", "synthetic-collection");
+    for (const auto* valid : {"2026", "2026-02", "2024-02-29", "2000-02-29",
+                              "1900-02-28", "9999-12-31"}) {
+        reference.release_date = candidate.release_date = valid;
+        assert(djmeta::match_precision_cue_releases(reference, {candidate}).state ==
+               PrecisionCueMatchState::Selected);
+    }
+    for (const auto* invalid : {"0000", "2026-00", "2026-13",
+                                "2026-02-30", "2025-02-29", "1900-02-29",
+                                "2026-04-31", "2026-10-16Z", "2026-1-01",
+                                "2026-12-0x", "2026-10-16\n"}) {
+        reference.release_date = invalid;
+        candidate.release_date.clear();
+        assert(djmeta::match_precision_cue_releases(reference, {candidate}).state ==
+               PrecisionCueMatchState::Rejected);
+        reference.release_date.clear();
+        candidate.release_date = invalid;
+        assert(djmeta::match_precision_cue_releases(reference, {candidate}).state ==
+               PrecisionCueMatchState::Rejected);
+    }
+}
+
 void sourced_edition_date_review() {
     auto source = release("deezer", "synthetic-ref");
     auto apple = release("apple", "synthetic-collection");
@@ -396,6 +420,7 @@ int main() {
     strong_match_and_rounded_reference();
     exact_duplicate_deduplicates_only_same_id();
     sourced_edition_date_review();
+    calendar_provenance_fail_closed();
     native_conflict_diagnostics_are_bounded_and_located();
     mix_identity_and_disc_gates();
     incomplete_or_conflicting_evidence_review();

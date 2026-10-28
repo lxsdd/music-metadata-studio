@@ -1,6 +1,7 @@
 #include "djmeta/precision_cue_match.h"
 #include "djmeta/precision_cue_cumulative_evidence.h"
 #include "djmeta/precision_cue_unicode_text.h"
+#include "djmeta/precision_cue_calendar_date.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -47,6 +48,7 @@ bool valid_release(const PrecisionCueRelease& release, bool reference) {
         !valid_field(release.provider_release_id, false) ||
         !valid_field(release.genre, false) ||
         !valid_field(release.release_date, false) ||
+        !precision_cue_valid_calendar_date(release.release_date) ||
         release.tracks.empty() || release.tracks.size() > 8u * 99u) return false;
     unsigned previous_disc = 0;
     unsigned previous_track = 0;

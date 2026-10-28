@@ -1,5 +1,6 @@
 #include "djmeta/precision_cue_assemble.h"
 #include "djmeta/precision_cue_filename.h"
+#include "djmeta/precision_cue_calendar_date.h"
 
 #include <cstdint>
 #include <exception>
@@ -219,6 +220,12 @@ PrecisionCueDiscMapping review_precision_cue_disc_mapping(
 PrecisionCuePreviewResult make_precision_cue_release_preview(
     const PrecisionCuePreviewRequest& request) {
     PrecisionCuePreviewResult result;
+    // Manual REM DATE is untrusted input: reject impossible calendar claims
+    // before a source-matched preview can carry them into Studio review.
+    if (!precision_cue_valid_calendar_date(request.release_date)) {
+        result.diagnostics.emplace_back("CUE_DATE_INVALID");
+        return result;
+    }
     const auto match = match_precision_cue_releases(request.reference, request.candidates);
     result.state = match.state;
     result.diagnostics = match.diagnostics;

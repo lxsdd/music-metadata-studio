@@ -685,6 +685,27 @@ void cross_provider_release_and_cue() {
     CHECK(matching_genre_studio.rows.size() == 30);
     CHECK(matching_genre_studio.state ==
           PrecisionCueStudioHandoffState::RowsRequireReview);
+    // 30-track / two-disc date provenance: neither a forged provider date
+    // nor an impossible manual REM DATE may reach native Studio review rows.
+    auto impossible_catalog_date = request;
+    impossible_catalog_date.reference.release_date = "2025-02-29";
+    impossible_catalog_date.candidates[0].release_date = "2025-02-29";
+    const auto impossible_catalog_preview =
+        make_precision_cue_release_preview(impossible_catalog_date);
+    CHECK(impossible_catalog_preview.state == PrecisionCueMatchState::Rejected);
+    CHECK(impossible_catalog_preview.discs.empty());
+    CHECK(prepare_precision_cue_studio_review(
+        impossible_catalog_date, impossible_catalog_preview,
+        studio_sources, no_references).rows.empty());
+    auto impossible_manual_date = request;
+    impossible_manual_date.release_date = "2026-04-31";
+    const auto impossible_manual_preview =
+        make_precision_cue_release_preview(impossible_manual_date);
+    CHECK(impossible_manual_preview.state == PrecisionCueMatchState::Rejected);
+    CHECK(impossible_manual_preview.discs.empty());
+    CHECK(prepare_precision_cue_studio_review(
+        impossible_manual_date, impossible_manual_preview,
+        studio_sources, no_references).rows.empty());
     // The read-only Studio adapter must surface manually supplied header
     // metadata without relabelling it as an Apple catalog fact.
     auto manual_header_request = request;

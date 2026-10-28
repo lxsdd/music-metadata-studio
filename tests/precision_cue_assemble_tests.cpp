@@ -31,6 +31,33 @@ PrecisionCuePreviewRequest fixture() {
     return r;
 }
 
+void calendar_date_studio_preview_gates() {
+    auto f = fixture();
+    f.reference.tracks.resize(2);
+    f.candidates[0].tracks.resize(2);
+    f.physical_discs.resize(1);
+    f.genre.clear();
+    f.release_date = "2025-02-29";
+    auto preview = make_precision_cue_release_preview(f);
+    assert(preview.state == PrecisionCueMatchState::Rejected && preview.discs.empty());
+    assert(preview.diagnostics.back() == "CUE_DATE_INVALID");
+    f.release_date = "2024-02-29";
+    preview = make_precision_cue_release_preview(f);
+    assert(preview.state == PrecisionCueMatchState::Review && preview.discs.size() == 1);
+    assert(preview.header_provenance.release_date ==
+           PrecisionCueHeaderFieldOrigin::ManualUnverified);
+    f.release_date.clear();
+    f.reference.release_date = "2024-02-29";
+    f.candidates[0].release_date = "2024-02-29";
+    preview = make_precision_cue_release_preview(f);
+    assert(preview.state == PrecisionCueMatchState::Selected && preview.preview_qualified);
+    assert(preview.header_provenance.release_date ==
+           PrecisionCueHeaderFieldOrigin::SelectedCatalog);
+    f.candidates[0].release_date = "2025-02-29";
+    preview = make_precision_cue_release_preview(f);
+    assert(preview.state == PrecisionCueMatchState::Rejected && preview.discs.empty());
+}
+
 void header_catalog_provenance_regressions() {
     auto f = fixture();
     // One unambiguous physical disc isolates the header review gate from
@@ -317,6 +344,7 @@ void eight_disc_end_to_end_read_only_preview() {
 
 int main() {
     header_catalog_provenance_regressions();
+    calendar_date_studio_preview_gates();
     selected_two_discs();
     fail_closed();
     duration_review();

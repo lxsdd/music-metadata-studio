@@ -3,6 +3,7 @@
 // Resolution metadata must be independently verified for each provider.
 #include "djmeta/precision_cue_match.h"
 #include "djmeta/precision_cue_unicode_text.h"
+#include "djmeta/precision_cue_calendar_date.h"
 #include <cstddef>
 #include <cstdint>
 #include <algorithm>
@@ -95,6 +96,7 @@ inline bool valid_release_structure(const PrecisionCueRelease& r) {
         !safe_catalog_field(r.album_performer) ||
         !safe_catalog_field(r.genre, false) ||
         !safe_catalog_field(r.release_date, false) ||
+        !precision_cue_valid_calendar_date(r.release_date) ||
         r.tracks.empty() || r.tracks.size() > 8u * 99u ||
         r.tracks.front().disc_number != 1 ||
         r.tracks.front().track_number != 1) return false;
