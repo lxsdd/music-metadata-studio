@@ -104,6 +104,22 @@ if not (
 ):
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: single-disc edition/confirmation gate reordered")
 
+# Owner release is independent of the per-click confirmation. Both
+# native button enablement and WM_COMMAND-reachable handlers must fence
+# the actual publication backend before any snapshot or modal consent.
+action_state = precision.split(
+    "void update_reviewed_actions(Workspace& state) {", 1
+)[-1].split("void show_candidate(Workspace& state", 1)[0]
+for operation in ("CreateExternalSingle", "CreateExternalBatch"):
+    if ("precision_cue_native_operation_allowed(" not in action_state or
+            "djmeta::PrecisionCueNativeOperation::" + operation not in action_state):
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: native CUE button release fence missing: " + operation)
+if (single_create.find("precision_cue_native_operation_allowed(") < 0 or
+        single_create.find("djmeta::PrecisionCueNativeOperation::CreateExternalSingle") < 0 or
+        single_create.find("precision_cue_native_operation_allowed(") >
+        single_create.find("validate_precision_cue_selected_disc(")):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: single CUE release fence absent or too late")
+
 # The multi-disc create action is separate from search, preview, copy and
 # single-disc create. It must remain impossible to dispatch without a real
 # BN_CLICKED command, a whole-batch preflight and an independent modal YES.
@@ -118,6 +134,11 @@ if batch_click not in precision or (
 batch_handler = precision.split(
     "void save_all_reviewed_disc_cues(Workspace& state) {", 1
 )[-1].split("void start_search(Workspace& state) {", 1)[0]
+if (batch_handler.find("precision_cue_native_operation_allowed(") < 0 or
+        batch_handler.find("djmeta::PrecisionCueNativeOperation::CreateExternalBatch") < 0 or
+        batch_handler.find("precision_cue_native_operation_allowed(") >
+        batch_handler.find("preflight_precision_cue_external_batch(")):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: batch CUE release fence absent or too late")
 for token in (
     "IsDlgButtonChecked(state.dialog, IDC_PRECISION_EDITION_CONFIRMED)",
     "preflight_precision_cue_external_batch(",

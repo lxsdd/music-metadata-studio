@@ -41,6 +41,24 @@ PrecisionCuePlan synthetic_plan(std::string_view basename = "Disc Über 東京.m
     return make_precision_cue(disc);
 }
 
+void native_release_gate_positive_and_negative() {
+    // Explicit review/copy remain usable; no profile state or WM_COMMAND
+    // can grant owner-level permission for any physical publication.
+    static_assert(precision_cue_native_operation_allowed(PrecisionCueNativeOperation::Review));
+    static_assert(precision_cue_native_operation_allowed(PrecisionCueNativeOperation::CopyCueText));
+    static_assert(!precision_cue_native_operation_allowed(PrecisionCueNativeOperation::CreateExternalSingle));
+    static_assert(!precision_cue_native_operation_allowed(PrecisionCueNativeOperation::CreateExternalBatch));
+    VERIFY(precision_cue_native_operation_allowed(PrecisionCueNativeOperation::Review));
+    VERIFY(precision_cue_native_operation_allowed(PrecisionCueNativeOperation::CopyCueText));
+    for (auto operation : {PrecisionCueNativeOperation::CreateExternalSingle,
+                           PrecisionCueNativeOperation::CreateExternalBatch,
+                           PrecisionCueNativeOperation::ModifyEmbeddedCue,
+                           PrecisionCueNativeOperation::ModifyTags,
+                           PrecisionCueNativeOperation::ModifyAudio}) {
+        VERIFY(!precision_cue_native_operation_allowed(operation));
+    }
+}
+
 void physical_file_identity_sentinel_regressions() {
     using djmeta::precision_cue_external_detail::
         precision_cue_physical_file_id_qualified;
@@ -927,6 +945,7 @@ int main() {
     // MSVC aborts unhandled exceptions without producing usable CTest output.
     // Surface unexpected runtime validation errors across all CI platforms.
     try {
+        native_release_gate_positive_and_negative();
         export_planning_positive_and_negative();
         reserved_unicode_device_alias_regressions();
         export_generated_layout_positive_edge_cases();

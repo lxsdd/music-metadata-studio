@@ -240,8 +240,8 @@ void install_precision_tooltips(Workspace& state) noexcept {
         {IDC_PRECISION_CANCEL_LOOKUP, L"Discard pending results. In-flight HTTPS may finish in the background."},
         {IDC_PRECISION_PREVIEW_ASSIGNED, L"Review every physical MP3-to-disc assignment before export."},
         {IDC_PRECISION_EDITION_CONFIRMED, L"Confirm the exact mixed edition; not permission to overwrite audio or tags."},
-        {IDC_PRECISION_SAVE_CUE, L"Creates a new external .cue only after separate explicit confirmation."},
-        {IDC_PRECISION_SAVE_ALL_CUES, L"Create-only batch; targets are rechecked, never overwritten."}
+        {IDC_PRECISION_SAVE_CUE, L"External CUE publication is locked pending separate owner release and host qualification. Copy reviewed text instead."},
+        {IDC_PRECISION_SAVE_ALL_CUES, L"External CUE batch publication is locked pending separate owner release and host qualification."}
     }};
     for (const auto& [id, message] : hints) {
         const HWND control = GetDlgItem(state.dialog, id);
@@ -496,7 +496,10 @@ void update_reviewed_actions(Workspace& state) {
     EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_COPY_CUE), approved);
     const auto chosen = SendDlgItemMessageW(state.dialog, IDC_PRECISION_DISC_PICKER,
                                             CB_GETCURSEL, 0, 0);
-    const bool saveable = approved && chosen != CB_ERR &&
+    const bool saveable = approved &&
+        djmeta::precision_cue_native_operation_allowed(
+            djmeta::PrecisionCueNativeOperation::CreateExternalSingle) &&
+        chosen != CB_ERR &&
         static_cast<std::size_t>(chosen) < state.reviewed_exports.size() &&
         state.reviewed_exports[static_cast<std::size_t>(chosen)].has_value();
     EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_SAVE_CUE),
@@ -504,7 +507,10 @@ void update_reviewed_actions(Workspace& state) {
     // All discs must be explicitly mapped, reviewed, and currently absent
     // in the captured read-only inventory before presenting batch consent.
     // The full host/content SHA preflight is repeated at actual invocation.
-    const bool all_saveable = approved && state.reviewed_exports.size() > 1 &&
+    const bool all_saveable = approved &&
+        djmeta::precision_cue_native_operation_allowed(
+            djmeta::PrecisionCueNativeOperation::CreateExternalBatch) &&
+        state.reviewed_exports.size() > 1 &&
         state.reviewed_exports.size() == state.reviewed_mapping.size() &&
         std::all_of(state.reviewed_exports.begin(),
                     state.reviewed_exports.end(),
@@ -1005,6 +1011,12 @@ void copy_reviewed_disc_cue(Workspace& state) {
 // Only this explicit user action can authorize one new external .cue.
 // No overwrite path or audio/tag/embedded write API is used.
 void save_reviewed_disc_cue(Workspace& state) {
+    // Independent product-release fence: per-click consent is not owner approval.
+    // This must run before snapshots, dialogs and the create-only backend.
+    if (!djmeta::precision_cue_native_operation_allowed(
+            djmeta::PrecisionCueNativeOperation::CreateExternalSingle))
+        throw std::logic_error(
+            "External CUE publication is locked pending separate owner release and host qualification");
     if (!state.reviewed_preview_ready || !state.release ||
         IsDlgButtonChecked(state.dialog, IDC_PRECISION_EDITION_CONFIRMED) != BST_CHECKED)
         throw std::invalid_argument("Verify the exact edition and review the disc mapping");
@@ -1096,6 +1108,11 @@ void save_reviewed_disc_cue(Workspace& state) {
 // If an external actor changes a target during publication, some earlier
 // CUEs MAY already exist; NEVER silently delete, restore or overwrite them.
 void save_all_reviewed_disc_cues(Workspace& state) {
+    // A synthetic WM_COMMAND or restored profile cannot bypass owner release.
+    if (!djmeta::precision_cue_native_operation_allowed(
+            djmeta::PrecisionCueNativeOperation::CreateExternalBatch))
+        throw std::logic_error(
+            "External CUE batch publication is locked pending separate owner release and host qualification");
     if (!state.reviewed_preview_ready || !state.release ||
         IsDlgButtonChecked(state.dialog, IDC_PRECISION_EDITION_CONFIRMED) != BST_CHECKED ||
         state.reviewed_exports.size() < 2 ||
