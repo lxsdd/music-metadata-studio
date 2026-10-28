@@ -16,6 +16,33 @@
 
 namespace djmeta {
 
+// Product release gate, independent of the per-click confirmation. The
+// unmerged Precision CUE Draft is REVIEW/COPY ONLY until the owner separately
+// approves external .cue publication and original-host writer qualification.
+// The synthetic create-only backend remains testable, but a native button,
+// synthetic WM_COMMAND or restored profile cannot enable a production writer.
+// There is intentionally no runtime preference or approval checkbox for this.
+enum class PrecisionCueNativeOperation {
+    Review,
+    CopyCueText,
+    CreateExternalSingle,
+    CreateExternalBatch,
+    ModifyEmbeddedCue,
+    ModifyTags,
+    ModifyAudio
+};
+
+inline constexpr bool precision_cue_native_operation_allowed(
+    PrecisionCueNativeOperation operation) noexcept {
+    switch (operation) {
+    case PrecisionCueNativeOperation::Review:
+    case PrecisionCueNativeOperation::CopyCueText:
+        return true;
+    default:
+        return false; // Owner release NOT GRANTED; fail closed.
+    }
+}
+
 enum class PrecisionCueWriteDecision {
     Reject,
     ReviewRequired,
