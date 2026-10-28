@@ -566,7 +566,7 @@ int main() {
     LVITEMW history_readback{};
     history_readback.mask=LVIF_PARAM;
     history_readback.iItem=0;
-    check(ListView_GetItemW(history_hwnd,&history_readback) &&
+    check((::SendMessageW(history_hwnd, LVM_GETITEMW, 0, reinterpret_cast<LPARAM>(&history_readback)) != 0) &&
           history_readback.lParam==77,
           "real native ListView round-trips History sequence without caption parsing");
     ListView_SetItemState(history_hwnd,0,LVIS_SELECTED|LVIS_FOCUSED,
@@ -592,11 +592,11 @@ int main() {
     check(ListView_InsertItem(history_hwnd,&history_item)==1,
           "native History original event survives filtered row move");
     history_readback.iItem=1;
-    check(ListView_GetItemW(history_hwnd,&history_readback) &&
+    check((::SendMessageW(history_hwnd, LVM_GETITEMW, 0, reinterpret_cast<LPARAM>(&history_readback)) != 0) &&
           history_readback.lParam==77,
           "native History moved row preserves exact selected event identity");
     history_readback.iItem=0;
-    check(ListView_GetItemW(history_hwnd,&history_readback) &&
+    check((::SendMessageW(history_hwnd, LVM_GETITEMW, 0, reinterpret_cast<LPARAM>(&history_readback)) != 0) &&
           history_readback.lParam!=77,
           "native History recycled row cannot authorize old event receipt");
     // Actual native resource-backed hint; no new dialog or write control.
