@@ -24,6 +24,9 @@ struct PrecisionCueReviewedExternalCreate {
 
 // Streaming SHA guard: same-inode, same-size, restored-mtime edits must
 // invalidate a reviewed physical mix. Read-only; bounded 64 KiB RAM.
+// Hash the selected physical mix only through a no-follow read handle.
+// A path-level preflight alone cannot protect the subsequent stream open from
+// a swapped symlink, directory, FIFO or another physical file. No audio writes.
 inline std::optional<std::array<std::uint8_t, 32>>
 precision_cue_review_source_sha256(
     const std::filesystem::path& physical, const std::filesystem::path& parent,
@@ -32,29 +35,102 @@ precision_cue_review_source_sha256(
         physical, parent, basename);
     if (!before || before->length > (std::uintmax_t{1} << 42))
         return std::nullopt;
-    std::ifstream stream(physical, std::ios::binary);
-    if (!stream) return std::nullopt;
     PrecisionCueSha256Stream digest;
     std::array<char, 64 * 1024> block{};
     std::uintmax_t remaining = before->length;
-    while (remaining != 0) {
-        const auto count = static_cast<std::size_t>((std::min)(
+#ifdef _WIN32
+    const HANDLE handle = CreateFileW(physical.c_str(), GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) return std::nullopt;
+    BY_HANDLE_FILE_INFORMATION opened{}, finished{};
+    bool okay = GetFileInformationByHandle(handle, &opened) != 0;
+    const auto length = (static_cast<std::uint64_t>(opened.nFileSizeHigh) << 32) |
+                         static_cast<std::uint64_t>(opened.nFileSizeLow);
+    const auto identity = (static_cast<std::uint64_t>(opened.nFileIndexHigh) << 32) |
+                           static_cast<std::uint64_t>(opened.nFileIndexLow);
+    okay = okay && (opened.dwFileAttributes &
+        (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)) == 0 &&
+        opened.dwVolumeSerialNumber == before->volume_id &&
+        identity == before->file_id && length == before->length;
+    while (okay && remaining != 0) {
+        const DWORD amount = static_cast<DWORD>((std::min)(
             remaining, std::uintmax_t(block.size())));
-        stream.read(block.data(), static_cast<std::streamsize>(count));
-        if (stream.gcount() != static_cast<std::streamsize>(count))
-            return std::nullopt;
+        DWORD count = 0;
+        if (!ReadFile(handle, block.data(), amount, &count, nullptr) ||
+            count != amount) { okay = false; break; }
         digest.update(std::string_view(block.data(), count));
         remaining -= count;
     }
-    char extra = 0;
-    if (stream.get(extra) || !stream.eof()) return std::nullopt;
-    stream.close();
+    if (okay) {
+        char extra = 0;
+        DWORD count = 0;
+        okay = ReadFile(handle, &extra, 1, &count, nullptr) != 0 &&
+               count == 0 &&
+               GetFileInformationByHandle(handle, &finished) != 0 &&
+               opened.dwVolumeSerialNumber == finished.dwVolumeSerialNumber &&
+               opened.nFileIndexHigh == finished.nFileIndexHigh &&
+               opened.nFileIndexLow == finished.nFileIndexLow &&
+               opened.nFileSizeHigh == finished.nFileSizeHigh &&
+               opened.nFileSizeLow == finished.nFileSizeLow &&
+               CompareFileTime(&opened.ftLastWriteTime,
+                               &finished.ftLastWriteTime) == 0;
+    }
+    if (!CloseHandle(handle) || !okay) return std::nullopt;
+#else
+#ifndef O_NOFOLLOW
+    return std::nullopt;
+#else
+    int flags = O_RDONLY | O_NOFOLLOW | O_NONBLOCK;
+#ifdef O_CLOEXEC
+    flags |= O_CLOEXEC;
+#endif
+    const int fd = ::open(physical.c_str(), flags);
+    if (fd < 0) return std::nullopt;
+    struct stat opened{}, finished{};
+    bool okay = ::fstat(fd, &opened) == 0 && S_ISREG(opened.st_mode) &&
+        opened.st_size > 0 &&
+        static_cast<std::uintmax_t>(opened.st_size) == before->length &&
+        static_cast<std::uint64_t>(opened.st_dev) == before->volume_id &&
+        static_cast<std::uint64_t>(opened.st_ino) == before->file_id;
+    while (okay && remaining != 0) {
+        const auto amount = static_cast<std::size_t>((std::min)(
+            remaining, std::uintmax_t(block.size())));
+        const auto count = ::read(fd, block.data(), amount);
+        if (count < 0 && errno == EINTR) continue;
+        if (count <= 0) { okay = false; break; }
+        digest.update(std::string_view(block.data(),
+                                      static_cast<std::size_t>(count)));
+        remaining -= static_cast<std::size_t>(count);
+    }
+    if (okay) {
+        char extra = 0;
+        auto count = ::read(fd, &extra, 1);
+        while (count < 0 && errno == EINTR)
+            count = ::read(fd, &extra, 1);
+        okay = count == 0 && ::fstat(fd, &finished) == 0 &&
+            S_ISREG(finished.st_mode) &&
+            opened.st_dev == finished.st_dev &&
+            opened.st_ino == finished.st_ino &&
+            opened.st_size == finished.st_size &&
+            opened.st_mtime == finished.st_mtime &&
+            opened.st_ctime == finished.st_ctime;
+#ifdef __linux__
+        okay = okay &&
+            opened.st_mtim.tv_nsec == finished.st_mtim.tv_nsec &&
+            opened.st_ctim.tv_nsec == finished.st_ctim.tv_nsec;
+#endif
+    }
+    if (::close(fd) != 0 || !okay) return std::nullopt;
+#endif
+#endif
+    // Revalidate the named path after closing the handle. A replaced source,
+    // even with a restored mtime and identical size, is never the reviewed mix.
     if (!precision_cue_external_detail::physical_source_unchanged(
             *before, physical, parent, basename))
         return std::nullopt;
     return digest.finalize();
 }
-
 
 // Nonzero deterministic token is only a stale-state fingerprint, NOT an
 // authorization or evidence of a private file's contents.
