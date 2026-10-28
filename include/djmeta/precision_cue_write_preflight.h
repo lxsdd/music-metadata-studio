@@ -193,7 +193,7 @@ struct PrecisionCueWritePreflight {
     bool source_snapshot_current = false;
     bool target_snapshot_current = false; // Includes verified nonexistence.
     bool target_exists = false;
-    bool overwrite_approved = false;
+    bool overwrite_approved = false; // Legacy UI flag: NEVER grants create-only overwrite.
     bool path_qualified = false; // Full resolved host path, NOT basename alone.
     bool cue_content_qualified = false;
     bool existing_content_known = false;
@@ -221,7 +221,10 @@ inline PrecisionCueWriteDecision preflight_precision_cue_external_write(
         return PrecisionCueWriteDecision::ReviewRequired;
     if (p.target_exists && p.existing_content_equal)
         return PrecisionCueWriteDecision::NoOp;
-    if (!p.explicit_user_approval || (p.target_exists && !p.overwrite_approved))
+    // Precision CUE is CREATE-ONLY. A legacy overwrite checkbox or an
+    // unequal existing target can never turn a collision into permission
+    // to replace bytes. Re-review a newly absent target from fresh handles.
+    if (p.target_exists || p.overwrite_approved || !p.explicit_user_approval)
         return PrecisionCueWriteDecision::ReviewRequired;
     return PrecisionCueWriteDecision::ReadyForExplicitWrite;
 }
