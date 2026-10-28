@@ -167,6 +167,14 @@ PrecisionCueCandidateMatch assess(
         result.state = PrecisionCueMatchState::Review;
         result.diagnostics.emplace_back("RELEASE_DATE_REVIEW");
     }
+    // A genre is catalog classification, not mastering proof. However, two
+    // independently known and contradictory genres must not silently become
+    // a strong edition match merely because all CUE frames coincide.
+    if (!reference.genre.empty() && !candidate.genre.empty() &&
+        canonical(reference.genre) != canonical(candidate.genre)) {
+        result.state = PrecisionCueMatchState::Review;
+        result.diagnostics.emplace_back("RELEASE_GENRE_REVIEW");
+    }
     if (reference.provider.empty() || reference.provider_release_id.empty()) {
         result.state = PrecisionCueMatchState::Review;
         result.diagnostics.emplace_back("REFERENCE_PROVIDER_ID_UNVERIFIED");

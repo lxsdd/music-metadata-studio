@@ -126,6 +126,11 @@ inline bool same_edition(const PrecisionCueRelease& a, const PrecisionCueRelease
     if (normalized(a.album_title) != normalized(b.album_title) ||
         normalized(a.album_performer) != normalized(b.album_performer) ||
         a.tracks.size() != b.tracks.size() ||
+        // Genre is not a mastering identifier, but conflicting *known*
+        // catalog classifications cannot count as corroborated edition
+        // metadata. An absent genre remains unknown, never fabricated.
+        (!a.genre.empty() && !b.genre.empty() &&
+         normalized(a.genre) != normalized(b.genre)) ||
         // Two conflicting known release dates cannot independently confirm
         // the same edition. Unknown dates do not fabricate a mismatch.
         (!a.release_date.empty() && !b.release_date.empty() &&

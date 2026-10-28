@@ -74,3 +74,16 @@ to frame-resolution evidence. These warnings are **catalog disagreements**, not
 proof of audible drift, mastering identity or sample-perfect positions.
 No native writer, external CUE publication, second foobar workspace, or provider
 network access is enabled by this change.
+
+## Independent known-genre conflicts (2026-10-28)
+
+Genre is optional catalog classification, not an audio/mastering fingerprint.
+When both the Deezer reference and selected Apple edition provide a genre,
+contradictory normalized values now force edition REVIEW at matching, and
+independent source consensus rejects the claim of corroboration. Missing
+genre is not invented; ASCII-only case and whitespace differences remain
+equivalent. The native diagnostic never echoes untrusted provider genre
+bytes. The single Studio handoff recomputes the edition gate and returns
+no rows for conflicting sourced genres, including the synthetic 30-track,
+two-disc equal-frame scenario. No external/embedded CUE or tag write is
+authorized by this evidence.

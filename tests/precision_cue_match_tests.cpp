@@ -60,6 +60,26 @@ void sourced_edition_date_review() {
     source.release_date = "2026-10-16";
     assert(djmeta::match_precision_cue_releases(source, {apple}).state ==
            PrecisionCueMatchState::Selected);
+    // Two sourced but conflicting genres cannot silently pass an edition
+    // match. Absent genre is not a fabricated mismatch; ASCII case/spacing
+    // alone is not a meaningful classification conflict.
+    source.genre = "Electronic";
+    apple.genre = "Downtempo";
+    const auto genre_report = djmeta::match_precision_cue_releases(source, {apple});
+    assert(genre_report.state == PrecisionCueMatchState::Review);
+    assert(!genre_report.selected_candidate_index);
+    assert(genre_report.candidates[0].diagnostics.back() == "RELEASE_GENRE_REVIEW");
+    const auto genre_message = djmeta::describe_precision_cue_match_failure(
+        genre_report, source, apple);
+    assert(genre_message.find("Catalog genres disagree") != std::string::npos);
+    assert(genre_message.find("Downtempo") == std::string::npos);
+    apple.genre = "  eLeCtRoNiC  ";
+    assert(djmeta::match_precision_cue_releases(source, {apple}).state ==
+           PrecisionCueMatchState::Selected);
+    source.genre.clear();
+    assert(djmeta::match_precision_cue_releases(source, {apple}).state ==
+           PrecisionCueMatchState::Selected);
+    apple.genre = "Electronic";
     auto conflicting = apple;
     conflicting.genre = "Downtempo";
     assert(djmeta::match_precision_cue_releases(source, {apple, conflicting}).state ==

@@ -177,6 +177,20 @@ int main() {
     assert(audit_precision_cue_source_consensus({apple, mb}).state ==
            PrecisionCueConsensusState::Agreed);
     apple.release.release_date.clear();
+    // Independent frame clocks do not certify conflicting known edition
+    // classifications. Missing genre is unknown, not contradictory.
+    apple.release.genre = "Electronic";
+    mb.release.genre = "Ambient";
+    const auto genre_conflict = audit_precision_cue_source_consensus({apple, mb});
+    assert(genre_conflict.state == PrecisionCueConsensusState::Rejected);
+    assert(genre_conflict.diagnostics[0] == "DUPLICATE_OR_DIFFERENT_RELEASE_EDITION");
+    mb.release.genre = "  eLeCtRoNiC  ";
+    assert(audit_precision_cue_source_consensus({apple, mb}).state ==
+           PrecisionCueConsensusState::Agreed);
+    mb.release.genre.clear();
+    assert(audit_precision_cue_source_consensus({apple, mb}).state ==
+           PrecisionCueConsensusState::Agreed);
+    apple.release.genre.clear();
     // Two Apple collection IDs are not two independent timing providers.
     auto other_apple = source("APPLE", 1);
     other_apple.release.provider_release_id = "alternate-collection";

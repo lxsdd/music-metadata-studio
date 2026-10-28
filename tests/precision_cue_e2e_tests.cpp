@@ -649,6 +649,25 @@ void cross_provider_release_and_cue() {
     CHECK(studio.header_provenance.genre ==
           PrecisionCueHeaderFieldOrigin::SelectedCatalog ||
           studio.header_provenance.genre == PrecisionCueHeaderFieldOrigin::Absent);
+    // Conflicting sourced release genres must stop at the strict matcher
+    // and independently at the Studio handoff, even if the full 30-track
+    // two-disc CUE timeline is otherwise unchanged.
+    auto conflicting_genre_request = request;
+    conflicting_genre_request.reference.genre = "Synthetic Reference Genre";
+    conflicting_genre_request.candidates[0].genre = "Synthetic Catalog Genre";
+    CHECK(match_precision_cue_releases(
+        conflicting_genre_request.reference,
+        conflicting_genre_request.candidates).state == PrecisionCueMatchState::Review);
+    const auto conflicting_genre_preview =
+        make_precision_cue_release_preview(conflicting_genre_request);
+    CHECK(!conflicting_genre_preview.preview_qualified);
+    const auto conflicting_genre_studio = prepare_precision_cue_studio_review(
+        conflicting_genre_request, conflicting_genre_preview,
+        studio_sources, no_references);
+    CHECK(conflicting_genre_studio.state == PrecisionCueStudioHandoffState::Blocked);
+    CHECK(conflicting_genre_studio.rows.empty());
+    CHECK(std::string(conflicting_genre_studio.diagnostic) ==
+          "STUDIO_RELEASE_EDITION_NOT_UNIQUE");
     // The read-only Studio adapter must surface manually supplied header
     // metadata without relabelling it as an Apple catalog fact.
     auto manual_header_request = request;

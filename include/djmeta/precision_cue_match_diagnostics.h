@@ -98,6 +98,10 @@ inline std::string describe_precision_cue_match_failure(
                 message += ": Deezer " + reference.release_date +
                            " / Apple " + candidate.release_date;
             message += ". Choose the exact edition.";
+        } else if (code == "RELEASE_GENRE_REVIEW") {
+            // Never echo untrusted catalog genre text into the native UI.
+            message += "\nCatalog genres disagree. Review the selected edition; "
+                       "genre is not mastering or audio evidence.";
         } else if (code == "TRACK_TITLE_OR_MIX_VERSION_MISMATCH") {
             message += "\nTrack title or mix version differs (Mixed/Original/Radio)." +
                        precision_cue_first_track_conflict(code, reference, candidate);
