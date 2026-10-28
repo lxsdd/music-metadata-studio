@@ -527,6 +527,40 @@ void create_only_external_writer_regressions() {
     VERIFY(create_new_precision_cue_external(req, observe).status == Status::NoOp);
     VERIFY(fs::last_write_time(target) == previous_timestamp);
 
+#ifndef _WIN32
+    // A symlink to byte-identical content must NEVER inherit NoOp status.
+    // Path-only symlink checks followed by ifstream have a TOCTOU window;
+    // the actual read handle must refuse following the final path component.
+    const auto reviewed_original = sandbox / "reviewed-original.cue";
+    fs::rename(target, reviewed_original);
+    fs::create_symlink(reviewed_original, target);
+    VERIFY(!precision_cue_external_detail::exact_existing_bytes(
+        target, req.plan.external_cue_utf8));
+    VERIFY(!precision_cue_external_detail::verify_published_external_cue(
+        target, req.plan.external_cue_utf8));
+    VERIFY(create_new_precision_cue_external(req, observe).status ==
+           Status::Collision);
+    VERIFY(fs::is_symlink(target));
+    VERIFY(fs::exists(reviewed_original));
+    fs::remove(target);
+    fs::rename(reviewed_original, target);
+    VERIFY(precision_cue_external_detail::exact_existing_bytes(
+        target, req.plan.external_cue_utf8));
+
+    // A dangling symlink is not an absent create-only target either.
+    fs::rename(target, reviewed_original);
+    fs::create_symlink(sandbox / "missing-synthetic.cue", target);
+    VERIFY(!precision_cue_external_detail::exact_existing_bytes(
+        target, req.plan.external_cue_utf8));
+    VERIFY(!precision_cue_external_detail::verify_published_external_cue(
+        target, req.plan.external_cue_utf8));
+    VERIFY(create_new_precision_cue_external(req, observe).status !=
+           Status::Created);
+    VERIFY(fs::is_symlink(target));
+    fs::remove(target);
+    fs::rename(reviewed_original, target);
+#endif
+
     // Even a falsely asserted equality must not produce a NoOp.
     {
         std::ofstream tamper(target, std::ios::binary | std::ios::trunc);
