@@ -2,7 +2,7 @@
 
 ## Product goal
 
-DJ Metadata Normalizer replaces the current multi-step foobar2000 workflow with one explicit, reviewable plan:
+Music Metadata Studio replaces the current multi-step foobar2000 workflow with one explicit, reviewable plan:
 
 1. analyze and normalize metadata;
 2. derive the final filename from the canonical metadata;
@@ -122,6 +122,20 @@ Filename and destination expressions should use foobar2000's own title-formattin
 The project must not grow an independent parser for `%field%`, `$if()`, or related foobar syntax.
 
 Naming/routing evaluation always runs against the planned canonical metadata, so a metadata normalization and the resulting filename/path are one coherent transaction plan.
+
+**Important consent distinction (MMS-WF-02/05, MMS-FILE-01):** A proposed SAFE cleanup
+may appear in the Review comparison before it is approved. It is **not** part
+of the filename or the physical tag plan while Pending. The foobar routing
+preview and detached physical tag postimage both use the same
+`project_explicit_review_decisions` projection: only explicit Accept or
+ManualValue alters their shared canonical values; Reject and Pending retain
+the complete original values. No-op Accept/Manual still leaves the file and
+its timestamps untouched. The older SAFE-inclusive proposal projection
+remains for read-only analysis/display only; it is not a write approval.
+When a decision changes, the affected raw naming preview is invalidated
+and re-evaluated against fresh source/rules observations. This does not
+qualify the raw route as a foobar File Operations destination or authorize
+an actual filesystem operation.
 
 ### Apply report
 
@@ -474,3 +488,983 @@ tag-only vs move-only isolation and proving that virtual subsongs never cause
 partial physical ID3 serialization. The current preview-only component
 cannot independently demonstrate writer-call suppression because it has no
 productive writer; no such claim is made.
+
+### Exact individual overwrite approval membership (October 2026)
+
+The pure no-I/O planner now validates every individual overwrite approval
+against one explicitly observed **existing** destination and one active,
+independently identified physical source. Unknown IDs, duplicate IDs, empty
+IDs, or approvals for a missing destination, tag-only row or an exact
+source-equals-target rename/move no-op invalidate the
+**whole** batch, including otherwise no-op rows. Blanket overwrite approval
+cannot mask an inconsistent individual subset. A frozen preview refuses these
+cases. Large 15,000-track explicit approval and ordinary blanket-overwrite
+regressions remain part of Core CI. This is advisory in-memory approval
+validation, not an executor, and does not enable physical file operations.
+
+### Online query provenance across track selection (October 2026)
+
+The modeless native Candidate comparison search no longer retains the
+**previous physical track's automatically filled title** when the next
+source has no unambiguous TITLE/ALBUM or is an external .cue awaiting its
+separate inventory. It clears only an **automatic** query on routine
+navigation; deliberately edited searches remain intact, including Unicode
+and exact provider URLs. Explicit source activation may reset the edit
+field to that source's suggestion. A cross-platform pure UI-state regression
+prevents inadvertent lookup of the previous track. This does not execute
+network requests by itself and does not change the zero-write boundary.
+
+
+### Explicit local + Discogs combination (2026-10-25, read-only)
+
+The detached physical postimage can now be recomputed from **both** explicit
+local normalizer review decisions and exactly verified, individually selected
+Discogs edition fields. Both inputs are independently validated against the
+same original physical source/rules identity. A field chosen differently in
+the two panels is a blocking, visible conflict, **not** a source-priority
+shortcut. Identical complete-value vectors coalesce into one change; untouched
+custom tags, ReplayGain, CUE and ordered multivalues remain unchanged.
+DATE requires an explicit field target; Pending SAFE does not become accepted.
+
+The native online comparison re-evaluates its *what-if* Title Formatting
+filename and SDK detached postimage from this combined view, and the normalizer
+Review action refuses conflicts with already selected online evidence.
+A frozen, all-source in-memory physical-only preflight also exists for the
+same combined decisions and plan fingerprints, with regression coverage.
+
+**Boundary:** the existing local batch table, online selection state, CUE
+preview and gated writer are not yet one approved transaction. The combined
+filename remains an advisory what-if, not a qualified File Operations path.
+No mutating foobar writer, CUE serializer or FileOps adapter is enabled;
+this milestone is not an installed-host release candidate.
+
+
+### 2026-10-25 — Live combined raw filename cache and QA boundary
+
+- A changed local Accept/Reset/Manual decision now re-derives the selected
+  exact Discogs edition's *advisory* raw filename from the freshly revalidated
+  combined physical postimage, never from an obsolete online-only snapshot.
+  Per-track route overrides prevent a misleading global-route filename. If
+  Title Formatting or source qualification fails, the old display cache is
+  cleared rather than reused; the UI decision transaction is otherwise atomic.
+- Local Undo and explicit route re-planning invalidate cached online raw path
+  comparisons. The online field snapshot remains intact and is not silently
+  accepted or written; reselecting an online field triggers a fresh preview.
+- The separately compiled, restricted QA-only physical writer continues to
+  use an online-only selection. It is now blocked outright whenever that same
+  track has *any* accepted local normalizer decision, both in the button
+  eligibility check and again in the final write entry. It cannot quietly
+  write an incomplete subset of an otherwise combined preview.
+- Native source/static regressions check the source wiring and fail-closed
+  boundaries. Final foobar installed visual qualification, protected live
+  Discogs search and all productive writers remain separate acceptance gates.
+
+
+### 2026-10-25 — Mixed local-only and exact Discogs source audit (MMS-WF-02/05/09)
+
+- The unified read-only physical planner accepts a truly *absent* online
+  snapshot for tracks reviewed only with local normalizer decisions. It
+  independently rejects any provider index or date target without real
+  evidence. Original-only exact no-ops, local Accept, full host/ruleset
+  re-probe and mixed-batch frozen fingerprints are regression-tested.
+- Native **Audit batch** now re-probes the selected physical Discogs source,
+  independently reprojects its accepted local decisions AND provider field
+  choices, and reports actual merged field differences and duplicate
+  identical choices. The online evidence remains source-bound even if
+  the visible tab is the local review page; a changed source or conflict
+  rejects the read-only audit rather than misreporting provider-only counts.
+- **No FileOps/CUE approval is implied.** The native batch route remains
+  a local preview, and the selected provider's naming what-if remains
+  advisory until full source-by-source joint routing and final host
+  destination/CUE preflight are integrated. No writer is reachable.
+
+
+### 2026-10-25 — Native File Locations displays merged source raw collisions (MMS-WF-05/09, MMS-FILE-01/03)
+
+- The exact Discogs selection's joint local+online Title Formatting what-if
+  now appears as one **read-only raw target** in the *same* native batch table
+  as all other selected physical tracks. Existing raw duplicate/case/source
+  collision diagnostics therefore run against the displayed combined name,
+  instead of comparing the provider name only on a separate online page.
+- If the route is changed, undone, source-unqualified or no longer safely
+  displayable, its joint row is explicitly unqualified; it does not silently
+  fall back to an outdated local-only route. No unobserved target can inherit
+  a previous raw target physical ID, guard, or CUE/host qualification.
+- The currently local-only target inspection must refuse any selection
+  containing this joint route, rather than probing a different destination.
+  All-or-nothing refusal is intentional until a genuine joint host target
+  and CUE/FileOps preflight exists. This overlay is NOT a frozen batch plan,
+  File Operations destination, consent, or write authorization.
+
+
+### 2026-10-25 — Joined raw destination host-inspection gate (MMS-WF-05/09, MMS-FILE-01/03)
+
+- Selected exact Discogs + locally accepted normalization now uses a
+  bounded **read-only native host raw target inspection** in the same batch
+  action as local-only tracks. Before and after the two-pass physical and
+  literal target observation, the native adapter independently reconstructs
+  the actual joint full-tag postimage from source-verified evidence and
+  exact local decisions and recomputes foobar Title Formatting. Only an
+  identical before/after raw route with matching current physical source,
+  profile, rules, and source guard can be inspected.
+- The literal joint raw observation is separate from local-only routing
+  state. Replacing a source, changing route, field selections, provider,
+  undoing local decisions or refreshing invalidates this evidence. The
+  existing collision, physical hardlink and source alias checks see the
+  same literal raw target that the user actually sees.
+- The read-only target may be present/missing/unqualified, but its result
+  is **not** foobar's final sanitized File Operations destination, CUE
+  coordination, frozen batch, final consent or write authority.
+  Positive and negative native identity fixtures and production static
+  assertions enforce the distinction. No audio, tag, CUE or DB writing.
+
+
+### 2026-10-25 — Explicit host destination identity for every CUE FILE (MMS-CUE-01/04, MMS-FILE-01/03)
+
+The detached CUE-association preflight now requires a genuine host-qualified
+canonical destination key for every FILE reference, including audio tracks
+not selected for modification. A bare verified=true flag no longer suffices.
+For every selected audio the independently verified future FILE destination
+key must exactly equal its separately planned audio target key, not just
+match a raw Title Formatting filename or the original basename. Different
+physical audio sources resolving to the same destination key are rejected.
+Single and multi-FILE, no-op, source alias, missing/forged destination
+evidence and collisions are covered in seven deterministic suites. The
+host must supply genuinely qualified target keys: core never invents final
+foobar File Operations naming/cleanup from CUE text. This is not approval
+of a CUE rewrite, audio move or metadata writer.
+
+
+### 2026-10-25 — Exact CUE and audio FilePlan coupling (MMS-CUE-06, MMS-FILE-03/05/06)
+
+The read-only adapter in include/djmeta/cue_file_batch_preview.h now
+independently rebuilds all FILE reference replacements from inspected CUE
+source bytes and exact host target identities, cross-checks every selected
+audio's physical ID, canonical source/target keys, source guard, and declared
+CUE relationship against the SAME FilePlan items, then projects the guarded
+CUE source/postimage fingerprints and all related audio IDs into a copied
+whole-batch FilePlan. Existing CUE staging or participant mismatch fails
+closed. The existing batch planner independently rejects raw/physical
+destination conflicts, uninspected targets and unresolved dependencies.
+
+This is **one analysis-only, unapproved** plan, never an implicit FileOps,
+tag or CUE writer. The adapter intentionally refuses CUE metadata-value
+edits unless their independent authority is separately qualified.
+A distinct source-by-source **native** final destination/CUE re-probe and
+explicit final whole-plan consent remain necessary before productive action.
+Synthetic positive and negative multi-FILE and exact no-op cases exercise
+this adapter directly, without music files or any OS I/O.
+
+
+### 2026-10-25 — Native Inspect CUE reconciles real FILE source identities with selected audio (MMS-CUE-06, MMS-FILE-03)
+
+Inspect CUE already bounded independently read the external CUE source and each
+of its FILE physical OS+foobar file IDs/guards. The native adapter now
+**also** matches those IDs to the Workspace's actually selected, unique
+physical subsong-zero audio rows (not CUE strings, titles, subsongs or
+filenames). When source IDs/guards agree the read-only CUE details annotate
+the matched selected track row. The same inventory displays a separate
+blocked **selected physical source coverage** finding, with explicit
+rejection on missing FILE dependencies, duplicate physical aliases,
+source guard drift, unqualified/virtual selected audio, unreferenced
+selected audio or CUE FILE pointing to the CUE carrier itself. Unselected
+FILE source references remain visible but may not impersonate a selected
+source.
+
+The native adapter re-checks matched selected sources' metadata and OS
+physical IDs/guards, every FILE reference's stable attributes, and the CUE
+carrier itself before publishing any rows. On a race it fails the entire
+inspection. The pure source matcher has positive/negative deterministic
+tests, and production native static audits enforce its invocation.
+This advances the real host-bound input side of the joint CUE/FilePlan;
+**it does not assert host-sanitized destination names**, destination-relative
+FILE path resolution, a complete CUE move plan, write approval or any
+audio/tag/CUE filesystem mutation.
+
+
+### 2026-10-25 — Exact Discogs+local source counts in *full* audit TSV (MMS-WF-05/09, MMS-UI-07, MMS-FILE-01)
+
+Previously the modal Audit batch summary correctly re-probed the selected
+Discogs physical source and combined it with accepted local decisions, but
+"Copy full audit" exported only the **local-only proposal counts** in
+per-track TSV rows, potentially misrepresenting an online-edited source
+as unchanged. The core read-only TSV output now distinguishes **local
+proposal changes** from **distinct verified combined physical changed
+fields**, selected online changes, local physical changes and mutually
+identical fields. Only the exact source-order row whose host physical file
+ID/version, metadata and current rules have been verified receives these
+counts, with "SOURCE_VERIFIED_POSTIMAGE_ONLY"; all other rows show N/A.
+No raw music/tag values, file paths, guards, credentials or persistent
+approval tokens are exported. The local-only export remains explicit
+"Verified joint source NONE". Synthetic positive/negative fixtures reject
+an out-of-range source, missing source guard, zero field selection, impossible
+remote-change counts and invented overlap; the native static audit enforces
+full summary/TSV parity. The export remains a read-only review, never a
+qualified final File Operations target or write approval.
+
+
+### 2026-10-25 — Unified audio metadata + exact CUE FILE + one whole FilePlan (MMS-WF-09, MMS-CUE-06, MMS-FILE-03/05/06)
+
+A new SDK-independent `unified_cue_file_plan_preview.h` integrates the
+existing **source-verified local normalizer/Discogs postimage**, **host-observed
+CUE FILE physical identity coverage**, **host-qualified final destination
+identity for every selected FILE** and the unchanged **whole-batch collision,
+overwrite and CUE-dependent FilePlan** into one atomic, detached,
+**unapproved** preview. It requires exactly one external CUE and all
+selected physical audio rows, all current source/target observations,
+same-ruleset and full captured host plan fingerprints *before* projecting
+any accepted metadata. Each FILE's independently observed physical source
+must match the same selected audio as its canonical source and verified
+destination. It refuses duplicate identities, stale guards/rules/provider
+evidence, conflicting metadata, substituted target paths, or a CUE reference
+whose host destination does not match the selected audio route. The final
+output reports distinct changed audio postimages, the CUE byte change intent,
+and one exact review fingerprint. It never infers final foobar FileOps paths
+from Title Formatting or turns advisory `ready_to_apply` into permission to
+write.
+
+Cross-source tests cover mixed online+local acceptance, unaffected
+local-only audio, nonadjacent CUE source selection, source/target and rules
+drift, forged Discogs choices, host FILE physical/canonical identity
+substitutions, CUE carrier race, conflicting prior staging and an entirely
+unchanged metadata/audio/CUE transaction with zero write intents.
+All data are synthetic. No native writer, FileOps executor, CUE mutator or
+persistent approval is added; **the native SDK must still obtain genuinely
+qualified FINAL foobar destination identities and CUE rewrite observations**
+before this pure integrator may be used as an actual user-workflow gate.
+
+
+### 2026-10-25 — Read-only *second-pass* unified CUE/metadata/FilePlan revalidation (MMS-WF-09, MMS-CUE-06, MMS-FILE-03/06)
+
+The combined local+Discogs+external-CUE+FilePlan core now also supports a
+separately called, **detached, read-only** second-pass check. The original
+advisory preview captures compact fingerprints of each exact local review
+action and manual replacement, official edition provenance/values, chosen
+online indices, explicit DATE targets, the source/guard and ruleset; it
+retains every CUE FILE source's physical ID/version, including **unselected**
+audio, and independently supplied future FILE name/destination identity.
+The second pass must independently reconstruct the current full plan from
+re-probed host sources, reread CUE bytes and those same decisions. A
+byte-identical final tag/CUE postimage **alone is not sufficient** to claim
+unchanged consent: a changed Pending→Reject decision or a different
+Discogs edition origin is rejected. Replaced unselected FILEs, changed
+relative FILE destinations, stale source guards, changed CUE bytes, new
+metadata/online choices, and any whole-batch plan/postimage difference
+invalidate the entire preview.
+
+Synthetic tests cover the exact positive case, same-bytes different
+decision/provenance, source/target races, protected unselected CUE
+participants and a full **zero-write** second-pass no-op. This is not
+a frozen BatchApproval, a qualified foobar File Operations filename,
+SDK physical writer, CUE/file executor or permission to mutate audio.
+The native final host destination and installed foobar acceptance are still
+separately required before a real user action can be approved.
+
+
+### 2026-10-25 — Every CUE FILE canonical source + full rule proposal bound into joint two-pass (MMS-CUE-06, MMS-FILE-03/06, MMS-WF-08/09)
+
+The original host-observed CUE FILE physical identity now additionally
+preserves the **canonical source key returned by foobar's real filesystem
+probe**. The source-only Inspect CUE view remains read-only, but the
+detached unified CUE+FilePlan integration now strictly compares this
+independent canonical source key to the separately host-qualified
+`CueHostReference.resolved_source_key` for **every** FILE, including
+unselected audio. Same physical file ID and source-version guard with a
+different path, or a forged/missing independently observed canonical path,
+now fails closed; the second pass compares those path identities again.
+This prevents silently attaching an unselected CUE FILE reference to an
+unrelated physical source under a stale or substituted path.
+
+The joint second-pass metadata consent proof also now binds the entire
+original normalizer proposal payload (field/value indices, original and
+suggested strings, safety classification, rule IDs and explanations),
+the original chained Change trail and canonical preview; previously only
+the decision type/manual value and analysis input fingerprint were bound.
+The same output tag bytes with a different displayed rule or meaning
+**must** lose its prior review. Deterministic tests cover selected and
+unselected canonical spoofing, empty host source keys, physical alias
+substitution, changed rule/proposal meaning with unchanged output, and
+second-pass unselected path drift. No fake final FileOps sanitization,
+writer, freeze token, public artifact or user media mutation.
+
+
+### 2026-10-25 — Double-probed native RAW destination ancestor chain (MMS-FILE-03, MMS-WF-09, MMS-UI-07)
+
+The Windows/foobar host raw target inspector now independently observes
+the **entire native destination parent directory chain** (up to 64
+components), not only the destination file itself. Each EXISTING
+directory is opened read-only with
+`FILE_READ_ATTRIBUTES | FILE_FLAG_BACKUP_SEMANTICS |`
+`FILE_FLAG_OPEN_REPARSE_POINT`, then bound to its OS volume/file
+identity, creation/last-modified timestamps and attributes. Junctions,
+directory symlinks and unexpected reparse points are rejected rather
+than followed silently; nonexistent intermediate directories remain
+recorded as explicitly missing segments, never as permission to create
+them. Every ancestor is checked a second time after the complete
+source/target probe, detecting a replaced directory, new subfolder,
+changed inode/guard, or changed canonical literal candidate.
+If any parent chain is unqualified, its raw observation is presented as
+UNQUALIFIED, not a misleading PRESENT/MISSING candidate.
+
+This is a real, bounded **native read-only physical filesystem
+observation** built with Win32 and foobar SDK canonical-path resolution;
+cross-platform regression tests exercise stable/mutating ancestor IDs,
+guards, missing-to-existing directories, reparse rejection, shortened
+chains and changed native target. All existing physical writer, host
+source isolation and CUE safety gates remain intact. The **raw** path is
+still not the final metadata-sanitized foobar File Operations destination,
+the ancestor proof grants no overwrite/move/write permission, and
+future actual FileOps target handling still needs its own independent
+destination evidence.
+
+
+### 2026-10-25 — Physical destination ROOT binding for native RAW inspection (MMS-FILE-03/05, MMS-WF-09)
+
+The already real Win32/x64 raw-target ancestor inspection now checks that the
+**exact user-selected File Operations destination root** is a member of the
+candidate's OS-level native parent hierarchy, actually exists as a directory,
+is not a junction/reparse point, and has its own independently inspected
+Windows volume+file ID and change guard. It resolves the selected root and
+literal raw candidate through foobar's native filesystem path services,
+not title-format substitution rules. Comparing only to any existing parent
+(such as the drive root) was insufficient: a mistyped/missing selected root
+could otherwise look like a qualified raw directory chain, even though
+foobar File Operations explicitly requires its destination root to exist.
+Now a missing selected root and a target redirected outside that root
+are rejected with separate codes, and a replaced selected root or changed
+root fingerprint fails the entire second-pass review. Native raw inspection
+supplies the selected per-row root for BOTH independent probes.
+
+Portable positive/negative coverage includes missing nested subfolders
+below a real selected root, switched/missing root identity or guard, missing
+subfolder masquerading as root, drive-root choice and out-of-tree root.
+Actual final foobar filename sanitation, CUE future destination, approved
+file writes and directory creation remain unqualified/disabled.
+
+
+### 2026-10-25 — Win32 root spelling equivalence and actionable native failure code
+
+The selected-root witness strips a Windows trailing-directory separator
+before comparing `root` with `target.parent_path()`; a valid path with
+different letter case is recorded using its independently observed actual
+target-ancestor spelling. This avoids marking a genuine existing root
+as missing merely because of spelling differences, without accepting
+out-of-tree raw targets or unsupported aliases. When an actual native
+parent chain fails, the read-only hint now includes only its stable
+sanitized diagnostic code (no private music paths or source tags).
+The original full `Final foobar destinations/CUE dependencies UNVERIFIED`
+warning and raw-preview count format stay intact.
+
+
+// 2026-10-25 — Nested external CUE FILE source inventory (MMS-CUE-01/06)
+//
+// An explicit Inspect CUE gesture can now resolve safe FILE "Disc 1/01.wav"
+// and FILE "Disc 2\\02.wav" relative to the original external CUE directory.
+// Each candidate is checked through foobar's native filesystem mapper and
+// read-only physical file ID; all existing parent directories including the
+// exact CUE parent are independently checked for reparse/junctions and
+// twice observed for stable identities. Missing directories, traversal,
+// Windows device aliases, unsafe Unicode/URI syntax and unsupported aliases
+// remain unqualified. A complete source-only view still cannot authorize
+// any destination, coordinated rename, CUE rewrite or write.
+
+
+### 2026-10-25 — User-visible CUE release collaboration discovery
+
+MusicBrainz release discovery from inspected CUE album metadata now
+exposes up to five **sequential**, read-only strategies when a validated
+media barcode and a two-artist collaboration are present: exact barcode,
+full album artist, lead credited artist, partner credited artist, and
+title-only. The existing native Find view displays the strategy label
+and stage number and requires an explicit Search gesture for each
+nonempty-result broadening step. The original album artist and all
+release/recording identities are retained; a result under one partner is
+only an edition-review candidate, never an approved tag or CUE change.
+MMS-ONL-01/02 and MMS-CUE-01 remain partial until native installed-host
+and protected provider end-to-end acceptance.
+
+
+### 2026-10-25 — Exact MusicBrainz browser URL intake (MMS-SRC-01/02/08, MMS-UI-02, MMS-CUE-03)
+
+Find & compare MusicBrainz Search now accepts an **explicitly pasted exact
+HTTPS recording URL** for a qualified physical track, or an **exact release
+URL** for a qualified external/embedded CUE. Only one user-clicked read-only
+operation is allowed. The pure core accepts `musicbrainz.org` or
+`www.musicbrainz.org` with exactly one valid MBID under `/recording/` or
+`/release/`. It rejects arbitrary hosts, non-HTTPS, userinfo, ports,
+fragments, query strings, release groups, tracks, nested paths and invalid
+IDs rather than silently converting malformed URLs into text searches.
+
+For a recording Studio constructs the documented bounded WS/2 `rid:`
+search and **retains only the response whose recording MBID exactly
+matches the requested ID**; other hits cannot impersonate the selected
+recording/mix. For a CUE release Studio constructs the existing fixed-host
+exact WS/2 release lookup, validates the returned edition MBID and
+unchanged on-demand CUE inventory, and publishes real edition/track
+evidence directly without fabricating a prior search hit or allowing
+implicit staging. Editing the query or changing provider/source invalidates
+an in-flight result. Original physical tags and CUE bytes remain intact,
+all proposed values require review, and every writer/FileOps route stays
+disabled. Core positive/negative fixtures and native static wiring audit
+cover this path; installed UI and protected live provider acceptance remain
+separate gates.
+
+
+### 2026-10-26 — Bounded MusicBrainz multi-strategy review (MMS-ONL-01/02, MMS-UI-02)
+
+Native Find & compare retains one candidate per exact MusicBrainz recording
+or release ID while the user explores subsequent official search strategies
+for the same source and query. First-seen order, source stage and search rank
+remain review-only evidence. Inconsistent repeated identity snippets are
+explicitly flagged. A manually edited title still tries the selected source's
+qualified artist before title-only fallback; original ISRC/barcode is used
+only with the unchanged automatic query. Failed requests do not consume the
+next strategy. No provider hit or field becomes an approved writer action.
+
+
+### Live review queue (read-only, MMS-WF-03/05/08/09, MMS-UI-07)
+
+The native **Tracks** filter in Find/Review now offers All tracks, With proposals,
+Pending REVIEW, Pending any (including SAFE and CONFIDENT), Staged edits,
+Review completed, and No proposals. Counts follow the current **explicit**
+Accept/Reject/Manual/Reset decisions, including Undo; a staged edit counts
+only if its postimage differs from the original. Review completed means a
+track had proposals and none remain pending (rejections and exact no-ops
+are legitimate decisions). The selected source identity and current sort
+order survive queue changes. Tooltip and review hint expose the current
+track's staged and pending counts. These are **in-memory navigation states**:
+no provider match, SAFE suggestion, filter selection or completed queue
+implies approval to write. Physical, CUE and FileOps gates remain disabled.
+
+### Filtered bulk review (MMS-WF-03/05/09, MMS-UI-07)
+
+Review scope now also offers **Visible queue** beside Selected changes,
+Selected tracks and All tracks. With a Tracks filter such as Pending REVIEW,
+Accept/Reject/Reset applies to proposals belonging to **exactly the currently
+visible source identities**, not the whole selected library. The Music/
+Extended detail filter only changes presentation: the confirmation explicitly
+warns that all proposal fields of visible tracks, including hidden custom
+fields, are in scope. Manual replacement still requires one selected change.
+
+Before a visible-queue action, the native workspace shows exact track,
+proposal and actually changing decision counts and defaults to **No**. An
+identical repeated Accept/Reject/Reset is a true no-op without a prompt;
+Manual remains restricted to exactly one selected proposal. After the dialog returns, it verifies
+window generation, queue identity, filter, all source snapshots and ruleset
+again; a changed queue aborts without publishing a partial decision. Preview
+staging is transactional and only changed tracks are recomputed. Source and
+provider evidence remain unchanged; Undo covers up to 4096 touched sources.
+The scope is neither batch execution approval nor a host FileOps destination.
+
+
+### Same-field batch review (2026-10-26; MMS-WF-05/09, MMS-UI-07, MMS-NRM-08)
+
+On **2. Review proposals**, select exactly one field proposal in the right
+detail table, then choose **Field: visible** or **Field: all** in the scope
+selector. Accept, Reject or Reset affects only matching proposals of that
+one field name across the Tracks-filtered queue or all captured physical
+audio sources. All duplicate/multivalue proposals retain their exact
+indices; field-name matching folds ASCII case only. Unrelated tags and
+CUE/virtual sources are excluded. Manual still requires one selected change.
+
+The default-No confirmation names the field, exact matching proposal and
+changed-decision counts and physical source scope. On return, the native
+workspace rechecks the selected field anchor, visible source IDs, exact
+proposal coordinate set, decisions, all source snapshots and ruleset.
+Stale/ambiguous scope fails closed; repeat identical decisions are no-ops.
+The existing normalizer and detached physical postimage/RAW Title Formatting
+path are reused. No FileOps final target, CUE rewrite, writer, or installed
+owner acceptance is implied.
+
+### Guided read-only Next issue
+
+**Next issue** on Review and File locations validates the captured batch and
+navigates to pending REVIEW/CONFIDENT/SAFE proposals or raw route conflicts.
+It uses underlying source identities across filters/sorting, expands field
+groups, never searches or approves automatically, and preserves selected
+online field evidence. Global final foobar File Operations and CUE checks
+remain explicitly unqualified and cannot be presented as a successful
+per-source raw filename check. No productive writes are enabled.
+
+
+### File locations: native filtered raw issue queue (read-only)
+
+The third tab offers All, Raw collisions, Unsafe/unqualified raw, Existing,
+Not inspected, Missing, Pending metadata, and No raw findings queues. The
+complete source batch is always scanned for collisions **before** filtering;
+source IDs remain stable under sorting, selection and route previews.
+**Preview selected** applies only to explicitly selected visible rows;
+**Preview all**, **Audit** and **Copy audit** still cover every captured source.
+**Next issue** reveals a hidden raw-route source by restoring the All queue.
+No raw findings is *not* a final destination approval: foobar File Operations
+sanitization/identity and external CUE references remain unqualified.
+Core negative/54,129-source fixtures and original Win32 resource tests guard
+the native workflow. Nothing is written, and no approval is persisted.
+
+
+## Native in-memory History (MMS-WF-04, partial)
+
+The fourth workspace tab **History** shows up to 256 recent explicit local
+preview operations: Accept, Reject, Reset, Manual, route recalculation and
+Undo, with their scope and counts. It uses the same modeless HWND and an
+ordinary native ListView; no additional database or second normalizer is
+introduced. A repeated identical review decision is not recorded. The event
+model stores only action type, ordinal, scope and counts: never track paths,
+tag values, provider tokens, credentials or physical-write approval. Refresh
+clears the session history. The production writer remains disabled, so this
+is **not** an execution/result log or evidence that File Operations ran.
+A later qualified writer must separately supply verified per-item outcomes,
+failures and recovery status before MMS-WF-07 can be completed.
+
+
+### Session history navigation (read-only)
+
+Filter the last 256 in-memory preview actions by review decisions, route
+recalculations or Undo. Double-click/Enter a **single-source** action to open
+the source's **current** Review or File locations row; a multi-source event
+remains a summary. The source index is session-local, never a path or
+persistent approval, and is cleared on Refresh. Navigation checks current
+source/rules evidence, refuses to discard selected online fields, never
+replays a decision or starts online lookup, and never qualifies a FileOps/CUE
+write. MMS-WF-07 (actual execution report) remains OPEN.
+
+
+## Filtered routing preview scope (2026-10-26, no writes)
+
+File locations now offers Selected, Visible filtered queue and All captured
+sources. The existing foobar Title Formatting adapter evaluates explicitly
+accepted normalizer postimages only. Visible maps sorted ListView rows to exact
+captured physical source IDs; it never updates hidden rows. All three scopes
+re-probe the complete batch before preview; collisions are scanned globally.
+Exact route no-ops preserve target observations, Undo and History. Multi-source previews in any scope require a default-No confirmation with affected and
+no-op counts, followed by revalidation of physical sources, rules, route
+controls and the exact selected source scope after modal return. Only changed
+rows invalidate raw destination/CUE evidence. Final FileOps-sanitized targets,
+CUE references, overwrite and physical writes remain unqualified and disabled.
+
+
+## Library-scale full audit and attention-only export (read-only)
+
+The File locations toolbar has **Copy audit** (all captured physical source
+rows) and **Copy issues** (staged changes, pending decisions, raw conflicts,
+source-specific raw FileOps/CUE findings, and the exact verified online
+source). Universal final FileOps/CUE-unqualified status remains in the batch
+summary, rather than flooding the attention queue. Both actions
+recheck the **entire** captured batch, including hidden/filtered rows, before
+copying a source-order TSV. The attention filter is output-only: it never
+reduces global collision checks or qualifies final foobar File Operations.
+The TSV declares scope and included-row count and retains original source
+row numbers, without private paths, tag values, credentials, physical guards
+or write permissions. A bounded 16 MiB UTF-8 / 16M-character Unicode
+clipboard contract supports 54,129-source collections without silent
+truncation. Exceeding the limit fails before changing the clipboard. Native
+read-only summary and independently verified exact-edition field counts are
+included in both exports. Final sanitized destinations, external CUE FILE
+references and production writes remain unqualified and disabled.
+
+## Selected physical CUE FILE → staged RAW destination impact (read-only)
+
+The native **Inspect CUE** action now appends a paired "FILE # / RAW routing
+impact" row for each independently observed external FILE source and a complete
+summary. The mapping uses physical file identity, stable source guards and
+captured source-row indices; it is not inferred from CUE filenames, subsong
+indices or the current visible/sorted grid. A matched row displays its current
+explicitly staged foobar Title Formatting **RAW ONLY** candidate. Unselected
+FILE sources, stale/ambiguous source versions, unaccepted metadata, unsafe
+relative paths and whole-batch raw target collisions are explicitly BLOCKED.
+Nested relative names are retained as preliminary evidence, not silently
+flattened. Positive and negative synthetic identity/version/collision/unsafe
+fixtures accompany the native display.
+
+This joins the original external-CUE source inspection with the current
+normalizer/online selection and File locations planning for user inspection.
+It is **not** an SDK File Operations sanitizer: actual final destination
+identity, correct relative FILE token postimage after relocation, complete
+source/target/sidecar rechecks and one final execution confirmation still need
+independent host qualification. No raw candidate ever sets
+`filesystem_target_checked` or `cue_dependencies_checked`, and neither the
+physical writer nor foobar File Operations is enabled.
+
+
+### Named File locations templates (MMS-CFG-05 / MMS-FILE-02, read-only)
+
+In **3. Plan file locations**, edit the name, destination and native foobar
+Title Formatting expression, then **Save profile**. A new name creates a
+foobar-profile-local template; replacing an existing name needs explicit
+(default-No) confirmation. Singles/Alben/Livesets remain immutable. Choose a
+saved name to restore both fields. **Delete** removes only saved custom names
+with default-No confirmation. Duplicate by selecting a profile, typing a new
+name and saving. Strict versioned UTF-8 schema bounds 24 named templates and
+rejects corruption/duplicates. No metadata values, secrets, source evidence,
+write rights or approvals are persisted. Save/Delete never run FileOps or
+recompute existing route previews; explicitly Preview again. Final sanitized
+FileOps destinations and CUE references are still unqualified. Import/export
+and execution remain OPEN.
+
+
+### Portable named File locations templates (read-only clipboard transfer)
+
+**Copy** exports all saved *custom* templates (not immutable built-in presets)
+using a bounded, versioned `MMS-NAMED-ROUTES/1` UTF-8 clipboard envelope.
+This explicitly includes custom destination roots: do not paste the clipboard
+into public issue reports, CI logs or untrusted applications. No track paths,
+provider credentials, tags, CUE content or media bytes are exported.
+**Paste** validates the complete envelope, every Unicode/name/field and the
+24-template maximum *before* changing any configuration. It reports new and
+replaced counts, asks once with **No** as default, rechecks the original
+profile-local configuration after the modal dialog, and commits the merged
+collection as a single cfg_string update. Duplicate/invalid/oversized or
+unknown-version data, a full destination profile, or a stale confirmation
+reject the entire import without partial changes. Identical imports are no-ops.
+
+Import/export never chooses a route for a track, stages a preview, approves a
+postimage or calls File Operations. Select an imported name and rerun Preview
+for fresh RAW paths; host-sanitized final targets/CUE references remain BLOCKED.
+
+
+## Read-only File locations action intents
+
+The native File locations toolbar explicitly distinguishes **Move, Copy,
+Rename and No file action**. Preview selected / visible / all associates the
+chosen operation with captured physical source-row identities and the current
+explicitly accepted metadata / foobar Title Formatting RAW route. Subsequent
+scoped previews may stage other operations for different source rows; Undo
+restores previous intent and route together. The source row status/infotip
+and full-batch audit disclose action selection. Identical restaging is a
+no-op. This extends the existing FileAction enum, not a parallel writer.
+
+Move/Copy are **RAW ONLY** candidates, subject to whole-batch raw collision
+checks. Rename stays **BLOCKED** until foobar's final resolved destination
+is proven to have the original parent identity. No file action skips *only*
+the FileOps intent; any metadata review decisions remain independently
+unchanged. Per-row intent remains memory-only: the existing v1 named-route
+profile format, built-in templates and profile-local settings are unchanged.
+Any action change invalidates previous destination/CUE observations.
+
+No selected intention enables FileOps, overwrites, CUE reference rewriting or
+a physical SDK writer. Host-final destination, source/target/rule double
+rechecks and one separate owner-authorized execution remain open.
+
+
+### Action-aware external-CUE FILE impact after scoped route preview
+
+The existing **Inspect CUE** pane now joins independently re-probed
+physical CUE FILE dependencies to the **per-track** File locations
+Move/Copy/Rename/No file action intent. No second naming or normalization
+engine is introduced. Its per-FILE rows show a human-readable explanation,
+stable source-row identity, requested action, and an optional **RAW ONLY**
+Title Formatting candidate. The full-graph summary counts moves, copies,
+unchanged FILEs, blocked renames, blocked partial-graph moves, and unselected
+dependencies. Filtering/sorting File locations never prunes the physical
+source graph or broadens a batch permission.
+
+**No file action** leaves the existing CUE FILE target unchanged regardless
+of independent pending tag decisions. **Copy** leaves the original CUE FILE
+link pointing to its original audio; a copied CUE sidecar is not implied.
+**Move** can show only a preliminary target when *all* physical FILE sources
+are selected; a partial selection blocks with the missing-dependency risk.
+**Rename** stays blocked because actual final same-parent foobar FileOps
+identity has not been obtained. Invalid actions, stale file guards, pending
+metadata, collisions and unsafe RAW names remain fail-closed.
+
+This is an impact **inspection**, not a CUE edit, FileOps resolver,
+filesystem permission check, validated relative FILE token, or
+execution approval. No SDK writer, sidecar rewrite, or FileOps writes are
+enabled. End-to-end native Discogs authorization and installed user GUI
+acceptance remain independent outstanding gates.
+
+
+### Whole-batch action ledger in Audit and Copy audit
+
+The existing **Audit** now includes the actual per-source staged File locations
+operation and a bounded first-blocker summary. **Copy audit** appends a complete
+source-order, privacy-safe TSV action ledger to the existing metadata audit;
+**Copy issues** includes only blocked FileOps action rows in that appended
+ledger. It does not export source paths, Title Formatting output, tags, host
+identifiers, provider credentials, CUE text or approval tokens. Each row
+separates **SKIP**, **BLOCKED** (with reason) and **RAW ONLY** (a preliminary
+candidate, never the final sanitized foobar target). The full captured batch
+is recomputed against the same native RAW route inputs, including the exact
+selected Discogs route overlay, and fails closed if the displayed route table
+or review decision shape is stale. Filtered/sorted views cannot hide collisions.
+Pending SAFE/CONFIDENT/REVIEW decisions, known raw route findings, physical
+source uncertainty and Rename without proven host-final same-parent identity
+block file actions; No file action is an independent skip, not tag approval.
+The export always labels final foobar FileOps target and CUE FILE/sidecar as
+**NOT RESOLVED / NOT QUALIFIED**. It neither claims CUE rewrite coverage nor
+enables FileOps, overwrite, sidecar creation, metadata writes or execution.
+
+
+### Explicit external CUE carrier/sidecar action (read-only)
+
+The *external CUE file itself* is now an independently staged physical
+File locations row. Select it, choose its Move/Copy/No file action and click
+Preview selected (or another explicit scope) before **Inspect CUE**. The
+default Move template is **not** a consent to relocate the sidecar; the
+in-memory capture remembers whether the carrier action was deliberately
+staged. Undo restores this distinction as well as the previous route.
+
+**Inspect CUE** joins the carrier choice to all independently host-probed
+FILE source IDs and their per-audio staged actions. Leaving the original
+CUE behind while audio moves reports an orphan risk; a CUE copy can only
+be shown as a RAW-only candidate when all referenced audio is independently
+staged for Copy, and a CUE move requires all audio Move and complete
+FILE coverage. Mixed actions, unselected FILEs, ambiguous physical source
+identity, pending CUE metadata, raw collisions and unsafe names block.
+Carrier Rename waits for the same-parent host-final target proof.
+
+Every carrier result is explicitly **BLOCKED for execution**, even when the
+preview can show a RAW sidecar path. Actual foobar File Operations names,
+correct relative FILE tokens on the new CUE, backup, overwrite/no-op,
+final source-target double-recheck and the separate write approval remain
+unqualified. Existing normalizer, source probes and FILE impact are reused;
+no CUE bytes, audio, tags or sidecars are changed by inspection.
+
+
+### Direct CUE FILE → physical File locations drill-down
+
+Within **Inspect CUE**, double-click or press **Enter** on a
+"FILE # / RAW routing impact" row to jump directly to its captured physical
+audio source in **File locations**. The "CUE carrier / Explicit sidecar
+operation" row similarly opens the physical CUE carrier, where the user can
+stage an independent Move, Copy or No file action. The full raw-route table
+is rechecked and the complete filter restored before selecting the linked
+source, so hidden/sorted view positions cannot redirect action to the wrong
+track. The online comparison remains an inspection; no search request is
+initiated and no metadata decision is silently changed.
+
+The link contains only numeric original source and FILE ordinals, not
+paths/tags/physical fingerprints. The source ID parser bounds FILE and source
+counts; unselected/malformed references cannot navigate. Before navigation,
+the native host independently verifies the CUE snapshot, selected audio
+source and captured rules, then revalidates the whole workspace. Stale
+evidence requires Refresh. The jump only navigates; the writer, CUE
+serializer, File Operations execution and final postimage gates stay disabled.
+
+
+### Return from File locations to rechecked original CUE evidence
+
+After jumping to a linked physical audio row from Inspect CUE, a keyboard-
+accessible **Back to CUE** button appears at the bottom of File locations.
+It is hidden during unrelated file workflows, Review, Find, and History.
+The original carrier's source index, real physical key and source version
+are retained only in memory and discarded when the snapshot is replaced.
+
+Returning verifies the original physical carrier, its version and rules,
+reprobes the whole captured batch and selects that exact CUE source in Find.
+The existing Inspect CUE command is invoked again, so its CUE bytes, FILE
+dependencies and current staged Move/Copy/No-action impacts are reread;
+old evidence is never replayed as if still qualified. No online search,
+file operation or physical audio/tag/CUE writer is initiated. The original
+Win32/x64 native GUI tests assert keyboard access and non-overlap with
+Preview selected; source/rule integrity still needs installed owner testing.
+
+
+### File locations: whole-batch action-stage queues (2026-10-26)
+
+The existing **File locations** filter now also offers **File action:
+BLOCKED**, **File action: RAW ONLY** and **File action: SKIP**. These stages
+come from the exact same complete-batch, read-only FileAction ledger used by
+Audit/Copy issues; they are **not** inferred from a displayed filename or
+raw-target-only status. Mixed Move/Copy/Rename/No action batches remain
+independently staged per physical source. A changed local review decision or
+route recomputes the stage queue, with original source IDs stable through
+sorting and filtering. The visible count makes a 500+ source batch navigable.
+
+**Preview selected/visible** applies only to the source IDs currently shown
+and explicitly selected; **Preview all**, whole-batch collision checks and
+Audit/Copy audit always cover hidden sources. A SKIP means no file action;
+RAW ONLY is a preliminary Title Formatting candidate, never an approved
+foobar destination; BLOCKED retains its exact reason. Source/order shape,
+unknown action, contradictory stage and stale aggregate counters fail closed.
+No execution, overwrite consent, CUE rewrite, tag write, persistence of
+approval or new normalization engine was added. Native Win32/x64 host-load
+and installed GUI acceptance are separate qualification gates.
+
+
+### Complete source-order CUE inspection queue
+
+The File locations native workspace shows the count of captured external-CUE
+carriers and an explicit **Next CUE** control. It opens one pending/stale/
+blocked CUE at a time through the preexisting user-triggered read-only
+Inspect CUE flow; there is NO mass audio scan, online request, or writer.
+The existing Audit/Copy audit/Copy issues include a second path-free CUE
+ledger: NOT_INSPECTED, STALE_REINSPECT, BLOCKED, RAW_ONLY_FINAL_CUE_UNQUALIFIED
+or ORIGINAL_CUE_KEPT. Original source ordinals alone appear in the export,
+not CUE text, audio names, tags, source guards, local paths or credentials.
+
+A diagnostic receipt is created only after physical FILE host-probes and
+sidecar analysis. Exact full-source-order equality is checked against the
+plan each time File locations is recomputed. A changed physical key/guard,
+file action, pending metadata state, RAW destination or batch collision
+renders all old CUE evidence stale, including otherwise hidden source rows.
+Sorting/filtering with no actual changed evidence retains receipts.
+Revisiting one CUE updates that source only. Reports never qualify final
+foobar File Operations targets or relative CUE FILE token postimages.
+Synthetic 54,129-source tests and native Win32/x64 UI checks cover the path.
+
+Next CUE prioritizes missing, stale and blocked inspections, not already
+inspected RAW-only candidates. A CUE receipt is recorded only after all
+source-coverage rows have been constructed successfully; a failed or
+truncated inspection cannot appear as complete in the batch ledger.
+
+
+### CUE status views in File locations
+
+The existing File locations drop-down now also offers **CUE: all carriers**,
+**CUE: inspect / blocked**, **CUE: RAW only**, and **CUE: original kept**.
+Each projects the *same* complete original physical CUE inspection queue
+through the current sort order; no new normalization engine, writer or
+path resolver is introduced. An unseen source changing its physical guard,
+staged Move/Copy/Skip, metadata review, or raw target invalidates the entire
+queue's previous evidence. Filtered views never weaken whole-batch collision
+audits or broaden the scope of a selected-row preview. A RAW-only carrier
+has still NOT obtained final foobar File Operations or CUE FILE postimages.
+
+The user-triggered **Next CUE** refuses to abandon selected online
+comparison fields belonging to another source. This preserves the explicit
+review workflow; no network search or file write runs when a filter changes.
+Synthetic tests include a reversed 54,129-source selection and fail-closed
+duplicate, truncated and invalid source permutations.
+
+### 2026-10-26 — Exact album source drill-down and protected online field choices
+
+- An explicitly loaded official MusicBrainz/Discogs exact release may present
+  read-only **Physical #N** groups for a 2–128-source physical album. Double-click
+  or Enter on a verified group opens that exact captured physical source in the
+  existing Review page. Group names are internally generated and tightly parsed;
+  source identity never comes from a sorted display row, imported provider
+  field, filename, tag or pasted candidate. The whole captured batch and rules
+  are independently rechecked before moving focus. No search, staged field
+  choice, physical tag edit, FileOps action, CUE edit or external request occurs.
+- Previously explicitly **included online fields** now survive ordinary
+  provider switching, new Search, CUE inspection, clipboard import and
+  physical-track changes: any attempt to replace their exact-source comparison
+  is rejected until Reset has been explicitly chosen. The native ListView uses
+  LVN_ITEMCHANGING to veto source rebinding before the old choice is lost;
+  double-click/Enter also checks it. Harmless focus/column changes do not
+  invalidate the selected source. This protects *in-memory review choices*,
+  not a persistent approval or an activated writer.
+- Positive/negative native Win32 policy tests, static production wiring and
+  real original-foobar Win32/x64 build/host gates qualify these interactions
+  in CI; installed owner DPI/theme/keyboard acceptance remains separate.
+
+### 2026-10-26 — Native drill-down failure containment and HWND regression
+
+- The verified album source navigation now catches any host source/rules
+  recheck or Win32 mapping failure inside the notification handler, resets
+  its transient selection-update flag and marks the complete workspace
+  STALE instead of unwinding into the foobar dialog procedure. No candidate
+  approval or file write is generated on this failure path.
+- The original native Windows RC test dispatches the same LVN_ITEMCHANGING
+  notification with captured source IDs through the actual dialog HWND and
+  asserts veto/allow semantics for included online fields, deselection,
+  same-source reselect and explicit reset. This complements portable policy
+  negative tests; it does **not** replace installed end-user DPI/UI checks.
+
+## Explicit source/provider switch with included online fields
+
+An ordinary native track-list click never discards included Discogs edition
+fields or their DATE mappings. The source-bound ListView selection is vetoed
+before it changes. A deliberate double-click/Enter, Next issue, Next CUE,
+history jump, verified album-source drilldown, CUE return or provider change
+instead offers a **default-No** confirmation when a different source/provider
+would invalidate those selections. No keeps the existing source and all
+choices. Yes discards **only** that source's in-memory online Include/date
+choices and its raw Title Formatting overlay, then recomputes the complete
+file/CUE collision preview from local staged values. It does not discard
+local normalizer decisions, original physical tags, custom/multivalue fields,
+ReplayGain, CUE bytes, route profiles or user files. No network request is
+initiated by an ordinary source switch; only an explicit Find-tab activation
+may perform its existing guarded search. Single-click selection stays
+non-destructive and does not show modal prompts. Neither choice authorizes a
+writer or a foobar File Operations destination.
+
+### 2026-10-26 — visible native album-batch selection qualification
+
+The official user-clicked MusicBrainz or Discogs exact-edition Load now uses
+one shared **read-only** source-scope gate before its existing one-to-one album
+matcher. A 2–128 selection of separate, qualified physical subsong-0 files
+continues through the exact existing edition matcher, with full original tag
+vectors and per-track source checks. A mixed selection that includes an
+external CUE carrier, virtual subsong or other nonphysical source instead
+shows a blocked **Batch / MATCH** explanation and captured **Batch / Source
+#N** blockers in the same native detail view. A selection above 128 exposes
+one bounded blocked explanation without iterating 54k sources or starting a
+library scan. No implicit alternate provider search, virtual writer, source
+reassignment, or bulk field acceptance is introduced. The original selected
+source's individually qualified fields remain separate from these pure
+nonstageable batch diagnostics. Positive and negative tests cover both official
+providers, ordinal tampering and invalid/oversize selections. The final foobar
+File Operations target and CUE relative postimages remain unqualified.
+
+## 2026-10-26 — Real native physical/CUE writer QA on trusted CI pull requests
+
+The previous `physical-sdk-runtime-qa` job was incorrectly restricted to
+`push` events, while the actual Studio code checks appeared only as
+`pull_request` runs; a green foobar Preview workflow therefore did **not**
+exercise its real SDK writer/no-op tests. The workflow now permits the
+**same-repository Studio branch → main PR only**, in addition to the existing
+branch-push trigger; forks and unrelated PRs remain ineligible. The QA
+component is built only on disposable Windows GitHub runners and tested
+against runner-generated silent FLAC plus an external CUE inside a fresh
+`RUNNER_TEMP` subtree. The runner rejects a pre-existing foobar process,
+restricts the component to exact fixture paths, checks real SDK write/readback,
+first and subsequent no-op bytes/timestamps and exact CUE-value postimages,
+then deletes disposable fixtures and QA DLLs. Neither normal Studio builds
+nor owner files gain writer access; no DLL is packaged, uploaded or retained.
+This qualification is separate from final foobar FileOps target resolution,
+production-writer activation and installed owner GUI acceptance. The new
+negative static workflow contract prevents accidental fork eligibility,
+secret use, architecture loss and upload enablement.
+
+### 2026-10-26 — Same-field physical batch Manual preview (MMS-WF-05, MMS-NRM-08)
+
+The existing **Review** manual-value control now also accepts the selected
+field across **visible** or **all** captured qualified physical tracks. It
+stages exactly one original scalar value per source, with a default-No
+confirmation that displays the requested Unicode value and precise source /
+proposal counts. It refuses duplicate-name or multivalue fields, multiple
+same-field proposals per source, protected embedded CUE, virtual subsongs,
+malformed/blank manual values and stale original/rules/proposal evidence.
+The value and exact source/field/decision set are rechecked after the modal
+confirmation, then projected transactionally through the existing single
+normalizer and host-safe physical postimage/route preview. A repeated identical
+Manual is a true in-memory no-op; other fields, ReplayGain, custom values,
+external CUE and original tags remain unchanged. The action is not a physical
+writer, provider approval or File Operations/CUE target authorization. Large
+batch Undo retains its existing 4,096-source memory bound; Refresh resets
+in-memory decisions without changing user files. Installed GUI acceptance
+remains separate from Win32/x64 CI host-load qualification.
+
+## Native CUE FILE dependency audit: per-FILE evidence (2026-10-26)
+
+The existing **Copy CUE audit / Copy CUE issues** native clipboard actions now include each currently inspected external CUE's bounded FILE ordinal, exact captured physical audio row (or NOT_SELECTED), staged file action, stable risk code and explicitly unresolved final foobar destination, plus the sidecar risk code. This reuses the one existing source-identity CUE inspection and full-batch epoch; it does not add a matcher, persistent database, destination sanitizer, second writer or automatic operation. Receipts never retain or export raw target paths, private file IDs/guards, tag values or secrets. Changing a hidden source invalidates all previous FILE findings and omits them from the stale export until reinspection. These are diagnostic RAW-only results, not final foobar File Operations/CUE FILE postimages or write approval.
+
+## Protected Discogs search vs. native foobar acceptance (2026-10-26)
+
+The canonical protected PR #45 job can independently prove the **real
+official authenticated API** staged search and exact edition/tracklist
+evidence, but that is not a native foobar GUI result. The currently pinned
+shared `foobar-host-smoke` action deliberately rejects `pull_request`
+events for its credential-bearing native probe; the Studio workflow visibly
+records `MMS_PROTECTED_NATIVE_HOST=SKIPPED_PINNED_ACTION_MANUAL_ONLY` instead
+of misreporting a green native test. The existing protected manual dispatch
+still exercises the complete Win32/x64 native host flow. Do not alter event
+variables, environment protection or token scope to bypass this boundary.
+
+### Reverse CUE dependency navigation (MMS-WF-09 / MMS-CUE-06, read-only)
+
+In **File locations**, right-click exactly one qualified physical audio source and
+choose **Inspect related CUE (read-only)**. The action is available only when
+an earlier explicit **Inspect CUE** established one current carrier with an
+exact FILE→captured-physical-source link. The original source row ID is
+preserved across sorting/filtering; current source, carrier, rules and the
+complete CUE receipt are rechecked before opening that carrier in the existing
+Find/Compare inspection pane. The original CUE FILE inventory is then reread.
+
+No link is inferred from a matching basename or a raw Title Formatting path.
+Uninspected, stale, invalid or multiple carrier relationships never silently
+choose a destination; use the CUE inspection queue to review those carriers.
+This reverse link is navigation only, not final foobar File Operations target
+resolution, relative CUE FILE postimage qualification or write approval.

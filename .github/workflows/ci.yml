@@ -2,7 +2,7 @@ name: Core CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feature/online-metadata-discovery-foundation-20261009 ]
     paths:
       - 'include/**'
       - 'src/core/**'
@@ -27,15 +27,24 @@ on:
       - 'tests/c_api_tests.cpp'
       - 'tests/validate_rules.py'
       - 'tests/static_foobar_audit.py'
+      - 'tests/crates_browser_bridge_tests.js'
+      # All tests and safety-audit changes trigger source-only qualification.
+      - 'tests/**'
+      - 'scripts/**'
+      - 'src/foobar/**'
+      - 'scripts/beatport-copy-public-jsonld.js'
+      - 'scripts/crates-copy-selected-beatport-link.js'
       - 'rules/**'
       - 'CMakeLists.txt'
+      - 'docs/REQUIREMENTS-REGISTER.md'
+      - 'docs/REQUIREMENTS-IDS.lock'
       - '.github/workflows/ci.yml'
   pull_request:
     branches: [ main ]
   workflow_dispatch:
 
 concurrency:
-  group: dj-metadata-normalizer-${{ github.workflow }}-${{ github.ref }}
+  group: music-metadata-studio-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -58,7 +67,24 @@ jobs:
         shell: bash
         run: python tests/validate_rules.py
 
-      - name: Assert no public binary artifacts are uploaded
+      - name: Verify stable user-approved requirements
+        shell: bash
+        run: python tests/requirements_register_tests.py
+
+      - name: Check browser helpers without fetching or credentials
+        shell: bash
+        run: |
+          node --check scripts/beatport-copy-public-jsonld.js
+          node --check scripts/crates-copy-selected-beatport-link.js
+          node --check scripts/crates-copy-visible-track-facts.js
+          node --check scripts/crates-copy-visible-release-facts.js
+          node tests/crates_public_track_browser_helper_tests.js
+          node tests/crates_public_release_browser_helper_tests.js
+          node tests/beatport_public_browser_helper_tests.js
+          node tests/crates_browser_bridge_tests.js
+
+      - name: Enforce repository-wide public artifact hold
+        shell: bash
         run: python scripts/verify-public-artifact-hold.py
 
       - name: Configure
@@ -71,7 +97,7 @@ jobs:
         run: ctest --test-dir build -C Release --output-on-failure
 
       - name: Stage Windows integration artifact
-        if: false # Safety hold: do not even stage a DLL on public CI
+        if: false # Safety hold: no public native DLL staging
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -85,7 +111,7 @@ jobs:
           ) | Set-Content -Encoding UTF8 integration-artifact/MANIFEST.txt
 
       - name: Upload Windows integration artifact
-        if: false # Licensed source CI only; never upload an integration DLL
+        if: false # Safety hold: no public native DLL upload
         uses: actions/upload-artifact@v7
         with:
           name: djmeta-native-${{ github.sha }}

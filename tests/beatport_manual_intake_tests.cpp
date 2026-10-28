@@ -1,0 +1,864 @@
+#include "djmeta/beatport_release_review.h"
+#include "djmeta/beatport_public_page.h"
+#include "djmeta/beatport_public_html.h"
+#include "djmeta/crates_browser_bridge.h"
+#include "djmeta/crates_visible_intake.h"
+#include "djmeta/crates_visible_release.h"
+#include "djmeta/native_candidate_labels.h"
+
+#include <algorithm>
+#include <cstdlib>
+#include <iostream>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+namespace {
+void check(bool yes,const char* msg) {
+    if(!yes) {std::cerr<<"FAIL: "<<msg<<"\n";std::exit(1);}
+}
+template<typename F> void rejects(F run,const char* msg) {
+    bool refused=false;
+    try{run();}catch(const std::invalid_argument&){refused=true;}
+    check(refused,msg);
+}
+const djmeta::online::FieldReviewRow* find(
+    const std::vector<djmeta::online::FieldReviewRow>& rows,
+    const std::string& field) {
+    const auto it=std::find_if(rows.begin(),rows.end(),[&](const auto& row){
+        return row.field==field;
+    });
+    return it==rows.end()?nullptr:&*it;
+}
+}
+int main() {
+    using namespace djmeta::online;
+    const std::string raw=R"JSON(@beatport-track-json
+{"id":321,"name":"Home","mix_name":"Extended Mix",
+ "artists":[{"name":"DJ Example"}],
+ "remixers":[{"name":"Mixer Q"}],"length_ms":402500,
+ "isrc":"GBXYZ2601234","genre":{"name":"Progressive House"},
+ "new_release_date":"2026-10-16","release":{"id":987,"name":"Home EP"}}
+)JSON";
+    check(is_beatport_user_json_clipboard(raw) &&
+          !is_beatport_user_json_clipboard(R"({"id":321})"),
+          "only explicitly selected user JSON is imported");
+    const std::string public_jsonld=
+        "@beatport-public-jsonld\n"
+        "@url=https://www.beatport.com/track/home/321\n"
+        "{\"@context\":\"https://schema.org\",\"@type\":\"MusicRecording\","
+        "\"url\":\"https://www.beatport.com/track/home/321\","
+        "\"name\":\"Home (Extended Mix)\","
+        "\"byArtist\":{\"name\":\"DJ Example\"},"
+        "\"isrcCode\":\"GBXYZ2601234\",\"duration\":\"PT6M42S\","
+        "\"datePublished\":\"2026-10-16\","
+        "\"inAlbum\":{\"name\":\"Unverified EP\"}}";
+    check(is_beatport_public_page_clipboard(public_jsonld) &&
+          !is_beatport_public_page_clipboard(raw) &&
+          qualify_beatport_public_track_url(
+              "https://www.beatport.com/track/home/321").id==321 &&
+          public_iso_duration_ms("PT6M42S")==402000 &&
+          public_iso_duration_ms("PT1H3M2S")==3782000 &&
+          !public_iso_duration_ms("PT25H"),
+          "bounded user-selected public page identity and ISO duration");
+    // Schema.org's ISO 8601 seconds can contain fractional milliseconds.
+    // Preserve exact physical-host duration instead of converting it to
+    // a false zero-result/mismatch. Non-representable or ambiguous units
+    // must remain blocked, not silently rounded.
+    check(public_iso_duration_ms("PT6M42.5S")==402500 &&
+          public_iso_duration_ms("PT6M42.50S")==402500 &&
+          public_iso_duration_ms("PT6M42.125S")==402125 &&
+          public_iso_duration_ms("PT1H3M2.007S")==3782007 &&
+          public_iso_duration_ms("PT1.001S")==1001 &&
+          public_iso_duration_ms("PT6H")==21600000,
+          "public ISO duration preserves exact 1/10/1000-second precision");
+    for(const char* rejected:{
+        "PT0.999S", "PT0S", "PT6H0.001S", "PT1.2345S",
+        "PT1.S", "PT1.2M", "PT1.25H", "PT1,5S",
+        "PT1.2S2S", "PT1.2Sfoo", "PT1S2M", "PT-1S",
+        "PT1.2.3S", "PT1.2", "PT1M2.0000S"}) {
+        check(!public_iso_duration_ms(rejected),
+              "unsupported ISO seconds must refuse rather than round/guess");
+    }
+    std::string fractional_jsonld=public_jsonld;
+    const std::string duration_before="\"duration\":\"PT6M42S\"";
+    const auto duration_position=fractional_jsonld.find(duration_before);
+    check(duration_position!=std::string::npos,
+          "fractional JSON-LD fixture has a duration field");
+    fractional_jsonld.replace(duration_position,duration_before.size(),
+                              "\"duration\":\"PT6M42.500S\"");
+    const auto fractional_track=
+        parse_beatport_public_jsonld_clipboard(fractional_jsonld);
+    check(fractional_track.duration_ms==402500 &&
+          fractional_track.id==321 &&
+          fractional_track.mix_name=="Extended Mix",
+          "real JSON-LD import preserves fractional recording duration");
+    const auto public_track=parse_beatport_public_jsonld_clipboard(public_jsonld);
+    check(public_track.id==321 && public_track.title=="Home" &&
+          public_track.mix_name=="Extended Mix" &&
+          public_track.artists==std::vector<std::string>{"DJ Example"} &&
+          public_track.duration_ms==402000 &&
+          public_track.release_title.empty() &&
+          public_track.publish_date.empty(),
+          "JSON-LD readable facts retain mix; unsupported album/date provenance is not invented");
+    // Public JSON-LD byArtist is all-or-nothing, including collaborator lists.
+    const auto with_public_credits=[&](const std::string& replacement) {
+        std::string text=public_jsonld;
+        const std::string token="\"byArtist\":{\"name\":\"DJ Example\"}";
+        const auto at=text.find(token);
+        check(at!=std::string::npos,"Public artist replacement source exists");
+        text.replace(at,token.size(),"\"byArtist\":"+replacement);
+        return text;
+    };
+    const auto credits=parse_beatport_public_jsonld_clipboard(
+        with_public_credits(R"([{"name":"DJ Example"},"Partner"])"));
+    check(credits.artists==std::vector<std::string>{"DJ Example","Partner"},
+          "public Beatport import retains both collaborator credits");
+    const auto repeated=parse_beatport_public_jsonld_clipboard(
+        with_public_credits(R"(["DJ Example","DJ Example"])"));
+    check(repeated.artists==std::vector<std::string>{"DJ Example","DJ Example"},
+          "public Beatport evidence does not deduplicate source credits");
+    for(const auto& malformed:{
+        std::string(R"([{"name":"DJ Example"},{}])"),
+        std::string(R"([{"name":"DJ Example"},null])"),
+        std::string(R"([{"name":"DJ Example"},{"name":""}])"),
+        std::string("[]"),
+    }) {
+        rejects([&]{(void)parse_beatport_public_jsonld_clipboard(
+                    with_public_credits(malformed));},
+                "missing or invalid co-artist blocks entire public record");
+    }
+    std::string too_many="[";
+    for(int i=0;i<33;++i) {
+        if(i) too_many+=",";
+        too_many+=R"({"name":"DJ Example"})";
+    }
+    too_many+="]";
+    rejects([&]{(void)parse_beatport_public_jsonld_clipboard(
+                with_public_credits(too_many));},
+            "public artist array cannot silently truncate at 32 credits");
+    // No silent content-type prefix match or legacy-charset misdecoding.
+    for(const char* valid:{
+        "text/html", "TEXT/HTML", " text/html \t",
+        "text/html; charset=utf-8",
+        "text/html; charset=\"UTF-8\"",
+        "Text/Html ; Charset = UTF-8 ; profile=public",
+        "text/html; profile=public",
+    }) {
+        check(qualified_public_html_content_type(valid),
+              "proper HTML/UTF-8 Content-Type accepted");
+    }
+    for(const char* invalid:{
+        "", "text/htmlx", "text/html-malformed", "text/plain",
+        "application/xhtml+xml", "text/html; charset=iso-8859-1",
+        "text/html; charset=windows-1252",
+        "text/html; charset=utf-8; charset=utf-8",
+        "text/html; charset=", "text/html; charset=\"",
+        "text/html;", "text/html; charset=utf-8;",
+        "text/html; bad", "text/html\r\nX: injected",
+        "text/html; charset=\"utf-8\";charset=latin1",
+    }) {
+        check(!qualified_public_html_content_type(invalid),
+              "unqualified HTML MIME rejected before public page import");
+    }
+    const std::string long_slug(125,'a');
+    const std::string long_url=
+        "https://www.beatport.com/track/"+long_slug+"/123456";
+    check(long_url.size()>150 &&
+          long_url.size()<=maximum_public_beatport_url_length &&
+          qualify_beatport_public_track_url(long_url).id==123456,
+          "a valid long Crates/Beatport link must fit the native query control");
+    for(const char* url:{
+        "http://www.beatport.com/track/home/321",
+        "https://beatport.com/track/home/321",
+        "https://www.beatport.com.evil.org/track/home/321",
+        "https://www.beatport.com/track/home/321?token=x",
+        "https://www.beatport.com/track/home/0321",
+        "https://www.beatport.com/release/home/321",
+        "https://www.beatport.com/track/home/321/related"}) {
+        rejects([&]{(void)qualify_beatport_public_track_url(url);},
+                "unqualified source URL, redirect, query or release route fails closed");
+    }
+    rejects([&] {
+        std::string forged=public_jsonld;
+        const auto key=forged.find("\"url\":\"https://www.beatport.com/track/home/321\"");
+        check(key!=std::string::npos,"JSON-LD URL fixture exists");
+        forged.replace(key,55,"\"url\":\"https://www.beatport.com/track/other/322\"");
+        (void)parse_beatport_public_jsonld_clipboard(forged);
+    }, "public page URL mismatch fails closed");
+    // A clipboard locator is not independent recording identity evidence.
+    const std::string embedded_url=
+        "\"url\":\"https://www.beatport.com/track/home/321\",";
+    const auto identity_pos=public_jsonld.find(embedded_url);
+    check(identity_pos!=std::string::npos,"embedded URL test fixture exists");
+    std::string id_only=public_jsonld;
+    id_only.replace(identity_pos,embedded_url.size(),
+        "\"@id\":\"https://www.beatport.com/track/home/321\",");
+    check(parse_beatport_public_jsonld_clipboard(id_only).id==321,
+          "matching independent JSON-LD @id is accepted");
+    rejects([&]{
+        std::string no_identity=public_jsonld;
+        no_identity.erase(identity_pos,embedded_url.size());
+        (void)parse_beatport_public_jsonld_clipboard(no_identity);
+    }, "clipboard locator without embedded recording identity is refused");
+    rejects([&]{
+        std::string wrong_id=id_only;
+        const auto pos=wrong_id.find("track/home/321",
+                                    wrong_id.find("\"@id\""));
+        check(pos!=std::string::npos,"embedded @id fixture exists");
+        wrong_id.replace(pos,14,"track/other/322");
+        (void)parse_beatport_public_jsonld_clipboard(wrong_id);
+    }, "foreign embedded @id is refused despite matching clipboard locator");
+    check(public_jsonld_script_tag(
+              R"(<script data-provenance='visible' TYPE="application/ld+json">)"),
+          "real quoted JSON-LD type attribute is recognized");
+    check(!public_jsonld_script_tag(
+              R"(<script data-hint="type='application/ld+json'">)"),
+          "quoted attribute CONTENT cannot spoof a script type");
+    check(!public_jsonld_script_tag(
+              R"(<script data-hint="type='application/ld+json'" type='text/javascript'>)"),
+          "non-JSON-LD type overrides nothing inside another attribute value");
+    check(!public_jsonld_script_tag(
+              R"(<script type='application/ld+json' type='application/ld+json'>)"),
+          "duplicate script type must fail closed");
+    const std::string spoofed_jsonld=R"JSON({"@type":"MusicRecording","url":"https://www.beatport.com/track/home/321","name":"Home (Extended Mix)","byArtist":"DJ Example","duration":"PT6M42S"})JSON";
+    rejects([&]{
+        (void)parse_beatport_public_html(
+            "https://www.beatport.com/track/home/321",
+            std::string(R"(<script data-hint="type='application/ld+json'">)")+
+            spoofed_jsonld+"</script>");
+    }, "non-JSON-LD script cannot supply Beatport page identity");
+    // HTML comments are not live structured data, even if they contain
+    // a perfectly formed matching MusicRecording script.
+    rejects([&]{(void)parse_beatport_public_html(
+        "https://www.beatport.com/track/home/321",
+        "<!-- <script type='application/ld+json'>" +
+        spoofed_jsonld + "</script> -->");},
+        "commented-out JSON-LD cannot impersonate a live public recording");
+    const auto quoted_tag=parse_beatport_public_html(
+        "https://www.beatport.com/track/home/321",
+        "<script data-note='a > b' type='application/ld+json'>" +
+        spoofed_jsonld + "</script>");
+    check(quoted_tag.id==321 && quoted_tag.title=="Home" &&
+          quoted_tag.duration_ms==402000,
+          "quoted > in a script attribute must not truncate JSON-LD type");
+    check(parse_beatport_public_html(
+        "https://www.beatport.com/track/home/321",
+        "<!-- <script type='application/ld+json'>" +
+        spoofed_jsonld + "</script> -->" +
+        "<script type='application/ld+json'>" +
+        spoofed_jsonld + "</script>").id==321,
+        "commented-out candidate does not make a live candidate ambiguous");
+    const std::string public_html=
+        "<!doctype html><html><head><script data-provenance='visible' "
+        "TYPE='application/ld+json'>"
+        "{\"@context\":\"https://schema.org\",\"@graph\":["
+        "{\"@type\":\"WebPage\",\"url\":\"https://www.beatport.com\"},"
+        "{\"@type\":[\"Thing\",\"MusicRecording\"],"
+        "\"@id\":\"https://www.beatport.com/track/home/321\","
+        "\"name\":\"Home (Extended Mix)\","
+        "\"byArtist\":{\"name\":\"DJ Example\"},"
+        "\"duration\":\"PT6M42S\",\"isrcCode\":\"GBXYZ2601234\"}"
+        "]}</script></head></html>";
+    const auto page=parse_beatport_public_html(
+        "https://www.beatport.com/track/home/321",public_html);
+    check(page.id==321 && page.title=="Home" &&
+          page.mix_name=="Extended Mix" &&
+          page.artists==std::vector<std::string>{"DJ Example"} &&
+          page.duration_ms==402000 && page.isrc=="GBXYZ2601234",
+          "bounded public HTML JSON-LD @graph matches only the requested track");
+    check(parse_beatport_public_html(
+        "https://www.beatport.com/track/home/321",
+        "<script type='application/ld+json'>"
+        "{\"@type\":\"MusicRecording\","
+        "\"url\":\"https://www.beatport.com/track/home/321\","
+        "\"name\":\"Home (Extended Mix)\","
+        "\"byArtist\":\"DJ Example\",\"duration\":\"PT6M42S\"}"
+        "</script>").id==321,
+        "public single-quoted script type and artist text both qualify");
+    rejects([&]{(void)parse_beatport_public_html(
+        "https://www.beatport.com/track/home/322",public_html);},
+        "related track JSON-LD cannot be silently promoted to selected track");
+    rejects([]{(void)parse_beatport_public_html(
+        "https://www.beatport.com/track/home/321",
+        "<script type='application/ld+json'>"
+        "{\"@type\":\"MusicRecording\",\"name\":\"Home\","
+        "\"byArtist\":\"DJ Example\",\"duration\":\"PT6M42S\"}"
+        "</script>");},
+        "native webpage requires its own embedded track identity");
+    rejects([&]{(void)parse_beatport_public_html(
+        "https://www.beatport.com/track/home/321",public_html+public_html);},
+        "ambiguous duplicate public recording nodes are not accepted");
+    rejects([]{(void)parse_beatport_public_html(
+        "https://www.beatport.com/track/home/321",
+        "<script type='text/html'>"
+        "{\"@type\":\"MusicRecording\","
+        "\"url\":\"https://www.beatport.com/track/home/321\"}"
+        "</script>");},
+        "HTML and unrelated script content are not JSON-LD evidence");
+    rejects([]{(void)parse_beatport_public_html(
+        "https://www.beatport.com/track/home/321",
+        "<html><div>Consent or access challenge</div></html>");},
+        "access challenges never trigger an anti-bot fallback");
+    FieldReviewRow public_source{};
+    public_source.candidate={"TITLE",{"Home"},"beatport","321",
+        EvidenceScope::Recording,DateMeaning::NotDate};
+    public_source.reason="beatport_public_webpage_readonly_exact_noop";
+    FieldReviewRow pasted_source=public_source;
+    pasted_source.reason="manual_beatport_readonly_exact_noop";
+    check(online_evidence_origin_label(public_source)==
+              "Beatport public page (unverified)" &&
+          online_evidence_origin_label(pasted_source)=="Pasted: beatport",
+          "page and pasted evidence are not mislabeled as authenticated API data");
+    const auto track=parse_beatport_user_json_clipboard(raw);
+    check(track.id==321 && track.release_id==987 &&
+          track.mix_name=="Extended Mix" && track.duration_ms==402500,
+          "manual structured DJ recording and edition identity retained");
+    djmeta::MetadataDocument original;
+    original.fields.push_back({"TITLE",{"Home (Extended Mix)"}});
+    original.fields.push_back({"ARTIST",{"DJ Example"}});
+    original.fields.push_back({"ISRC",{"GBXYZ2601234"}});
+    original.fields.push_back({"GENRE",{"Trance","Progressive House"}});
+    original.fields.push_back({"REPLAYGAIN_TRACK_GAIN",{"-5.4 dB"}});
+    original.fields.push_back({"MYTAG",{"One","Two"}});
+    const auto verified=review_beatport_user_track(original,402500,track);
+    check(verified.identity==MatchDecision::Suggested,
+          "complete mix, title, artist, ISRC and host duration allow manual review");
+    const auto* genre=find(verified.fields,"GENRE");
+    const auto* date=find(verified.fields,"DATE");
+    const auto* remixer=find(verified.fields,"REMIXER");
+    check(genre && genre->state==FieldReviewState::NeedsReview &&
+          genre->original_values==std::vector<std::string>({"Trance","Progressive House"}) &&
+          genre->candidate.values==std::vector<std::string>({"Progressive House"}) &&
+          genre->reason.starts_with("manual_beatport_readonly_") &&
+          date && date->candidate.date_meaning==DateMeaning::EditionRelease &&
+          date->candidate.source_id=="987" &&
+          remixer && remixer->candidate.values==std::vector<std::string>{"Mixer Q"} &&
+          online_evidence_origin_label(*remixer)=="Pasted: beatport",
+          "Beatport import is marked user-supplied, full-field and version-aware");
+    const auto* gain=find(verified.fields,"REPLAYGAIN_TRACK_GAIN");
+    const auto* custom=find(verified.fields,"MYTAG");
+    check(gain && gain->state==FieldReviewState::Unchanged &&
+          gain->candidate.values.empty() && custom &&
+          custom->original_values==std::vector<std::string>({"One","Two"}),
+          "unknown tags and ReplayGain preserved without proposed deletions");
+    auto wrong=original;
+    wrong.fields[0].values={"Home (Radio Edit)"};
+    const auto blocked=review_beatport_user_track(wrong,402500,track);
+    check(blocked.identity==MatchDecision::Rejected &&
+          find(blocked.fields,"GENRE")->state==FieldReviewState::Blocked &&
+          find(blocked.fields,"DATE")->state==FieldReviewState::Blocked,
+          "wrong mix blocks all imported recording and edition proposals");
+    auto wrong_artist=original;
+    wrong_artist.fields[1].values={"Another DJ"};
+    check(review_beatport_user_track(wrong_artist,402500,track).identity==
+          MatchDecision::Rejected,"wrong artist cannot suggest Beatport metadata");
+    auto missing=original;
+    missing.fields[0].values={"Home"};
+    check(review_beatport_user_track(missing,402500,track).identity!=
+          MatchDecision::Suggested,
+          "unverified explicit mix stays blocked despite same base title");
+    auto dup=original;
+    dup.fields.push_back({"title",{"Home (Extended Mix)"}});
+    const auto duplicated=review_beatport_user_track(dup,402500,track);
+    check(duplicated.identity==MatchDecision::Rejected &&
+          find(duplicated.fields,"GENRE")->state==FieldReviewState::Blocked,
+          "ambiguous physical identity does not silently select one TITLE");
+    rejects([]{(void)parse_beatport_user_json_clipboard(R"({"id":3})");},
+            "missing explicit manual import header");
+    rejects([]{(void)parse_beatport_user_json_clipboard("@beatport-track-json\n{}");},
+            "missing Beatport track ID and title");
+    rejects([]{(void)parse_beatport_user_json_clipboard(
+        "@beatport-track-json\n{\"id\":321,\"name\":\"Home\"}");},
+        "incomplete artist/duration cannot masquerade as qualified Beatport track");
+    rejects([]{(void)parse_beatport_user_json_clipboard(
+        "@beatport-track-json\n{\"id\":321,\"name\":\"Bad\\nControl\","
+        "\"artists\":[{\"name\":\"DJ\"}],\"length_ms\":402500}");},
+        "control-bearing track title rejected");
+    rejects([]{(void)parse_beatport_user_json_clipboard(
+        std::string("@beatport-track-json\n")+std::string(65536,'x'));},
+        "oversized user JSON rejected before parsing");
+    // User can explicitly type facts visible on a lawful Beatport track
+    // page. No developer key, JSON response, scraping or host file write.
+    const std::string fact_text =
+        "@beatport-track-facts\n"
+        "@provider=beatport\n"
+        "@id=track:321\n"
+        "@scope=recording\n"
+        "TITLE=Home\n"
+        "ARTIST=DJ Example\n"
+        "VERSION=Extended Mix\n"
+        "DURATION=6:42\n"
+        "REMIXER=Mixer Q\n"
+        "ISRC=GBXYZ2601234\n"
+        "GENRE=Progressive House\n"
+        "BPM=128\n"
+        "KEY=Gm\n"
+        "RELEASE_ID=987\n"
+        "ALBUM=Home EP\n"
+        "LABEL=Demo Label\n"
+        "DATE@edition=2026-10-16\n";
+    check(is_beatport_user_facts_clipboard(fact_text) &&
+          !is_beatport_user_facts_clipboard(raw),
+          "factual Beatport header is explicit and separate from API JSON");
+    const auto facts=parse_beatport_user_facts_clipboard(fact_text);
+    check(facts.id==321 && facts.release_id==987 &&
+          facts.title=="Home" && facts.mix_name=="Extended Mix" &&
+          facts.duration_ms==402000 && facts.bpm==128 &&
+          facts.musical_key=="Gm" &&
+          facts.label_name=="Demo Label" &&
+          facts.release_date=="2026-10-16",
+          "typed Beatport facts retain exact track/mix/edition field identities");
+    const auto fact_review=review_beatport_user_track(original,402500,facts);
+    check(fact_review.identity==MatchDecision::Suggested &&
+          find(fact_review.fields,"GENRE")->state==FieldReviewState::NeedsReview &&
+          find(fact_review.fields,"DATE")->candidate.date_meaning==
+              DateMeaning::EditionRelease &&
+          find(fact_review.fields,"MYTAG")->state==FieldReviewState::Unchanged,
+          "typed visible Beatport facts reach qualified, read-only complete physical review");
+    const auto wrong_fact_review=review_beatport_user_track(
+        wrong,402500,facts);
+    check(wrong_fact_review.identity==MatchDecision::Rejected &&
+          find(wrong_fact_review.fields,"GENRE")->state==FieldReviewState::Blocked,
+          "same Beatport facts never override a conflicting mix");
+    const auto fact_change=[&](std::string old, std::string replacement) {
+        auto edited=fact_text;
+        const auto pos=edited.find(old);
+        check(pos!=std::string::npos,"fixture replacement exists");
+        edited.replace(pos,old.size(),replacement);
+        return edited;
+    };
+    rejects([&]{(void)parse_beatport_user_facts_clipboard(
+        fact_change("VERSION=Extended Mix\n",""));},
+        "missing mix identity blocks plain Beatport facts");
+    rejects([&]{(void)parse_beatport_user_facts_clipboard(
+        fact_change("DURATION=6:42","DURATION=6:99"));},
+        "incorrect seconds never produce synthetic duration");
+    rejects([&]{(void)parse_beatport_user_facts_clipboard(
+        fact_change("DURATION=6:42","DURATION=bad"));},
+        "free-text guessed duration is rejected");
+    rejects([&]{(void)parse_beatport_user_facts_clipboard(
+        fact_change("@id=track:321","@id=track:00321"));},
+        "noncanonical track ID cannot masquerade as exact Beatport identity");
+    rejects([&]{(void)parse_beatport_user_facts_clipboard(
+        fact_change("@provider=beatport","@provider=discogs"));},
+        "Beatport fact importer cannot reuse foreign-provider evidence");
+    rejects([&]{(void)parse_beatport_user_facts_clipboard(
+        fact_change("@scope=recording","@scope=edition"));},
+        "Beatport track facts must remain recording-scoped");
+    rejects([&]{(void)parse_beatport_user_facts_clipboard(
+        fact_change("BPM=128","BPM=900"));},
+        "unsafe BPM is never silently normalized");
+    rejects([&]{(void)parse_beatport_user_facts_clipboard(
+        fact_change("DATE@edition=2026-10-16","DATE@edition=2026-02-30"));},
+        "unqualified calendar dates do not become release dates");
+    rejects([&]{(void)parse_beatport_user_facts_clipboard(
+        fact_change("KEY=Gm","SURPRISE=arbitrary"));},
+        "unrecognized Beatport fact fields fail closed");
+    rejects([&]{(void)parse_beatport_user_facts_clipboard(
+        fact_change("VERSION=Extended Mix\n",
+                    "VERSION=Extended Mix\nVERSION=Radio Edit\n"));},
+        "ambiguous supplied versions do not produce track suggestions");
+    const std::string crlf_facts="@beatport-track-facts\r\n"+
+        fact_text.substr(fact_text.find('\n')+1);
+    check(parse_beatport_user_facts_clipboard(crlf_facts).id==321,
+          "Windows CRLF Beatport fact marker accepted without changing evidence");
+
+    const std::string windows="@beatport-track-json\r\n"+
+        raw.substr(raw.find('\n')+1);
+    check(parse_beatport_user_json_clipboard(windows).id==321,
+          "Windows CRLF clipboard marker accepted");
+    check(original.fields[4].values==std::vector<std::string>{"-5.4 dB"},
+          "no media metadata writes or mutation");
+
+    // Exact edition: two independently supplied JSON documents, no network.
+    const std::string bundle =
+        "@beatport-release-json\n"
+        R"({"id":987,"name":"Home EP","track_count":2,"new_release_date":"2026-10-16"})" "\n"
+        "@beatport-tracks-json\n"
+        R"({"count":2,"results":[
+          {"id":321,"name":"Home","mix_name":"Extended Mix","number":1,
+           "artists":[{"name":"DJ Example"}],"length_ms":402500,
+           "isrc":"GBXYZ2601234","release":{"id":987,"name":"Home EP"}},
+          {"id":322,"name":"Home","mix_name":"Radio Edit","number":2,
+           "artists":[{"name":"DJ Example"}],"length_ms":202500,
+           "release":{"id":987,"name":"Home EP"}}]})";
+    check(is_beatport_user_release_clipboard(bundle),
+          "explicit Beatport release marker recognized");
+    const auto edition=parse_beatport_user_release_clipboard(bundle);
+    check(edition.provider=="beatport" && edition.edition_id=="987" &&
+          edition.tracks.size()==2 &&
+          edition.tracks[1].recording.mix==MixKind::Radio,
+          "complete edition preserves two separate mix identities");
+    const auto physical_review=review_beatport_user_edition_physical(
+        original,402500,edition);
+    const auto* first=find(physical_review,"Release Track 1 / TITLE");
+    const auto* other=find(physical_review,"Release Track 2 / TITLE");
+    const auto* album=find(physical_review,"Album / ALBUM");
+    const auto* local_custom=find(physical_review,"Physical / MYTAG");
+    check(first && first->state!=FieldReviewState::Blocked &&
+          first->candidate.source_id=="321" &&
+          first->candidate.scope==EvidenceScope::Recording &&
+          other && other->state==FieldReviewState::Blocked &&
+          album && album->candidate.source_id=="987" &&
+          local_custom && local_custom->original_values==
+              std::vector<std::string>({"One","Two"}) &&
+          online_evidence_origin_label(*first)=="Pasted: beatport",
+          "physical edition compares only exact mix and keeps local multivalues");
+    const auto wrong_edition=review_beatport_user_edition_physical(
+        wrong,402500,edition);
+    check(find(wrong_edition,"Album / ALBUM")->state==
+              FieldReviewState::Blocked,
+          "conflicting physical mix cannot borrow edition facts");
+    const auto cue=djmeta::inspect_cue_metadata(
+        "PERFORMER \"DJ Example\"\n"
+        "TITLE \"Home EP\"\n"
+        "FILE \"sample.mp3\" MP3\n"
+        "  TRACK 01 AUDIO\n"
+        "    TITLE \"Home (Extended Mix)\"\n"
+        "    PERFORMER \"DJ Example\"\n"
+        "    INDEX 01 00:00:00\n"
+        "  TRACK 02 AUDIO\n"
+        "    TITLE \"Home (Radio Edit)\"\n"
+        "    PERFORMER \"DJ Example\"\n"
+        "    INDEX 01 06:42:00\n",
+        djmeta::CueCarrierKind::ExternalText);
+    check(cue.status==djmeta::CueSyntaxStatus::Parsed,
+          "external CUE fixture parses");
+    const auto cue_review=review_beatport_user_edition_cue(cue,edition);
+    const auto* cue_album=find(cue_review,"Album / TITLE");
+    bool match_seen=false,recording_seen=false;
+    for(const auto& row:cue_review) {
+        if(row.candidate.field=="MATCH_DIAGNOSTIC") match_seen=true;
+        if(row.candidate.field=="TITLE" &&
+           row.candidate.scope==EvidenceScope::Recording) {
+            recording_seen=true;
+            check(row.candidate.source_id=="321" ||
+                  row.candidate.source_id=="322",
+                  "CUE evidence preserves individual Beatport track ID");
+        }
+    }
+    check(cue_album && cue_album->original_values==
+              std::vector<std::string>{"Home EP"} &&
+          match_seen && recording_seen,
+          "CUE album and track evidence shown without fabricated virtual writes");
+    // End-to-end source-scope safety: a parsed local CUE is not evidence
+    // for an unrelated edition, even if the pasted release has a plausible
+    // album name. All album changes require complete one-to-one tracks.
+    auto unrelated=edition;
+    for(auto& edition_track:unrelated.tracks) {
+        edition_track.recording.title="Different recording";
+        edition_track.recording.primary_artist="Another Artist";
+    }
+    const auto unrelated_review=review_beatport_user_edition_cue(cue,unrelated);
+    const auto* unrelated_album=find(unrelated_review,"Album / TITLE");
+    check(unrelated_album &&
+          unrelated_album->state==FieldReviewState::Blocked &&
+          unrelated_album->reason.find("unverified_edition")!=std::string::npos,
+          "unrelated pasted edition cannot propose CUE global ALBUM edit");
+
+    // Full-set duplicate detection: two remote fields that resolve to the
+    // same CUE token must BOTH block. Never independently compare them.
+    auto duplicated_album=edition;
+    duplicated_album.fields.push_back(duplicated_album.fields.front());
+    const auto album_collision=review_beatport_user_edition_cue(
+        cue,duplicated_album);
+    std::size_t blocked_titles=0;
+    for(const auto& row:album_collision)
+        if(row.field=="Album / TITLE" &&
+           row.state==FieldReviewState::Blocked &&
+           row.reason.find("cue_duplicate_provider_field_evidence")!=
+                std::string::npos)
+            ++blocked_titles;
+    check(blocked_titles==2,
+          "duplicate pasted album fields never compete for one CUE global");
+
+    auto duplicated_track=edition;
+    duplicated_track.tracks[0].fields.push_back(
+        duplicated_track.tracks[0].fields.front());
+    const auto track_collision=review_beatport_user_edition_cue(
+        cue,duplicated_track);
+    std::size_t track_fields=0,blocked_track_titles=0;
+    for(const auto& row:track_collision)
+        if(row.field=="CUE Track 1 / TITLE" ||
+           row.field=="Edition Track 1 / TITLE") {
+            ++track_fields;
+            if(row.state==FieldReviewState::Blocked &&
+               row.reason.find("cue_duplicate_provider_field_evidence")!=
+                   std::string::npos)
+                ++blocked_track_titles;
+        }
+    check(track_fields==2 && blocked_track_titles==2,
+          "duplicate pasted recording fields cannot bypass CUE target collision gate");
+
+    rejects([&]{(void)parse_beatport_user_release_clipboard(
+        bundle.substr(0,bundle.find("\n@beatport-tracks-json")));},
+        "release detail alone is not a full tracklist");
+    rejects([&]{auto bad=bundle;auto p=bad.find("\"track_count\":2");
+        bad.replace(p,15,"\"track_count\":3");
+        (void)parse_beatport_user_release_clipboard(bad);},
+        "incomplete pasted edition is rejected");
+    // The same native labels now used by the production owner-data
+    // ListView must expose distinct unverified release tracks, independent
+    // of platform-specific inaccessible cross-process virtual list APIs.
+    const djmeta::MetadataDocument empty_original{};
+    const auto unmatched=review_beatport_user_edition_physical(
+        empty_original,1000,edition);
+    for (int track_number=1;track_number<=2;++track_number) {
+        const std::string prefix="Release Track "+
+            std::to_string(track_number);
+        const auto* diagnostic=find(unmatched,prefix+" / MATCH");
+        check(diagnostic && diagnostic->state==FieldReviewState::Blocked,
+              "both user-pasted mixes lack physical recording identity");
+        auto summary=*diagnostic;
+        summary.field=prefix;
+        summary.reason="musicbrainz_live_release_group";
+        check(native_candidate_source_label(summary)=="Pasted: beatport" &&
+              native_candidate_status_label(summary)=="Unmatched" &&
+              summary.field==prefix,
+              "native release row keeps mix identity, pasted origin and blocked state");
+    }
+    auto local_only=make_local_physical_original(
+        original.fields.back(),"manual_beatport_local_only_no_provider_value");
+    local_only.reason="local_physical_group";
+    check(native_candidate_source_label(local_only)=="Local physical" &&
+          native_candidate_status_label(local_only)=="Keep original",
+          "native original-only lane cannot masquerade as a Beatport edit");
+    // Crates is a distinct opt-in PUBLIC VISIBLE source, not Beatport API.
+    // One Crates track page and its visible outbound Beatport identity must
+    // refer to the same exact track before any field enters the review.
+    const std::string crates=
+        "@crates-public-track\n"
+        "@url=https://crates.co/track/stella/17136574\n"
+        "@beatport-url=https://www.beatport.com/track/stella/17136574\n"
+        "@provider=crates\n"
+        "@id=track:17136574\n"
+        "@scope=recording\n"
+        "TITLE=Stella (Extended Mix)\n"
+        "ARTIST=Cherry (UA)\n"
+        "VERSION=Extended Mix\n"
+        "DURATION=6:55\n"
+        "BPM=124\n"
+        "KEY=7B\n"
+        "LABEL=Siona Records\n"
+        "ALBUM=Glow\n"
+        "GENRE=Melodic House & Techno\n";
+    check(is_crates_public_track_clipboard(crates) &&
+          !is_beatport_user_facts_clipboard(crates),
+          "Crates public evidence has independent source type");
+    const auto crates_recording=parse_crates_public_track_clipboard(crates);
+    check(crates_recording.id==17136574 &&
+          crates_recording.title=="Stella (Extended Mix)" &&
+          crates_recording.mix_name=="Extended Mix" &&
+          crates_recording.artists==std::vector<std::string>{"Cherry (UA)"} &&
+          crates_recording.duration_ms==415000 &&
+          crates_recording.bpm==124 &&
+          crates_recording.musical_key=="7B" &&
+          crates_recording.release_date.empty(),
+          "real Crates page shape maps DJ facts without inventing DATE");
+    djmeta::MetadataDocument crates_local;
+    crates_local.fields.push_back({"TITLE",{"Stella (Extended Mix)"}});
+    crates_local.fields.push_back({"ARTIST",{"Cherry (UA)"}});
+    // A public Crates search may use ALL explicit multivalue credits, without
+    // assigning a lead, inventing an x/feat. relation, or changing the mix.
+    const djmeta::MetadataDocument collaboration{{
+        {"TITLE",{"1000 Years (DJ Version)"}},
+        {"ARTIST",{"Kyau & Albert","Maywave"}},
+        {"GENRE",{"Trance"}}
+    }};
+    const auto collaborative_search=prepare_crates_browser_search(collaboration);
+    check(collaborative_search.search_text==
+              "Kyau & Albert Maywave 1000 Years (DJ Version)" &&
+          collaborative_search.browser_url==
+              "https://crates.co/search?q=Kyau%20%26%20Albert%20Maywave%20"
+              "1000%20Years%20%28DJ%20Version%29",
+          "Crates searches both collaborators, encodes URL and retains mix");
+    const auto original_collaboration=collaboration;
+    check(prepare_crates_browser_search(collaboration).search_text==
+              collaborative_search.search_text &&
+          collaboration==original_collaboration,
+          "Crates collaborator query is deterministic and leaves tags unchanged");
+    const djmeta::MetadataDocument duplicate_artist_fields{{
+        {"TITLE",{"1000 Years (DJ Version)"}},
+        {"ARTIST",{"Kyau & Albert"}},
+        {"artist",{"Maywave"}}
+    }};
+    check(prepare_crates_browser_search(duplicate_artist_fields).search_text==
+              "1000 Years (DJ Version)",
+          "ambiguous duplicate physical ARTIST fields never invent a lead");
+    const djmeta::MetadataDocument invalid_artist{{
+        {"TITLE",{"1000 Years (DJ Version)"}},
+        {"ARTIST",{"Kyau & Albert","bad\ncredit"}}
+    }};
+    check(prepare_crates_browser_search(invalid_artist).search_text==
+              "1000 Years (DJ Version)",
+          "malformed collaborative credit falls back to title only");
+    const djmeta::MetadataDocument many_artists{{
+        {"TITLE",{"1000 Years (DJ Version)"}},
+        {"ARTIST",std::vector<std::string>(9,"Artist")}
+    }};
+    check(prepare_crates_browser_search(many_artists).search_text==
+              "1000 Years (DJ Version)",
+          "unbounded multi-artist search is never partially truncated");
+    const djmeta::MetadataDocument long_artists{{
+        {"TITLE",{"1000 Years (DJ Version)"}},
+        {"ARTIST",{std::string(110,'A'),std::string(110,'B')}}
+    }};
+    check(prepare_crates_browser_search(long_artists).search_text==
+              "1000 Years (DJ Version)",
+          "overlong credits use full TITLE, never partial artist list");
+    const djmeta::MetadataDocument empty_artist{{
+        {"TITLE",{"1000 Years (DJ Version)"}},
+        {"ARTIST",{}}
+    }};
+    check(prepare_crates_browser_search(empty_artist).search_text==
+              "1000 Years (DJ Version)",
+          "empty artist vector never leaks a guessed collaborator");
+    rejects([]{(void)prepare_crates_browser_search(djmeta::MetadataDocument{{
+        {"TITLE",{"one","two"}},{"ARTIST",{"Artist"}}
+    }});},"ambiguous physical TITLE cannot launch a Crates query");
+
+    const auto crates_review=review_crates_public_track(
+        crates_local,415000,crates_recording);
+    check(crates_review.identity==MatchDecision::Suggested,
+          "exact Crates title/version/artist/duration support review-only");
+    const auto* crates_bpm=find(crates_review.fields,"BPM");
+    const auto* crates_genre=find(crates_review.fields,"GENRE");
+    check(crates_bpm && crates_bpm->candidate.provider=="crates" &&
+          crates_bpm->candidate.source_id=="track:17136574" &&
+          crates_bpm->reason.starts_with("crates_public_visible_") &&
+          crates_genre && crates_genre->state==FieldReviewState::NeedsReview &&
+          crates_genre->candidate.provider=="crates",
+          "Crates proposals keep distinct source attribution and read-only review");
+    const auto crates_wrong=review_crates_public_track(
+        crates_local,200000,crates_recording);
+    check(crates_wrong.identity!=MatchDecision::Suggested &&
+          std::all_of(crates_wrong.fields.begin(),crates_wrong.fields.end(),
+             [](const auto& row) {
+                 return row.candidate.provider!="crates" ||
+                        row.state==FieldReviewState::Blocked;
+             }),
+          "Crates duration mismatch blocks every source proposal");
+    const auto tampered_crates=[&](std::string old,std::string substitute) {
+        auto value=crates;
+        const auto index=value.find(old);
+        check(index!=std::string::npos,"Crates tamper source exists");
+        value.replace(index,old.size(),substitute);
+        return value;
+    };
+    rejects([&]{(void)parse_crates_public_track_clipboard(
+        tampered_crates("@beatport-url=https://www.beatport.com/track/stella/17136574",
+            "@beatport-url=https://www.beatport.com/track/stella/17136575"));},
+        "Crates/Beatport cross-track mismatch refused");
+    rejects([&]{(void)parse_crates_public_track_clipboard(
+        tampered_crates("@id=track:17136574","@id=track:17136575"));},
+        "Crates clipboard source ID mismatch refused");
+    rejects([&]{(void)parse_crates_public_track_clipboard(
+        tampered_crates("VERSION=Extended Mix","VERSION=Radio Edit"));},
+        "Crates title/version disagreement refused");
+    rejects([&]{(void)parse_crates_public_track_clipboard(
+        tampered_crates("TITLE=Stella (Extended Mix)",
+            "TITLE=Stella (Extended Mix)\nDATE@edition=2022-12-09"));},
+        "Visible Crates Date is not a qualified edition date");
+    rejects([&]{(void)parse_crates_public_track_clipboard(
+        tampered_crates("@url=https://crates.co/track/stella/17136574",
+            "@url=https://crates.co/track/stella/17136574?source=spoof"));},
+        "Crates URL query cannot impersonate canonical public source");
+    // Crates release page: visible catalog number plus COMPLETE real table.
+    // No row Date is assigned any DATE or RELEASEDATE semantics.
+    const std::string crates_release=R"CRATES(@crates-public-release
+@url=https://crates.co/release/glow/3939820
+@beatport-url=https://www.beatport.com/release/glow/3939820
+@provider=crates
+@id=release:3939820
+@scope=edition
+ALBUM=Glow
+LABEL=Siona Records
+CATALOGNUMBER=SNA146
+@track
+@provider=crates
+@id=track:17136572
+@scope=recording
+RELEASE_ID=3939820
+TRACKNUMBER=1
+TITLE=Glow (Extended Mix)
+ARTIST=Key M
+ARTIST=Cherry (UA)
+ARTIST=Beat Inside
+DURATION=6:28
+BPM=123
+KEY=10B
+@track
+@provider=crates
+@id=track:17136574
+@scope=recording
+RELEASE_ID=3939820
+TRACKNUMBER=2
+TITLE=Stella (Extended Mix)
+ARTIST=Cherry (UA)
+DURATION=6:55
+BPM=124
+KEY=7B
+)CRATES";
+    check(is_crates_public_release_clipboard(crates_release),
+          "one user-visible Crates release marker accepted");
+    const auto crates_edition=parse_crates_public_release_clipboard(crates_release);
+    check(crates_edition.provider=="crates" &&
+          crates_edition.edition_id=="release:3939820" &&
+          crates_edition.tracks.size()==2 &&
+          crates_edition.tracks[1].source_track_id=="track:17136574" &&
+          crates_edition.tracks[1].recording.duration_ms==415000 &&
+          crates_edition.tracks[1].recording.mix==MixKind::Extended &&
+          crates_edition.tracks[0].fields.size()>=4 &&
+          std::none_of(crates_edition.fields.begin(),crates_edition.fields.end(),
+              [](const auto& f) {return ascii_upper_field(f.field)=="DATE";}),
+          "Crates exact release and mix retained without inventing date");
+    const auto crates_release_review=review_crates_public_release_physical(
+        crates_local,415000,crates_edition);
+    const auto* crates_catalog=find(crates_release_review,"Album / CATALOGNUMBER");
+    const auto* crates_match=find(crates_release_review,"Release Track 2 / MATCH");
+    const auto* crates_other=find(crates_release_review,"Release Track 1 / TITLE");
+    check(crates_catalog && crates_catalog->candidate.provider=="crates" &&
+          crates_catalog->candidate.source_id=="release:3939820" &&
+          crates_catalog->state==FieldReviewState::NeedsReview &&
+          crates_catalog->reason.starts_with("crates_public_release_") &&
+          crates_match && crates_match->state==FieldReviewState::Unchanged &&
+          crates_other && crates_other->state==FieldReviewState::Blocked,
+          "Crates album catalog only reviews when exact physical mix matches");
+    auto crates_bad_local=crates_local;
+    crates_bad_local.fields[0].values={"Stella (Radio Edit)"};
+    const auto mismatched_crates=review_crates_public_release_physical(
+        crates_bad_local,415000,crates_edition);
+    check(find(mismatched_crates,"Album / CATALOGNUMBER")->state==
+              FieldReviewState::Blocked,
+          "wrong Crates mix blocks album-global catalog proposals");
+    const auto tampered_release=[&](std::string from,std::string to) {
+        auto value=crates_release;
+        const auto at=value.find(from);
+        check(at!=std::string::npos,"Crates release tamper fixture exists");
+        value.replace(at,from.size(),to);
+        return value;
+    };
+    rejects([&]{(void)parse_crates_public_release_clipboard(
+        tampered_release("www.beatport.com/release/glow/3939820",
+            "www.beatport.com/release/glow/3939821"));},
+        "Crates release/outbound Beatport identities cannot conflict");
+    rejects([&]{(void)parse_crates_public_release_clipboard(
+        tampered_release("RELEASE_ID=3939820","RELEASE_ID=3939821"));},
+        "Crates track cannot belong to another release");
+    rejects([&]{(void)parse_crates_public_release_clipboard(
+        tampered_release("KEY=7B","KEY=7B\nDATE@edition=2022-12-09"));},
+        "Crates row Date never qualifies as edition DATE");
+    rejects([&]{(void)parse_crates_public_release_clipboard(
+        tampered_release("@id=track:17136574","@id=track:17136572"));},
+        "Crates release duplicate track identities refused");
+    rejects([&]{(void)parse_crates_public_release_clipboard(
+        tampered_release("TRACKNUMBER=2","TRACKNUMBER=1"));},
+        "Crates release nonsequential track ordinals refused");
+    const auto mismatch_duration_release=review_crates_public_release_physical(
+        crates_local,260000,crates_edition);
+    check(find(mismatch_duration_release,"Album / CATALOGNUMBER")->state==
+              FieldReviewState::Blocked,
+          "Crates release duration mismatch blocks album claims");
+    std::cout<<"Beatport user clipboard read-only workflow PASS\n";
+}

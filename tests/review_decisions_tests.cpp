@@ -1,6 +1,9 @@
 #include "djmeta/review_decisions.h"
+#include "djmeta/review_display.h"
 
+#include <array>
 #include <cstdlib>
+#include <limits>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -25,6 +28,43 @@ template<typename F> void should_reject(F action, const char* msg) {
 
 int main() {
     using namespace djmeta;
+    // Collapsed headers are not proposal rows. Expansion preserves the
+    // original sorted identities within each safety class.
+    std::vector<MetadataDiffRow> grouped_rows(4);
+    grouped_rows[0].safety=SafetyClass::Safe;
+    grouped_rows[1].safety=SafetyClass::Confident;
+    grouped_rows[2].safety=SafetyClass::Review;
+    grouped_rows[3].safety=SafetyClass::Safe;
+    const std::vector<std::size_t> sorted_rows{3,0,2,1};
+    const auto compact=group_review_rows(
+        grouped_rows,sorted_rows,{false,false,false});
+    const auto header=(std::numeric_limits<std::size_t>::max)();
+    check(compact.counts==std::array<std::size_t,3>{1,1,2} &&
+          compact.row_order==std::vector<std::size_t>{header,header,header} &&
+          compact.group_at_row==std::vector<int>{0,1,2},
+          "collapsed review has three non-actionable summary rows");
+    const auto expanded=group_review_rows(
+        grouped_rows,sorted_rows,{true,false,true});
+    check(expanded.row_order==
+              std::vector<std::size_t>{header,2,header,header,3,0} &&
+          expanded.group_at_row==std::vector<int>{0,-1,1,2,-1,-1},
+          "expanded review retains exact proposal indices and sorted ties");
+    should_reject([&]{ (void)group_review_rows(
+        grouped_rows,{3,0,2,2},{true,true,true}); },
+        "duplicate proposal index must not enter native review");
+    should_reject([&]{ (void)group_review_rows(
+        grouped_rows,{3,0,2,4},{true,true,true}); },
+        "out-of-range proposal index must not enter native review");
+    should_reject([&]{ (void)group_review_rows(
+        grouped_rows,{3,0,2},{true,true,true}); },
+        "stale proposal count must not enter native review");
+
+    check(valid_manual_review_value("Tiësto") &&
+          valid_manual_review_value("Artist & Guest") &&
+          !valid_manual_review_value("") &&
+          !valid_manual_review_value("Bad\nValue") &&
+          !valid_manual_review_value(std::string("Bad \xC0\xAF",6)),
+          "shared single/bulk manual validation retains Unicode and rejects deletion/injection");
     const MetadataDocument original {{
         {"TITLE", {" Old Title "}},
         {"ARTIST", {"Original Artist"}},
@@ -62,6 +102,50 @@ int main() {
           automatic.unresolved_semantic == 2,
           "only SAFE default preview, unrelated fields preserved");
 
+    // The ordinary Review pane may show SAFE as an unapproved suggestion,
+    // but physical tags and Title Formatting input use explicit choices ONLY.
+    const auto initial_route=project_explicit_review_decisions(original,analysis);
+    check(initial_route.document==original &&
+          initial_route.automatic_safe==0 &&
+          initial_route.explicitly_rejected==0 &&
+          initial_route.unresolved_semantic==2,
+          "unaccepted SAFE may not silently change initial FileOps filenames");
+    auto only_safe=std::vector<ReviewDecision>(analysis.proposals.size());
+    only_safe[0].action=ReviewAction::Accept;
+    const auto accepted_route=project_explicit_review_decisions(
+        original,analysis,only_safe);
+    check(accepted_route.document.fields[0].values[0]=="Old Title" &&
+          accepted_route.document.fields[3]==original.fields[3] &&
+          accepted_route.unresolved_semantic==2 &&
+          accepted_route.explicitly_accepted==1 &&
+          accepted_route.automatic_safe==0,
+          "a single accepted SAFE must not approve any other pending SAFE");
+    auto safe_noop=only_safe;
+    safe_noop[0].action=ReviewAction::ManualValue;
+    safe_noop[0].manual_value=" Old Title ";
+    check(project_explicit_review_decisions(original,analysis,safe_noop).document==
+              original,
+          "manual original value produces identical routing metadata");
+    should_reject([&]{(void)project_explicit_review_decisions(
+        original,analysis,{ReviewDecision{}});},
+        "partial explicit decision snapshot cannot enter file routing");
+    auto forged_route=analysis;
+    forged_route.proposals[0].field_index=20;
+    should_reject([&]{(void)project_explicit_review_decisions(
+        original,forged_route);},
+        "unmatched proposal index cannot pass explicit routing guard");
+
+    forged_route=analysis;
+    forged_route.proposals[0].proposed_value.clear();
+    should_reject([&]{(void)project_explicit_review_decisions(
+        original,forged_route);},
+        "pending forged SAFE deletion remains blocked even without routing changes");
+    forged_route=analysis;
+    forged_route.proposals[0].proposed_value=std::string("Bad \xC0\xAF",6);
+    should_reject([&]{(void)project_explicit_review_decisions(
+        original,forged_route);},
+        "pending malformed SAFE remains blocked by original preview validation");
+
     std::vector<ReviewDecision> decisions(analysis.proposals.size());
     decisions[0].action = ReviewAction::Reject;
     decisions[1].action = ReviewAction::Accept;
@@ -79,6 +163,23 @@ int main() {
           edited.unresolved_semantic == 0,
           "Accept/Reject/Manual and unchanged SAFE are deterministic");
 
+    // The native "Proposed" column must display the decision's actual
+    // staged value, not a discarded change after Reject. Reset is a
+    // *preview* and must never be mislabeled as an applied tag.
+    check(review_visible_value(" Old Title ", "Old Title", &decisions[0])==
+              " Old Title " &&
+          review_visible_value("Original Artist","Canonical Artist",
+                               &decisions[1])=="Canonical Artist" &&
+          review_visible_value("Mix A","Mix B",&decisions[2])=="Custom Edit",
+          "native Accept/Reject/Manual readback matches staged semantic choice");
+    const ReviewDecision reset_view{ReviewAction::Pending, ""};
+    check(review_visible_value("Mix A","Mix B",&reset_view)=="Mix B" &&
+          review_visible_value("Mix A","Mix B",nullptr)=="Mix A",
+          "Reset displays a pending proposal but missing decision keeps original");
+    const ReviewDecision invalid_view{
+        static_cast<ReviewAction>(100), "forbidden"};
+    check(review_visible_value("Mix A","Mix B",&invalid_view)=="Mix A",
+          "unknown review decision must never display a proposed write");
     decisions[2] = ReviewDecision{ReviewAction::Pending, ""};
     const auto pending = project_review_decisions(original, analysis, decisions);
     check(pending.unresolved_semantic == 1 &&

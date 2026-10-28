@@ -136,12 +136,12 @@ void show_normalization_preview(const metadb_handle_list& handles) {
             message += "\n\nPreview only: No tags were written.";
         }
 
-        popup_message::g_show(message.c_str(), "DJ Metadata Normalizer");
+        popup_message::g_show(message.c_str(), "Music Metadata Studio");
     } catch (const std::exception& error) {
         std::string message =
             "Unable to create normalization preview. Nothing was changed.\n\n";
         message += error.what();
-        popup_message::g_show(message.c_str(), "DJ Metadata Normalizer");
+        popup_message::g_show(message.c_str(), "Music Metadata Studio");
     }
 }
 

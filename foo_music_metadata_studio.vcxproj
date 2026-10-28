@@ -9,7 +9,7 @@
   <PropertyGroup Label="Globals">
     <ProjectGuid>{3D3B1AE0-D856-4F4B-9393-C2136EA817AD}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
-    <RootNamespace>foo_dj_metadata_normalizer</RootNamespace>
+    <RootNamespace>foo_music_metadata_studio</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -31,7 +31,9 @@
     <FoobarSdkRoot Condition="'$(FoobarSdkRoot)'==''">$(MSBuildProjectDirectory)\external\foobar2000-sdk</FoobarSdkRoot>
     <OutDir>$(MSBuildProjectDirectory)\out\foobar\$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(MSBuildProjectDirectory)\build\foobar\$(Platform)\$(Configuration)\</IntDir>
-    <TargetName>foo_dj_metadata_normalizer</TargetName>
+    <OutDir Condition="'$(EnablePhysicalWrites)'=='true'">$(MSBuildProjectDirectory)\out\physical-write-qa\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir Condition="'$(EnablePhysicalWrites)'=='true'">$(MSBuildProjectDirectory)\build\physical-write-qa\$(Platform)\$(Configuration)\</IntDir>
+    <TargetName>foo_music_metadata_studio</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
@@ -44,13 +46,14 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <AdditionalIncludeDirectories>$(MSBuildProjectDirectory)\include;$(MSBuildProjectDirectory)\src\foobar;$(FoobarSdkRoot);$(FoobarSdkRoot)\foobar2000;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>FOOBAR2000_TARGET_VERSION=81;NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions Condition="'$(EnablePhysicalWrites)'=='true'">MMS_ENABLE_PHYSICAL_WRITES;FOOBAR2000_TARGET_VERSION=81;NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>shell32.lib;ole32.lib;user32.lib;comctl32.lib;$(FoobarSdkRoot)\foobar2000\shared\shared-$(Platform).lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>shell32.lib;ole32.lib;user32.lib;comctl32.lib;winhttp.lib;$(FoobarSdkRoot)\foobar2000\shared\shared-$(Platform).lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <ResourceCompile>
       <AdditionalIncludeDirectories>$(MSBuildProjectDirectory)\rules;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -72,12 +75,23 @@
     <ClCompile Include="src\foobar\context_menu.cpp" />
     <ClCompile Include="src\foobar\metadata_adapter.cpp" />
     <ClCompile Include="src\foobar\host_file_probe.cpp" />
+    <ClCompile Include="src\foobar\cue_readonly_source.cpp" />
+    <ClCompile Include="src\foobar\musicbrainz_http.cpp" />
+    <ClCompile Include="src\foobar\discogs_http.cpp" />
+    <ClCompile Include="src\foobar\beatport_public_http.cpp" />
+    <ClCompile Include="src\core\external_cue.cpp" />
+    <ClCompile Include="src\core\cue_metadata.cpp" />
     <ClCompile Include="src\foobar\preview.cpp" />
     <ClCompile Include="src\foobar\rules_runtime.cpp" />
     <ClCompile Include="src\foobar\titleformat_planner.cpp" />
     <ClCompile Include="src\foobar\routing_preview.cpp" />
     <ClCompile Include="src\foobar\prepare_dialog.cpp" />
     <ClCompile Include="src\foobar\batch_preview_dialog.cpp" />
+    <ClCompile Include="src\writer\physical_tag_writer.cpp" />
+    <ClCompile Include="src\writer\physical_tag_writer_qa.cpp" />
+    <ClCompile Include="src\core\batch_plan.cpp" Condition="'$(EnablePhysicalWrites)'=='true'" />
+    <ClCompile Include="src\writer\external_cue_transaction_win.cpp" Condition="'$(EnablePhysicalWrites)'=='true'" />
+    <ClCompile Include="src\foobar\external_cue_write_controller.cpp" Condition="'$(EnablePhysicalWrites)'=='true'" />
     <ClCompile Include="src\foobar\batch_table_settings.cpp" />
     <ClCompile Include="src\foobar\menu_settings.cpp" />
     <ClCompile Include="src\foobar\menu_preferences.cpp" />
@@ -98,6 +112,15 @@
     <ClInclude Include="src\foobar\guid.h" />
     <ClInclude Include="src\foobar\metadata_adapter.h" />
     <ClInclude Include="src\foobar\host_file_probe.h" />
+    <ClInclude Include="src\foobar\discogs_http.h" />
+    <ClInclude Include="src\foobar\beatport_public_http.h" />
+    <ClInclude Include="src\foobar\cue_readonly_source.h" />
+    <ClInclude Include="src\foobar\external_cue_write_controller.h" />
+    <ClInclude Include="src\writer\external_cue_transaction_win.h" />
+    <ClInclude Include="src\foobar\musicbrainz_http.h" />
+    <ClInclude Include="include\djmeta\musicbrainz_provider.h" />
+    <ClInclude Include="include\djmeta\external_cue.h" />
+    <ClInclude Include="include\djmeta\cue_metadata.h" />
     <ClInclude Include="src\foobar\preview.h" />
     <ClInclude Include="src\foobar\resource.h" />
     <ClInclude Include="src\foobar\rules_runtime.h" />

@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace djmeta {
@@ -16,6 +17,10 @@ struct ReviewDecision {
     ReviewAction action = ReviewAction::Pending;
     std::string manual_value;
 };
+
+// Shared validation for one or many explicit manual replacements. Never
+// implies a write, deletion or automatic rule acceptance.
+bool valid_manual_review_value(std::string_view text);
 
 struct ReviewProjection {
     MetadataDocument document;
@@ -30,6 +35,15 @@ struct ReviewProjection {
 // The input must match the captured analysis; conflicts/invalid indices or
 // attempts to delete tags implicitly are rejected atomically by exception.
 ReviewProjection project_review_decisions(
+    const MetadataDocument& original,
+    const AnalysisResult& analysis,
+    const std::vector<ReviewDecision>& decisions = {});
+
+// For routing and eventual physical postimages, only a user's Accept or
+// ManualValue can change the source. Pending SAFE remains a visible proposal
+// in the ordinary review view, but it must not silently rename a file.
+// This projection is still read-only: no writer or approval is reachable.
+ReviewProjection project_explicit_review_decisions(
     const MetadataDocument& original,
     const AnalysisResult& analysis,
     const std::vector<ReviewDecision>& decisions = {});
