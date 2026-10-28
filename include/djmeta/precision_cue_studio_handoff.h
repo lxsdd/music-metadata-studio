@@ -241,7 +241,10 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
         out.first_coarse_conflict = catalog.first_coarse_conflict;
         out.catalog_diagnostic =
             catalog.state == PrecisionCueConsensusState::Review
-                ? "STUDIO_DEEZER_CUMULATIVE_DURATION_REVIEW"
+                ? (catalog.diagnostics.size() == 1 &&
+                   catalog.diagnostics.front() == "RELEASE_DATE_PRECISION_REQUIRES_REVIEW"
+                    ? "STUDIO_RELEASE_DATE_PRECISION_REQUIRES_REVIEW"
+                    : "STUDIO_DEEZER_CUMULATIVE_DURATION_REVIEW")
                 : "STUDIO_DEEZER_SECONDS_IDENTITY_ONLY_NOT_FRAME_PROOF";
     } else {
         out.catalog_diagnostic = "STUDIO_NO_QUALIFIED_DEEZER_CORROBORATION";

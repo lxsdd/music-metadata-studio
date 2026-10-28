@@ -81,6 +81,18 @@ void sourced_edition_date_review() {
     assert(date_explanation.find("Deezer 2026-10-15 / Apple 2026-10-16") !=
            std::string::npos);
     assert(!date_report.selected_candidate_index.has_value());
+    source.release_date = "2026";
+    assert(djmeta::match_precision_cue_releases(source, {apple}).state ==
+           PrecisionCueMatchState::Selected); // compatible, incomplete date
+    source.release_date = "2026-10";
+    assert(djmeta::match_precision_cue_releases(source, {apple}).state ==
+           PrecisionCueMatchState::Selected);
+    source.release_date = "2026-11";
+    assert(djmeta::match_precision_cue_releases(source, {apple}).state ==
+           PrecisionCueMatchState::Review);
+    source.release_date = "2025";
+    assert(djmeta::match_precision_cue_releases(source, {apple}).state ==
+           PrecisionCueMatchState::Review);
     source.release_date = "2026-10-16";
     assert(djmeta::match_precision_cue_releases(source, {apple}).state ==
            PrecisionCueMatchState::Selected);

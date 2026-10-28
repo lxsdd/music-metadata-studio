@@ -33,4 +33,15 @@ inline bool precision_cue_valid_calendar_date(std::string_view value) noexcept {
     const bool leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
     return day >= 1 && day <= days[month - 1] + (month == 2 && leap ? 1 : 0);
 }
+// Partial ISO dates are compatible only when all known fields agree.
+// A shared year is not a claim that the unknown month/day were verified.
+inline bool precision_cue_calendar_dates_compatible(
+    std::string_view a, std::string_view b) noexcept {
+    if (!precision_cue_valid_calendar_date(a) ||
+        !precision_cue_valid_calendar_date(b)) return false;
+    if (a.empty() || b.empty()) return true;
+    const auto length = a.size() < b.size() ? a.size() : b.size();
+    return a.substr(0, length) == b.substr(0, length);
+}
+
 } // namespace djmeta

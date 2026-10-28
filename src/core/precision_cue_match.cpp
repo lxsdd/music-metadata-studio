@@ -165,7 +165,8 @@ PrecisionCueCandidateMatch assess(
     }
     // Conflicting known dates are edition evidence requiring human review.
     if (!reference.release_date.empty() && !candidate.release_date.empty() &&
-        reference.release_date != candidate.release_date) {
+        !precision_cue_calendar_dates_compatible(
+            reference.release_date, candidate.release_date)) {
         result.state = PrecisionCueMatchState::Review;
         result.diagnostics.emplace_back("RELEASE_DATE_REVIEW");
     }

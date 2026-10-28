@@ -72,6 +72,42 @@ int main() {
                PrecisionCueConsensusState::Agreed);
     }
 
+    // Partial date matches permit preview, not full-date corroboration.
+    auto year_primary = source("apple", 1);
+    auto day_secondary = source("musicbrainz", 1);
+    year_primary.release.release_date = "2024";
+    day_secondary.release.release_date = "2024-02-29";
+    const auto partial = audit_precision_cue_source_consensus({
+        year_primary, day_secondary});
+    assert(partial.state == PrecisionCueConsensusState::Review);
+    assert(partial.diagnostics[0] == "RELEASE_DATE_PRECISION_REQUIRES_REVIEW");
+    year_primary.release.release_date = "2024-02";
+    assert(audit_precision_cue_source_consensus({
+        year_primary, day_secondary}).state == PrecisionCueConsensusState::Review);
+    year_primary.release.release_date = "2024-03";
+    assert(audit_precision_cue_source_consensus({
+        year_primary, day_secondary}).state == PrecisionCueConsensusState::Rejected);
+    // A broad or absent primary must not launder contradictory providers.
+    auto third = source("tidal", 1);
+    year_primary.release.release_date = "2024";
+    day_secondary.release.release_date = "2024-02-29";
+    third.release.release_date = "2024-03-01";
+    assert(audit_precision_cue_source_consensus({
+        year_primary, day_secondary, third}).state == PrecisionCueConsensusState::Rejected);
+    year_primary.release.release_date.clear();
+    assert(audit_precision_cue_source_consensus({
+        year_primary, day_secondary, third}).state == PrecisionCueConsensusState::Rejected);
+    day_secondary.release.release_date = "2024-02";
+    third.release.release_date = "2024-02-29";
+    assert(audit_precision_cue_source_consensus({
+        year_primary, day_secondary, third}).state == PrecisionCueConsensusState::Review);
+    day_secondary.release.release_date.clear();
+    third.release.release_date.clear();
+    day_secondary.release.genre = "Electronic";
+    third.release.genre = "Ambient";
+    assert(audit_precision_cue_source_consensus({
+        year_primary, day_secondary, third}).state == PrecisionCueConsensusState::Rejected);
+
     auto international_primary = source("apple", 1);
     auto international_second = source("musicbrainz", 1);
     international_primary.release.album_title =

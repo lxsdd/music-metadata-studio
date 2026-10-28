@@ -685,6 +685,32 @@ void cross_provider_release_and_cue() {
     CHECK(matching_genre_studio.rows.size() == 30);
     CHECK(matching_genre_studio.state ==
           PrecisionCueStudioHandoffState::RowsRequireReview);
+    // A year-only Deezer date can match a full Apple date without
+    // inventing a day. The 30-track/two-disc handoff remains REVIEW.
+    auto partial_catalog_date = request;
+    partial_catalog_date.reference.release_date = "2026";
+    partial_catalog_date.candidates[0].release_date = "2026-10-16";
+    CHECK(match_precision_cue_releases(
+        partial_catalog_date.reference, partial_catalog_date.candidates).state ==
+        PrecisionCueMatchState::Selected);
+    const auto partial_catalog_preview =
+        make_precision_cue_release_preview(partial_catalog_date);
+    CHECK(partial_catalog_preview.discs.size() == 2);
+    const auto partial_catalog_studio = prepare_precision_cue_studio_review(
+        partial_catalog_date, partial_catalog_preview, studio_sources, no_references);
+    CHECK(partial_catalog_studio.rows.size() == 30);
+    CHECK(partial_catalog_studio.state == PrecisionCueStudioHandoffState::RowsRequireReview);
+    CHECK(partial_catalog_studio.catalog_consensus_state ==
+          PrecisionCueConsensusState::Review);
+    CHECK(std::string(partial_catalog_studio.catalog_diagnostic) ==
+          "STUDIO_RELEASE_DATE_PRECISION_REQUIRES_REVIEW");
+    partial_catalog_date.reference.release_date = "2026-11";
+    const auto conflicting_month_preview =
+        make_precision_cue_release_preview(partial_catalog_date);
+    CHECK(conflicting_month_preview.discs.empty());
+    CHECK(prepare_precision_cue_studio_review(
+        partial_catalog_date, conflicting_month_preview,
+        studio_sources, no_references).rows.empty());
     // 30-track / two-disc date provenance: neither a forged provider date
     // nor an impossible manual REM DATE may reach native Studio review rows.
     auto impossible_catalog_date = request;

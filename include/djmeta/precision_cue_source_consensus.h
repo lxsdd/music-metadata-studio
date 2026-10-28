@@ -136,7 +136,7 @@ inline bool same_edition(const PrecisionCueRelease& a, const PrecisionCueRelease
         // Two conflicting known release dates cannot independently confirm
         // the same edition. Unknown dates do not fabricate a mismatch.
         (!a.release_date.empty() && !b.release_date.empty() &&
-         a.release_date != b.release_date)) return false;
+         !precision_cue_calendar_dates_compatible(a.release_date, b.release_date))) return false;
     for (std::size_t i = 0; i < a.tracks.size(); ++i) {
         const auto& x = a.tracks[i];
         const auto& y = b.tracks[i];
@@ -168,6 +168,7 @@ inline PrecisionCueConsensusReport audit_precision_cue_source_consensus(
     bool terminal_duration_disagreement = false;
     bool subframe_duration_disagreement = false;
     bool coarse_reference_conflict = false;
+    bool partial_date_precision = false;
     // One 75-fps frame is 13.333... ms: a claimed 14-ms resolution
     // cannot independently corroborate individual CUE frames.
     constexpr unsigned kMaximumFrameResolutionMs = 1000u / 75u;
@@ -181,6 +182,19 @@ inline PrecisionCueConsensusReport audit_precision_cue_source_consensus(
             !same_edition(sources.front().release, release)) {
             report.diagnostics.emplace_back("DUPLICATE_OR_DIFFERENT_RELEASE_EDITION");
             return report;
+        }
+        // Compare every pair: an absent/year-only primary cannot conceal
+        // contradictory months or genres among corroborating providers.
+        for (const auto& previous : sources) {
+            if (&previous == &source) break;
+            if (!same_edition(previous.release, release)) {
+                report.diagnostics.emplace_back("DUPLICATE_OR_DIFFERENT_RELEASE_EDITION");
+                return report;
+            }
+            const auto& a = previous.release.release_date;
+            const auto& b = release.release_date;
+            if (!a.empty() && !b.empty() && a.size() != b.size())
+                partial_date_precision = true;
         }
         const auto provider_key = normalized(release.provider);
         if (!independent_providers.emplace(provider_key).second) {
@@ -297,6 +311,9 @@ inline PrecisionCueConsensusReport audit_precision_cue_source_consensus(
     } else if (subframe_duration_disagreement) {
         report.state = PrecisionCueConsensusState::Review;
         report.diagnostics.emplace_back("SUBFRAME_TRACK_DURATION_DISAGREEMENT_REVIEW");
+    } else if (partial_date_precision) {
+        report.state = PrecisionCueConsensusState::Review;
+        report.diagnostics.emplace_back("RELEASE_DATE_PRECISION_REQUIRES_REVIEW");
     } else if (report.high_resolution_sources < 2) {
         report.state = PrecisionCueConsensusState::SingleHighResolutionSource;
         report.diagnostics.emplace_back("NO_INDEPENDENT_FRAME_RESOLUTION_CORROBORATION");
