@@ -152,19 +152,105 @@ inline std::string random_suffix() {
     return suffix;
 }
 
+// No-follow, handle-backed byte comparison for an existing external CUE.
+// A path-level is_symlink()/ifstream sequence has a race: the final path may
+// become a symlink after the first check. Neither NoOp nor post-publication
+// verification may follow that replacement or infer identity from metadata.
 inline bool exact_existing_bytes(const std::filesystem::path& target,
                                  std::string_view expected) {
-    std::error_code ec;
-    if (std::filesystem::is_symlink(target, ec) ||
-        !std::filesystem::is_regular_file(target, ec) ||
-        std::filesystem::file_size(target, ec) != expected.size() || ec)
-        return false;
-    std::ifstream source(target, std::ios::binary);
-    if (!source) return false;
-    std::string actual(expected.size(), '\0');
-    if (!source.read(actual.data(), static_cast<std::streamsize>(actual.size())))
-        return false;
-    return actual == expected && source.peek() == std::char_traits<char>::eof();
+    std::array<char, 64 * 1024> buffer{};
+#ifdef _WIN32
+    const HANDLE handle = CreateFileW(
+        target.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE |
+        FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+        FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) return false;
+    BY_HANDLE_FILE_INFORMATION before{}, after{};
+    bool okay = GetFileInformationByHandle(handle, &before) != 0;
+    if (okay) {
+        const auto size = (static_cast<std::uint64_t>(before.nFileSizeHigh) << 32) |
+                          static_cast<std::uint64_t>(before.nFileSizeLow);
+        okay = (before.dwFileAttributes &
+                (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)) == 0 &&
+               size == expected.size();
+    }
+    std::size_t offset = 0;
+    while (okay && offset < expected.size()) {
+        const auto amount = static_cast<DWORD>(
+            (std::min)(expected.size() - offset, buffer.size()));
+        DWORD count = 0;
+        if (!ReadFile(handle, buffer.data(), amount, &count, nullptr) ||
+            count != amount ||
+            std::string_view(buffer.data(), count) !=
+                expected.substr(offset, count)) {
+            okay = false;
+            break;
+        }
+        offset += count;
+    }
+    if (okay) {
+        char extra = 0;
+        DWORD count = 0;
+        okay = ReadFile(handle, &extra, 1, &count, nullptr) != 0 &&
+               count == 0 && GetFileInformationByHandle(handle, &after) != 0 &&
+               before.dwVolumeSerialNumber == after.dwVolumeSerialNumber &&
+               before.nFileIndexHigh == after.nFileIndexHigh &&
+               before.nFileIndexLow == after.nFileIndexLow &&
+               before.nFileSizeHigh == after.nFileSizeHigh &&
+               before.nFileSizeLow == after.nFileSizeLow &&
+               CompareFileTime(&before.ftLastWriteTime, &after.ftLastWriteTime) == 0;
+    }
+    const bool closed = CloseHandle(handle) != 0;
+    return okay && closed;
+#else
+    int flags = O_RDONLY;
+#ifdef O_CLOEXEC
+    flags |= O_CLOEXEC;
+#endif
+#ifdef O_NOFOLLOW
+    flags |= O_NOFOLLOW;
+#else
+    // Without an atomic no-follow open, this path cannot be qualified.
+    return false;
+#endif
+    const int fd = ::open(target.c_str(), flags);
+    if (fd < 0) return false;
+    struct stat before{}, after{};
+    bool okay = ::fstat(fd, &before) == 0 &&
+                S_ISREG(before.st_mode) && before.st_size >= 0 &&
+                static_cast<std::uintmax_t>(before.st_size) == expected.size();
+    std::size_t offset = 0;
+    while (okay && offset < expected.size()) {
+        const auto amount = (std::min)(expected.size() - offset, buffer.size());
+        const auto count = ::read(fd, buffer.data(), amount);
+        if (count < 0 && errno == EINTR) continue;
+        if (count <= 0 ||
+            std::string_view(buffer.data(), static_cast<std::size_t>(count)) !=
+                expected.substr(offset, static_cast<std::size_t>(count))) {
+            okay = false;
+            break;
+        }
+        offset += static_cast<std::size_t>(count);
+    }
+    if (okay) {
+        char extra = 0;
+        auto count = ::read(fd, &extra, 1);
+        while (count < 0 && errno == EINTR)
+            count = ::read(fd, &extra, 1);
+        okay = count == 0 && ::fstat(fd, &after) == 0 &&
+               before.st_dev == after.st_dev && before.st_ino == after.st_ino &&
+               before.st_size == after.st_size &&
+               before.st_mtime == after.st_mtime;
+#ifdef __linux__
+        if (okay)
+            okay = before.st_mtim.tv_nsec == after.st_mtim.tv_nsec &&
+                   before.st_ctim.tv_sec == after.st_ctim.tv_sec &&
+                   before.st_ctim.tv_nsec == after.st_ctim.tv_nsec;
+#endif
+    }
+    const bool closed = ::close(fd) == 0;
+    return okay && closed;
+#endif
 }
 
 // Read-only post-publication byte check. This is not a general "create"
