@@ -2724,7 +2724,7 @@ void refresh_preview_history_list(PreviewState& state) {
         LVITEMW previous{};
         previous.mask=LVIF_PARAM;
         previous.iItem=selected;
-        if(selected>=0 && ListView_GetItemW(state.history_list,&previous))
+        if(selected>=0 && (::SendMessageW(state.history_list, LVM_GETITEMW, 0, reinterpret_cast<LPARAM>(&previous)) != 0))
             selected_sequence=static_cast<std::size_t>(previous.lParam);
     }
     ListView_DeleteAllItems(state.history_list);
@@ -3026,7 +3026,7 @@ void navigate_preview_history(HWND dialog,PreviewState& state,int visible_row) {
     native_row.mask=LVIF_PARAM;
     native_row.iItem=visible_row;
     if(!state.history_list ||
-       !ListView_GetItemW(state.history_list,&native_row) ||
+       !(::SendMessageW(state.history_list, LVM_GETITEMW, 0, reinterpret_cast<LPARAM>(&native_row)) != 0) ||
        !preview_history_row_identity_matches(
            state.preview_history,state.history_view_order,
            static_cast<std::size_t>(visible_row),
@@ -7064,7 +7064,7 @@ void copy_session_preview_history(HWND dialog,PreviewState& state,
         LVITEMW native_row{};
         native_row.mask=LVIF_PARAM;
         native_row.iItem=row;
-        if(!ListView_GetItemW(state.history_list,&native_row) ||
+        if(!(::SendMessageW(state.history_list, LVM_GETITEMW, 0, reinterpret_cast<LPARAM>(&native_row)) != 0) ||
            !preview_history_row_identity_matches(
                state.preview_history,visible,static_cast<std::size_t>(row),
                static_cast<std::size_t>(native_row.lParam)))
@@ -7083,7 +7083,7 @@ void copy_session_preview_history(HWND dialog,PreviewState& state,
         LVITEMW native_row{};
         native_row.mask=LVIF_PARAM;
         native_row.iItem=static_cast<int>(*selected);
-        if(!ListView_GetItemW(state.history_list,&native_row) ||
+        if(!(::SendMessageW(state.history_list, LVM_GETITEMW, 0, reinterpret_cast<LPARAM>(&native_row)) != 0) ||
            static_cast<std::size_t>(native_row.lParam)!=*selected_sequence ||
            !preview_history_row_identity_matches(
                state.preview_history,state.history_view_order,*selected,
