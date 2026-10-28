@@ -8,6 +8,7 @@
 #include "djmeta/precision_cue_optional_provider_review.h"
 #include "djmeta/precision_cue_write_preflight.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
@@ -126,6 +127,9 @@ struct PrecisionCueStudioHandoff {
         PrecisionCueConsensusState::Rejected;
     const char* catalog_diagnostic = "STUDIO_CATALOG_EVIDENCE_NOT_ATTESTED";
     std::optional<PrecisionCueCoarseDurationConflict> first_coarse_conflict;
+    // Independent of the primary timing diagnostic: simultaneous duration
+    // drift must not hide partial catalog-date provenance from Studio review.
+    bool catalog_release_date_precision_review = false;
     // REM GENRE/DATE are album-level provenance, not track or audio evidence.
     // A manual value or catalog conflict must remain visible in the one
     // canonical Studio review before any separate writer authorization.
@@ -239,6 +243,10 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
         }
         out.catalog_consensus_state = catalog.state;
         out.first_coarse_conflict = catalog.first_coarse_conflict;
+        out.catalog_release_date_precision_review =
+            std::find(catalog.diagnostics.begin(), catalog.diagnostics.end(),
+                      "RELEASE_DATE_PRECISION_REQUIRES_REVIEW") !=
+            catalog.diagnostics.end();
         out.catalog_diagnostic =
             catalog.state == PrecisionCueConsensusState::Review
                 ? (catalog.diagnostics.size() == 1 &&

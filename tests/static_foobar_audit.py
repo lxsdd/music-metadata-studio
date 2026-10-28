@@ -587,6 +587,14 @@ for token in ("WM_DPICHANGED", "precision_cue_geometry_from_suggested_dpi_rect("
               "IDC_PRECISION_COPY_CUE, L\"Copy reviewed CUE text"):
     if token not in precision:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: Precision CUE DPI/tooltip path missing " + token)
+# The Deezer/Apple date-only review must be wired at BOTH async lookup and
+# refresh, while composite timing conflicts and create-only preflight stay locked.
+if precision.count("classify_precision_cue_deezer_apple_preview(timing)") != 2:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: native catalog review gate not wired twice")
+for token in ("ReadOnlyDatePrecisionReview", "CATALOG DATE PROVENANCE REVIEW",
+              "catalog_date_precision_review ||"):
+    if token not in precision:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: native date-only review/lock missing " + token)
 if "creation is locked pending separate owner release" not in resources:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: owner writer lock is not visible in native resource")
 if "production resource explicitly discloses the independent owner writer lock" not in gui_test:

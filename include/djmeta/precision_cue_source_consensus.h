@@ -321,7 +321,42 @@ inline PrecisionCueConsensusReport audit_precision_cue_source_consensus(
         report.state = PrecisionCueConsensusState::Agreed;
         report.diagnostics.emplace_back("FRAME_BOUNDARIES_IDENTICAL_NOT_SAMPLE_PROOF");
     }
+    // A primary timing failure must not erase independent release-date
+    // uncertainty from the read-only evidence. Preserve the highest-priority
+    // timing diagnostic first and append the independent provenance warning.
+    if (partial_date_precision &&
+        std::find(report.diagnostics.begin(), report.diagnostics.end(),
+                  "RELEASE_DATE_PRECISION_REQUIRES_REVIEW") ==
+            report.diagnostics.end())
+        report.diagnostics.emplace_back("RELEASE_DATE_PRECISION_REQUIRES_REVIEW");
     return report;
+}
+
+// Only the real Apple-primary/Deezer-seconds comparison may use this
+// read-only native handoff gate. A sole partial-date uncertainty is reviewable;
+// ANY concurrent duration/edition conflict remains blocked. This is never
+// authorization for a CUE writer or a claim of sample-accurate boundaries.
+enum class PrecisionCueDeezerApplePreviewGate {
+    Blocked, ReadOnlyIdentityOnly, ReadOnlyDatePrecisionReview
+};
+inline PrecisionCueDeezerApplePreviewGate classify_precision_cue_deezer_apple_preview(
+    const PrecisionCueConsensusReport& report) noexcept {
+    using Gate = PrecisionCueDeezerApplePreviewGate;
+    if (report.first_coarse_conflict || report.high_resolution_sources != 1 ||
+        report.differences.empty() ||
+        std::any_of(report.differences.begin(), report.differences.end(),
+            [](const PrecisionCueSourceDifference& difference) {
+                return precision_cue_consensus_detail::normalized(difference.provider) != "deezer" ||
+                       difference.resolution_ms != 1000;
+            }))
+        return Gate::Blocked;
+    if (report.state == PrecisionCueConsensusState::SingleHighResolutionSource)
+        return Gate::ReadOnlyIdentityOnly;
+    if (report.state == PrecisionCueConsensusState::Review &&
+        report.diagnostics.size() == 1 &&
+        report.diagnostics.front() == "RELEASE_DATE_PRECISION_REQUIRES_REVIEW")
+        return Gate::ReadOnlyDatePrecisionReview;
+    return Gate::Blocked;
 }
 
 } // namespace djmeta

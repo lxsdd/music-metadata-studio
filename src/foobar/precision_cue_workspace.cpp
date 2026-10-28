@@ -558,6 +558,7 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
     std::vector<std::optional<djmeta::PrecisionCueReviewedExternalCreate>> reviewed_exports;
     std::wstring details;
     bool duration_warning = mapping.state != djmeta::PrecisionCueMatchState::Selected;
+    bool catalog_date_precision_review = false;
     for (unsigned d = 1; d <= count; ++d) {
         const LocalFile& physical = state.files[mapping.physical_index_by_disc[d - 1]];
         djmeta::PrecisionCueDisc disc;
@@ -625,11 +626,22 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
         const auto timing = djmeta::audit_precision_cue_source_consensus({
             {release, 1}, {*state.deezer_reference, 1000}
         });
-        if (timing.state !=
-                djmeta::PrecisionCueConsensusState::SingleHighResolutionSource)
+        const auto catalog_gate =
+            djmeta::classify_precision_cue_deezer_apple_preview(timing);
+        using CatalogGate = djmeta::PrecisionCueDeezerApplePreviewGate;
+        if (catalog_gate == CatalogGate::Blocked)
             throw std::invalid_argument(
                 "Apple/Deezer edition or cumulative durations no longer qualify; "
                 "run the lookup again before preview");
+        if (catalog_gate == CatalogGate::ReadOnlyDatePrecisionReview) {
+            catalog_date_precision_review = true;
+            duration_warning = true;
+            details += L"CATALOG DATE PROVENANCE REVIEW: Deezer " +
+                from_utf8(state.deezer_reference->release_date) +
+                L" versus Apple " + from_utf8(release.release_date) +
+                L". Known calendar fields agree, but missing month/day cannot "
+                L"be inferred. CUE preview/copy only; external create preflight blocked.\r\n";
+        }
         details += L"\r\nCATALOG DURATION EVIDENCE (DEEZER MINUS APPLE):\r\n";
         details += L"Deezer whole seconds corroborate edition identity only. "
                    L"Apple catalog milliseconds determine CUE frames; "
@@ -742,7 +754,7 @@ void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release
         const auto inspection = djmeta::inspect_precision_cue_existing_target(
             plans[i], file.physical_absolute_path, file.basename);
         if (reviewed) {
-            if (!bounds_allow_create ||
+            if (!bounds_allow_create || catalog_date_precision_review ||
                 file.embedded_crosscheck.state ==
                     djmeta::PrecisionCueEmbeddedCrosscheckState::ReviewRequired) {
                 // Never turn an unresolved physical tag/container conflict into
@@ -1395,8 +1407,10 @@ void start_lookup(Workspace& state) {
                 const auto timing = djmeta::audit_precision_cue_source_consensus({
                     {looked_up, 1}, {*job->deezer_reference, 1000}
                 });
-                if (timing.state !=
-                        djmeta::PrecisionCueConsensusState::SingleHighResolutionSource) {
+                const auto catalog_gate =
+                    djmeta::classify_precision_cue_deezer_apple_preview(timing);
+                if (catalog_gate ==
+                        djmeta::PrecisionCueDeezerApplePreviewGate::Blocked) {
                     std::string reason =
                         "Apple/Deezer cumulative durations or edition metadata disagree. "
                         "Preview blocked; Deezer whole-second durations cannot determine CUE frames.";
@@ -1415,6 +1429,10 @@ void start_lookup(Workspace& state) {
                             std::to_string(first.allowed_cumulative_delta_ms) +
                             " ms cumulative).";
                     }
+                    if (std::find(timing.diagnostics.begin(), timing.diagnostics.end(),
+                                  "RELEASE_DATE_PRECISION_REQUIRES_REVIEW") !=
+                        timing.diagnostics.end())
+                        reason += " Catalog date precision also requires review.";
                     throw std::invalid_argument(reason);
                 }
             }

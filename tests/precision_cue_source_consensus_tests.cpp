@@ -81,6 +81,36 @@ int main() {
         year_primary, day_secondary});
     assert(partial.state == PrecisionCueConsensusState::Review);
     assert(partial.diagnostics[0] == "RELEASE_DATE_PRECISION_REQUIRES_REVIEW");
+    // A partial Deezer date is permitted into read-only native review,
+    // never promoted to an independently confirmed full calendar date.
+    auto apple_date = source("apple", 1);
+    auto deezer_date = source("deezer", 1000);
+    apple_date.release.release_date = "2024-02-29";
+    deezer_date.release.release_date = "2024";
+    const auto date_only = audit_precision_cue_source_consensus({apple_date, deezer_date});
+    assert(date_only.state == PrecisionCueConsensusState::Review);
+    assert(date_only.diagnostics.size() == 1);
+    assert(classify_precision_cue_deezer_apple_preview(date_only) ==
+           PrecisionCueDeezerApplePreviewGate::ReadOnlyDatePrecisionReview);
+    auto deezer_complete = deezer_date;
+    deezer_complete.release.release_date = "2024-02-29";
+    assert(classify_precision_cue_deezer_apple_preview(
+               audit_precision_cue_source_consensus({apple_date, deezer_complete})) ==
+           PrecisionCueDeezerApplePreviewGate::ReadOnlyIdentityOnly);
+    assert(classify_precision_cue_deezer_apple_preview(
+               audit_precision_cue_source_consensus({apple_date})) ==
+           PrecisionCueDeezerApplePreviewGate::Blocked);
+    // A simultaneous coarse duration contradiction cannot be laundered by
+    // the compatible partial date; BOTH review reasons must survive.
+    deezer_date.release.tracks[0].duration_ms = 65000;
+    const auto combined = audit_precision_cue_source_consensus({apple_date, deezer_date});
+    assert(combined.state == PrecisionCueConsensusState::Review);
+    assert(combined.first_coarse_conflict.has_value());
+    assert(combined.diagnostics.size() == 2);
+    assert(combined.diagnostics[0] == "COARSE_REFERENCE_DURATION_CONFLICT");
+    assert(combined.diagnostics[1] == "RELEASE_DATE_PRECISION_REQUIRES_REVIEW");
+    assert(classify_precision_cue_deezer_apple_preview(combined) ==
+           PrecisionCueDeezerApplePreviewGate::Blocked);
     year_primary.release.release_date = "2024-02";
     assert(audit_precision_cue_source_consensus({
         year_primary, day_secondary}).state == PrecisionCueConsensusState::Review);

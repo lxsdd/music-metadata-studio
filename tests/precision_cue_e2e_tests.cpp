@@ -711,6 +711,25 @@ void cross_provider_release_and_cue() {
           PrecisionCueConsensusState::Review);
     CHECK(std::string(partial_catalog_studio.catalog_diagnostic) ==
           "STUDIO_RELEASE_DATE_PRECISION_REQUIRES_REVIEW");
+    CHECK(partial_catalog_studio.catalog_release_date_precision_review);
+    // The native review gate accepts only date-precision uncertainty; it
+    // refuses any concurrent Deezer duration contradiction, even when the
+    // source calendar fields remain compatible.
+    const auto date_catalog = audit_precision_cue_source_consensus({
+        {partial_catalog_date.candidates[0], 1},
+        {partial_catalog_date.reference, 1000}
+    });
+    CHECK(classify_precision_cue_deezer_apple_preview(date_catalog) ==
+          PrecisionCueDeezerApplePreviewGate::ReadOnlyDatePrecisionReview);
+    auto bad_deezer_date = partial_catalog_date.reference;
+    bad_deezer_date.tracks[0].duration_ms += 4000;
+    const auto contradictory_catalog = audit_precision_cue_source_consensus({
+        {partial_catalog_date.candidates[0], 1}, {bad_deezer_date, 1000}
+    });
+    CHECK(contradictory_catalog.first_coarse_conflict.has_value());
+    CHECK(contradictory_catalog.diagnostics.size() == 2);
+    CHECK(classify_precision_cue_deezer_apple_preview(contradictory_catalog) ==
+          PrecisionCueDeezerApplePreviewGate::Blocked);
     partial_catalog_date.reference.release_date = "2026-11";
     const auto conflicting_month_preview =
         make_precision_cue_release_preview(partial_catalog_date);
