@@ -2763,6 +2763,22 @@ void refresh_preview_history_list(PreviewState& state) {
             LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);
         ListView_EnsureVisible(state.history_list,row,FALSE);
     }
+    // History hint always follows exact filtered row identities; source
+    // filters never attribute multi-track actions to an individual track.
+    if(state.dialog && state.tabs && TabCtrl_GetCurSel(state.tabs)==3) {
+        const auto summary=state.history_source_query.valid
+            ? preview_history_impact_summary(state.preview_history,
+                                             state.history_view_order)
+            : std::nullopt;
+        const std::wstring hint=!state.history_source_query.valid
+            ? L"Invalid physical source #: clear or enter a captured source number."
+            : state.stale || state.refreshing
+            ? L"History source snapshot is stale; refresh before inspection or copy."
+            : !summary
+            ? L"History row identities invalid; refresh the source snapshot."
+            : preview_history_impact_caption(*summary);
+        SetDlgItemTextW(state.dialog,IDC_BATCH_HINT,hint.c_str());
+    }
 }
 void record_preview_history(PreviewState& state,PreviewHistoryKind kind,
                             std::size_t sources,std::size_t items,unsigned scope,
@@ -2938,10 +2954,8 @@ void show_history_page(HWND dialog,PreviewState& state) {
         ShowWindow(GetDlgItem(dialog,id),SW_SHOW);
     SetDlgItemTextW(dialog,IDC_BATCH_GUIDE,
         L"4. Filter history; double-click to inspect, Ctrl+C to copy selected, or right-click to copy filtered actions. No writes.");
-    SetDlgItemTextW(dialog,IDC_BATCH_HINT,
-        state.history_source_query.valid
-            ? L"Session only (last 256 actions). Source # shows single-source events; Refresh clears history."
-            : L"Invalid source #: enter a captured source number, or clear for all.");
+    // The refresh above already displays the exact filtered impact summary
+    // in the native hint. This history is session-only and bounded.
 }
 
 // Fail closed on stale source/rules/route evidence even when invoked from
@@ -9705,11 +9719,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                     state->entries.size())
                 : PreviewHistorySourceQuery{false,std::nullopt};
             refresh_preview_history_list(*state);
-            if(state->tabs && TabCtrl_GetCurSel(state->tabs)==3)
-                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
-                    state->history_source_query.valid
-                    ? L"History filtered to one captured source; multi-track actions are excluded. No writes."
-                    : L"Invalid physical source number. Clear or enter a captured source #.");
+            // refresh_preview_history_list already updates the native hint
+            // with the exact filtered action counts.
             return TRUE;
         }
         if(id==IDC_BATCH_HISTORY_FILTER && HIWORD(wp)==CBN_SELCHANGE) {
