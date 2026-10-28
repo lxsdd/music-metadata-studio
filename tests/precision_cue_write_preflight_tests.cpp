@@ -248,8 +248,10 @@ void preflight_fail_closed_matrix() {
     VERIFY(preflight_precision_cue_external_write(p) == ReviewRequired);
     p.existing_content_known = true;
     VERIFY(preflight_precision_cue_external_write(p) == ReviewRequired);
+    // An overwrite flag must never upgrade an unequal existing .cue
+    // to an allowed write: the backend publishes CREATE_NEW only.
     p.overwrite_approved = true;
-    VERIFY(preflight_precision_cue_external_write(p) == ReadyForExplicitWrite);
+    VERIFY(preflight_precision_cue_external_write(p) == ReviewRequired);
     p.explicit_user_approval = false;
     VERIFY(preflight_precision_cue_external_write(p) == ReviewRequired);
     p.existing_content_equal = true;
@@ -257,6 +259,8 @@ void preflight_fail_closed_matrix() {
     p.source_snapshot_current = false;
     VERIFY(preflight_precision_cue_external_write(p) == ReviewRequired);
     p.source_snapshot_current = true; p.target_snapshot_current = false;
+    VERIFY(preflight_precision_cue_external_write(p) == ReviewRequired);
+    p = approved(); p.overwrite_approved = true;
     VERIFY(preflight_precision_cue_external_write(p) == ReviewRequired);
     p = approved(); p.existing_content_known = true;
     VERIFY(preflight_precision_cue_external_write(p) == Reject);
@@ -319,6 +323,11 @@ void commit_revalidation_fail_closed_matrix() {
     e.at_commit.explicit_user_approval = false;
     VERIFY(revalidate_precision_cue_external_commit(e) == ReviewRequired);
     e.at_commit = approved();
+    e.preview.overwrite_approved = true;
+    e.at_commit.overwrite_approved = true;
+    VERIFY(revalidate_precision_cue_external_commit(e) == ReviewRequired);
+    e.preview.overwrite_approved = false;
+    e.at_commit.overwrite_approved = false;
     e.preview.source_snapshot_current = false;
     VERIFY(revalidate_precision_cue_external_commit(e) == ReviewRequired);
 }
@@ -503,6 +512,12 @@ void create_only_external_writer_regressions() {
     VERIFY(create_new_precision_cue_external(req, observe).status ==
            Status::Collision);
     VERIFY(fs::last_write_time(target) == previous_timestamp);
+    // A stale/legacy overwrite approval is not a substitute for CREATE_NEW.
+    req.reviewed_preflight.overwrite_approved = true;
+    VERIFY(create_new_precision_cue_external(req, observe).status ==
+           Status::Collision);
+    VERIFY(fs::last_write_time(target) == previous_timestamp);
+    req.reviewed_preflight.overwrite_approved = false;
 
     // No-op is a verified byte-identical result and never opens a writer.
     req.reviewed_preflight.target_exists = true;
