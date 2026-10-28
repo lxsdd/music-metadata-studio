@@ -4,6 +4,9 @@
 #include "djmeta/precision_cue_external_create.h"
 
 #include <filesystem>
+#include <array>
+#include <cstdint>
+#include <cerrno>
 #include <fstream>
 #include <optional>
 #include <string>
@@ -38,6 +41,124 @@ struct PrecisionCueExistingTargetInspection {
           observed_different_cue(std::move(observed_bytes)) {}
 };
 
+// Read-only bounded target snapshot through a no-follow OS handle.  The
+// preview is advisory, never a write authorization.  Opening after a path
+// symlink_status check must not follow a concurrently substituted link.
+namespace precision_cue_inspect_detail {
+inline std::optional<std::string> read_regular_target(
+    const std::filesystem::path& target) {
+    constexpr std::size_t limit = 1024 * 1024;
+#ifdef _WIN32
+    const auto open = [&] {
+        return CreateFileW(target.c_str(), GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    };
+    const auto same = [](const BY_HANDLE_FILE_INFORMATION& a,
+                         const BY_HANDLE_FILE_INFORMATION& b) {
+        return a.dwVolumeSerialNumber == b.dwVolumeSerialNumber &&
+               a.nFileIndexHigh == b.nFileIndexHigh &&
+               a.nFileIndexLow == b.nFileIndexLow &&
+               a.nFileSizeHigh == b.nFileSizeHigh &&
+               a.nFileSizeLow == b.nFileSizeLow &&
+               CompareFileTime(&a.ftLastWriteTime, &b.ftLastWriteTime) == 0;
+    };
+    const HANDLE handle = open();
+    if (handle == INVALID_HANDLE_VALUE) return std::nullopt;
+    BY_HANDLE_FILE_INFORMATION before{}, after{};
+    bool okay = GetFileInformationByHandle(handle, &before) != 0;
+    const auto size = (static_cast<std::uint64_t>(before.nFileSizeHigh) << 32) |
+                       static_cast<std::uint64_t>(before.nFileSizeLow);
+    okay = okay && (before.dwFileAttributes &
+        (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)) == 0 &&
+        size <= limit;
+    std::string bytes;
+    if (okay) bytes.resize(static_cast<std::size_t>(size));
+    std::size_t offset = 0;
+    while (okay && offset < bytes.size()) {
+        const auto amount = static_cast<DWORD>(
+            (std::min)(bytes.size() - offset, std::size_t{64 * 1024}));
+        DWORD count = 0;
+        if (!ReadFile(handle, bytes.data() + offset, amount, &count, nullptr) ||
+            count != amount) { okay = false; break; }
+        offset += count;
+    }
+    if (okay) {
+        char extra = 0;
+        DWORD count = 0;
+        okay = ReadFile(handle, &extra, 1, &count, nullptr) != 0 &&
+               count == 0 && GetFileInformationByHandle(handle, &after) != 0 &&
+               same(before, after);
+    }
+    if (!CloseHandle(handle) || !okay) return std::nullopt;
+    // A second no-follow open catches replacement of the directory entry
+    // while the first handle was read (including same-size/time replacements).
+    const HANDLE current = open();
+    if (current == INVALID_HANDLE_VALUE) return std::nullopt;
+    BY_HANDLE_FILE_INFORMATION now{};
+    const bool current_ok = GetFileInformationByHandle(current, &now) != 0 &&
+        (now.dwFileAttributes &
+         (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)) == 0 &&
+        same(before, now);
+    const bool closed = CloseHandle(current) != 0;
+    return current_ok && closed ? std::optional<std::string>(std::move(bytes))
+                                : std::nullopt;
+#else
+#ifndef O_NOFOLLOW
+    return std::nullopt;
+#else
+    int flags = O_RDONLY | O_NOFOLLOW | O_NONBLOCK;
+#ifdef O_CLOEXEC
+    flags |= O_CLOEXEC;
+#endif
+    const auto open = [&] { return ::open(target.c_str(), flags); };
+    const auto same = [](const struct stat& a, const struct stat& b) {
+        bool equal = a.st_dev == b.st_dev && a.st_ino == b.st_ino &&
+                     a.st_size == b.st_size && a.st_mtime == b.st_mtime &&
+                     a.st_ctime == b.st_ctime;
+#ifdef __linux__
+        equal = equal && a.st_mtim.tv_nsec == b.st_mtim.tv_nsec &&
+                a.st_ctim.tv_nsec == b.st_ctim.tv_nsec;
+#endif
+        return equal;
+    };
+    const int fd = open();
+    if (fd < 0) return std::nullopt;
+    struct stat before{}, after{};
+    bool okay = ::fstat(fd, &before) == 0 && S_ISREG(before.st_mode) &&
+                before.st_size >= 0 &&
+                static_cast<std::uintmax_t>(before.st_size) <= limit;
+    std::string bytes;
+    if (okay) bytes.resize(static_cast<std::size_t>(before.st_size));
+    std::size_t offset = 0;
+    while (okay && offset < bytes.size()) {
+        const auto count = ::read(fd, bytes.data() + offset,
+                                  bytes.size() - offset);
+        if (count < 0 && errno == EINTR) continue;
+        if (count <= 0) { okay = false; break; }
+        offset += static_cast<std::size_t>(count);
+    }
+    if (okay) {
+        char extra = 0;
+        auto count = ::read(fd, &extra, 1);
+        while (count < 0 && errno == EINTR)
+            count = ::read(fd, &extra, 1);
+        okay = count == 0 && ::fstat(fd, &after) == 0 && same(before, after);
+    }
+    if (::close(fd) != 0 || !okay) return std::nullopt;
+    const int current = open();
+    if (current < 0) return std::nullopt;
+    struct stat now{};
+    const bool current_ok = ::fstat(current, &now) == 0 &&
+        S_ISREG(now.st_mode) && same(before, now);
+    const bool closed = ::close(current) == 0;
+    return current_ok && closed ? std::optional<std::string>(std::move(bytes))
+                                : std::nullopt;
+#endif
+#endif
+}
+} // namespace precision_cue_inspect_detail
+
 inline PrecisionCueExistingTargetInspection inspect_precision_cue_existing_target(
     const PrecisionCuePlan& plan, const std::filesystem::path& selected_physical_mp3,
     std::string_view mp3_basename) {
@@ -64,30 +185,14 @@ inline PrecisionCueExistingTargetInspection inspect_precision_cue_existing_targe
             return {State::Absent, "CUE_TARGET_ABSENT_AT_PREVIEW"};
         if (ec || status.type() != fs::file_type::regular)
             return {State::Unqualified, "CUE_TARGET_SYMLINK_OR_SPECIAL"};
-        const auto size = fs::file_size(target, ec);
-        if (ec || size > 1024 * 1024)
+        const auto existing =
+            precision_cue_inspect_detail::read_regular_target(target);
+        if (!existing)
             return {State::Unqualified, "CUE_EXISTING_CONTENT_UNQUALIFIED"};
-        const auto before_mtime = fs::last_write_time(target, ec);
-        if (ec) return {State::Unqualified, "CUE_EXISTING_STAT_UNQUALIFIED"};
-        std::ifstream input(target, std::ios::binary);
-        if (!input) return {State::Unqualified, "CUE_EXISTING_CONTENT_UNREADABLE"};
-        std::string existing(static_cast<std::size_t>(size), '\0');
-        if (!input.read(existing.data(), static_cast<std::streamsize>(existing.size())) ||
-            input.peek() != std::char_traits<char>::eof())
-            return {State::Unqualified, "CUE_EXISTING_CONTENT_UNREADABLE"};
-        input.close();
-        // Do not present text from an obviously changing target as a stable
-        // reference. Even if these checks pass, a timeline diff remains
-        // advisory and never upgrades a create/write authorization.
-        const auto later_status = fs::symlink_status(target, ec);
-        if (ec || later_status.type() != fs::file_type::regular ||
-            fs::file_size(target, ec) != size || ec ||
-            fs::last_write_time(target, ec) != before_mtime || ec)
-            return {State::Unqualified, "CUE_EXISTING_CHANGED_DURING_READ"};
-        if (existing == plan.external_cue_utf8)
+        if (*existing == plan.external_cue_utf8)
             return {State::Identical, "CUE_IDENTICAL_NOOP_ONLY"};
         return {State::Different, "CUE_CONFLICT_NO_OVERWRITE",
-                std::move(existing)};
+                std::move(*existing)};
     } catch (const std::exception&) {
         return {State::Unqualified, "CUE_PREVIEW_TARGET_INSPECTION_FAILED"};
     }
