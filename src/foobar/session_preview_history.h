@@ -93,6 +93,27 @@ inline std::vector<std::size_t> preview_history_visible_indices(
                         events[i].source_index==*source))) out.push_back(i);
     return out;
 }
+// The native ListView stores immutable event sequence in LVIF_PARAM. Never
+// interpret its mutable caption or a recycled filtered row as event identity.
+inline bool preview_history_row_identity_matches(
+    const SessionPreviewHistory& history,
+    const std::vector<std::size_t>& visible,
+    std::size_t row,std::size_t sequence) noexcept {
+    if(sequence==0 || row>=visible.size() ||
+       visible[row]>=history.events().size()) return false;
+    return history.events()[visible[row]].sequence==sequence;
+}
+inline std::optional<std::size_t> preview_history_visible_row_for_sequence(
+    const SessionPreviewHistory& history,
+    const std::vector<std::size_t>& visible,
+    std::size_t sequence) noexcept {
+    if(sequence==0) return std::nullopt;
+    for(std::size_t row=0;row<visible.size();++row)
+        if(preview_history_row_identity_matches(history,visible,row,sequence))
+            return row;
+    return std::nullopt;
+}
+
 inline std::optional<std::size_t> preview_history_single_source(
     const PreviewHistoryEvent& event,std::size_t batch_size) noexcept {
     if(event.sources!=1 || event.source_index>=batch_size) return std::nullopt;
