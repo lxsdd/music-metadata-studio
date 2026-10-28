@@ -425,10 +425,37 @@ int main() {
           history.append(PreviewHistoryKind::Route,1,1,2,2) &&
           history.append(PreviewHistoryKind::UndoRoute,1,1,0,2),
           "export fixture captures exact source and bulk preview actions");
+
+    const auto impact_all=djmeta_foobar::preview_history_impact_summary(
+        history,preview_history_visible_indices(history,PreviewHistoryFilter::All));
+    const auto impact_source=djmeta_foobar::preview_history_impact_summary(
+        history,preview_history_visible_indices(history,PreviewHistoryFilter::All,7));
+    const auto impact_one=djmeta_foobar::preview_history_impact_summary(
+        history,preview_history_visible_indices(history,PreviewHistoryFilter::All),2);
+    check(impact_all && impact_all->actions==4 && impact_all->review==2 &&
+          impact_all->routing==1 && impact_all->undo==1 &&
+          impact_all->track_action_touches==6 &&
+          impact_all->item_action_touches==8 &&
+          impact_source && impact_source->actions==1 &&
+          impact_source->review==1 && impact_source->track_action_touches==1 &&
+          impact_source->item_action_touches==2 &&
+          impact_one && impact_one->actions==1 && impact_one->routing==1 &&
+          impact_one->review==0 && impact_one->track_action_touches==1,
+          "filtered and selected history summaries count preview impacts only");
+    check(!djmeta_foobar::preview_history_impact_summary(
+              history,std::vector<std::size_t>{0,99}) &&
+          !djmeta_foobar::preview_history_impact_summary(
+              history,preview_history_visible_indices(
+                  history,PreviewHistoryFilter::All),4) &&
+          djmeta_foobar::preview_history_impact_caption(*impact_all).find(
+              L"Preview only; no writes.")!=std::wstring::npos,
+          "stale rows and invalid selected history fail closed; caption never implies writes");
+
     using djmeta_foobar::preview_history_export_tsv;
     const auto all_history=preview_history_export_tsv(
         history,PreviewHistoryFilter::All,std::nullopt,8);
     check(all_history &&
+          all_history->find(L"Summary: Actions 4 (review 2, route 1, undo 1); track-action touches 6, items 8.")!=std::wstring::npos &&
           all_history->find(L"Step\tAction\tScope\tTracks\tItems\tPhysical source #")!=std::wstring::npos &&
           all_history->find(L"1\tAccept proposals\tSelected fields\t1\t2\t8\r\n")!=std::wstring::npos &&
           all_history->find(L"2\tReject proposals\tSelected tracks\t3\t4\t(not captured / multiple)")!=std::wstring::npos &&
