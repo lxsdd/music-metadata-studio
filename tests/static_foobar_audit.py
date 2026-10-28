@@ -580,4 +580,15 @@ for token in ['IDC_METADATA_ACCEPT', 'IDC_METADATA_REJECT',
               'IDC_METADATA_RESET', 'IDC_METADATA_USE_VALUE']:
     if token not in resources or token not in batch_table_dialog or token not in gui_test:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: native review action not wired: " + token)
+# Source-level DPI/tooltip binding and visible owner hold are required;
+# disabled buttons alone cannot explain why external CUE creation is locked.
+for token in ("WM_DPICHANGED", "precision_cue_geometry_from_suggested_dpi_rect(",
+              "fit_precision_cue_window_to_work_area(", "TTM_SETMAXTIPWIDTH",
+              "IDC_PRECISION_COPY_CUE, L\"Copy reviewed CUE text"):
+    if token not in precision:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: Precision CUE DPI/tooltip path missing " + token)
+if "creation is locked pending separate owner release" not in resources:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: owner writer lock is not visible in native resource")
+if "production resource explicitly discloses the independent owner writer lock" not in gui_test:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: real native writer-lock label regression missing")
 print("PASS: foobar preview is analysis-only; no tag/file write path is present")

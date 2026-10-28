@@ -11,6 +11,7 @@
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
+#include <array>
 #include <cassert>
 #include <cstdint>
 #include <limits>
@@ -679,6 +680,39 @@ void test_precision_cue_window_geometry_persistence() {
         {0, 30, 1280, 760}, 800, 660));
     assert(original.x == 0 && original.y == 30 &&
            original.width == 1280 && original.height == 730);
+    // Per-monitor DPI transitions: deterministic, bounded, review-preserving.
+    for (const int dpi : {96, 120, 144, 192}) {
+        PrecisionCueWindowGeometry next;
+        const int width = 800 * dpi / 96;
+        const int height = 600 * dpi / 96;
+        assert(precision_cue_geometry_from_suggested_dpi_rect(
+            -1800, 40, -1800 + width, 40 + height, next));
+        assert(next.x == -1800 && next.y == 40 &&
+               next.width == width && next.height == height &&
+               !next.maximized);
+        assert(fit_precision_cue_window_to_work_area(next,
+            {-1920, 0, 0, 1080}, 800, 660));
+        assert(next.x >= -1920 && next.y >= 0 &&
+               next.x + next.width <= 0 && next.y + next.height <= 1080);
+    }
+    PrecisionCueWindowGeometry unchanged{7, 8, 900, 700, true};
+    for (const auto bad : {
+        std::array<int, 4>{0, 0, 0, 600},
+        std::array<int, 4>{0, 0, 800, 0},
+        std::array<int, 4>{100, 100, 99, 900},
+        std::array<int, 4>{-100001, 0, -99901, 600},
+        std::array<int, 4>{0, 100001, 800, 100601},
+        std::array<int, 4>{0, 0, 10001, 600},
+        std::array<int, 4>{0, 0, 800, 10001},
+        std::array<int, 4>{std::numeric_limits<int>::min(), 0,
+                           std::numeric_limits<int>::max(), 600}
+    }) {
+        assert(!precision_cue_geometry_from_suggested_dpi_rect(
+            bad[0], bad[1], bad[2], bad[3], unchanged));
+        assert(unchanged.x == 7 && unchanged.y == 8 &&
+               unchanged.width == 900 && unchanged.height == 700 &&
+               unchanged.maximized);
+    }
     // Empty/invalid work areas never install stale or corrupt geometry.
     assert(!fit_precision_cue_window_to_work_area(original,
         {0, 0, 0, 900}, 800, 660));

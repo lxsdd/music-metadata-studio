@@ -441,6 +441,11 @@ int main() {
           "native Cancel lookup does not obscure provenance/status hint");
     check(cue_link && cue_lookup && cue_text && cue_hint,
           "Precision CUE has actual Apple link, lookup, status and preview controls");
+    wchar_t cue_hint_text[256]{};
+    GetWindowTextW(cue_hint, cue_hint_text, 256);
+    check(std::wcsstr(cue_hint_text,
+          L"creation is locked pending separate owner release") != nullptr,
+          "production resource explicitly discloses the independent owner writer lock");
     const auto link_style = static_cast<DWORD>(
         GetWindowLongPtrW(cue_link, GWL_STYLE));
     const auto preview_style = static_cast<DWORD>(

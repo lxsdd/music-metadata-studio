@@ -25,6 +25,22 @@ struct PrecisionCueWorkArea {
     int bottom = 0;
 };
 
+// WM_DPICHANGED supplies screen coordinates, not profile settings. Validate
+// with wide arithmetic before converting to the same bounded geometry model.
+// Rejected rectangles must never mutate a previously reviewed placement.
+inline bool precision_cue_geometry_from_suggested_dpi_rect(
+    int left, int top, int right, int bottom,
+    PrecisionCueWindowGeometry& out) noexcept {
+    const auto width = static_cast<long long>(right) - left;
+    const auto height = static_cast<long long>(bottom) - top;
+    if (left < -100000 || left > 100000 ||
+        top < -100000 || top > 100000 ||
+        width < 400 || width > 10000 ||
+        height < 300 || height > 10000) return false;
+    out = {left, top, static_cast<int>(width), static_cast<int>(height), false};
+    return true;
+}
+
 inline std::string encode_precision_cue_window_geometry(
     const PrecisionCueWindowGeometry& v) {
     return "v1|" + std::to_string(v.x) + "|" + std::to_string(v.y) +

@@ -65,7 +65,7 @@ BEGIN
     LTEXT           "Apple duration candidate:", -1, 10, 35, 137, 12
     COMBOBOX        IDC_PRECISION_ALBUM_RESULTS, 148, 32, 309, 130, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     PUSHBUTTON      "Look up selected", IDC_PRECISION_LOOKUP, 464, 32, 86, 18, WS_TABSTOP
-    LTEXT           "Preview changes nothing. A new external .cue is created only after separate confirmation.", IDC_PRECISION_SOURCE_HINT, 10, 59, 445, 20
+    LTEXT           "Review and copy only. External .cue creation is locked pending separate owner release.", IDC_PRECISION_SOURCE_HINT, 10, 59, 445, 20
     PUSHBUTTON      "Cancel lookup", IDC_PRECISION_CANCEL_LOOKUP, 464, 57, 86, 20, WS_TABSTOP | WS_DISABLED
     LTEXT           "Disc:", -1, 10, 85, 35, 12
     COMBOBOX        IDC_PRECISION_DISC_PICKER, 48, 82, 98, 130, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP

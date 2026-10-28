@@ -233,13 +233,16 @@ void install_precision_tooltips(Workspace& state) noexcept {
         WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX, 0, 0, 0, 0,
         state.dialog, nullptr, core_api::get_my_instance(), nullptr);
     if (!tip) return;
-    static constexpr std::array<std::pair<int, const wchar_t*>, 8> hints{{
+    SendMessageW(tip, TTM_SETMAXTIPWIDTH, 0, 360);
+    static constexpr std::array<std::pair<int, const wchar_t*>, 10> hints{{
         {IDC_PRECISION_APPLE_LINK, L"Enter an exact Apple/Deezer album URL or artist and album search terms."},
         {IDC_PRECISION_SEARCH, L"Search the official Apple album catalog; select the exact edition."},
         {IDC_PRECISION_LOOKUP, L"Read the selected release tracklist. No CUE or audio is written."},
         {IDC_PRECISION_CANCEL_LOOKUP, L"Discard pending results. In-flight HTTPS may finish in the background."},
         {IDC_PRECISION_PREVIEW_ASSIGNED, L"Review every physical MP3-to-disc assignment before export."},
         {IDC_PRECISION_EDITION_CONFIRMED, L"Confirm the exact mixed edition; not permission to overwrite audio or tags."},
+        {IDC_PRECISION_COPY_CUE, L"Copy reviewed CUE text to the clipboard; this never creates a file."},
+        {IDCANCEL, L"Close the read-only review and discard pending results."},
         {IDC_PRECISION_SAVE_CUE, L"External CUE publication is locked pending separate owner release and host qualification. Copy reviewed text instead."},
         {IDC_PRECISION_SAVE_ALL_CUES, L"External CUE batch publication is locked pending separate owner release and host qualification."}
     }};
@@ -1454,6 +1457,35 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
     }
     auto* state = reinterpret_cast<Workspace*>(GetWindowLongPtrW(dialog, GWLP_USERDATA));
     if (!state) return FALSE;
+    if (message == WM_DPICHANGED) {
+        // Bound the suggested outer rectangle and fit to the current monitor.
+        // A DPI transition never changes edition, CUE review or approval.
+        const auto* suggested = reinterpret_cast<const RECT*>(lp);
+        if (suggested) {
+            djmeta::PrecisionCueWindowGeometry next;
+            if (djmeta::precision_cue_geometry_from_suggested_dpi_rect(
+                    suggested->left, suggested->top,
+                    suggested->right, suggested->bottom, next)) {
+                const HMONITOR monitor = MonitorFromRect(
+                    suggested, MONITOR_DEFAULTTONEAREST);
+                MONITORINFO info{sizeof(info)};
+                if (monitor && GetMonitorInfoW(monitor, &info)) {
+                    const djmeta::PrecisionCueWorkArea work{
+                        info.rcWork.left, info.rcWork.top,
+                        info.rcWork.right, info.rcWork.bottom
+                    };
+                    if (djmeta::fit_precision_cue_window_to_work_area(
+                            next, work, state->min_window_width,
+                            state->min_window_height) &&
+                        SetWindowPos(dialog, nullptr, next.x, next.y,
+                            next.width, next.height,
+                            SWP_NOACTIVATE | SWP_NOZORDER))
+                        resize_precision_window_controls(*state);
+                }
+            }
+        }
+        return TRUE;
+    }
     if (message == WM_GETMINMAXINFO && state->min_window_width > 0) {
         auto* const bounds = reinterpret_cast<MINMAXINFO*>(lp);
         if (bounds) {
