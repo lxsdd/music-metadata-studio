@@ -512,10 +512,11 @@ void create_only_external_writer_regressions() {
     VERIFY(create_new_precision_cue_external(req, observe).status ==
            Status::Collision);
     VERIFY(fs::last_write_time(target) == previous_timestamp);
-    // A stale/legacy overwrite approval is not a substitute for CREATE_NEW.
+    // A stale/legacy overwrite approval is refused before staging:
+    // the reviewed target was absent, but the actual target now exists.
     req.reviewed_preflight.overwrite_approved = true;
     VERIFY(create_new_precision_cue_external(req, observe).status ==
-           Status::Collision);
+           Status::ReviewRequired);
     VERIFY(fs::last_write_time(target) == previous_timestamp);
     req.reviewed_preflight.overwrite_approved = false;
 
