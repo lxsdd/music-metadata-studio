@@ -2715,19 +2715,36 @@ const wchar_t* preview_history_scope(const PreviewHistoryEvent& event) noexcept 
 }
 void refresh_preview_history_list(PreviewState& state) {
     if(!state.history_list) return;
+    // Preserve the immutable event identity, not its filtered row position.
+    // A bounded history may evict its oldest event while the tab is visible.
+    std::optional<std::size_t> selected_sequence;
+    if(ListView_GetSelectedCount(state.history_list)==1) {
+        const int selected=ListView_GetNextItem(
+            state.history_list,-1,LVNI_SELECTED);
+        LVITEMW previous{};
+        previous.mask=LVIF_PARAM;
+        previous.iItem=selected;
+        if(selected>=0 && ListView_GetItemW(state.history_list,&previous))
+            selected_sequence=static_cast<std::size_t>(previous.lParam);
+    }
     ListView_DeleteAllItems(state.history_list);
     const auto& events=state.preview_history.events();
     state.history_view_order=state.history_source_query.valid
         ? preview_history_visible_indices(state.preview_history,
               state.history_filter,state.history_source_query.source)
         : std::vector<std::size_t>{};
+    const auto retained_row=selected_sequence
+        ? preview_history_visible_row_for_sequence(
+            state.preview_history,state.history_view_order,*selected_sequence)
+        : std::nullopt;
     for(std::size_t i=0;i<state.history_view_order.size();++i) {
         const auto& event=events[state.history_view_order[i]];
         std::wstring sequence=std::to_wstring(event.sequence);
         LVITEMW row{};
-        row.mask=LVIF_TEXT;
+        row.mask=LVIF_TEXT|LVIF_PARAM;
         row.iItem=static_cast<int>(i);
         row.pszText=sequence.data();
+        row.lParam=static_cast<LPARAM>(event.sequence);
         const int index=static_cast<int>(SendMessageW(state.history_list,LVM_INSERTITEMW,0,
             reinterpret_cast<LPARAM>(&row)));
         if(index<0) throw std::runtime_error("Cannot display preview history.");
@@ -2739,6 +2756,12 @@ void refresh_preview_history_list(PreviewState& state) {
             const_cast<LPWSTR>(preview_history_scope(event)));
         ListView_SetItemText(state.history_list,index,3,sources.data());
         ListView_SetItemText(state.history_list,index,4,items.data());
+    }
+    if(retained_row) {
+        const int row=static_cast<int>(*retained_row);
+        ListView_SetItemState(state.history_list,row,
+            LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);
+        ListView_EnsureVisible(state.history_list,row,FALSE);
     }
 }
 void record_preview_history(PreviewState& state,PreviewHistoryKind kind,
@@ -2994,9 +3017,22 @@ void navigate_preview_history(HWND dialog,PreviewState& state,int visible_row) {
     if(state.stale) throw std::invalid_argument("History source snapshot stale; refresh.");
     if(visible_row<0 ||
        static_cast<std::size_t>(visible_row)>=state.history_view_order.size()) return;
+    if(!state.history_source_query.valid ||
+       state.history_view_order!=preview_history_visible_indices(
+           state.preview_history,state.history_filter,
+           state.history_source_query.source))
+        throw std::invalid_argument("History filter changed; refresh.");
+    LVITEMW native_row{};
+    native_row.mask=LVIF_PARAM;
+    native_row.iItem=visible_row;
+    if(!state.history_list ||
+       !ListView_GetItemW(state.history_list,&native_row) ||
+       !preview_history_row_identity_matches(
+           state.preview_history,state.history_view_order,
+           static_cast<std::size_t>(visible_row),
+           static_cast<std::size_t>(native_row.lParam)))
+        throw std::invalid_argument("History event identity changed; refresh.");
     const auto index=state.history_view_order[static_cast<std::size_t>(visible_row)];
-    if(index>=state.preview_history.events().size())
-        throw std::invalid_argument("History selection changed; retry.");
     const auto& event=state.preview_history.events()[index];
     const auto source=preview_history_single_source(event,state.entries.size());
     if(!source) {
@@ -5099,6 +5135,10 @@ void refresh_workspace_snapshot(PreviewState& state) {
         // A refreshed source snapshot must never inherit a preview rollback
         // or any stale user decisions from the previous captured batch.
         state.last_preview_undo.reset();
+        // A new captured batch must not inherit an old ListView selection,
+        // even if its first history sequence is also 1.
+        if(state.history_list) ListView_DeleteAllItems(state.history_list);
+        state.history_view_order.clear();
         state.preview_history.clear();
         EnableWindow(GetDlgItem(state.dialog,IDC_BATCH_UNDO),FALSE);
         state.analyses.swap(next.analyses);
@@ -7013,6 +7053,7 @@ void copy_session_preview_history(HWND dialog,PreviewState& state,
     if(visible.empty() || visible!=state.history_view_order)
         throw std::invalid_argument("History filter changed; refresh the view.");
     std::optional<std::size_t> selected;
+    std::optional<std::size_t> selected_sequence;
     if(selected_only) {
         if(ListView_GetSelectedCount(state.history_list)!=1)
             throw std::invalid_argument(
@@ -7020,7 +7061,16 @@ void copy_session_preview_history(HWND dialog,PreviewState& state,
         const int row=ListView_GetNextItem(state.history_list,-1,LVNI_SELECTED);
         if(row<0 || static_cast<std::size_t>(row)>=visible.size())
             throw std::invalid_argument("History selection is out of range.");
+        LVITEMW native_row{};
+        native_row.mask=LVIF_PARAM;
+        native_row.iItem=row;
+        if(!ListView_GetItemW(state.history_list,&native_row) ||
+           !preview_history_row_identity_matches(
+               state.preview_history,visible,static_cast<std::size_t>(row),
+               static_cast<std::size_t>(native_row.lParam)))
+            throw std::invalid_argument("History row identity changed; refresh.");
         selected=static_cast<std::size_t>(row);
+        selected_sequence=static_cast<std::size_t>(native_row.lParam);
     }
     // Full captured-source and rule recheck before an exact-session receipt.
     revalidate_workspace(state,true);
@@ -7029,6 +7079,17 @@ void copy_session_preview_history(HWND dialog,PreviewState& state,
            state.preview_history,state.history_filter,
            state.history_source_query.source))
         throw std::invalid_argument("History source changed; refresh before copying.");
+    if(selected) {
+        LVITEMW native_row{};
+        native_row.mask=LVIF_PARAM;
+        native_row.iItem=static_cast<int>(*selected);
+        if(!ListView_GetItemW(state.history_list,&native_row) ||
+           static_cast<std::size_t>(native_row.lParam)!=*selected_sequence ||
+           !preview_history_row_identity_matches(
+               state.preview_history,state.history_view_order,*selected,
+               *selected_sequence))
+            throw std::invalid_argument("History row changed during recheck.");
+    }
     const auto receipt=preview_history_export_tsv(
         state.preview_history,state.history_filter,selected,state.entries.size(),
         state.history_source_query.source);
