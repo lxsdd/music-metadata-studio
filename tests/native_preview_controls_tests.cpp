@@ -363,6 +363,42 @@ int main() {
           preview_history_single_source(history.events()[2],3)==2 &&
           !preview_history_single_source(history.events()[2],2),
           "single-source navigation rejects stale, out-of-range and bulk events");
+    // A native row's LVIF_PARAM sequence, not its caption or transient
+    // filtered position, is the only permitted History selection identity.
+    using djmeta_foobar::preview_history_row_identity_matches;
+    using djmeta_foobar::preview_history_visible_row_for_sequence;
+    SessionPreviewHistory retained;
+    check(retained.append(PreviewHistoryKind::Accept,1,1,0,0) &&
+          retained.append(PreviewHistoryKind::Route,1,1,2,0) &&
+          retained.append(PreviewHistoryKind::UndoReview,1,1,0,0),
+          "retained History fixture has review, route and undo");
+    auto retained_visible=preview_history_visible_indices(
+        retained,PreviewHistoryFilter::All);
+    check(preview_history_row_identity_matches(retained,retained_visible,1,2) &&
+          !preview_history_row_identity_matches(retained,retained_visible,1,1) &&
+          !preview_history_row_identity_matches(retained,retained_visible,3,2) &&
+          !preview_history_row_identity_matches(retained,retained_visible,1,0) &&
+          preview_history_visible_row_for_sequence(retained,retained_visible,2)==1,
+          "native History identity rejects recycled rows, zero and invalid indices");
+    retained_visible=preview_history_visible_indices(
+        retained,PreviewHistoryFilter::Routing);
+    check(preview_history_visible_row_for_sequence(retained,retained_visible,2)==0 &&
+          !preview_history_visible_row_for_sequence(retained,retained_visible,1),
+          "filter changes retain only the same immutable event sequence");
+    for(std::size_t i=0;i<256;++i)
+        check(retained.append(PreviewHistoryKind::Route,1,1,2,0),
+              "bounded History accepts later preview actions");
+    retained_visible=preview_history_visible_indices(
+        retained,PreviewHistoryFilter::All);
+    check(!preview_history_visible_row_for_sequence(retained,retained_visible,1) &&
+          !preview_history_visible_row_for_sequence(retained,retained_visible,2) &&
+          preview_history_visible_row_for_sequence(retained,retained_visible,3)==0,
+          "evicted selected event is not rebound to a recycled visible row");
+    retained.clear();
+    check(!preview_history_visible_row_for_sequence(
+              retained,preview_history_visible_indices(
+                  retained,PreviewHistoryFilter::All),3),
+          "fresh batch does not retain old History identity");
     history.clear();
     check(history.events().empty() &&
           history.append(PreviewHistoryKind::UndoReview,3,5,0) &&
@@ -521,11 +557,18 @@ int main() {
           "production native History ListView exists");
     wchar_t history_caption[]=L"1";
     LVITEMW history_item{};
-    history_item.mask=LVIF_TEXT;
+    history_item.mask=LVIF_TEXT|LVIF_PARAM;
     history_item.iItem=0;
     history_item.pszText=history_caption;
+    history_item.lParam=77;
     check(ListView_InsertItem(history_hwnd,&history_item)==0,
-          "native History accepts a captured session event row");
+          "native History accepts an event row with immutable LPARAM identity");
+    LVITEMW history_readback{};
+    history_readback.mask=LVIF_PARAM;
+    history_readback.iItem=0;
+    check(ListView_GetItemW(history_hwnd,&history_readback) &&
+          history_readback.lParam==77,
+          "real native ListView round-trips History sequence without caption parsing");
     ListView_SetItemState(history_hwnd,0,LVIS_SELECTED|LVIS_FOCUSED,
                           LVIS_SELECTED|LVIS_FOCUSED);
     check(ListView_GetSelectedCount(history_hwnd)==1 &&
@@ -534,6 +577,28 @@ int main() {
     ListView_SetItemState(history_hwnd,0,0,LVIS_SELECTED);
     check(ListView_GetSelectedCount(history_hwnd)==0,
           "native empty selection cannot authorize selected-only receipt");
+    // Rebuild the same actual resource-backed HWND in a different row order.
+    // The original event's LPARAM is retained, never the old row index.
+    ListView_DeleteAllItems(history_hwnd);
+    wchar_t later_caption[]=L"78";
+    history_item.iItem=0;
+    history_item.pszText=later_caption;
+    history_item.lParam=78;
+    check(ListView_InsertItem(history_hwnd,&history_item)==0,
+          "native History filtered view inserts later event first");
+    history_item.iItem=1;
+    history_item.pszText=history_caption;
+    history_item.lParam=77;
+    check(ListView_InsertItem(history_hwnd,&history_item)==1,
+          "native History original event survives filtered row move");
+    history_readback.iItem=1;
+    check(ListView_GetItemW(history_hwnd,&history_readback) &&
+          history_readback.lParam==77,
+          "native History moved row preserves exact selected event identity");
+    history_readback.iItem=0;
+    check(ListView_GetItemW(history_hwnd,&history_readback) &&
+          history_readback.lParam!=77,
+          "native History recycled row cannot authorize old event receipt");
     // Actual native resource-backed hint; no new dialog or write control.
     const HWND mix_hint=GetDlgItem(dialog,IDC_BATCH_HINT);
     check(mix_hint!=nullptr && IsWindow(mix_hint)!=FALSE,
