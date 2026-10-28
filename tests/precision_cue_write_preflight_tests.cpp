@@ -740,6 +740,94 @@ void native_host_review_and_create_regressions() {
     VERIFY(!fs::exists(target));
 }
 
+// Read-only preview must never follow a replaced final path component,
+// silently accept a large target, or treat special files as CUE text.
+void readonly_existing_target_handle_regressions() {
+    namespace fs = std::filesystem;
+    using State = PrecisionCueExistingTargetState;
+    const auto root = fs::canonical(fs::temp_directory_path()) /
+        ("precision-cue-inspect-" +
+         precision_cue_external_detail::random_suffix());
+    VERIFY(fs::create_directory(root));
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { std::error_code ec; fs::remove_all(path, ec); }
+    } cleanup{root};
+    const auto plan = synthetic_plan("Disc Über 東京.mp3");
+    const auto source = root /
+        precision_cue_external_detail::utf8_path("Disc Über 東京.mp3");
+    const auto target = root /
+        precision_cue_external_detail::utf8_path("Disc Über 東京.cue");
+    {
+        std::ofstream dummy(source, std::ios::binary);
+        dummy << "disposable synthetic source, not actual audio";
+    }
+    {
+        std::ofstream cue(target, std::ios::binary);
+        cue << plan.external_cue_utf8;
+    }
+    const auto exact = inspect_precision_cue_existing_target(
+        plan, source, "Disc Über 東京.mp3");
+    VERIFY(exact.state == State::Identical);
+    VERIFY(!exact.observed_different_cue);
+    const auto bytes =
+        precision_cue_inspect_detail::read_regular_target(target);
+    VERIFY(bytes && *bytes == plan.external_cue_utf8);
+
+    {
+        std::ofstream cue(target, std::ios::binary | std::ios::trunc);
+        cue << "different synthetic reference";
+    }
+    const auto different = inspect_precision_cue_existing_target(
+        plan, source, "Disc Über 東京.mp3");
+    VERIFY(different.state == State::Different);
+    VERIFY(different.observed_different_cue &&
+           *different.observed_different_cue ==
+               "different synthetic reference");
+
+    {
+        std::ofstream cue(target, std::ios::binary | std::ios::trunc);
+        cue << std::string(1024 * 1024 + 1, 'x');
+    }
+    VERIFY(!precision_cue_inspect_detail::read_regular_target(target));
+    VERIFY(inspect_precision_cue_existing_target(
+        plan, source, "Disc Über 東京.mp3").state == State::Unqualified);
+
+    {
+        std::ofstream cue(target, std::ios::binary | std::ios::trunc);
+    }
+    const auto empty = inspect_precision_cue_existing_target(
+        plan, source, "Disc Über 東京.mp3");
+    VERIFY(empty.state == State::Different);
+    VERIFY(empty.observed_different_cue &&
+           empty.observed_different_cue->empty());
+    VERIFY(!precision_cue_inspect_detail::read_regular_target(root));
+#ifndef _WIN32
+    fs::remove(target);
+    const auto real = root / "real-reference.cue";
+    {
+        std::ofstream cue(real, std::ios::binary);
+        cue << plan.external_cue_utf8;
+    }
+    fs::create_symlink(real, target);
+    VERIFY(!precision_cue_inspect_detail::read_regular_target(target));
+    VERIFY(inspect_precision_cue_existing_target(
+        plan, source, "Disc Über 東京.mp3").state == State::Unqualified);
+    fs::remove(target);
+    fs::create_symlink(root / "missing-reference.cue", target);
+    VERIFY(!precision_cue_inspect_detail::read_regular_target(target));
+    VERIFY(inspect_precision_cue_existing_target(
+        plan, source, "Disc Über 東京.mp3").state == State::Unqualified);
+    fs::remove(target);
+    // Nonblocking open prevents a maliciously substituted FIFO from
+    // hanging the read-only UI thread even if the prior path stat was regular.
+    VERIFY(::mkfifo(target.c_str(), 0600) == 0);
+    VERIFY(!precision_cue_inspect_detail::read_regular_target(target));
+    VERIFY(inspect_precision_cue_existing_target(
+        plan, source, "Disc Über 東京.mp3").state == State::Unqualified);
+#endif
+}
+
 void embedded_textual_cuesheet_readonly_inventory_regressions() {
     using State = PrecisionCueEmbeddedTextState;
     MetadataDocument metadata;
@@ -800,6 +888,7 @@ int main() {
         foobar_local_windows_path_regressions();
         physical_file_identity_sentinel_regressions();
         create_only_external_writer_regressions();
+        readonly_existing_target_handle_regressions();
         native_host_review_and_create_regressions();
         embedded_textual_cuesheet_readonly_inventory_regressions();
         return 0;
