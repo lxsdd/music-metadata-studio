@@ -35,6 +35,11 @@ public:
         return true;
     }
     void clear() noexcept {events_.clear();sequence_=0;}
+    // Bounded session history is not a complete lifetime audit.
+    std::size_t total_actions() const noexcept { return sequence_; }
+    std::size_t evicted_actions() const noexcept {
+        return events_.empty() ? 0 : events_.front().sequence-1;
+    }
     const std::vector<PreviewHistoryEvent>& events() const noexcept {
         return events_;
     }
@@ -51,7 +56,8 @@ struct PreviewHistorySourceQuery {
 inline PreviewHistorySourceQuery preview_history_parse_source(
     std::wstring_view text,std::size_t captured_batch_size) noexcept {
     if(text.empty()) return {};
-    if(text.size()>7 || captured_batch_size==0 ||
+    if((text.size()>1 && text.front()==L'0') ||
+       text.size()>7 || captured_batch_size==0 ||
        captured_batch_size>1000000) return {false,std::nullopt};
     std::size_t ordinal=0;
     for(wchar_t ch:text) {
@@ -98,6 +104,7 @@ struct PreviewHistoryImpactSummary {
     std::size_t actions=0, review=0, routing=0, undo=0;
     // These are action-scoped counts, NOT unique physical tracks or edits.
     std::size_t track_action_touches=0, item_action_touches=0;
+    std::size_t session_total=0, session_retained=0, session_evicted=0;
 };
 // Only summarize the exact currently visible immutable event identities.
 // Selected receipts summarize one visible row, never the whole unfiltered batch.
@@ -107,6 +114,12 @@ inline std::optional<PreviewHistoryImpactSummary> preview_history_impact_summary
     std::optional<std::size_t> selected_row=std::nullopt) noexcept {
     if(selected_row && *selected_row>=visible.size()) return std::nullopt;
     PreviewHistoryImpactSummary out;
+    out.session_total=history.total_actions();
+    out.session_retained=history.events().size();
+    out.session_evicted=history.evicted_actions();
+    if(out.session_total<out.session_retained ||
+       out.session_evicted!=out.session_total-out.session_retained)
+        return std::nullopt;
     std::size_t previous=0;
     for(std::size_t row=0;row<visible.size();++row) {
         const auto index=visible[row];
@@ -141,7 +154,10 @@ inline std::wstring preview_history_impact_caption(
         L", undo "+std::to_wstring(s.undo)+
         L"); track-action touches "+std::to_wstring(s.track_action_touches)+
         L", items "+std::to_wstring(s.item_action_touches)+
-        L". Preview only; no writes.";
+        L". Preview only; no writes. Session retained "+
+        std::to_wstring(s.session_retained)+L" of "+
+        std::to_wstring(s.session_total)+L" actions ("+
+        std::to_wstring(s.session_evicted)+L" earlier evicted).";
 }
 
 // The native ListView stores immutable event sequence in LVIF_PARAM. Never
@@ -259,6 +275,8 @@ inline std::optional<std::wstring> preview_history_export_tsv(
         report+=L"\r\n";
         if(report.size()>65536) return std::nullopt;
     }
+    if(summary->session_evicted)
+        report+=L"Earlier session actions were evicted; this receipt is not a complete session audit.\r\n";
     if(source) report+=L"Filtered to physical source #"+
                        std::to_wstring(*source+1)+L" (single-source events only).\r\n";
     report+=L"Only in-memory preview decisions are listed. "
