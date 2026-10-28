@@ -263,6 +263,10 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
             displayed.discs.size() != count ||
             fresh.state != displayed.state ||
             fresh.preview_qualified != displayed.preview_qualified ||
+            // The displayed warning list is part of the reviewed snapshot.
+            // A UI cache must not silently drop, inject or reorder provenance
+            // diagnostics while leaving identical CUE bytes and frames.
+            fresh.diagnostics != displayed.diagnostics ||
             fresh.header_provenance.genre != displayed.header_provenance.genre ||
             fresh.header_provenance.release_date !=
                 displayed.header_provenance.release_date ||

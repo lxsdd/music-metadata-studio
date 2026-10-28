@@ -712,6 +712,25 @@ void cross_provider_release_and_cue() {
     CHECK(std::string(partial_catalog_studio.catalog_diagnostic) ==
           "STUDIO_RELEASE_DATE_PRECISION_REQUIRES_REVIEW");
     CHECK(partial_catalog_studio.catalog_release_date_precision_review);
+    // A cached read-only preview with altered warning evidence is stale even
+    // if its 30 track starts, two CUE texts and physical IDs are unchanged.
+    auto missing_warning_preview = partial_catalog_preview;
+    missing_warning_preview.diagnostics.clear();
+    const auto missing_warning_review = prepare_precision_cue_studio_review(
+        partial_catalog_date, missing_warning_preview, studio_sources, no_references);
+    CHECK(missing_warning_review.state == PrecisionCueStudioHandoffState::Blocked);
+    CHECK(missing_warning_review.rows.empty());
+    CHECK(std::string(missing_warning_review.diagnostic) ==
+          "STUDIO_PREVIEW_CHANGED_SINCE_REVIEW");
+    auto injected_warning_preview = partial_catalog_preview;
+    injected_warning_preview.diagnostics.push_back("UNATTESTED_UI_WARNING");
+    CHECK(prepare_precision_cue_studio_review(
+        partial_catalog_date, injected_warning_preview,
+        studio_sources, no_references).rows.empty());
+    auto altered_normal_preview = reviewed;
+    altered_normal_preview.diagnostics.push_back("UNATTESTED_UI_WARNING");
+    CHECK(prepare_precision_cue_studio_review(
+        request, altered_normal_preview, studio_sources, no_references).rows.empty());
     // The native review gate accepts only date-precision uncertainty; it
     // refuses any concurrent Deezer duration contradiction, even when the
     // source calendar fields remain compatible.
