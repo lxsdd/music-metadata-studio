@@ -915,6 +915,84 @@ void cross_provider_release_and_cue() {
     CHECK(album_text_studio.rows[15].reference_state ==
           PrecisionCueStudioReferenceState::NotProvided);
 
+    // Reference disc identity is independent of 75-fps marker agreement.
+    // A CUE from a different disc or disc-count must not be labelled exact.
+    auto wrong_disc_reference = reviewed.discs[0].external_cue_utf8;
+    replace_once(wrong_disc_reference, "REM DISCNUMBER 1\n", "REM DISCNUMBER 2\n");
+    text_selection[0] = wrong_disc_reference;
+    const auto wrong_disc_studio = prepare_precision_cue_studio_review(
+        request, reviewed, studio_sources, text_selection);
+    CHECK(wrong_disc_studio.state == PrecisionCueStudioHandoffState::RowsRequireReview);
+    CHECK(wrong_disc_studio.rows.size() == 30);
+    CHECK(wrong_disc_studio.rows[0].reference_album_metadata_conflict);
+    CHECK(wrong_disc_studio.rows[14].reference_album_metadata_conflict);
+    CHECK(wrong_disc_studio.rows[0].reference_state ==
+          PrecisionCueStudioReferenceState::ReviewRequired);
+    CHECK(!wrong_disc_studio.rows[15].reference_album_metadata_conflict);
+
+    auto wrong_total_reference = reviewed.discs[0].external_cue_utf8;
+    replace_once(wrong_total_reference, "REM TOTALDISCS 2\n", "REM TOTALDISCS 3\n");
+    text_selection[0] = wrong_total_reference;
+    const auto wrong_total_studio = prepare_precision_cue_studio_review(
+        request, reviewed, studio_sources, text_selection);
+    CHECK(wrong_total_studio.rows.size() == 30);
+    CHECK(wrong_total_studio.rows[1].reference_album_metadata_conflict);
+    CHECK(wrong_total_studio.rows[1].signed_reference_delta_frames == 0);
+
+    // Repeated disc metadata is ambiguous even if the duplicate is equal.
+    auto duplicate_disc_reference = reviewed.discs[0].external_cue_utf8;
+    replace_once(duplicate_disc_reference, "REM DISCNUMBER 1\n",
+                 "REM DISCNUMBER 1\nREM DISCNUMBER 1\n");
+    text_selection[0] = duplicate_disc_reference;
+    const auto duplicate_disc_studio = prepare_precision_cue_studio_review(
+        request, reviewed, studio_sources, text_selection);
+    CHECK(duplicate_disc_studio.rows.size() == 30);
+    CHECK(duplicate_disc_studio.rows[0].reference_album_metadata_conflict);
+
+    // Missing optional reference metadata is unknown, not a contradiction.
+    auto omitted_disc_reference = reviewed.discs[0].external_cue_utf8;
+    replace_once(omitted_disc_reference, "REM DISCNUMBER 1\n", "");
+    text_selection[0] = omitted_disc_reference;
+    const auto omitted_disc_studio = prepare_precision_cue_studio_review(
+        request, reviewed, studio_sources, text_selection);
+    CHECK(omitted_disc_studio.rows.size() == 30);
+    CHECK(!omitted_disc_studio.rows[0].reference_album_metadata_conflict);
+    CHECK(omitted_disc_studio.rows[1].reference_state ==
+          PrecisionCueStudioReferenceState::ExactFrameNotAudioProof);
+
+    // CATALOG, ISRC, FLAGS and SONGWRITER are independent claims that the
+    // Apple/Deezer timing catalog does not authenticate. Keep their scope
+    // visible in read-only review instead of claiming an exact edition.
+    auto catalog_reference = reviewed.discs[0].external_cue_utf8;
+    replace_once(catalog_reference, "REM TOTALDISCS 2\n",
+                 "REM TOTALDISCS 2\nCATALOG 1234567890123\n");
+    text_selection[0] = catalog_reference;
+    const auto catalog_studio = prepare_precision_cue_studio_review(
+        request, reviewed, studio_sources, text_selection);
+    CHECK(catalog_studio.rows.size() == 30);
+    CHECK(catalog_studio.rows[0].reference_album_metadata_conflict);
+    CHECK(!catalog_studio.rows[15].reference_album_metadata_conflict);
+
+    for (const std::string directive : {
+             "ISRC USAAA1234567", "FLAGS DCP", "SONGWRITER \"Unverified\""}) {
+        auto track_identifier_reference = reviewed.discs[0].external_cue_utf8;
+        replace_once(track_identifier_reference, "    INDEX 01 02:00:00",
+                     "    " + directive + "\n    INDEX 01 02:00:00");
+        text_selection[0] = track_identifier_reference;
+        const auto identifier_studio = prepare_precision_cue_studio_review(
+            request, reviewed, studio_sources, text_selection);
+        CHECK(identifier_studio.state == PrecisionCueStudioHandoffState::RowsRequireReview);
+        CHECK(identifier_studio.rows.size() == 30);
+        CHECK(!identifier_studio.rows[0].reference_track_metadata_conflict);
+        CHECK(identifier_studio.rows[1].reference_track_metadata_conflict);
+        CHECK(identifier_studio.rows[1].reference_state ==
+              PrecisionCueStudioReferenceState::ReviewRequired);
+        CHECK(identifier_studio.rows[1].signed_reference_delta_frames == 0);
+        CHECK(!identifier_studio.rows[2].reference_track_metadata_conflict);
+        CHECK(identifier_studio.rows[15].reference_state ==
+              PrecisionCueStudioReferenceState::NotProvided);
+    }
+
     // Optional Spotify/Amazon evidence must appear in the existing Studio
     // handoff, not another foobar workspace or a new write authorization.
     auto spotify_release = apple;
