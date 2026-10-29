@@ -290,6 +290,21 @@ inline PrecisionCueReferenceDiff compare_precision_cue_external_reference(
             // review evidence, not an edition/mastering match. Absent
             // optional text is allowed; unrelated REM directives are not
             // treated as authenticated release facts.
+            // REM can carry arbitrary unverified edition/identity claims.
+            // A syntactically incomplete REM is not a usable CUE reference;
+            // an unknown but well-formed REM remains explicit REVIEW evidence.
+            if (op == "REM" && words(line).size() < 3) {
+                out.diagnostic = "CUE_REFERENCE_MALFORMED_REM";
+                return out;
+            }
+            // CATALOG belongs to the disc, ISRC/FLAGS to a track. Reject
+            // structurally misplaced claims instead of laundering them into
+            // an otherwise frame-exact read-only reference.
+            if ((current_track == 0 && (op == "ISRC" || op == "FLAGS")) ||
+                (current_track != 0 && op == "CATALOG")) {
+                out.diagnostic = "CUE_REFERENCE_METADATA_SCOPE_INVALID";
+                return out;
+            }
             if (auto* field = metadata_field(metadata[current_track], line, op)) {
                 const bool conflict = field->observed || field->expected != line;
                 field->observed = true;
@@ -297,7 +312,7 @@ inline PrecisionCueReferenceDiff compare_precision_cue_external_reference(
                     if (current_track == 0) album_metadata_conflict = true;
                     else track_metadata_conflicts[current_track - 1] = true;
                 }
-            } else if (op == "CATALOG" || op == "ISRC" ||
+            } else if (op == "REM" || op == "CATALOG" || op == "ISRC" ||
                        op == "FLAGS" || op == "SONGWRITER") {
                 // These identifiers/flags are not present in the generated
                 // catalog contract. They may be legitimate, but their
