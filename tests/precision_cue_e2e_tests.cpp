@@ -1224,8 +1224,8 @@ void cross_provider_release_and_cue() {
     swapped_request.physical_source_identity_by_selection =
         {"synthetic-physical-2", "synthetic-physical-1"};
     const std::vector<PrecisionCueStudioSourceView> swapped_sources{
-        {0, true, "synthetic-physical-2"},
-        {0, true, "synthetic-physical-1"}};
+        {0, true, "synthetic-physical-2", 1800000},
+        {0, true, "synthetic-physical-1", 1800000}};
     const auto swapped_preview = make_precision_cue_release_preview(swapped_request);
     CHECK(swapped_preview.discs.size() == 2);
     CHECK(swapped_preview.physical_index_by_disc ==
@@ -1303,9 +1303,9 @@ void cross_provider_release_and_cue() {
     CHECK(cycle_preview.physical_index_by_disc ==
           cycle_request.reviewed_physical_index_by_disc);
     const std::vector<PrecisionCueStudioSourceView> cycle_sources{
-        {0, true, "synthetic-physical-2"},
-        {0, true, "synthetic-physical-3"},
-        {0, true, "synthetic-physical-1"}};
+        {0, true, "synthetic-physical-2", 1200000},
+        {0, true, "synthetic-physical-3", 1200000},
+        {0, true, "synthetic-physical-1", 1200000}};
     std::vector<std::optional<std::string>> cycle_references{
         cycle_preview.discs[1].external_cue_utf8,
         cycle_preview.discs[2].external_cue_utf8,
