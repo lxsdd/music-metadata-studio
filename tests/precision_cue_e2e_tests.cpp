@@ -1565,9 +1565,144 @@ void cross_provider_release_and_cue() {
           PrecisionCueExternalCreateStatus::Created);
     CHECK(precision_cue_target_is_absent(temporary.path / "Disc 2.cue"));
 }
+
+void single_disc_readonly_review_regressions() {
+    // One uniquely selected physical continuous mix needs no redundant
+    // disc-permutation click. This is read-only evidence, never a writer token.
+    auto deezer = parse_deezer_precision_cue_album(deezer_fixture(), "123456");
+    auto apple = parse_apple_precision_cue_lookup(apple_fixture(), "456789");
+    deezer.tracks.resize(15);
+    apple.tracks.resize(15);
+    CHECK(deezer.tracks.back().disc_number == 1);
+    CHECK(apple.tracks.back().disc_number == 1);
+    PrecisionCuePreviewRequest request;
+    request.reference = deezer;
+    request.candidates = {apple};
+    request.physical_discs = {{"Single Mix.mp3", 1800000}};
+    request.physical_source_identity_by_selection = {"synthetic-single-source"};
+    const auto preview = make_precision_cue_release_preview(request);
+    CHECK(preview.state == PrecisionCueMatchState::Selected);
+    CHECK(preview.preview_qualified);
+    CHECK(preview.discs.size() == 1);
+    CHECK(preview.physical_index_by_disc == std::vector<std::size_t>{0});
+    CHECK(preview.discs[0].boundaries.size() == 15);
+    const std::vector<PrecisionCueStudioSourceView> sources{
+        {0, true, "synthetic-single-source", 1800000}};
+    const std::vector<std::optional<std::string>> no_reference(1);
+    const auto baseline = prepare_precision_cue_studio_review(
+        request, preview, sources, no_reference);
+    CHECK(baseline.state == PrecisionCueStudioHandoffState::ReadOnlyRows);
+    CHECK(baseline.rows.size() == 15);
+    CHECK(baseline.rows.front().cue_frame == 0);
+    CHECK(baseline.rows.front().physical_selection_index == 0);
+    CHECK(baseline.rows.back().physical_selection_index == 0);
+    CHECK(baseline.rows.front().signed_physical_disc_duration_delta_ms == 0);
+    CHECK(baseline.rows.front().reference_state ==
+          PrecisionCueStudioReferenceState::NotProvided);
+
+    // An explicitly recorded single-disc mapping is still review-only.
+    auto explicit_mapping = request;
+    explicit_mapping.reviewed_physical_index_by_disc = {0};
+    const auto explicit_preview = make_precision_cue_release_preview(explicit_mapping);
+    CHECK(explicit_preview.state == PrecisionCueMatchState::Review);
+    CHECK(prepare_precision_cue_studio_review(
+        explicit_mapping, explicit_preview, sources, no_reference).state ==
+          PrecisionCueStudioHandoffState::RowsRequireReview);
+
+    // Local physical duration is independently probed, not filled from Apple.
+    auto one_ms_longer = request;
+    one_ms_longer.physical_discs[0].measured_duration_ms += 1;
+    const auto longer_preview = make_precision_cue_release_preview(one_ms_longer);
+    auto longer_sources = sources;
+    longer_sources[0].measured_duration_ms += 1;
+    const auto longer_review = prepare_precision_cue_studio_review(
+        one_ms_longer, longer_preview, longer_sources, no_reference);
+    CHECK(longer_review.state == PrecisionCueStudioHandoffState::RowsRequireReview);
+    CHECK(longer_review.rows.size() == 15);
+    CHECK(longer_review.rows[0].signed_physical_disc_duration_delta_ms == 1);
+    CHECK(longer_review.rows[14].signed_physical_disc_duration_delta_ms == 1);
+    auto unknown_duration = request;
+    unknown_duration.physical_discs[0].measured_duration_ms = 0;
+    const auto unknown_preview = make_precision_cue_release_preview(unknown_duration);
+    auto unknown_sources = sources;
+    unknown_sources[0].measured_duration_ms = 0;
+    const auto unknown_review = prepare_precision_cue_studio_review(
+        unknown_duration, unknown_preview, unknown_sources, no_reference);
+    CHECK(unknown_review.state == PrecisionCueStudioHandoffState::RowsRequireReview);
+    CHECK(unknown_review.rows.size() == 15);
+    CHECK(!unknown_review.rows[0].signed_physical_disc_duration_delta_ms);
+
+    // Same CUE bytes and source label cannot conceal a changed local probe.
+    const auto stale_duration = prepare_precision_cue_studio_review(
+        request, preview, longer_sources, no_reference);
+    CHECK(stale_duration.state == PrecisionCueStudioHandoffState::Blocked);
+    CHECK(stale_duration.rows.empty());
+    CHECK(std::string(stale_duration.diagnostic) ==
+          "STUDIO_PHYSICAL_DURATION_SNAPSHOT_CHANGED");
+    auto virtual_source = sources;
+    virtual_source[0].subsong = 1;
+    CHECK(prepare_precision_cue_studio_review(
+        request, preview, virtual_source, no_reference).state ==
+          PrecisionCueStudioHandoffState::Blocked);
+    auto changed_identity = sources;
+    changed_identity[0].physical_source_identity = "different-physical-file";
+    CHECK(prepare_precision_cue_studio_review(
+        request, preview, changed_identity, no_reference).rows.empty());
+    auto injected_warning = preview;
+    injected_warning.diagnostics.push_back("FORGED_UI_WARNING");
+    CHECK(prepare_precision_cue_studio_review(
+        request, injected_warning, sources, no_reference).rows.empty());
+
+    // Exact INDEX 01 frames are advisory, and a one-frame difference
+    // requires review even when the local duration and edition still match.
+    std::vector<std::optional<std::string>> reference(1);
+    reference[0] = preview.discs[0].external_cue_utf8;
+    const auto exact_reference = prepare_precision_cue_studio_review(
+        request, preview, sources, reference);
+    CHECK(exact_reference.state == PrecisionCueStudioHandoffState::ReadOnlyRows);
+    CHECK(exact_reference.rows[1].reference_state ==
+          PrecisionCueStudioReferenceState::ExactFrameNotAudioProof);
+    replace_once(*reference[0], "INDEX 01 02:00:00", "INDEX 01 02:00:01");
+    const auto one_frame = prepare_precision_cue_studio_review(
+        request, preview, sources, reference);
+    CHECK(one_frame.state == PrecisionCueStudioHandoffState::RowsRequireReview);
+    CHECK(one_frame.rows.size() == 15);
+    CHECK(one_frame.rows[0].reference_state ==
+          PrecisionCueStudioReferenceState::ExactFrameNotAudioProof);
+    CHECK(one_frame.rows[1].reference_state ==
+          PrecisionCueStudioReferenceState::WithinOneFrameNotAudioProof);
+    CHECK(one_frame.rows[1].signed_reference_delta_frames == -1);
+
+    // Partial catalog dates preserve evidence but never grant write status.
+    auto partial_date = request;
+    partial_date.reference.release_date = "2026";
+    partial_date.candidates[0].release_date = "2026-10-16";
+    const auto partial_preview = make_precision_cue_release_preview(partial_date);
+    CHECK(partial_preview.state == PrecisionCueMatchState::Review);
+    CHECK(!partial_preview.preview_qualified);
+    const auto partial_review = prepare_precision_cue_studio_review(
+        partial_date, partial_preview, sources, no_reference);
+    CHECK(partial_review.state == PrecisionCueStudioHandoffState::RowsRequireReview);
+    CHECK(partial_review.catalog_release_date_precision_review);
+    partial_date.reference.release_date = "2026-11";
+    const auto conflict_preview = make_precision_cue_release_preview(partial_date);
+    CHECK(conflict_preview.discs.empty());
+    CHECK(prepare_precision_cue_studio_review(
+        partial_date, conflict_preview, sources, no_reference).rows.empty());
+
+    // Invalid explicit selection cannot turn an implicit one-disc plan into
+    // a valid physical assignment.
+    auto invalid_mapping = request;
+    invalid_mapping.reviewed_physical_index_by_disc = {1};
+    CHECK(prepare_precision_cue_studio_review(
+        invalid_mapping, preview, sources, no_reference).state ==
+          PrecisionCueStudioHandoffState::Blocked);
+}
+
 } // namespace
 
 int main() {
     cross_provider_release_and_cue();
+    single_disc_readonly_review_regressions();
     return 0;
 }
