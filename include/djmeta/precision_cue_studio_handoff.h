@@ -27,6 +27,9 @@ struct PrecisionCueStudioSourceView {
     // Exact canonical identity from the independent physical-file host probe.
     // A basename, virtual subsong path or mutable UI label is insufficient.
     std::string physical_source_identity;
+    // Independently re-probed physical duration at Studio review time.
+    // Zero means unknown (review-only), not an inferred album duration.
+    std::int64_t measured_duration_ms = 0;
 };
 
 enum class PrecisionCueStudioHandoffState {
@@ -81,6 +84,11 @@ struct PrecisionCueStudioReviewRow {
     unsigned track_number = 0;
     std::size_t physical_selection_index = 0;
     std::string physical_basename;
+    // Local physical duration evidence is distinct from catalog timings.
+    // Signed delta = local measured duration minus planned disc duration.
+    // Unknown local duration has no delta; neither value is audio proof.
+    std::int64_t measured_physical_disc_duration_ms = 0;
+    std::optional<std::int64_t> signed_physical_disc_duration_delta_ms;
     std::string title;
     std::string performer;
     std::string provider;
@@ -185,6 +193,15 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
                 request.physical_source_identity_by_selection[index] ||
             !seen_physical_sources.insert(source.physical_source_identity).second) {
             out.diagnostic = "STUDIO_PHYSICAL_SOURCE_IDENTITY_CHANGED_OR_DUPLICATE";
+            return out;
+        }
+        // A cached CUE plan may remain byte-identical after a local duration
+        // probe changes by a few milliseconds. Do not pass stale physical
+        // evidence to the canonical Studio row review.
+        if (source.measured_duration_ms < 0 ||
+            source.measured_duration_ms !=
+                request.physical_discs[index].measured_duration_ms) {
+            out.diagnostic = "STUDIO_PHYSICAL_DURATION_SNAPSHOT_CHANGED";
             return out;
         }
     }
@@ -373,6 +390,11 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
                 row.physical_selection_index = source_index;
                 row.physical_basename =
                     request.physical_discs[source_index].mp3_basename;
+                row.measured_physical_disc_duration_ms =
+                    sources[source_index].measured_duration_ms;
+                if (row.measured_physical_disc_duration_ms > 0)
+                    row.signed_physical_disc_duration_delta_ms =
+                        row.measured_physical_disc_duration_ms - planned.total_duration_ms;
                 row.title = item.title;
                 row.performer = item.performer;
                 row.provider = edition.provider;

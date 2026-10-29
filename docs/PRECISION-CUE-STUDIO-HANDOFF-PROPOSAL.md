@@ -87,3 +87,20 @@ bytes. The single Studio handoff recomputes the edition gate and returns
 no rows for conflicting sourced genres, including the synthetic 30-track,
 two-disc equal-frame scenario. No external/embedded CUE or tag write is
 authorized by this evidence.
+
+## Fresh local physical-duration evidence (2026-10-29)
+
+The Studio handoff now requires an **independent, current, read-only foobar
+physical-duration probe** in `PrecisionCueStudioSourceView` for each selected
+physical subsong-0 file. It must exactly equal the duration frozen in the
+reviewed `PrecisionCuePreviewRequest` for that *physical selection index*,
+including an explicit zero for unknown. A one-millisecond difference, a newly
+unknown probe, a negative duration or a swapped/stale selection blocks **all**
+rows even if both generated CUE texts and their 75-fps markers are unchanged.
+The returned per-track rows retain the locally measured disc duration and a
+signed local-minus-provider disc duration delta (absent for unknown). Neither
+is sample-accurate timing or a write token. Synthetic 30-track/two-disc tests
+cover unchanged, changed, missing, negative, unknown and reordered probes.
+The #45/#63 canonical UI owner must supply the fresh probe when consuming
+this contract; this source-only handoff does not claim installed GUI testing,
+provider authorization or permission to create an external/embedded CUE.

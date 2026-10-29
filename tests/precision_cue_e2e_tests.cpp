@@ -640,13 +640,66 @@ void cross_provider_release_and_cue() {
     // The canonical Studio workspace can consume rows without acquiring a
     // second window/writer engine or treating a 75-fps match as audio proof.
     const std::vector<PrecisionCueStudioSourceView> studio_sources{
-        {0, true, "synthetic-physical-1"},
-        {0, true, "synthetic-physical-2"}};
+        {0, true, "synthetic-physical-1", 1800000},
+        {0, true, "synthetic-physical-2", 1800000}};
     const std::vector<std::optional<std::string>> no_references(2);
     const auto studio = prepare_precision_cue_studio_review(
         request, reviewed, studio_sources, no_references);
     CHECK(studio.state == PrecisionCueStudioHandoffState::RowsRequireReview);
     CHECK(studio.rows.size() == 30);
+    CHECK(studio.rows[0].measured_physical_disc_duration_ms == 1800000);
+    CHECK(studio.rows[0].signed_physical_disc_duration_delta_ms == 0);
+    CHECK(studio.rows[15].signed_physical_disc_duration_delta_ms == 0);
+    // Even a +1 ms re-probe invalidates a cached physical snapshot despite
+    // unchanged CUE text, 75-fps boundaries and canonical source identity.
+    auto stale_duration_sources = studio_sources;
+    stale_duration_sources[0].measured_duration_ms += 1;
+    const auto stale_duration_studio = prepare_precision_cue_studio_review(
+        request, reviewed, stale_duration_sources, no_references);
+    CHECK(stale_duration_studio.state == PrecisionCueStudioHandoffState::Blocked);
+    CHECK(stale_duration_studio.rows.empty());
+    CHECK(std::string(stale_duration_studio.diagnostic) ==
+          "STUDIO_PHYSICAL_DURATION_SNAPSHOT_CHANGED");
+    stale_duration_sources[0].measured_duration_ms = 0;
+    CHECK(prepare_precision_cue_studio_review(
+        request, reviewed, stale_duration_sources, no_references).rows.empty());
+    stale_duration_sources[0].measured_duration_ms = -1;
+    CHECK(prepare_precision_cue_studio_review(
+        request, reviewed, stale_duration_sources, no_references).rows.empty());
+    // Unknown local duration stays explicitly unknown and review-only;
+    // never fill it from Apple/Deezer catalog totals.
+    auto unknown_duration_request = request;
+    unknown_duration_request.physical_discs[0].measured_duration_ms = 0;
+    const auto unknown_duration_preview =
+        make_precision_cue_release_preview(unknown_duration_request);
+    auto unknown_duration_sources = studio_sources;
+    unknown_duration_sources[0].measured_duration_ms = 0;
+    const auto unknown_duration_studio = prepare_precision_cue_studio_review(
+        unknown_duration_request, unknown_duration_preview,
+        unknown_duration_sources, no_references);
+    CHECK(unknown_duration_studio.state ==
+          PrecisionCueStudioHandoffState::RowsRequireReview);
+    CHECK(unknown_duration_studio.rows.size() == 30);
+    CHECK(unknown_duration_studio.rows[0].measured_physical_disc_duration_ms == 0);
+    CHECK(!unknown_duration_studio.rows[0].signed_physical_disc_duration_delta_ms);
+    CHECK(unknown_duration_studio.rows[15].signed_physical_disc_duration_delta_ms == 0);
+    // A reviewed permutation must attach each measured duration to the
+    // actual physical selection, not to the displayed release disc order.
+    auto reordered_request = request;
+    reordered_request.reviewed_physical_index_by_disc = {1, 0};
+    reordered_request.physical_discs[1].measured_duration_ms += 12;
+    const auto reordered_preview =
+        make_precision_cue_release_preview(reordered_request);
+    auto reordered_sources = studio_sources;
+    reordered_sources[1].measured_duration_ms += 12;
+    const auto reordered_studio = prepare_precision_cue_studio_review(
+        reordered_request, reordered_preview, reordered_sources, no_references);
+    CHECK(reordered_studio.rows.size() == 30);
+    CHECK(reordered_studio.rows[0].physical_selection_index == 1);
+    CHECK(reordered_studio.rows[0].measured_physical_disc_duration_ms == 1800012);
+    CHECK(reordered_studio.rows[0].signed_physical_disc_duration_delta_ms == 12);
+    CHECK(reordered_studio.rows[15].physical_selection_index == 0);
+    CHECK(reordered_studio.rows[15].signed_physical_disc_duration_delta_ms == 0);
     CHECK(studio.header_provenance.genre ==
           PrecisionCueHeaderFieldOrigin::SelectedCatalog ||
           studio.header_provenance.genre == PrecisionCueHeaderFieldOrigin::Absent);
