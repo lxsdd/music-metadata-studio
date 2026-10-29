@@ -164,9 +164,16 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
     const std::vector<PrecisionCueOptionalSource>& optional_sources = {}) {
     PrecisionCueStudioHandoff out;
     const auto count = request.physical_discs.size();
+    // A unique single physical disc needs no redundant explicit permutation.
+    // Multiple discs still require a recorded user-reviewed assignment.
+    const bool implicit_single_disc = count == 1 &&
+        request.reviewed_physical_index_by_disc.empty();
+    const std::vector<std::size_t> physical_index_by_disc = implicit_single_disc
+        ? std::vector<std::size_t>{0}
+        : request.reviewed_physical_index_by_disc;
     if (count == 0 || count > 8 || sources.size() != count ||
         reference_cues.size() != count ||
-        request.reviewed_physical_index_by_disc.size() != count) {
+        physical_index_by_disc.size() != count) {
         out.diagnostic = "STUDIO_SELECTION_OR_MAPPING_INCOMPLETE";
         return out;
     }
@@ -290,7 +297,7 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
             // A CUE text/filename match cannot prove that the user kept the
             // same physical selection when equal-length discs are reordered.
             fresh.physical_index_by_disc != displayed.physical_index_by_disc ||
-            fresh.physical_index_by_disc != request.reviewed_physical_index_by_disc ||
+            fresh.physical_index_by_disc != physical_index_by_disc ||
             fresh.provider != displayed.provider ||
             fresh.provider_release_id != displayed.provider_release_id ||
             fresh.provider != edition.provider ||
@@ -302,8 +309,9 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
         std::vector<bool> used(count, false);
         std::size_t release_offset = 0;
         bool reference_needs_review = false;
+        bool physical_duration_needs_review = false;
         for (std::size_t disc = 0; disc < count; ++disc) {
-            const auto source_index = request.reviewed_physical_index_by_disc[disc];
+            const auto source_index = physical_index_by_disc[disc];
             if (source_index >= count || used[source_index]) {
                 out.diagnostic = "STUDIO_DISC_MAPPING_NOT_A_PERMUTATION";
                 out.rows.clear();
@@ -312,6 +320,11 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
             used[source_index] = true;
             const auto& planned = displayed.discs[disc];
             const auto& canonical = fresh.discs[disc];
+            // A matching snapshot is not evidence of matching local/catalog
+            // duration. Even a 1 ms delta (or unknown duration) needs review.
+            if (sources[source_index].measured_duration_ms == 0 ||
+                sources[source_index].measured_duration_ms != planned.total_duration_ms)
+                physical_duration_needs_review = true;
             if (planned.external_cue_utf8 != canonical.external_cue_utf8 ||
                 planned.total_duration_ms != canonical.total_duration_ms ||
                 planned.boundaries.size() != canonical.boundaries.size() ||
@@ -340,6 +353,7 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
                 case PrecisionCueReferenceDiffState::WithinOneFramePreviewOnly:
                     reference_state =
                         PrecisionCueStudioReferenceState::WithinOneFrameNotAudioProof;
+                    reference_needs_review = true;
                     break;
                 case PrecisionCueReferenceDiffState::ReviewRequired:
                     reference_state = PrecisionCueStudioReferenceState::ReviewRequired;
@@ -530,6 +544,7 @@ inline PrecisionCueStudioHandoff prepare_precision_cue_studio_review(
         // remain an explicit Studio review, even with exact CUE frames.
         if (displayed.state != PrecisionCueMatchState::Selected ||
             !displayed.preview_qualified || reference_needs_review ||
+            physical_duration_needs_review ||
             !deezer_reference || !optional_sources.empty() ||
             out.catalog_consensus_state == PrecisionCueConsensusState::Review ||
             out.header_provenance.genre == PrecisionCueHeaderFieldOrigin::ManualUnverified ||
