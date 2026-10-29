@@ -119,6 +119,11 @@ struct ReferenceMetadataScope {
     ReferenceMetadataField performer;
     ReferenceMetadataField genre;
     ReferenceMetadataField date;
+    // These are disc-identity claims, not optional track decoration.
+    // A reference that contradicts the generated disc mapping must never
+    // be reported as an exact-edition CUE even when INDEX 01 agrees.
+    ReferenceMetadataField disc_number;
+    ReferenceMetadataField total_discs;
 };
 inline ReferenceMetadataField* metadata_field(
     ReferenceMetadataScope& scope, std::string_view line,
@@ -131,6 +136,8 @@ inline ReferenceMetadataField* metadata_field(
     const auto name = rest.substr(0, end);
     if (name == "GENRE") return &scope.genre;
     if (name == "DATE") return &scope.date;
+    if (name == "DISCNUMBER") return &scope.disc_number;
+    if (name == "TOTALDISCS") return &scope.total_discs;
     return nullptr;
 }
 inline bool expected_metadata_scopes(
@@ -156,7 +163,9 @@ inline bool expected_metadata_scopes(
     }
     if (track + 1 != scopes.size() ||
         scopes[0].title.expected.empty() ||
-        scopes[0].performer.expected.empty()) return false;
+        scopes[0].performer.expected.empty() ||
+        scopes[0].disc_number.expected.empty() ||
+        scopes[0].total_discs.expected.empty()) return false;
     for (std::size_t i = 1; i < scopes.size(); ++i)
         if (scopes[i].title.expected.empty() ||
             scopes[i].performer.expected.empty()) return false;
@@ -288,6 +297,14 @@ inline PrecisionCueReferenceDiff compare_precision_cue_external_reference(
                     if (current_track == 0) album_metadata_conflict = true;
                     else track_metadata_conflicts[current_track - 1] = true;
                 }
+            } else if (op == "CATALOG" || op == "ISRC" ||
+                       op == "FLAGS" || op == "SONGWRITER") {
+                // These identifiers/flags are not present in the generated
+                // catalog contract. They may be legitimate, but their
+                // provenance cannot be independently corroborated here.
+                // Preserve their track/album scope as read-only REVIEW.
+                if (current_track == 0) album_metadata_conflict = true;
+                else track_metadata_conflicts[current_track - 1] = true;
             }
         } else if (op == "PREGAP" || op == "POSTGAP") {
             if (current_track == 0) return out;
