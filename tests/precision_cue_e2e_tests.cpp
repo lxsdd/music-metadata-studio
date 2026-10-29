@@ -148,6 +148,44 @@ void reference_cue_timeline_regressions(const PrecisionCuePlan& plan) {
     CHECK(diff.state == State::ReviewRequired && !diff.album_metadata_conflict);
     CHECK(diff.track_metadata_conflicts[0] && !diff.track_metadata_conflicts[1]);
 
+    // Unknown REM metadata is not authenticated by the Apple/Deezer
+    // edition contract. Preserve the affected album/track review scope.
+    auto unknown_album_rem = original;
+    replace_once(unknown_album_rem, "REM TOTALDISCS 2\n",
+                 "REM TOTALDISCS 2\nREM DISCID \"Unverified\"\n");
+    diff = compare_precision_cue_external_reference(plan, unknown_album_rem, basename);
+    CHECK(diff.state == State::ReviewRequired);
+    CHECK(diff.album_metadata_conflict && diff.metadata_conflict);
+    CHECK(!diff.track_metadata_conflicts[0]);
+    CHECK(diff.audit.exact_count == 15);
+    auto unknown_track_rem = original;
+    replace_once(unknown_track_rem, "    INDEX 01 02:00:00",
+                 "    REM MIXSOURCE \"Unverified\"\n    INDEX 01 02:00:00");
+    diff = compare_precision_cue_external_reference(plan, unknown_track_rem, basename);
+    CHECK(diff.state == State::ReviewRequired);
+    CHECK(!diff.album_metadata_conflict);
+    CHECK(diff.track_metadata_conflicts[1] && !diff.track_metadata_conflicts[0]);
+    // Malformed or misplaced metadata cannot be classified as a valid
+    // reference even when all 15 INDEX 01 timestamps remain identical.
+    auto malformed_rem = original;
+    replace_once(malformed_rem, "REM TOTALDISCS 2\n",
+                 "REM TOTALDISCS 2\nREM DISCID\n");
+    diff = compare_precision_cue_external_reference(plan, malformed_rem, basename);
+    CHECK(diff.state == State::Unqualified);
+    CHECK(std::string(diff.diagnostic) == "CUE_REFERENCE_MALFORMED_REM");
+    auto album_isrc = original;
+    replace_once(album_isrc, "REM TOTALDISCS 2\n",
+                 "REM TOTALDISCS 2\nISRC USAAA1234567\n");
+    diff = compare_precision_cue_external_reference(plan, album_isrc, basename);
+    CHECK(diff.state == State::Unqualified);
+    CHECK(std::string(diff.diagnostic) == "CUE_REFERENCE_METADATA_SCOPE_INVALID");
+    auto track_catalog = original;
+    replace_once(track_catalog, "    INDEX 01 02:00:00",
+                 "    CATALOG 1234567890123\n    INDEX 01 02:00:00");
+    diff = compare_precision_cue_external_reference(plan, track_catalog, basename);
+    CHECK(diff.state == State::Unqualified);
+    CHECK(std::string(diff.diagnostic) == "CUE_REFERENCE_METADATA_SCOPE_INVALID");
+
     // Reference metadata is optional: omission must not fabricate a
     // mismatch, and matching explicit metadata still proves no audio.
     auto sparse_reference = original;
@@ -992,6 +1030,52 @@ void cross_provider_release_and_cue() {
         CHECK(identifier_studio.rows[15].reference_state ==
               PrecisionCueStudioReferenceState::NotProvided);
     }
+
+    // Unknown reference REM claims are review evidence, never verified
+    // album/disc metadata merely because every INDEX 01 marker agrees.
+    auto rem_album_reference = reviewed.discs[0].external_cue_utf8;
+    replace_once(rem_album_reference, "REM TOTALDISCS 2\n",
+                 "REM TOTALDISCS 2\nREM DISCID \"Unverified\"\n");
+    text_selection[0] = rem_album_reference;
+    const auto rem_album_studio = prepare_precision_cue_studio_review(
+        request, reviewed, studio_sources, text_selection);
+    CHECK(rem_album_studio.state == PrecisionCueStudioHandoffState::RowsRequireReview);
+    CHECK(rem_album_studio.rows.size() == 30);
+    CHECK(rem_album_studio.rows[0].reference_album_metadata_conflict);
+    CHECK(rem_album_studio.rows[14].reference_state ==
+          PrecisionCueStudioReferenceState::ReviewRequired);
+    CHECK(rem_album_studio.rows[15].reference_state ==
+          PrecisionCueStudioReferenceState::NotProvided);
+
+    auto rem_track_reference = reviewed.discs[0].external_cue_utf8;
+    replace_once(rem_track_reference, "    INDEX 01 02:00:00",
+                 "    REM MIXSOURCE \"Unverified\"\n    INDEX 01 02:00:00");
+    text_selection[0] = rem_track_reference;
+    const auto rem_track_studio = prepare_precision_cue_studio_review(
+        request, reviewed, studio_sources, text_selection);
+    CHECK(rem_track_studio.rows.size() == 30);
+    CHECK(rem_track_studio.rows[0].reference_state ==
+          PrecisionCueStudioReferenceState::ExactFrameNotAudioProof);
+    CHECK(rem_track_studio.rows[1].reference_track_metadata_conflict);
+    CHECK(rem_track_studio.rows[1].reference_state ==
+          PrecisionCueStudioReferenceState::ReviewRequired);
+    CHECK(rem_track_studio.rows[2].reference_state ==
+          PrecisionCueStudioReferenceState::ExactFrameNotAudioProof);
+    CHECK(rem_track_studio.rows[15].reference_state ==
+          PrecisionCueStudioReferenceState::NotProvided);
+
+    auto malformed_rem_reference = reviewed.discs[0].external_cue_utf8;
+    replace_once(malformed_rem_reference, "REM TOTALDISCS 2\n",
+                 "REM TOTALDISCS 2\nREM DISCID\n");
+    text_selection[0] = malformed_rem_reference;
+    const auto malformed_rem_studio = prepare_precision_cue_studio_review(
+        request, reviewed, studio_sources, text_selection);
+    CHECK(malformed_rem_studio.state == PrecisionCueStudioHandoffState::RowsRequireReview);
+    CHECK(malformed_rem_studio.rows.size() == 30);
+    CHECK(malformed_rem_studio.rows[0].reference_state ==
+          PrecisionCueStudioReferenceState::Unqualified);
+    CHECK(malformed_rem_studio.rows[15].reference_state ==
+          PrecisionCueStudioReferenceState::NotProvided);
 
     // Optional Spotify/Amazon evidence must appear in the existing Studio
     // handoff, not another foobar workspace or a new write authorization.
