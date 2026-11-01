@@ -1366,7 +1366,7 @@ if workflow.count(
     "31930d4fca571f449f2c57044bea5ba2e01f0ca7"
 ) != 1 or protected_job.count(
     "lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@"
-    "e408a32f176c9f14d55a009afde81cf000820db2"
+    "2878afb5c1625dc1344ff357353133ef0a11b5eb"
 ) != 1 or "MMS_PROTECTED_NATIVE_HOST=SKIPPED_PINNED_ACTION_MANUAL_ONLY" in protected_job:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: native protected Discogs E2E not bound to reviewed source pin")
 # Public workflows are source-only. Previously this gate accepted two
