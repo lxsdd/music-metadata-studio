@@ -2220,6 +2220,51 @@ void update_musicbrainz_browse_headers(PreviewState& state) {
     }
 }
 
+// The exact same provider/edition identity fence is used by the native
+// button and BOTH explicit Load handlers. ListView position, displayed title,
+// and a provider result ID alone are never sufficient for a network request.
+bool online_selected_release_verified(const PreviewState& state,int selected) {
+    if(!state.metadata_list || !state.show_candidate ||
+       !state.musicbrainz_live_view ||
+       state.candidate_source_index!=state.selected_track_index ||
+       selected<0 || ListView_GetSelectedCount(state.metadata_list)!=1 ||
+       static_cast<std::size_t>(selected)>=state.candidate_view_order.size())
+        return false;
+    const auto rowid=state.candidate_view_order[static_cast<std::size_t>(selected)];
+    if(rowid>=state.candidate_rows.size() ||
+       state.candidate_rows[rowid].candidate.scope!=
+           djmeta::online::EvidenceScope::Edition)
+        return false;
+    const std::string_view expected_provider=state.discogs_live_view
+        ? "discogs" : "musicbrainz";
+    if(!state.discogs_live_view &&
+       state.musicbrainz_kind!=djmeta::online::musicbrainz::SearchKind::Release)
+        return false;
+    std::vector<NativeBrowserCandidateKey> visible;
+    visible.reserve(state.candidate_view_order.size());
+    for(const auto index:state.candidate_view_order) {
+        if(index>=state.candidate_rows.size()) return false;
+        const auto& row=state.candidate_rows[index];
+        visible.push_back({row.candidate.provider,row.candidate.source_id,row.field});
+    }
+    std::vector<std::string> verified_ids;
+    if(state.discogs_live_view) {
+        verified_ids.reserve(state.discogs_results.size());
+        for(const auto& hit:state.discogs_results)
+            verified_ids.push_back(
+                std::string(hit.kind==djmeta::online::discogs::EntityKind::Master
+                    ? "master:" : "release:")+std::to_string(hit.id));
+    } else {
+        verified_ids.reserve(state.musicbrainz_results.size());
+        for(const auto& hit:state.musicbrainz_results)
+            if(hit.kind==djmeta::online::musicbrainz::SearchKind::Release)
+                verified_ids.push_back(hit.mbid);
+    }
+    return native_verified_release_row(
+        visible,static_cast<std::size_t>(selected),
+        expected_provider,verified_ids);
+}
+
 // The native action is enabled only for the selected verified release, not
 // merely when some unrelated release is present in provider results.
 void update_online_release_load_button(PreviewState& state) {
@@ -2243,7 +2288,8 @@ void update_online_release_load_button(PreviewState& state) {
         if(index<state.candidate_rows.size())
             selected_identity=state.candidate_rows[index].candidate.source_id;
     }
-    const bool ready=native_release_loadable(
+    const bool ready=online_selected_release_verified(state,selected) &&
+        native_release_loadable(
         state.show_candidate && state.musicbrainz_live_view &&
             state.musicbrainz_kind==djmeta::online::musicbrainz::SearchKind::Release,
         state.musicbrainz_release_loaded,
@@ -6059,6 +6105,9 @@ void perform_discogs_load(HWND dialog, PreviewState& state) {
     const auto rowid=state.candidate_view_order[static_cast<std::size_t>(selected)];
     if(rowid>=state.candidate_rows.size())
         throw std::invalid_argument("Selected Discogs result expired.");
+    if(!online_selected_release_verified(state,selected))
+        throw std::invalid_argument(
+            "Selected Discogs row has a foreign or ambiguous edition identity.");
     const auto source_id=state.candidate_rows[rowid].candidate.source_id;
     if(source_id.starts_with("master:")) {
         // A master is a navigation target only. This explicit Load action
@@ -9394,6 +9443,9 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 static_cast<std::size_t>(selected)];
             if(rowid>=state->candidate_rows.size())
                 throw std::invalid_argument("Candidate selection expired.");
+            if(!online_selected_release_verified(*state,selected))
+                throw std::invalid_argument(
+                    "Selected MusicBrainz row has a foreign or ambiguous release identity.");
             const auto mbid=state->candidate_rows[rowid].candidate.source_id;
             const auto matches=std::count_if(
                 state->musicbrainz_results.begin(),state->musicbrainz_results.end(),
