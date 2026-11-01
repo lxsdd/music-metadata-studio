@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory = $true)][string]$X64Dll,
     [Parameter(Mandatory = $true)][string]$OutputDirectory,
     [Parameter(Mandatory = $true)][string]$Version,
-    [Parameter(Mandatory = $true)][string]$Commit
+    [Parameter(Mandatory = $true)][string]$Commit,
+    [ValidateSet('readonly','physical-tags')][string]$WriteMode = 'readonly'
 )
 $ErrorActionPreference = 'Stop'
 function Get-PeMachine([string]$Path) {
@@ -24,17 +25,21 @@ New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $stage = Join-Path $OutputDirectory 'component-stage'
 if (Test-Path $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
 New-Item -ItemType Directory -Force -Path (Join-Path $stage 'x64') | Out-Null
-Copy-Item -LiteralPath $Win32Dll -Destination (Join-Path $stage 'foo_dj_metadata_normalizer.dll')
-Copy-Item -LiteralPath $X64Dll -Destination (Join-Path $stage 'x64\foo_dj_metadata_normalizer.dll')
-$zip = Join-Path $OutputDirectory ("foo_dj_metadata_normalizer-" + $Version + ".zip")
-$component = Join-Path $OutputDirectory ("foo_dj_metadata_normalizer-" + $Version + ".fb2k-component")
+Copy-Item -LiteralPath $Win32Dll -Destination (Join-Path $stage 'foo_music_metadata_studio.dll')
+Copy-Item -LiteralPath $X64Dll -Destination (Join-Path $stage 'x64\foo_music_metadata_studio.dll')
+$zip = Join-Path $OutputDirectory ("foo_music_metadata_studio-" + $Version + ".zip")
+$component = Join-Path $OutputDirectory ("foo_music_metadata_studio-" + $Version + ".fb2k-component")
 if (Test-Path $zip) { Remove-Item -LiteralPath $zip -Force }
 if (Test-Path $component) { Remove-Item -LiteralPath $component -Force }
 Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal
 Move-Item -LiteralPath $zip -Destination $component
-$win32Hash = (Get-FileHash -LiteralPath (Join-Path $stage 'foo_dj_metadata_normalizer.dll') -Algorithm SHA256).Hash.ToLowerInvariant()
-$x64Hash = (Get-FileHash -LiteralPath (Join-Path $stage 'x64\foo_dj_metadata_normalizer.dll') -Algorithm SHA256).Hash.ToLowerInvariant()
+$win32Hash = (Get-FileHash -LiteralPath (Join-Path $stage 'foo_music_metadata_studio.dll') -Algorithm SHA256).Hash.ToLowerInvariant()
+$x64Hash = (Get-FileHash -LiteralPath (Join-Path $stage 'x64\foo_music_metadata_studio.dll') -Algorithm SHA256).Hash.ToLowerInvariant()
 $componentHash = (Get-FileHash -LiteralPath $component -Algorithm SHA256).Hash.ToLowerInvariant()
+$analysisOnly = if ($WriteMode -eq 'readonly') { 'true' } else { 'false' }
+$physicalTagsEnabled = if ($WriteMode -eq 'physical-tags') { 'true' } else { 'false' }
+$externalCueWriteEnabled = $physicalTagsEnabled # same opt-in private QA binary
+$externalCueScope = if ($externalCueWriteEnabled -eq 'true') { 'value-only-exact-edition' } else { 'none' }
 @(
     "version=$Version",
     "commit=$Commit",
@@ -43,8 +48,14 @@ $componentHash = (Get-FileHash -LiteralPath $component -Algorithm SHA256).Hash.T
     "root_dll_sha256=$win32Hash",
     "x64_dll_sha256=$x64Hash",
     "component_sha256=$componentHash",
-    "layout=root:foo_dj_metadata_normalizer.dll;x64:x64/foo_dj_metadata_normalizer.dll",
-    "analysis_only=true",
+    "layout=root:foo_music_metadata_studio.dll;x64:x64/foo_music_metadata_studio.dll",
+    "analysis_only=$analysisOnly",
+    "write_mode=$WriteMode",
+    "physical_tags_write_enabled=$physicalTagsEnabled",
+    "external_cue_write_enabled=$externalCueWriteEnabled",
+    "external_cue_write_scope=$externalCueScope",
+    "embedded_cue_write_enabled=false",
+    "file_operations_write_enabled=false",
     "status=PASS"
 ) | Set-Content -LiteralPath (Join-Path $OutputDirectory 'BUILD-MANIFEST.txt') -Encoding UTF8
 ("$componentHash  " + (Split-Path -Leaf $component)) | Set-Content -LiteralPath (Join-Path $OutputDirectory 'SHA256SUMS.txt') -Encoding ASCII

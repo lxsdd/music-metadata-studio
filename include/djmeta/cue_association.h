@@ -18,6 +18,11 @@ struct CueHostReference {
     std::string proposed_filename;
     bool uniquely_resolved = false;
     bool destination_reference_verified = false;
+    // Verified canonical identity of the FILE target relative to the planned
+    // future CUE location and final host filename policy (not raw TF output).
+    // Required even for unselected audio and must match an explicitly
+    // selected CueSelectedAudio::target_key.
+    std::string verified_destination_key;
 };
 
 struct CueSelectedAudio {

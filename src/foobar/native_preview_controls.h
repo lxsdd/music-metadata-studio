@@ -5,15 +5,104 @@
 #include "resource.h"
 #include <windows.h>
 #include <commctrl.h>
+#include <algorithm>
+#include <array>
+#include <initializer_list>
 #include <cstddef>
+#include <numeric>
 #include <optional>
 #include <set>
 #include <vector>
 #include <string>
 #include <string_view>
+#include <stdexcept>
 
 namespace djmeta_foobar {
 
+// Online selections belong to an immutable source, not to the visible tab.
+// Returning to the local Review page must NOT disable a conflict cross-check
+// just because the online comparison controls are hidden there.
+inline constexpr bool native_recheck_preserved_online_selection(
+    bool has_verified_snapshot,std::size_t online_source,
+    std::size_t review_source,std::size_t selected_count) noexcept {
+    return has_verified_snapshot && online_source==review_source &&
+           selected_count!=0;
+}
+
+// A raw destination observation belongs to one exact source and route. No
+// host-independent comparison may promote it to a final FileOps approval.
+inline constexpr bool native_joint_raw_observation_matches(
+    std::size_t saved_source,std::size_t current_source,
+    std::string_view saved_candidate,std::string_view current_candidate,
+    std::string_view saved_key,std::string_view current_key,
+    std::string_view saved_guard,std::string_view current_guard) noexcept {
+    return saved_source==current_source &&
+           !saved_candidate.empty() && saved_candidate==current_candidate &&
+           !saved_key.empty() && saved_key==current_key &&
+           !saved_guard.empty() && saved_guard==current_guard;
+}
+
+// A keyboard WM_CONTEXTMENU carries (-1,-1), not a pointer location.
+// Place the column picker at its header so Shift+F10 remains usable when
+// the mouse is on another monitor. Mouse right-click keeps its exact point.
+inline POINT native_column_menu_point(HWND header, LPARAM pointer) {
+    if(pointer!=static_cast<LPARAM>(-1))
+        return {static_cast<SHORT>(LOWORD(pointer)),
+                static_cast<SHORT>(HIWORD(pointer))};
+    RECT bounds{};
+    if(header && GetWindowRect(header,&bounds) &&
+       bounds.right>bounds.left && bounds.bottom>bounds.top)
+        return {bounds.left+(std::min)(12L,bounds.right-bounds.left-1),
+                bounds.top+(std::min)(12L,bounds.bottom-bounds.top-1)};
+    POINT fallback{};
+    GetCursorPos(&fallback);
+    return fallback;
+}
+
+// Only normal, unminimized windows yield genuine screen coordinates.
+// An iconic WINDOWPLACEMENT normal rectangle is always workspace-based;
+// retaining the last observed normal screen rectangle avoids switching
+// coordinate systems when the user closes a minimized normal window.
+inline bool native_capture_normal_screen_bounds(HWND dialog,RECT& screen) {
+    if(!IsWindow(dialog) || IsIconic(dialog) || IsZoomed(dialog)) return false;
+    RECT observed{};
+    if(!GetWindowRect(dialog,&observed) ||
+       observed.right<=observed.left || observed.bottom<=observed.top)
+        return false;
+    screen=observed;
+    return true;
+}
+
+// GetWindowPlacement flags cannot be relied on to describe a minimized
+// window's previous zoom state. WM_SIZE remembers the last non-iconic state.
+inline constexpr bool native_workspace_saved_maximized(
+    bool zoomed_now,bool iconic_now,bool last_nonminimized_maximized) noexcept {
+    return zoomed_now || (iconic_now && last_nonminimized_maximized);
+}
+
+// The resource-backed Win32 production dialog and the Windows smoke test
+// use the SAME restore adapter. A maximized dialog's normal rectangle came
+// from GetWindowPlacement (workspace coordinates). Only SetWindowPlacement
+// may consume those values; SetWindowPos expects screen coordinates.
+inline bool native_restore_saved_workspace_bounds(
+    HWND dialog,const RECT& restore_rect,bool maximized) {
+    if(!IsWindow(dialog) || restore_rect.right<=restore_rect.left ||
+       restore_rect.bottom<=restore_rect.top)
+        return false;
+    if(maximized) {
+        WINDOWPLACEMENT placement{};
+        placement.length=sizeof(placement);
+        if(!GetWindowPlacement(dialog,&placement)) return false;
+        placement.flags=0;
+        placement.rcNormalPosition=restore_rect;
+        placement.showCmd=SW_SHOWMAXIMIZED;
+        return SetWindowPlacement(dialog,&placement)!=FALSE;
+    }
+    return SetWindowPos(dialog,nullptr,restore_rect.left,restore_rect.top,
+                        restore_rect.right-restore_rect.left,
+                        restore_rect.bottom-restore_rect.top,
+                        SWP_NOZORDER|SWP_NOACTIVATE)!=FALSE;
+}
 
 /*
  * This small Win32 event/identity adapter is called by the production
@@ -21,6 +110,155 @@ namespace djmeta_foobar {
  * All identities refer to underlying sources, never to sorted UI rows.
  * No host SDK or filesystem write API is needed here.
  */
+// Preserve official API relevance order until a user explicitly sorts.
+template<class CellText>
+std::vector<std::size_t> native_candidate_view_order(
+    std::size_t count, int sort_column, bool descending, CellText cell_text) {
+    std::vector<std::size_t> order(count);
+    std::iota(order.begin(),order.end(),std::size_t{0});
+    if(sort_column>=0 && sort_column<5)
+        std::stable_sort(order.begin(),order.end(),[&](auto left,auto right) {
+            const auto a=cell_text(left,sort_column);
+            const auto b=cell_text(right,sort_column);
+            return descending?a>b:a<b;
+        });
+    return order;
+}
+
+// Explicit user gestures may discard a source-bound online field preview,
+// but only after a default-No confirmation. A normal ListView click is
+// separately vetoed and can never silently drop Include/date decisions.
+inline constexpr bool native_online_preview_requires_explicit_discard(
+    std::size_t current_source,std::size_t target_source,
+    std::size_t included_fields,bool changing_provider=false) noexcept {
+    return included_fields!=0 &&
+        (changing_provider || current_source!=target_source);
+}
+
+// Prevent silent loss of exact-source online Include decisions BEFORE a
+// native owner-data ListView changes its selected captured physical source.
+inline bool native_online_source_selection_veto(
+    const NMLISTVIEW& change,const std::vector<std::size_t>& source_order,
+    std::size_t current_source,bool has_included_fields,
+    bool rebuilding) noexcept {
+    if(!has_included_fields || rebuilding ||
+       !(change.uChanged & LVIF_STATE) ||
+       ((change.uOldState ^ change.uNewState)&LVIS_SELECTED)==0)
+        return false;
+    if(change.iItem<0 ||
+       static_cast<std::size_t>(change.iItem)>=source_order.size())
+        return true;
+    const auto source=source_order[static_cast<std::size_t>(change.iItem)];
+    if(source==current_source)
+        return (change.uOldState & LVIS_SELECTED)!=0 &&
+               (change.uNewState & LVIS_SELECTED)==0;
+    return (change.uNewState & LVIS_SELECTED)!=0;
+}
+
+// Only an internally produced Physical #N summary from an explicitly loaded
+// official exact-edition album may navigate to the captured source ordinal.
+// Provider tags, pasted labels, sorted UI indices and partial strings cannot.
+inline std::optional<std::size_t> native_verified_album_source_target(
+    std::string_view group,std::string_view reason,
+    bool edition_loaded,bool current_source_snapshot,
+    std::size_t total_sources) noexcept {
+    if(!edition_loaded || !current_source_snapshot ||
+       total_sources<2 || total_sources>128 ||
+       (reason!="discogs_live_release_group" &&
+        reason!="musicbrainz_live_release_group" &&
+        reason!="local_physical_group") ||
+       !group.starts_with("Physical #"))
+        return std::nullopt;
+    const auto digits=group.substr(sizeof("Physical #")-1);
+    if(digits.empty() || digits.size()>3 || digits.front()=='0')
+        return std::nullopt;
+    std::size_t number=0;
+    for(const char digit:digits) {
+        if(digit<'0' || digit>'9') return std::nullopt;
+        number=number*10+static_cast<std::size_t>(digit-'0');
+    }
+    if(number==0 || number>total_sources) return std::nullopt;
+    return number-1;
+}
+
+// A track activation only dispatches an online request from Find & compare.
+// Review/File locations use the same gesture as navigation to Find, not as
+// implicit network consent. Beatport + Crates has no licensed catalog-search
+// transport, so a track gesture never fetches a public URL from clipboard.
+inline bool native_track_activation_starts_online_search(
+    int source_tab_index, bool beatport_browser_mode) noexcept {
+    return source_tab_index == 0 && !beatport_browser_mode;
+}
+
+// In the Beatport + Crates mode, Find-tab activation is explicit consent to
+// open the existing Crates browser hand-off, not permission to call a gated
+// Beatport catalog API or silently read a clipboard URL. From Review/File
+// pages even this browser action must remain navigation-only.
+inline bool native_track_activation_starts_crates_handoff(
+    int source_tab_index, bool beatport_browser_mode) noexcept {
+    return source_tab_index == 0 && beatport_browser_mode;
+}
+
+// Once a source/rules/physical guard marks the workspace STALE, no delayed
+// network completion, tab refresh or candidate-selection callback may make
+// source-dependent actions appear executable again. Refresh is separate.
+inline constexpr bool native_workspace_action_ready(
+    bool stale_snapshot, bool eligible) noexcept {
+    return !stale_snapshot && eligible;
+}
+
+inline constexpr const wchar_t* kNativeStaleWorkspaceHint =
+    L"Source metadata, file identity or rules changed. Results are stale. "
+    L"Refresh snapshot to discard old decisions; no files were changed.";
+
+inline constexpr const wchar_t* native_workspace_display_hint(
+    bool stale_snapshot, const wchar_t* normal_text) noexcept {
+    return stale_snapshot ? kNativeStaleWorkspaceHint : normal_text;
+}
+
+// A master ID, unverified candidate, stale context or pending request
+// can never enable release-track inspection.
+inline bool native_release_loadable(
+    bool live, bool loaded, bool source_matches, bool request_pending,
+    std::string_view selected_id, const std::vector<std::string>& exact_ids) {
+    return live && !loaded && source_matches && !request_pending &&
+        !selected_id.empty() &&
+        std::find(exact_ids.begin(),exact_ids.end(),selected_id)!=exact_ids.end();
+}
+
+enum class NativeRoutePreviewScope { Selected, Visible, All };
+// Source IDs, not sorted/filtered ListView row indices, are routing authority.
+inline std::vector<std::size_t> native_route_preview_source_ids(
+    NativeRoutePreviewScope scope,std::size_t count,
+    const std::vector<std::size_t>& visible,
+    const std::vector<std::size_t>& selected_rows) {
+    if(count==0 || count>100000)
+        throw std::invalid_argument("ROUTE_SCOPE_BATCH_INVALID");
+    if(scope==NativeRoutePreviewScope::All) {
+        std::vector<std::size_t> ids(count);
+        std::iota(ids.begin(),ids.end(),std::size_t{0});
+        return ids;
+    }
+    std::vector<bool> seen(count,false);
+    for(auto id:visible) {
+        if(id>=count || seen[id])
+            throw std::invalid_argument("ROUTE_SCOPE_VISIBLE_IDENTITY_INVALID");
+        seen[id]=true;
+    }
+    std::vector<std::size_t> ids;
+    if(scope==NativeRoutePreviewScope::Visible) ids=visible;
+    else if(scope==NativeRoutePreviewScope::Selected) {
+        std::vector<bool> used(visible.size(),false);
+        for(auto row:selected_rows) {
+            if(row>=visible.size() || used[row])
+                throw std::invalid_argument("ROUTE_SCOPE_SELECTED_ROW_INVALID");
+            used[row]=true;
+            ids.push_back(visible[row]);
+        }
+    } else throw std::invalid_argument("ROUTE_SCOPE_UNKNOWN");
+    if(ids.empty()) throw std::invalid_argument("ROUTE_SCOPE_EMPTY");
+    return ids;
+}
 enum class PreviewCommand {
     None, Accept, Reject, Reset, ManualValue, TrackFilterChanged, FocusFilterChanged, VisibleWhitespaceChanged
 };
@@ -47,6 +285,76 @@ inline PreviewCommand native_preview_command(UINT message, WPARAM wp) {
     return PreviewCommand::None;
 }
 
+// Read-only discovery/CUE inspection depends on one selected physical source.
+// A full 54k-source scan before each online search blocks the host UI.
+// Full batch validation still precedes every batch decision/Apply action;
+// selected-source physical writers separately freeze and verify exact evidence.
+enum class NativeWorkspaceCheckScope { None, SelectedSource, FullBatch };
+
+inline constexpr NativeWorkspaceCheckScope native_workspace_command_check_scope(
+    PreviewCommand command, UINT message, WPARAM wp) noexcept {
+    if (message != WM_COMMAND || HIWORD(wp) != BN_CLICKED)
+        return NativeWorkspaceCheckScope::None;
+    switch(command) {
+    case PreviewCommand::Accept:
+    case PreviewCommand::Reject:
+    case PreviewCommand::Reset:
+    case PreviewCommand::ManualValue:
+        return NativeWorkspaceCheckScope::FullBatch;
+    default:
+        break;
+    }
+    switch(LOWORD(wp)) {
+    case IDC_BATCH_APPLY_SELECTED:
+    case IDC_BATCH_APPLY_VISIBLE:
+    case IDC_BATCH_APPLY_ALL:
+    case IDC_BATCH_AUDIT:
+    case IDC_BATCH_COPY_AUDIT:
+    case IDC_BATCH_COPY_ISSUES:
+    case IDC_BATCH_NEXT_ISSUE:
+    case IDC_BATCH_UNDO:
+        return NativeWorkspaceCheckScope::FullBatch;
+    case IDC_METADATA_MB_SEARCH:
+    case IDC_METADATA_MB_LOAD_RELEASE:
+    case IDC_METADATA_DISCOGS_NEXT_PAGE:
+    case IDC_METADATA_INSPECT_CUE:
+    case IDC_METADATA_IMPORT_CANDIDATE:
+    case IDC_ONLINE_WRITE_SELECTED:
+        return NativeWorkspaceCheckScope::SelectedSource;
+    default:
+        return NativeWorkspaceCheckScope::None;
+    }
+}
+
+// The local audit export contains no music paths, tags or credentials.
+inline bool native_audit_clipboard_text_is_safe(std::wstring_view text) noexcept {
+    return !text.empty() && text.size()<=16u*1024u*1024u &&
+           text.find(L'\0')==std::wstring_view::npos;
+}
+inline void native_copy_audit_text_to_clipboard(HWND owner,
+                                                std::wstring_view text) {
+    if(!native_audit_clipboard_text_is_safe(text))
+        throw std::invalid_argument("Audit clipboard payload invalid or too large");
+    if(!OpenClipboard(owner))
+        throw std::runtime_error("Cannot open clipboard for batch audit");
+    struct Close { ~Close(){CloseClipboard();} } closer;
+    HGLOBAL handle=GlobalAlloc(GMEM_MOVEABLE,(text.size()+1)*sizeof(wchar_t));
+    if(!handle) throw std::bad_alloc();
+    auto* memory=static_cast<wchar_t*>(GlobalLock(handle));
+    if(!memory) {
+        GlobalFree(handle);
+        throw std::runtime_error("Cannot allocate audit clipboard payload");
+    }
+    std::copy(text.begin(),text.end(),memory);
+    memory[text.size()]=L'\0';
+    GlobalUnlock(handle);
+    if(!EmptyClipboard() || !SetClipboardData(CF_UNICODETEXT,handle)) {
+        GlobalFree(handle);
+        throw std::runtime_error("Cannot copy batch audit");
+    }
+    // Windows owns the handle after successful SetClipboardData.
+}
+
 // Display-only escaping of invisible metadata characters. Never pass the
 // decorated output to the normalization engine or foobar tag/file adapters.
 // No escaping is performed when the mode is disabled.
@@ -64,6 +372,26 @@ inline std::wstring preview_whitespace_text(std::wstring_view original, bool sho
         case L'\u202f': display.append(L"[NNBSP]"); break;
         case L'\u200b': display.append(L"[ZWSP]"); break;
         case L'\ufeff': display.append(L"[BOM]"); break;
+        // Directional controls can visually reorder source, target and
+        // provenance text. Expose them only in the optional display view;
+        // never transform the actual value used for review or comparison.
+        case L'\u200e': display.append(L"[LRM]"); break;
+        case L'\u200f': display.append(L"[RLM]"); break;
+        case L'\u202a': display.append(L"[LRE]"); break;
+        case L'\u202b': display.append(L"[RLE]"); break;
+        case L'\u202c': display.append(L"[PDF]"); break;
+        case L'\u202d': display.append(L"[LRO]"); break;
+        case L'\u202e': display.append(L"[RLO]"); break;
+        case L'\u2066': display.append(L"[LRI]"); break;
+        case L'\u2067': display.append(L"[RLI]"); break;
+        case L'\u2068': display.append(L"[FSI]"); break;
+        case L'\u2069': display.append(L"[PDI]"); break;
+        case L'\u2060': display.append(L"[WJ]"); break;
+        case L'\u2028': display.append(L"[LS]"); break;
+        case L'\u2029': display.append(L"[PS]"); break;
+        case L'\0': display.append(L"[NUL]"); break;
+        case L'\x1b': display.append(L"[ESC]"); break;
+        case L'\x7f': display.append(L"[DEL]"); break;
         default: display.push_back(ch); break;
         }
     }
@@ -119,6 +447,17 @@ inline std::optional<std::size_t> native_selected_track_change(
     return view_order[row];
 }
 
+// Deselecting a master row changes the batch scope count without choosing
+// a new current source. Refresh only the caption, never retarget the detail
+// grid or perform a network/source revalidation on this notification.
+inline bool native_master_track_deselected(
+    const NMLISTVIEW& change, bool rebuilding) noexcept {
+    return !rebuilding && change.iItem>=0 &&
+           (change.uChanged & LVIF_STATE)!=0 &&
+           (change.uOldState & LVIS_SELECTED)!=0 &&
+           (change.uNewState & LVIS_SELECTED)==0;
+}
+
 inline std::vector<std::size_t> selected_native_view_ids(
     HWND list, const std::vector<std::size_t>& view_order) {
     std::vector<std::size_t> ids;
@@ -129,6 +468,45 @@ inline std::vector<std::size_t> selected_native_view_ids(
             ids.push_back(view_order[static_cast<std::size_t>(row)]);
     }
     return ids;
+}
+
+// Display-only group headers use a sentinel outside the captured proposal
+// range. Resolve a native multi-selection to actionable proposal rows only.
+inline std::vector<std::size_t> selected_native_proposal_ids(
+    HWND list, const std::vector<std::size_t>& view_order,
+    std::size_t proposal_count) {
+    auto ids=selected_native_view_ids(list,view_order);
+    ids.erase(std::remove_if(ids.begin(),ids.end(),
+        [proposal_count](std::size_t id) { return id>=proposal_count; }),
+        ids.end());
+    return ids;
+}
+
+// The detail grid always shows ONE current source even when the master grid
+// marks many sources for a later scoped review action. Keep that distinction
+// visible without scanning a 54k-row selection on each LVN_ITEMCHANGED.
+inline std::wstring native_review_scope_hint(
+    std::size_t selected_tracks, std::size_t music_changes,
+    std::size_t extended_changes, std::size_t review_required,
+    bool no_visible_proposals) {
+    if(selected_tracks==0)
+        return L"No tracks marked. Select a track to review; no tags were written.";
+    std::wstring hint;
+    if(selected_tracks==1) {
+        hint=L"Current track: ";
+    } else {
+        hint=std::to_wstring(selected_tracks)+
+            L" tracks marked. Right side shows current track: ";
+    }
+    hint+=std::to_wstring(music_changes)+L" music, "+
+          std::to_wstring(extended_changes)+L" other; "+
+          std::to_wstring(review_required)+L" need review. ";
+    hint+=selected_tracks>1
+        ? L"Action scope below controls the target. Preview only."
+        : L"Preview only; no tags were written.";
+    if(no_visible_proposals)
+        hint+=L" No proposals for this track in this view.";
+    return hint;
 }
 
 // Preserve multiselection and focus after sorting/filtering a virtual grid.
@@ -149,6 +527,225 @@ inline void restore_native_view_selection(
     }
 }
 
+// Passive activation and read-only online commands verify the visible source;
+// invalid selected indices fall back to full verification. Batch decisions
+// and batch Apply check every source and physical guard. No approval is
+// inferred from a selected-source lookup.
+// Indexes are stable source identities, independent of sorted ListView rows.
+inline constexpr bool native_workspace_should_validate_entry(
+    std::size_t source_index, std::size_t selected_source_index,
+    std::size_t source_count, bool full_source_check) noexcept {
+    return full_source_check || selected_source_index >= source_count ||
+           source_index == selected_source_index;
+}
+
+// WM_SIZE on minimization reports a zero client area. The real dialog
+// must retain its last usable child geometry, tooltips and preview columns
+// until a restored/maximized size with nonzero dimensions arrives.
+// This is a presentation-only guard, shared with native HWND regression.
+inline constexpr bool native_workspace_should_relayout_on_size(
+    WPARAM size_kind, unsigned client_width, unsigned client_height) noexcept {
+    return size_kind != SIZE_MINIMIZED &&
+           client_width > 0 && client_height > 0;
+}
+
+// ListView infotips belong to the ListView, not to the workspace help
+// tooltip HWND. Dismiss both kinds when a page is hidden or the workspace
+// loses activation, otherwise a row-specific popup can outlive its row.
+inline void native_workspace_pop_tooltips(
+    HWND help, std::initializer_list<HWND> lists) {
+    if(help && IsWindow(help)) SendMessageW(help,TTM_POP,0,0);
+    for(HWND list:lists) {
+        if(!list || !IsWindow(list)) continue;
+        const HWND tip=ListView_GetToolTips(list);
+        if(tip && tip!=help && IsWindow(tip)) SendMessageW(tip,TTM_POP,0,0);
+    }
+}
+
+// Native tooltips are popup HWNDs. Hiding a modeless workspace while a
+// bounded network worker completes must dismiss the popup first: the parent
+// HWND survives and ordinary TTF_SUBCLASS mouse-leave may never arrive.
+// Also dismiss on activation loss, cancellation and explicit UI commands.
+// This policy does not create timers, hook foobar globally or block playback.
+inline constexpr bool native_workspace_dismisses_tooltip(
+    UINT message, WPARAM wp) noexcept {
+    switch(message) {
+    case WM_CLOSE:
+    case WM_CANCELMODE:
+    case WM_MOVE:
+    case WM_SIZE:
+    case WM_ENTERSIZEMOVE:
+    case WM_CAPTURECHANGED:
+    case WM_KILLFOCUS:
+    case WM_MOUSELEAVE:
+        return true;
+    case WM_SHOWWINDOW:
+    case WM_NCACTIVATE:
+    case WM_ENABLE:
+        return wp == FALSE;
+    case WM_ACTIVATE:
+        return LOWORD(wp) == WA_INACTIVE;
+    case WM_COMMAND:
+        return HIWORD(wp) == BN_CLICKED || HIWORD(wp) == CBN_SELCHANGE;
+    default:
+        return false;
+    }
+}
+
+// The empty candidate view must explain the SELECTED discovery path. A
+// Beatport clipboard instruction under MusicBrainz/Discogs looked like a
+// mandatory extra step and concealed lawful pasted Deezer/Spotify evidence.
+inline constexpr const wchar_t* native_empty_online_candidate_hint(
+    bool discogs_selected, bool beatport_offline_selected) noexcept {
+    if (beatport_offline_selected)
+        return L"Beatport: click Find in Crates, then paste a public Beatport "
+               L"track URL or structured @beatport-track-facts and choose "
+               L"Import clipboard. Comparison only; no tags or files change.";
+    if (discogs_selected)
+        return L"Discogs: click Search for the selected track, then inspect an "
+               L"exact release. Structured clipboard evidence can also be "
+               L"imported, but pasted provider claims are unverified. Read-only.";
+    return L"MusicBrainz: click Search for the selected title/album, then "
+           L"inspect an exact release. Deezer or Spotify facts can be compared "
+           L"via Import clipboard with @provider=deezer or @provider=spotify; "
+           L"pasted content is unverified and read-only.";
+}
+
+// One search action serves three very different authorized transports.
+// A static Beatport-only tooltip on the MusicBrainz/Discogs Search button
+// wrongly describes how that button acts after changing providers. Keep
+// provider help pure and backed by immutable storage for tooltip HWNDs.
+inline constexpr const wchar_t* native_search_action_tooltip(
+    bool discogs_selected, bool beatport_offline_selected) noexcept {
+    if (beatport_offline_selected)
+        return L"Beatport offline: search is an explicit public track URL "
+               L"lookup. Paste one canonical URL or leave the box empty "
+               L"to use a URL you just copied from Crates. No catalog login.";
+    if (discogs_selected)
+        return L"Search Discogs with the current title/artist/version or "
+               L"exact release/master URL. Use Broaden/Next page explicitly. "
+               L"Your personal token is never stored.";
+    return L"Search MusicBrainz with title/album plus available source "
+           L"identity and guarded fallback strategies. This is evidence, "
+           L"not an approved metadata change.";
+}
+
+// Query EDIT is an explicit keyboard action surface in the same native
+// modeless workspace: Enter searches only when idle; Escape cancels an active
+// lookup (or closes the idle window). IME composition and modifier chords
+// remain ordinary text editing. Never launch a provider request from focus.
+enum class NativeQueryKeyAction : unsigned { None=0, Search=1, Cancel=2, Close=3 };
+inline constexpr UINT kNativeQueryKeyMessage = WM_APP + 0x353;
+struct NativeQueryKeyboardState { bool ime_composing=false; };
+inline constexpr NativeQueryKeyAction native_query_key_action(
+    UINT key, bool ctrl, bool shift, bool alt, bool find_tab,
+    bool pending, bool cancelling, bool action_enabled) noexcept {
+    if(!find_tab || ctrl || shift || alt) return NativeQueryKeyAction::None;
+    if(key==VK_RETURN)
+        return !pending && !cancelling && action_enabled
+            ? NativeQueryKeyAction::Search : NativeQueryKeyAction::None;
+    if(key==VK_ESCAPE) {
+        if(pending)
+            return !cancelling && action_enabled
+                ? NativeQueryKeyAction::Cancel : NativeQueryKeyAction::None;
+        return NativeQueryKeyAction::Close;
+    }
+    return NativeQueryKeyAction::None;
+}
+// Installed on the REAL search EDIT in production and the resource-backed
+// Win32 test. Parent verifies current tab/request state before dispatch.
+// Subclass lifetime is tied to its HWND; no timer or retained SDK pointer.
+inline LRESULT CALLBACK native_query_edit_keyboard_proc(
+    HWND edit, UINT message, WPARAM wp, LPARAM lp,
+    UINT_PTR subclass_id, DWORD_PTR data) {
+    auto* state=reinterpret_cast<NativeQueryKeyboardState*>(data);
+    if(message==WM_IME_STARTCOMPOSITION && state)
+        state->ime_composing=true;
+    if(message==WM_IME_ENDCOMPOSITION && state)
+        state->ime_composing=false;
+    const bool special=wp==VK_RETURN || wp==VK_ESCAPE;
+    // Keep Enter/Escape routed to the EDIT even during IME composition.
+    // Otherwise IsDialogMessage may activate the default Close button while
+    // the user is merely confirming a Japanese/Chinese/Korean candidate.
+    if(message==WM_GETDLGCODE && special && state)
+        return DefSubclassProc(edit,message,wp,lp)|DLGC_WANTMESSAGE;
+    if(message==WM_KEYDOWN && special &&
+       state && !state->ime_composing) {
+        const HWND parent=GetParent(edit);
+        if(parent && IsWindow(parent))
+            SendMessageW(parent,kNativeQueryKeyMessage,wp,
+                         reinterpret_cast<LPARAM>(edit));
+        return 0;
+    }
+    if(message==WM_CHAR && (wp==L'\r' || wp==L'\x1b') &&
+       state && !state->ime_composing)
+        return 0; // no beep or duplicate default-button command
+    if(message==WM_NCDESTROY)
+        RemoveWindowSubclass(edit,native_query_edit_keyboard_proc,subclass_id);
+    return DefSubclassProc(edit,message,wp,lp);
+}
+
+// Native review divider keyboard contract. Ctrl+Shift+Left/Right adjusts
+// the SOURCE pane in 24 logical pixels; Ctrl+Shift+Home resets to the
+// centered, DPI-aware split. Never changes row selection or source identity.
+enum class NativeReviewSplitAction : unsigned {
+    None=0, NarrowSource=1, WidenSource=2, Reset=3
+};
+inline constexpr UINT kNativeReviewSplitMessage = WM_APP + 0x352;
+inline constexpr NativeReviewSplitAction native_review_split_key_action(
+    UINT key, bool ctrl, bool shift, bool alt, bool active) noexcept {
+    if(!active || !ctrl || !shift || alt) return NativeReviewSplitAction::None;
+    if(key==VK_LEFT) return NativeReviewSplitAction::NarrowSource;
+    if(key==VK_RIGHT) return NativeReviewSplitAction::WidenSource;
+    if(key==VK_HOME) return NativeReviewSplitAction::Reset;
+    return NativeReviewSplitAction::None;
+}
+inline constexpr bool native_review_split_valid_action(
+    NativeReviewSplitAction action) noexcept {
+    return action==NativeReviewSplitAction::NarrowSource ||
+           action==NativeReviewSplitAction::WidenSource ||
+           action==NativeReviewSplitAction::Reset;
+}
+inline constexpr int native_review_split_next_offset(
+    int previous, NativeReviewSplitAction action) noexcept {
+    const int bounded=(std::clamp)(previous,-2000,2000);
+    switch(action) {
+    case NativeReviewSplitAction::NarrowSource:
+        return (std::max)(-2000,bounded-24);
+    case NativeReviewSplitAction::WidenSource:
+        return (std::min)(2000,bounded+24);
+    case NativeReviewSplitAction::Reset:
+        return 0;
+    default:
+        return bounded;
+    }
+}
+// Installed on the actual native ListViews in production and in HWND tests.
+// Intercept before ListView arrow-key selection changes; no synthetic
+// WM_NOTIFY pointers, timers, tag actions or host-side callbacks.
+inline LRESULT CALLBACK native_review_split_keyboard_proc(
+    HWND list, UINT message, WPARAM wp, LPARAM lp,
+    UINT_PTR subclass_id, DWORD_PTR) {
+    if(message==WM_KEYDOWN) {
+        const auto action=native_review_split_key_action(
+            static_cast<UINT>(wp),
+            (GetKeyState(VK_CONTROL)&0x8000)!=0,
+            (GetKeyState(VK_SHIFT)&0x8000)!=0,
+            (GetKeyState(VK_MENU)&0x8000)!=0,
+            IsWindowVisible(list)!=FALSE);
+        if(action!=NativeReviewSplitAction::None) {
+            const HWND parent=GetParent(list);
+            if(parent && IsWindow(parent))
+                SendMessageW(parent,kNativeReviewSplitMessage,
+                             static_cast<WPARAM>(action),0);
+            return 0;
+        }
+    }
+    if(message==WM_NCDESTROY)
+        RemoveWindowSubclass(list,native_review_split_keyboard_proc,subclass_id);
+    return DefSubclassProc(list,message,wp,lp);
+}
+
 // Keep the two real master/detail ListViews balanced across a resize.
 // Rectangles use the dialog client coordinate system and remain separate
 // from review identity, normalization and write logic.
@@ -157,9 +754,19 @@ struct ReviewSplitGeometry {
     RECT detail{};
 };
 inline ReviewSplitGeometry review_split_geometry(
-    RECT master, RECT detail, int width_delta, int height_delta) {
-    const int master_delta = width_delta / 2;
-    master.right += master_delta;
+    RECT master, RECT detail, int width_delta, int height_delta,
+    int preferred_offset = 0, int min_master = 160, int min_detail = 180) {
+    const int gap = detail.left - master.right;
+    const int base_right = master.right + width_delta / 2;
+    const int left_limit = master.left + min_master;
+    const int right_limit = detail.right + width_delta - gap - min_detail;
+    // A very narrow host rectangle keeps the existing proportional split;
+    // otherwise a dragged divider cannot collapse either ListView.
+    const int boundary = right_limit >= left_limit
+        ? (std::clamp)(base_right + preferred_offset, left_limit, right_limit)
+        : base_right;
+    const int master_delta = boundary - master.right;
+    master.right = boundary;
     master.bottom += height_delta;
     detail.left += master_delta;
     detail.right += width_delta;
@@ -167,12 +774,19 @@ inline ReviewSplitGeometry review_split_geometry(
     return {master, detail};
 }
 
+inline bool review_split_gap_hit(RECT master, RECT detail, int x, int y) noexcept {
+    return x >= master.right && x < detail.left &&
+           y >= (std::max)(master.top, detail.top) &&
+           y < (std::min)(master.bottom, detail.bottom);
+}
+
 inline bool apply_review_split_geometry(HWND master_list, HWND detail_list,
                                         RECT original_master, RECT original_detail,
-                                        int width_delta, int height_delta) {
+                                        int width_delta, int height_delta, int preferred_offset = 0) {
     if (!IsWindow(master_list) || !IsWindow(detail_list)) return false;
     const auto next = review_split_geometry(original_master, original_detail,
-                                             width_delta, height_delta);
+                                             width_delta, height_delta,
+                                             preferred_offset);
     const UINT flags = SWP_NOZORDER | SWP_NOACTIVATE;
     return SetWindowPos(master_list, nullptr, next.master.left, next.master.top,
                         next.master.right - next.master.left,
@@ -180,6 +794,82 @@ inline bool apply_review_split_geometry(HWND master_list, HWND detail_list,
            SetWindowPos(detail_list, nullptr, next.detail.left, next.detail.top,
                         next.detail.right - next.detail.left,
                         next.detail.bottom - next.detail.top, flags) != FALSE;
+}
+
+// Single atomic move for all native dialog controls.  Moving siblings one by
+// one during WM_SIZE left stale button invalidation/overlap artifacts. The
+// original rectangles are always the unresized resource geometry, so repeated
+// drag-resizes cannot accumulate rounding drift.
+struct NativePreviewResizeChild {
+    HWND window = nullptr;
+    RECT original{};
+    bool stretch_width = false;
+    bool stretch_height = false;
+    bool shift_down = false;
+    bool shift_right = false;
+};
+
+inline bool apply_native_preview_resize(
+    const std::vector<NativePreviewResizeChild>& children,
+    HWND master_list, HWND detail_list, int width_delta, int height_delta,
+    int preferred_offset = 0, int min_master = 160, int min_detail = 180) {
+    if (children.empty() || children.size() > 256) return false;
+    const RECT* master = nullptr;
+    const RECT* detail = nullptr;
+    for (const auto& child : children) {
+        if (child.window == master_list) master = &child.original;
+        if (child.window == detail_list) detail = &child.original;
+    }
+    const auto split = master && detail
+        ? review_split_geometry(*master, *detail, width_delta, height_delta,
+                                preferred_offset, min_master, min_detail)
+        : ReviewSplitGeometry{};
+    HDWP defer = BeginDeferWindowPos(static_cast<int>(children.size()));
+    if (!defer) return false;
+    for (const auto& child : children) {
+        if (!IsWindow(child.window)) continue;
+        const RECT& source = child.window == master_list && master ? split.master :
+                             child.window == detail_list && detail ? split.detail :
+                             child.original;
+        const bool split_child = child.window == master_list || child.window == detail_list;
+        const int x = source.left + (!split_child && child.shift_right ? width_delta : 0);
+        const int y = source.top + (!split_child && child.shift_down ? height_delta : 0);
+        const int w = source.right - source.left +
+            (!split_child && child.stretch_width ? width_delta : 0);
+        const int h = source.bottom - source.top +
+            (!split_child && child.stretch_height ? height_delta : 0);
+        defer = DeferWindowPos(defer, child.window, nullptr, x, y,
+            (std::max)(8, w), (std::max)(8, h),
+            SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS);
+        if (!defer) return false;
+    }
+    return EndDeferWindowPos(defer) != FALSE;
+}
+
+// Content-aware FIRST-OPEN column fitting. Samples at most 96 displayed
+// names, not the user's full foobar library. Never call for a track change or
+// overwrite a custom profile layout. Returns logical 96-DPI units.
+inline int fit_initial_track_title_column(HWND list,
+    const std::vector<std::wstring>& labels,int dpi) {
+    if(!list || dpi<96) return 265;
+    RECT area{};
+    if(!GetClientRect(list,&area)) return 265;
+    const int available=(std::max)(MulDiv(165,dpi,96),
+        static_cast<int>(area.right-area.left)-MulDiv(225,dpi,96));
+    int desired=static_cast<int>(SendMessageW(list,LVM_GETSTRINGWIDTHW,0,
+        reinterpret_cast<LPARAM>(L"Track")))+MulDiv(34,dpi,96);
+    const std::size_t max_samples=(std::min)(labels.size(),std::size_t(96));
+    for(std::size_t i=0;i<max_samples;++i) {
+        const auto& label=labels[i];
+        if(label.empty()) continue;
+        const int measured=static_cast<int>(SendMessageW(list,LVM_GETSTRINGWIDTHW,0,
+            reinterpret_cast<LPARAM>(label.c_str())));
+        if(measured>0) desired=(std::max)(desired,measured+MulDiv(30,dpi,96));
+    }
+    const int min_px=MulDiv(165,dpi,96);
+    const int max_px=(std::max)(min_px,(std::min)(available,MulDiv(600,dpi,96)));
+    const int actual=(std::clamp)(desired,min_px,max_px);
+    return (std::max)(48,MulDiv(actual,96,dpi));
 }
 
 inline bool align_label_to_input(HWND dialog, int label_id, int input_id) {
@@ -194,7 +884,14 @@ inline bool align_label_to_input(HWND dialog, int label_id, int input_id) {
     // field's actual screen rectangle, not the expanded list rectangle.
     COMBOBOXINFO combo{};
     combo.cbSize = sizeof(combo);
-    if (GetComboBoxInfo(input, &combo)) input_rect = combo.rcItem;
+    if (GetComboBoxInfo(input, &combo)) {
+        // COMBOBOXINFO.rcItem is LOCAL to the combo itself, not a desktop
+        // rectangle! The previous code compared y=3..20 with a screen
+        // y≈700 action, shifting label/control disastrously on a moved dialog.
+        input_rect=combo.rcItem;
+        MapWindowPoints(input,HWND_DESKTOP,
+                        reinterpret_cast<POINT*>(&input_rect),2);
+    }
 
     MapWindowPoints(HWND_DESKTOP, dialog,
                     reinterpret_cast<POINT*>(&label_rect), 2);
@@ -207,6 +904,326 @@ inline bool align_label_to_input(HWND dialog, int label_id, int input_id) {
                         SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE) != 0;
 }
 
+// Align real native input text rows rather than assuming edit/combo fonts
+// occupy the same vertical pixels as themed pushbutton captions. Repeated
+// WM_SIZE calls use current control geometry, so alignment is idempotent.
+// A multi-select ListView can have a first selected row DIFFERENT from
+// the one the user actually activates. Resolve the explicit mouse/keyboard
+// target only when THAT target is selected. Empty-space and unrelated
+// selection notifications must not authorize a provider request.
+inline int native_selected_release_activation_row(
+    UINT notification, int clicked_row, int focused_row,
+    bool clicked_selected, bool focused_selected, UINT key = 0) noexcept {
+    if (notification == NM_DBLCLK)
+        return clicked_row >= 0 && clicked_selected ? clicked_row : -1;
+    if (notification == LVN_KEYDOWN && key == VK_RETURN)
+        return focused_row >= 0 && focused_selected ? focused_row : -1;
+    return -1;
+}
+
+// The existing Load release command consumes the first selected ListView row.
+// Retarget it to the explicitly activated identity BEFORE dispatch, otherwise
+// a multi-selection could load the wrong edition. This deliberately collapses
+// the candidate selection on activation, never during ordinary comparison.
+inline bool native_focus_exact_release_row(HWND list, int target_row) {
+    if (!list || target_row < 0 || target_row >= ListView_GetItemCount(list) ||
+        (ListView_GetItemState(list, target_row, LVIS_SELECTED) &
+         LVIS_SELECTED) == 0)
+        return false;
+    ListView_SetItemState(list, -1, 0, LVIS_SELECTED);
+    ListView_SetItemState(list, target_row,
+        LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+    return ListView_GetSelectedCount(list) == 1 &&
+        ListView_GetNextItem(list, -1, LVNI_SELECTED) == target_row &&
+        ListView_GetNextItem(list, -1, LVNI_FOCUSED) == target_row;
+}
+
+// LVN_ITEMACTIVATE is the ListView's platform-native user intent for
+// double-click and keyboard activation. Never allow it to trigger network
+// access on an unrelated tab, physical-recording hit or loaded track list.
+inline bool may_activate_musicbrainz_release(UINT notification,
+    bool live, bool release_search, bool release_loaded, bool source_matches,
+    unsigned key = 0) {
+    // LVN_ITEMACTIVATE is not consistently emitted for owner-data ListViews.
+    // Use exactly one mouse event OR an explicit Return key notification.
+    return (notification==NM_DBLCLK ||
+            (notification==LVN_KEYDOWN && key==VK_RETURN)) &&
+           live && release_search && !release_loaded && source_matches;
+}
+
+inline bool align_native_action_row(HWND dialog, int input_id,
+                                     int button_id, bool combo,
+                                     int optical_offset_px = 0) {
+    const HWND input=GetDlgItem(dialog,input_id);
+    const HWND button=GetDlgItem(dialog,button_id);
+    if (!input || !button) return false;
+    RECT input_rect{}, button_rect{}, outer_rect{};
+    if (!GetWindowRect(input,&outer_rect) ||
+        !GetWindowRect(button,&button_rect)) return false;
+    input_rect=outer_rect;
+    if (combo) {
+        COMBOBOXINFO info{};
+        info.cbSize=sizeof(info);
+        if (!GetComboBoxInfo(input,&info)) return false;
+        input_rect=info.rcItem;
+        // Local combo edit item to desktop, THEN compare with GetWindowRect.
+        MapWindowPoints(input,HWND_DESKTOP,
+                        reinterpret_cast<POINT*>(&input_rect),2);
+    }
+    const int actual_middle=input_rect.top+(input_rect.bottom-input_rect.top)/2;
+    const int button_middle=button_rect.top+(button_rect.bottom-button_rect.top)/2;
+    const int delta=button_middle+optical_offset_px-actual_middle;
+    if (delta == 0) return true;
+    // Convert the current SCREEN rect to dialog CLIENT coordinates before
+    // SetWindowPos. Using screen y here would shove controls off-screen on
+    // moved/maximized windows, and x=0 would lose the search-field offset.
+    MapWindowPoints(HWND_DESKTOP,dialog,
+                    reinterpret_cast<POINT*>(&outer_rect),2);
+    return SetWindowPos(input,nullptr,outer_rect.left,outer_rect.top+delta,0,0,
+                        SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE)!=FALSE;
+}
+
+// Structural bounds for the two-level MusicBrainz browser. The caption
+// belongs to its own positive-height line and MUST NOT collide with the
+// nested ListView's column header at 100%-200% DPI.
+struct MusicBrainzPaneBounds {
+    RECT hits{};
+    RECT caption{};
+    RECT details{};
+};
+inline MusicBrainzPaneBounds musicbrainz_pane_bounds(RECT frame,int dpi) {
+    const int height=(std::max<int>)(0,frame.bottom-frame.top);
+    const int detail_height=(std::clamp)(height/3,98,210);
+    const int gap=(std::max)(26,MulDiv(29,dpi,96));
+    const int top_height=(std::max)(70,height-detail_height-gap);
+    const int upper_end=frame.top+top_height;
+    return {
+        {frame.left,frame.top,frame.right,upper_end},
+        {frame.left,upper_end+5,frame.right,upper_end+23},
+        {frame.left,upper_end+gap,frame.right,frame.bottom}
+    };
+}
+
+// Set *all* fields with explicit LVIF_TEXT rather than relying on a
+// ListView_SetItemText macro binding that can silently leave subitems blank.
+// Caller keeps metadata data in its own immutable candidate model.
+inline bool insert_native_preview_detail_row(HWND list, int index,
+    const std::wstring& field, const std::wstring& original,
+    const std::wstring& proposed, const std::wstring& status,
+    LPARAM source_row=-1) {
+    if (!list || index<0) return false;
+    LVITEMW first{};
+    first.mask=LVIF_TEXT|LVIF_PARAM;
+    first.lParam=source_row;
+    first.iItem=index;
+    first.iSubItem=0;
+    first.pszText=const_cast<LPWSTR>(field.c_str());
+    const int inserted=static_cast<int>(SendMessageW(
+        list,LVM_INSERTITEMW,0,reinterpret_cast<LPARAM>(&first)));
+    if (inserted<0) return false;
+    const std::wstring* values[]={&original,&proposed,&status};
+    for(int column=1;column<4;++column) {
+        LVITEMW item{};
+        item.mask=LVIF_TEXT;
+        item.iItem=inserted;
+        item.iSubItem=column;
+        item.pszText=const_cast<LPWSTR>(values[column-1]->c_str());
+        if (!SendMessageW(list,LVM_SETITEMW,0,
+                          reinterpret_cast<LPARAM>(&item))) {
+            ListView_DeleteItem(list,inserted);
+            return false;
+        }
+    }
+    return true;
+}
+
+
+// Exact-edition field identity is the immutable LVIF_PARAM source index.
+// A visible row changes under sort; -1/-2 are synthetic non-field rows.
+inline std::optional<std::size_t> native_evidence_source_row(
+    HWND list,int visible,std::size_t source_count) noexcept {
+    if(!list || visible<0 || visible>=ListView_GetItemCount(list))
+        return std::nullopt;
+    LVITEMW item{}; item.mask=LVIF_PARAM; item.iItem=visible;
+    if(!SendMessageW(list,LVM_GETITEMW,0,reinterpret_cast<LPARAM>(&item)) ||
+       item.lParam<0 ||
+       item.lParam>=1024 ||
+       static_cast<std::size_t>(item.lParam)>=source_count)
+        return std::nullopt;
+    return static_cast<std::size_t>(item.lParam);
+}
+struct NativeEvidenceSortContext {
+    std::vector<std::array<std::wstring,4>> cells;
+    int column=0;
+    bool descending=false;
+};
+inline int CALLBACK native_evidence_compare(LPARAM lhs,LPARAM rhs,
+                                            LPARAM opaque) noexcept {
+    const auto& c=*reinterpret_cast<const NativeEvidenceSortContext*>(opaque);
+    const bool left=lhs>=0 && static_cast<std::size_t>(lhs)<c.cells.size();
+    const bool right=rhs>=0 && static_cast<std::size_t>(rhs)<c.cells.size();
+    if(left!=right) return left?-1:1;
+    if(!left) return lhs==rhs?0:lhs>rhs?-1:1;
+    const auto& a=c.cells[static_cast<std::size_t>(lhs)][c.column];
+    const auto& b=c.cells[static_cast<std::size_t>(rhs)][c.column];
+    const int comparison=CompareStringOrdinal(a.c_str(),-1,b.c_str(),-1,TRUE);
+    if(comparison==CSTR_LESS_THAN) return c.descending?1:-1;
+    if(comparison==CSTR_GREATER_THAN) return c.descending?-1:1;
+    return lhs==rhs?0:lhs<rhs?-1:1;
+}
+inline bool native_sort_evidence_details(HWND list,int column,bool descending) {
+    if(!list || column<0 || column>=4) return false;
+    const int count=ListView_GetItemCount(list);
+    if(count<0 || count>1026) return false;
+    NativeEvidenceSortContext context;
+    context.cells.resize(static_cast<std::size_t>(count));
+    context.column=column; context.descending=descending;
+    std::vector<bool> seen(static_cast<std::size_t>(count),false);
+    for(int row=0;row<count;++row) {
+        LVITEMW item{}; item.mask=LVIF_PARAM; item.iItem=row;
+        if(!SendMessageW(list,LVM_GETITEMW,0,
+                         reinterpret_cast<LPARAM>(&item))) return false;
+        if(item.lParam<0) {
+            if(item.lParam!=-1 && item.lParam!=-2) return false;
+            continue;
+        }
+        if(item.lParam>=1024 || item.lParam>=count ||
+           seen[static_cast<std::size_t>(item.lParam)]) return false;
+        seen[static_cast<std::size_t>(item.lParam)]=true;
+        for(int col=0;col<4;++col) {
+            wchar_t value[4096]{};
+            LVITEMW text{};
+            text.mask=LVIF_TEXT;
+            text.iItem=row;
+            text.iSubItem=col;
+            text.pszText=value;
+            text.cchTextMax=4096;
+            SendMessageW(list,LVM_GETITEMTEXTW,static_cast<WPARAM>(row),
+                         reinterpret_cast<LPARAM>(&text));
+            context.cells[static_cast<std::size_t>(item.lParam)][col]=value;
+        }
+    }
+    return ListView_SortItems(list,native_evidence_compare,
+                              reinterpret_cast<LPARAM>(&context))!=FALSE;
+}
+
+// After a new provider query or a changed track, a virtual ListView may
+// retain selection INDEX 0/1 while representing an entirely different
+// release. A selected row is not an identity. Unless the exact source ID
+// survives the rebuilt candidate order, reselect the explicit first row and
+// refresh its evidence. This guards the Load release action from stale rows.
+inline bool native_browser_selection_requires_reset(
+    bool same_candidate_identity, int actual_selected_row,
+    std::size_t verified_view_row) noexcept {
+    if(!same_candidate_identity) return true;
+    return actual_selected_row<0 ||
+        static_cast<std::size_t>(actual_selected_row)!=verified_view_row;
+}
+
+// Explicit cancellation of one pending user-requested provider lookup reuses
+// the existing Search button. Stop and response-epoch invalidation are owned
+// by the dialog; this helper only changes the real Win32 button presentation.
+inline constexpr bool native_online_lookup_can_cancel(
+    bool pending, bool cancelling) noexcept {
+    return pending && !cancelling;
+}
+inline bool native_apply_online_cancel_button(
+    HWND button, bool pending, bool cancelling) noexcept {
+    if(!button || !pending) return false;
+    if(!SetWindowTextW(button,cancelling
+        ? L"Cancelling..." : L"Cancel lookup")) return false;
+    EnableWindow(button,native_online_lookup_can_cancel(
+        pending,cancelling)?TRUE:FALSE);
+    return true;
+}
+
+// Search progress is visible in the actual native button, not buried in a
+// status label: a second deliberate click broadens nonmatching first-page
+// Discogs hits without browsing an artist tree. No request starts merely
+// because this caption is shown. Direct editions and master pagination never
+// masquerade as a new search stage.
+inline const wchar_t* native_discogs_search_caption(
+    bool discogs_selected, bool master_next, bool has_published_results,
+    bool correct_source, bool exact_edition_loaded, bool request_pending,
+    std::size_t completed_stage, std::size_t stage_count) noexcept {
+    if(!discogs_selected) return L"Search MusicBrainz";
+    if(master_next) return L"Next master page";
+    const bool may_broaden=has_published_results && correct_source &&
+        !exact_edition_loaded && !request_pending &&
+        stage_count>1 && stage_count<=16 &&
+        completed_stage<stage_count-1;
+    return may_broaden ? L"Broaden Discogs" : L"Search Discogs";
+}
+
+inline int native_window_dpi(HWND window) noexcept {
+    // The foobar SDK targets older _WIN32_WINNT declarations, so resolve the
+    // per-monitor API dynamically and retain the system-DPI fallback.
+    using QueryFn=UINT (WINAPI*)(HWND);
+    static const auto query=[]() -> QueryFn {
+        const HMODULE user32=GetModuleHandleW(L"user32.dll");
+        return user32 ? reinterpret_cast<QueryFn>(
+            GetProcAddress(user32,"GetDpiForWindow")) : nullptr;
+    }();
+    if(query && window) {
+        const UINT dpi=query(window);
+        if(dpi) return static_cast<int>(dpi);
+    }
+    HDC dc=GetDC(window);
+    if(!dc) return 96;
+    const int dpi=GetDeviceCaps(dc,LOGPIXELSX);
+    ReleaseDC(window,dc);
+    return dpi>0 ? dpi : 96;
+}
+
+inline int native_edit_padding_for_dpi(int logical_pixels, int dpi) noexcept {
+    return MulDiv(logical_pixels, (std::clamp)(dpi,96,384), 96);
+}
+
+// Native single-line EDIT fields put text near the TOP of a tall box;
+// moving that tall box cannot align its glyphs with a themed button.
+// Size the field to the actual UI font plus bounded padding first, and
+// center the resulting edit *frame* against its adjacent action.
+inline bool align_native_edit_to_action(HWND dialog,
+                                        int edit_id, int button_id) {
+    const HWND edit=GetDlgItem(dialog,edit_id);
+    const HWND button=GetDlgItem(dialog,button_id);
+    if (!edit || !button) return false;
+    RECT field{}, action{};
+    if (!GetWindowRect(edit,&field) || !GetWindowRect(button,&action))
+        return false;
+    HDC dc=GetDC(edit);
+    if (!dc) return false;
+    HFONT font=reinterpret_cast<HFONT>(SendMessageW(edit,WM_GETFONT,0,0));
+    HGDIOBJ previous=font?SelectObject(dc,font):nullptr;
+    TEXTMETRICW metrics{};
+    const bool measured=GetTextMetricsW(dc,&metrics)!=FALSE;
+    if (previous) SelectObject(dc,previous);
+    ReleaseDC(edit,dc);
+    if (!measured) return false;
+    const int actionHeight=action.bottom-action.top;
+    const int dpi=native_window_dpi(dialog);
+    // The font already scales with DPI; scale only the optical pixel insets.
+    const int edit_padding=native_edit_padding_for_dpi(6,dpi);
+    const int baseline_offset=native_edit_padding_for_dpi(4,dpi);
+    // Keep the native EDIT text's upper inset close to its actual text height.
+    // At 100-200% Windows scaling avoid an unreasonably tall input frame.
+    const int height=(std::min)(actionHeight,(std::max)(static_cast<int>(metrics.tmHeight)+edit_padding,
+        native_edit_padding_for_dpi(15,dpi)));
+    const int targetY=(action.top+action.bottom+baseline_offset-height)/2;
+    MapWindowPoints(HWND_DESKTOP,dialog,reinterpret_cast<POINT*>(&field),2);
+    POINT top{0,targetY};
+    MapWindowPoints(HWND_DESKTOP,dialog,&top,1);
+    if (field.top==top.y && field.bottom-field.top==height) return true;
+    return SetWindowPos(edit,nullptr,field.left,top.y,
+        field.right-field.left,height,SWP_NOZORDER|SWP_NOACTIVATE)!=FALSE;
+}
+
+// Keep the search field and its action aligned as one native toolbar.
+inline bool align_native_search_field(HWND dialog) {
+    return align_native_edit_to_action(
+        dialog,IDC_METADATA_MB_QUERY,IDC_METADATA_MB_SEARCH);
+}
+
 inline void align_native_preview_form(HWND dialog) {
     constexpr int rows[][2] = {
         {IDC_METADATA_FILTER_LABEL, IDC_METADATA_FILTER},
@@ -217,6 +1234,18 @@ inline void align_native_preview_form(HWND dialog) {
     };
     for (const auto& row : rows)
         align_label_to_input(dialog, row[0], row[1]);
+    // Theme-dependent text in a standard EDIT normally sits slightly higher
+    // than text in a PUSHBUTTON with the same outer frame height.
+    align_native_search_field(dialog);
+    // The manual replacement EDIT is also a single-line native control.
+    // Use the same font-measured optical baseline as the Search EDIT so
+    // neither toolbar's value and action drift apart after a DPI resize.
+    align_native_edit_to_action(dialog, IDC_METADATA_MANUAL_INPUT,
+                                IDC_METADATA_USE_VALUE);
+    // The combo RC height includes its dropdown; align *rcItem* with the
+    // adjacent action buttons, not the full expanded list rectangle.
+    align_native_action_row(dialog, IDC_METADATA_REVIEW_SCOPE,
+                            IDC_METADATA_ACCEPT, true, 0);
 }
 
 } // namespace djmeta_foobar
