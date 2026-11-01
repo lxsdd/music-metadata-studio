@@ -316,7 +316,7 @@ PrecisionCueExternalBatchResult create_confirmed_batch_with_probe(
         bool entered_writer = false;
         try {
             before_disc(index);
-            auto& reviewed = reviews[index];
+            auto reviewed = reviews[index]; // Keep original review for final all-disc attestation.
             // One batch consent is materialized only on this local copy.
             reviewed.request.explicitly_approved_for_external_create = true;
             reviewed.request.reviewed_preflight.explicit_user_approval = true;
@@ -342,6 +342,39 @@ PrecisionCueExternalBatchResult create_confirmed_batch_with_probe(
             result.state = entered_writer ? State::PublishedNeedsReview
                 : result.created_count > 0 ? State::PartialNeedsReview
                                            : State::RejectedBeforeCreate;
+            return result;
+        }
+    }
+    // Each disc was checked immediately after its own publication, but an
+    // earlier mix or CUE can change while later discs are being published.
+    // Re-attest ALL published pairs; a failure keeps every created target
+    // intact for explicit review, with no automatic rollback or overwrite.
+    for (std::size_t index = 0; index < reviews.size(); ++index) {
+        result.failed_disc_index = index;
+        const auto& review = reviews[index];
+        const auto& req = review.request;
+        bool source_unchanged = false;
+        bool target_unchanged = false;
+        try {
+            const auto digest = precision_cue_review_source_sha256(
+                req.physical_mp3_absolute_path,
+                req.qualified_sibling_directory, req.mp3_basename);
+            source_unchanged = digest &&
+                *digest == review.reviewed_source_sha256 &&
+                precision_cue_external_detail::physical_source_unchanged(
+                    review.reviewed_source, req.physical_mp3_absolute_path,
+                    req.qualified_sibling_directory, req.mp3_basename);
+            target_unchanged =
+                precision_cue_external_detail::verify_published_external_cue(
+                    result.target_paths[index], req.plan.external_cue_utf8);
+        } catch (...) {
+            // A post-publication exception is not evidence of no creation.
+        }
+        if (!source_unchanged || !target_unchanged) {
+            result.state = State::PublishedNeedsReview;
+            result.diagnostic = source_unchanged
+                ? "CUE_BATCH_POSTVERIFY_TARGET_CHANGED_RETAIN_ALL"
+                : "CUE_BATCH_POSTVERIFY_SOURCE_CHANGED_RETAIN_ALL";
             return result;
         }
     }
