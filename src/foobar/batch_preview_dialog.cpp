@@ -3096,12 +3096,15 @@ void navigate_preview_history(HWND dialog,PreviewState& state,int visible_row) {
         update_master_table(state);
         TabCtrl_SetCurSel(state.tabs,1);
         show_preview_page(dialog,state,true,false);
-        const auto it=std::find(state.track_view_order.begin(),
-                                state.track_view_order.end(),*source);
-        if(it==state.track_view_order.end())
-            throw std::invalid_argument("History source not in review queue.");
-        ListView_EnsureVisible(state.metadata_track_list,
-            static_cast<int>(it-state.track_view_order.begin()),FALSE);
+        // Rebind the exact physical source to the CURRENT owner-data row.
+        // Suppress programmatic LVN_ITEMCHANGED as a user selection gesture;
+        // this is a read-only jump, not an online request or review action.
+        state.updating_track_selection=true;
+        const auto focused=native_focus_history_source(
+            state.metadata_track_list,state.track_view_order,*source);
+        state.updating_track_selection=false;
+        if(!focused)
+            throw std::invalid_argument("History source not uniquely in review queue.");
         SetFocus(state.metadata_track_list);
     }
     SetDlgItemTextW(dialog,IDC_BATCH_HINT,
