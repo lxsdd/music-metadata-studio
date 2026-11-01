@@ -7181,7 +7181,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         add_column(state->history_list,3,L"Tracks",76);
         add_column(state->history_list,4,L"Items",76);
         for(const wchar_t* choice:{L"All actions",L"Review decisions",
-            L"Route previews",L"Undo actions",L"Provider lookups"})
+            L"Route previews",L"Undo actions",L"Provider lookups",
+            L"Discogs editions",L"MusicBrainz editions",L"Beatport tracks"})
             SendDlgItemMessageW(dialog,IDC_BATCH_HISTORY_FILTER,CB_ADDSTRING,
                 0,reinterpret_cast<LPARAM>(choice));
         SendDlgItemMessageW(dialog,IDC_BATCH_HISTORY_FILTER,CB_SETCURSEL,0,0);
@@ -9748,7 +9749,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             const auto selected=SendDlgItemMessageW(
                 dialog,IDC_BATCH_HISTORY_FILTER,CB_GETCURSEL,0,0);
             if(selected<0 ||
-               selected>static_cast<int>(PreviewHistoryFilter::Lookup))
+               selected>static_cast<int>(PreviewHistoryFilter::Beatport))
                 throw std::invalid_argument("Unknown history filter.");
             state->history_filter=static_cast<PreviewHistoryFilter>(selected);
             refresh_preview_history_list(*state);
