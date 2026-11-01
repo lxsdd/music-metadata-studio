@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <array>
 #include <initializer_list>
+#include <iterator>
+#include <limits>
 #include <cstddef>
 #include <numeric>
 #include <optional>
@@ -54,6 +56,33 @@ inline bool native_set_history_source_cell(
     item.pszText=label.data();
     return SendMessageW(list,LVM_SETITEMTEXTW,static_cast<WPARAM>(row),
                         reinterpret_cast<LPARAM>(&item))!=FALSE;
+}
+
+// History deep links target an exact physical source in the CURRENT visible
+// owner-data track grid. Never infer an identity from a caption, row number,
+// provider result or previous filtered order. A missing/duplicate identity
+// leaves the existing selection untouched (no implicit review decision).
+inline std::optional<int> native_focus_history_source(
+    HWND list,const std::vector<std::size_t>& view_order,
+    std::size_t source_index) {
+    if(!IsWindow(list) || view_order.empty() ||
+       view_order.size()>static_cast<std::size_t>((std::numeric_limits<int>::max)()) ||
+       view_order.size()!=static_cast<std::size_t>(ListView_GetItemCount(list)))
+        return std::nullopt;
+    const auto found=std::find(view_order.begin(),view_order.end(),source_index);
+    if(found==view_order.end() ||
+       std::find(std::next(found),view_order.end(),source_index)!=view_order.end())
+        return std::nullopt;
+    const int row=static_cast<int>(found-view_order.begin());
+    ListView_SetItemState(list,-1,0,LVIS_SELECTED|LVIS_FOCUSED);
+    ListView_SetItemState(list,row,LVIS_SELECTED|LVIS_FOCUSED,
+                          LVIS_SELECTED|LVIS_FOCUSED);
+    if(ListView_GetSelectedCount(list)!=1 ||
+       ListView_GetNextItem(list,-1,LVNI_SELECTED)!=row ||
+       (ListView_GetItemState(list,row,LVIS_FOCUSED)&LVIS_FOCUSED)==0)
+        return std::nullopt;
+    ListView_EnsureVisible(list,row,FALSE);
+    return row;
 }
 
 // Online selections belong to an immutable source, not to the visible tab.
