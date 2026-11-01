@@ -34,6 +34,13 @@ inline bool precision_cue_safe_unicode_text(std::string_view text) noexcept {
             (cp >= 0x2028u && cp <= 0x202eu) ||
             (cp >= 0x2066u && cp <= 0x2069u) ||
             cp == 0xfeffu ||
+            // Invisible separators/operators can spoof provider edition text,
+            // filenames and read-only CUE provenance without changing frames.
+            // Keep U+200C (linguistic ZWNJ) and U+200D (emoji ZWJ) intact.
+            cp == 0x00adu || cp == 0x034fu || cp == 0x180eu ||
+            cp == 0x200bu || cp == 0x2060u ||
+            (cp >= 0x2061u && cp <= 0x2064u) ||
+            (cp >= 0x206au && cp <= 0x206fu) ||
             (cp >= 0xfdd0u && cp <= 0xfdefu) ||
             (cp & 0xfffeu) == 0xfffeu)
             return false;
