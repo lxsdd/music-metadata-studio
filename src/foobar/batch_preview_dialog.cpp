@@ -2762,6 +2762,9 @@ void refresh_preview_history_list(PreviewState& state) {
             const_cast<LPWSTR>(preview_history_scope(event)));
         ListView_SetItemText(state.history_list,index,3,sources.data());
         ListView_SetItemText(state.history_list,index,4,items.data());
+        if(!native_set_history_source_cell(
+               state.history_list,index,event,state.entries.size()))
+            throw std::runtime_error("Cannot display History physical source.");
     }
     if(retained_row) {
         const int row=static_cast<int>(*retained_row);
@@ -7175,11 +7178,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         TabCtrl_SetCurSel(state->tabs, workspace_defaults.opening_tab);
         ListView_SetExtendedListViewStyle(state->history_list,
             LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
-        add_column(state->history_list,0,L"Step",54);
-        add_column(state->history_list,1,L"Action",153);
-        add_column(state->history_list,2,L"Scope",143);
-        add_column(state->history_list,3,L"Tracks",76);
-        add_column(state->history_list,4,L"Items",76);
+        if(!native_setup_history_columns(state->history_list))
+            throw std::runtime_error("Cannot initialize native History columns.");
         for(const wchar_t* choice:{L"All actions",L"Review decisions",
             L"Route previews",L"Undo actions",L"Provider lookups",
             L"Discogs editions",L"MusicBrainz editions",L"Beatport tracks"})
