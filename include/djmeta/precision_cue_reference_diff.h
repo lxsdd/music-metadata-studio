@@ -4,6 +4,8 @@
 // edition/mastering identity, and NEVER authorizes external/embedded writes.
 #include "djmeta/external_cue.h"
 #include "djmeta/precision_cue_boundary_audit.h"
+#include "djmeta/precision_cue_calendar_date.h"
+#include "djmeta/precision_cue_unicode_text.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -238,6 +240,15 @@ inline PrecisionCueReferenceDiff compare_precision_cue_external_reference(
         if (line.find('\r') != std::string_view::npos) return out;
         line = trim(line);
         if (line.empty()) continue;
+        // The generic FILE inventory verifies UTF-8 but cannot reject
+        // invisible bidi controls in TITLE/REM. Never label spoofed text
+        // as a frame-exact reference to the selected edition.
+        for (const auto token : words(line)) {
+            if (!precision_cue_safe_unicode_text(token)) {
+                out.diagnostic = "CUE_REFERENCE_UNSAFE_UNICODE_TEXT";
+                return out;
+            }
+        }
         const auto sep = line.find_first_of(" \t");
         const auto op = line.substr(0, sep);
         if (op == "FILE") {
@@ -321,6 +332,26 @@ inline PrecisionCueReferenceDiff compare_precision_cue_external_reference(
                  metadata_tokens[2] == "\"\"")) {
                 out.diagnostic = "CUE_REFERENCE_MALFORMED_REM";
                 return out;
+            }
+            // Reference calendar claims must be valid ISO precision. A
+            // nonexistent date is not alternative release evidence.
+            if (op == "REM" && metadata_tokens[1] == "DATE") {
+                if (metadata_tokens.size() != 3) {
+                    out.diagnostic = "CUE_REFERENCE_DATE_INVALID";
+                    return out;
+                }
+                auto date = metadata_tokens[2];
+                if (date.size() >= 2 && date.front() == '"' && date.back() == '"') {
+                    date.remove_prefix(1);
+                    date.remove_suffix(1);
+                } else if (date.find('"') != std::string_view::npos) {
+                    out.diagnostic = "CUE_REFERENCE_DATE_INVALID";
+                    return out;
+                }
+                if (date.empty() || !precision_cue_valid_calendar_date(date)) {
+                    out.diagnostic = "CUE_REFERENCE_DATE_INVALID";
+                    return out;
+                }
             }
             if (op == "REM" && metadata_tokens.size() >= 2 &&
                 (metadata_tokens[1] == "DISCNUMBER" ||

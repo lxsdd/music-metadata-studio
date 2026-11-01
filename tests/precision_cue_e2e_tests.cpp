@@ -223,6 +223,37 @@ void reference_cue_timeline_regressions(const PrecisionCuePlan& plan) {
     CHECK(std::string(diff.diagnostic) ==
           "CUE_REFERENCE_METADATA_OPERAND_MISSING");
 
+    // Valid reference dates are still unverified metadata; invalid dates
+    // and invisible controls must not be accepted as exact CUE evidence.
+    for (const auto* valid : {"2024-02-29", "2026-11", "2026"}) {
+        auto dated = original;
+        replace_once(dated, "REM TOTALDISCS 2\n",
+                     std::string("REM TOTALDISCS 2\nREM DATE \"") + valid + "\"\n");
+        diff = compare_precision_cue_external_reference(plan, dated, basename);
+        CHECK(diff.state == State::ReviewRequired);
+        CHECK(diff.album_metadata_conflict && diff.audit.exact_count == 15);
+    }
+    for (const auto* bad : {"2025-02-29", "2026-04-31", "2026-13",
+                            "0000", "2026-02-30", "2026-01-01\" extra"}) {
+        auto dated = original;
+        replace_once(dated, "REM TOTALDISCS 2\n",
+                     std::string("REM TOTALDISCS 2\nREM DATE \"") + bad + "\"\n");
+        diff = compare_precision_cue_external_reference(plan, dated, basename);
+        CHECK(diff.state == State::Unqualified);
+        CHECK(std::string(diff.diagnostic) == "CUE_REFERENCE_DATE_INVALID");
+    }
+    for (const auto& unsafe : {std::string("\xE2\x80\xAE"),
+                               std::string("\xE2\x81\xA6"),
+                               std::string(1, '\f')}) {
+        auto spoofed = original;
+        replace_once(spoofed, "Mix Track 1 (Mixed)",
+                     std::string("Mix Track 1 ") + unsafe + "(Mixed)");
+        diff = compare_precision_cue_external_reference(plan, spoofed, basename);
+        CHECK(diff.state == State::Unqualified);
+        CHECK(std::string(diff.diagnostic) ==
+              "CUE_REFERENCE_UNSAFE_UNICODE_TEXT");
+    }
+
     // Valid but independently unverified CUE identity is REVIEW-only.
     // Invalid numeric disc claims and malformed identifier syntax are not
     // usable as reference evidence, even when all 75-fps frames match.
