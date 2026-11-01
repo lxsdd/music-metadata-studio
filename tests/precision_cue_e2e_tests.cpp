@@ -111,6 +111,22 @@ void physical_selection_alias_regressions() {
     selected[1].volume_id = 0;
     CHECK(validate_precision_cue_physical_selection(selected) == State::InvalidSource);
     selected[1].volume_id = 42;
+    // Reject unsafe CUE FILE operands before physical disc mapping. These
+    // must remain invalid even when the OS file IDs are otherwise distinct.
+    for (const std::string& bad : {
+             std::string("CON.mp3"), std::string("COM1.mp3"),
+             std::string("COM\xC2\xB9.mp3"),
+             std::string("..\\\\escape.mp3"), std::string("bad?.mp3"),
+             std::string("trailing.mp3 "), std::string("bad\xFF.mp3"),
+             std::string("bad\xE2\x80\xAE.mp3"),
+             std::string("other.wav")}) {
+        selected[1].basename = bad;
+        CHECK(validate_precision_cue_physical_selection(selected) ==
+              State::InvalidSource);
+    }
+    selected[1].basename = "Mix \xE6\x9D\xB1\xE4\xBA\xAC.mp3";
+    CHECK(validate_precision_cue_physical_selection(selected) == State::Qualified);
+    selected[1].basename = "Disc B.mp3";
     CHECK(validate_precision_cue_physical_selection({}) == State::InvalidSource);
     CHECK(validate_precision_cue_physical_selection(
         std::vector<PrecisionCuePhysicalSelectionEvidence>(9, selected[0])) ==
