@@ -18,11 +18,15 @@ namespace {
 constexpr std::int64_t kFramesPerSecond = 75;
 constexpr std::int64_t kMillisecondsPerSecond = 1000;
 constexpr std::int64_t kMaximumDiscMs = 24LL * 60 * 60 * 1000;
+constexpr std::size_t kMaximumCueFieldUtf8Bytes = 4096;
+constexpr std::size_t kMaximumCueDocumentBytes = 1024 * 1024;
 
 void validate_cue_text(std::string_view value, std::string_view field, bool required = true) {
     if (required && value.empty()) {
         throw std::invalid_argument(std::string(field) + " is empty");
     }
+    if (value.size() > kMaximumCueFieldUtf8Bytes)
+        throw std::invalid_argument(std::string(field) + " exceeds CUE field byte limit");
     if (!precision_cue_safe_unicode_text(value))
         throw std::invalid_argument(
             std::string(field) + " contains malformed Unicode or hidden controls");
@@ -114,6 +118,8 @@ PrecisionCuePlan make_precision_cue(const PrecisionCueDisc& disc) {
     }
     plan.total_duration_ms = cumulative_ms;
     plan.external_cue_utf8 = out.str();
+    if (plan.external_cue_utf8.size() > kMaximumCueDocumentBytes)
+        throw std::invalid_argument("Generated CUE exceeds document byte limit");
     // Reject malformed UTF-8 anywhere in the generated CUE, including
     // provider titles and FILE basenames. The external CUE inventory is the
     // same strict parser used by the existing read-only host association.
