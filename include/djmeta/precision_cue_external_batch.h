@@ -293,12 +293,12 @@ namespace precision_cue_batch_detail {
 // Only internal deterministic fixture tests supply a callback here. The
 // shipped native create action uses a strict no-op callback. A race after
 // the whole-set preflight must still be rejected at each per-file writer.
-template <class BeforeDisc>
+template <class BeforeDisc, class AfterDisc>
 PrecisionCueExternalBatchResult create_confirmed_batch_with_probe(
     std::vector<PrecisionCueReviewedExternalCreate> reviews,
     const PrecisionCueRelease& selected_edition,
     bool explicit_batch_confirmation,
-    BeforeDisc before_disc) {
+    BeforeDisc before_disc, AfterDisc after_disc) {
     using State = PrecisionCueExternalBatchState;
     PrecisionCueExternalBatchResult result;
     if (!explicit_batch_confirmation) {
@@ -322,15 +322,21 @@ PrecisionCueExternalBatchResult create_confirmed_batch_with_probe(
         try {
             before_disc(index);
             // Before extending a partially published batch, recheck every
-            // earlier physical identity and exact CUE target. This bounded
-            // identity/<=1 MiB byte check is not a substitute for the final
-            // full source SHA-256 (which catches restored-mtime changes).
+            // earlier source's full SHA-256 AND physical identity, plus the
+            // exact published target. An equal-size edit with restored mtime
+            // must stop before publishing another disc, not only at the
+            // final all-disc attestation. Hashing streams in bounded RAM.
             for (std::size_t prior = 0; prior < index; ++prior) {
                 const auto& old = reviews[prior];
                 const auto& req = old.request;
                 const auto target_name = plan_precision_cue_external_export(
                     req.plan, req.mp3_basename).target_cue_basename;
-                if (!precision_cue_external_detail::physical_source_unchanged(
+                const auto prior_digest = precision_cue_review_source_sha256(
+                    req.physical_mp3_absolute_path,
+                    req.qualified_sibling_directory, req.mp3_basename);
+                if (!prior_digest ||
+                    *prior_digest != old.reviewed_source_sha256 ||
+                    !precision_cue_external_detail::physical_source_unchanged(
                         old.reviewed_source, req.physical_mp3_absolute_path,
                         req.qualified_sibling_directory, req.mp3_basename)) {
                     result.failed_disc_index = prior;
@@ -387,6 +393,9 @@ PrecisionCueExternalBatchResult create_confirmed_batch_with_probe(
                 return result;
             }
             published_target_snapshots.push_back(*published);
+            // Synthetic tests may inject a late race AFTER publication.
+            // Production always supplies a no-op; never alter media here.
+            after_disc(index);
         } catch (...) {
             result.diagnostic = entered_writer
                 ? "CUE_BATCH_WRITER_EXCEPTION_PUBLISHED_TARGET_UNCERTAIN"
@@ -440,6 +449,17 @@ PrecisionCueExternalBatchResult create_confirmed_batch_with_probe(
     result.failed_disc_index = 0;
     result.diagnostic = "CUE_BATCH_ALL_CREATED_AND_VERIFIED";
     return result;
+}
+// Preserve the original four-argument test API and the production call.
+template <class BeforeDisc>
+PrecisionCueExternalBatchResult create_confirmed_batch_with_probe(
+    std::vector<PrecisionCueReviewedExternalCreate> reviews,
+    const PrecisionCueRelease& selected_edition,
+    bool explicit_batch_confirmation,
+    BeforeDisc before_disc) {
+    return create_confirmed_batch_with_probe(
+        std::move(reviews), selected_edition, explicit_batch_confirmation,
+        std::move(before_disc), [](std::size_t) noexcept {});
 }
 } // namespace precision_cue_batch_detail
 
