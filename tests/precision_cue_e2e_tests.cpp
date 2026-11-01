@@ -845,11 +845,41 @@ void batch_midflight_external_race_regressions(
                         throw std::runtime_error("injected before first writer");
                     if (mode == 5 && index == 1)
                         throw std::runtime_error("injected after first writer");
+                    if (mode == 6 && index == 1) {
+                        // Disc 1 was already published; change its physical
+                        // source with the same inode/size/restored mtime.
+                        const auto timestamp = fs::last_write_time(a);
+                        synthetic_file(a, 'Z');
+                        std::error_code ec;
+                        fs::last_write_time(a, timestamp, ec);
+                        CHECK(!ec);
+                    }
+                    if (mode == 7 && index == 1) {
+                        // Disc 1's previously verified target is changed
+                        // in place while the second disc is being published.
+                        std::fstream changed(cue_a, std::ios::binary |
+                            std::ios::in | std::ios::out);
+                        CHECK(changed.good());
+                        changed.seekp(0);
+                        changed.put('X');
+                        changed.close();
+                        CHECK(changed.good());
+                    }
                 });
-        CHECK(raced.state == (mode == 3 || mode == 4
-            ? State::RejectedBeforeCreate : State::PartialNeedsReview));
-        CHECK(raced.created_count == (mode == 3 || mode == 4 ? 0u : 1u));
-        CHECK(raced.failed_disc_index == (mode == 3 || mode == 4 ? 0u : 1u));
+        const bool postpublish_race = mode == 6 || mode == 7;
+        CHECK(raced.state == (postpublish_race ? State::PublishedNeedsReview :
+            (mode == 3 || mode == 4 ? State::RejectedBeforeCreate :
+             State::PartialNeedsReview)));
+        CHECK(raced.created_count == (postpublish_race ? 2u :
+            (mode == 3 || mode == 4 ? 0u : 1u)));
+        CHECK(raced.failed_disc_index == (postpublish_race ? 0u :
+            (mode == 3 || mode == 4 ? 0u : 1u)));
+        if (mode == 6)
+            CHECK(raced.diagnostic ==
+                  "CUE_BATCH_POSTVERIFY_SOURCE_CHANGED_RETAIN_ALL");
+        if (mode == 7)
+            CHECK(raced.diagnostic ==
+                  "CUE_BATCH_POSTVERIFY_TARGET_CHANGED_RETAIN_ALL");
         CHECK(raced.target_paths.size() == 2);
         CHECK(raced.target_paths[0] == cue_a &&
               raced.target_paths[1] == cue_b);
@@ -857,9 +887,22 @@ void batch_midflight_external_race_regressions(
             CHECK(inspect_precision_cue_existing_target(
                 plans[1], b, "Disc 2.mp3").state == Existing::Absent);
             if (mode == 4) CHECK(precision_cue_target_is_absent(cue_a));
+        } else if (mode == 7) {
+            CHECK(inspect_precision_cue_existing_target(
+                plans[0], a, "Disc 1.mp3").state == Existing::Different);
         } else {
             CHECK(inspect_precision_cue_existing_target(
                 plans[0], a, "Disc 1.mp3").state == Existing::Identical);
+        }
+        if (postpublish_race) {
+            CHECK(fs::exists(cue_a) && fs::exists(cue_b));
+            CHECK(inspect_precision_cue_existing_target(
+                plans[1], b, "Disc 2.mp3").state == Existing::Identical);
+        }
+        if (mode == 6) {
+            const auto changed = precision_cue_review_source_sha256(
+                a, temporary.path, "Disc 1.mp3");
+            CHECK(changed && *changed != ra->reviewed_source_sha256);
         }
         if (mode == 1 || mode == 5)
             CHECK(precision_cue_target_is_absent(cue_b));
@@ -876,7 +919,7 @@ void batch_midflight_external_race_regressions(
         for (const auto& entry : fs::directory_iterator(temporary.path))
             CHECK(entry.path().filename().string().find(".precision-cue-") != 0);
     };
-    for (int mode = 1; mode <= 5; ++mode) scenario(mode);
+    for (int mode = 1; mode <= 7; ++mode) scenario(mode);
 }
 
 void cross_provider_release_and_cue() {
