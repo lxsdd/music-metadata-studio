@@ -661,6 +661,33 @@ int main() {
     HWND history_hwnd=GetDlgItem(dialog,IDC_BATCH_HISTORY_LIST);
     check(history_hwnd && IsWindow(history_hwnd)!=FALSE,
           "production native History ListView exists");
+    // The History double-click must visibly select the exact physical track
+    // even when a sorted/filtered owner-data grid uses different row numbers.
+    // No network, tag, CUE, FileOps or database adapter is involved.
+    HWND history_target=CreateWindowExW(0,WC_LISTVIEWW,L"",
+        WS_CHILD|LVS_REPORT|LVS_OWNERDATA|LVS_SINGLESEL,
+        0,0,320,120,dialog,nullptr,GetModuleHandleW(nullptr),nullptr);
+    check(history_target!=nullptr,"real owner-data History target grid exists");
+    ListView_SetItemCountEx(history_target,3,
+        LVSICF_NOINVALIDATEALL|LVSICF_NOSCROLL);
+    const std::vector<std::size_t> reordered_sources{2,0,1};
+    const auto jump=djmeta_foobar::native_focus_history_source(
+        history_target,reordered_sources,0);
+    check(jump && *jump==1 &&
+          ListView_GetSelectedCount(history_target)==1 &&
+          ListView_GetNextItem(history_target,-1,LVNI_SELECTED)==1 &&
+          (ListView_GetItemState(history_target,1,LVIS_FOCUSED)&LVIS_FOCUSED)!=0,
+          "History jump focuses the original source, not the visible row ordinal");
+    check(!djmeta_foobar::native_focus_history_source(
+              history_target,reordered_sources,99) &&
+          !djmeta_foobar::native_focus_history_source(
+              history_target,std::vector<std::size_t>{0,0,1},0) &&
+          !djmeta_foobar::native_focus_history_source(
+              history_target,std::vector<std::size_t>{0,1},0) &&
+          ListView_GetSelectedCount(history_target)==1 &&
+          ListView_GetNextItem(history_target,-1,LVNI_SELECTED)==1,
+          "missing, duplicate and stale owner-data rows preserve selection");
+    DestroyWindow(history_target);
     check(djmeta_foobar::native_setup_history_columns(history_hwnd) &&
           Header_GetItemCount(ListView_GetHeader(history_hwnd))==6 &&
           !djmeta_foobar::native_setup_history_columns(history_hwnd),
