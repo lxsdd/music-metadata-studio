@@ -119,6 +119,8 @@ void physical_selection_alias_regressions() {
              std::string("..\\\\escape.mp3"), std::string("bad?.mp3"),
              std::string("trailing.mp3 "), std::string("bad\xFF.mp3"),
              std::string("bad\xE2\x80\xAE.mp3"),
+             std::string("bad\xE2\x80\x8B.mp3"),
+             std::string("bad\xE2\x81\xA0.mp3"),
              std::string("other.wav")}) {
         selected[1].basename = bad;
         CHECK(validate_precision_cue_physical_selection(selected) ==
@@ -295,6 +297,8 @@ void reference_cue_timeline_regressions(const PrecisionCuePlan& plan) {
     }
     for (const auto& unsafe : {std::string("\xE2\x80\xAE"),
                                std::string("\xE2\x81\xA6"),
+                               std::string("\xE2\x80\x8B"),
+                               std::string("\xE2\x81\xA0"),
                                std::string(1, '\f')}) {
         auto spoofed = original;
         replace_once(spoofed, "Mix Track 1 (Mixed)",
