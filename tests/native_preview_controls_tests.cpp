@@ -661,6 +661,19 @@ int main() {
     HWND history_hwnd=GetDlgItem(dialog,IDC_BATCH_HISTORY_LIST);
     check(history_hwnd && IsWindow(history_hwnd)!=FALSE,
           "production native History ListView exists");
+    check(djmeta_foobar::native_setup_history_columns(history_hwnd) &&
+          Header_GetItemCount(ListView_GetHeader(history_hwnd))==6 &&
+          !djmeta_foobar::native_setup_history_columns(history_hwnd),
+          "real production History column factory creates six columns once");
+    wchar_t source_column_title[64]{};
+    LVCOLUMNW source_column{};
+    source_column.mask=LVCF_TEXT|LVCF_WIDTH;
+    source_column.pszText=source_column_title;
+    source_column.cchTextMax=64;
+    check(ListView_GetColumn(history_hwnd,5,&source_column) &&
+          std::wstring(source_column_title)==L"Source #" &&
+          source_column.cx==100,
+          "real History ListView exposes captured physical source ordinal");
     wchar_t history_caption[]=L"1";
     LVITEMW history_item{};
     history_item.mask=LVIF_TEXT|LVIF_PARAM;
@@ -669,6 +682,25 @@ int main() {
     history_item.lParam=77;
     check(ListView_InsertItem(history_hwnd,&history_item)==0,
           "native History accepts an event row with immutable LPARAM identity");
+    const djmeta_foobar::PreviewHistoryEvent exact_source{
+        77,djmeta_foobar::PreviewHistoryKind::DiscogsEdition,1,1,0,7};
+    const djmeta_foobar::PreviewHistoryEvent uncaptured_source{
+        78,djmeta_foobar::PreviewHistoryKind::MusicBrainzEdition,1,1,0};
+    const djmeta_foobar::PreviewHistoryEvent multiple_sources{
+        79,djmeta_foobar::PreviewHistoryKind::Reject,3,4,1};
+    check(djmeta_foobar::native_set_history_source_cell(
+              history_hwnd,0,exact_source,8) &&
+          djmeta_foobar::preview_history_source_label(exact_source,8)==L"8" &&
+          djmeta_foobar::preview_history_source_label(exact_source,7)==L"Not captured" &&
+          djmeta_foobar::preview_history_source_label(uncaptured_source,8)==L"Not captured" &&
+          djmeta_foobar::preview_history_source_label(multiple_sources,8)==L"Multiple" &&
+          !djmeta_foobar::native_set_history_source_cell(
+              history_hwnd,1,exact_source,8),
+          "History source provenance is bounded and distinguishes bulk, unknown and stale IDs");
+    wchar_t displayed_source[64]{};
+    ListView_GetItemText(history_hwnd,0,5,displayed_source,64);
+    check(std::wstring(displayed_source)==L"8",
+          "real production History source cell displays ordinal without path or provider ID");
     LVITEMW history_readback{};
     history_readback.mask=LVIF_PARAM;
     history_readback.iItem=0;
@@ -695,8 +727,18 @@ int main() {
     history_item.iItem=1;
     history_item.pszText=history_caption;
     history_item.lParam=77;
-    check(ListView_InsertItem(history_hwnd,&history_item)==1,
+    check(ListView_InsertItem(history_hwnd,&history_item)==1 &&
+          djmeta_foobar::native_set_history_source_cell(
+              history_hwnd,0,multiple_sources,8) &&
+          djmeta_foobar::native_set_history_source_cell(
+              history_hwnd,1,uncaptured_source,8),
           "native History original event survives filtered row move");
+    wchar_t bulk_source[64]{},unknown_source[64]{};
+    ListView_GetItemText(history_hwnd,0,5,bulk_source,64);
+    ListView_GetItemText(history_hwnd,1,5,unknown_source,64);
+    check(std::wstring(bulk_source)==L"Multiple" &&
+          std::wstring(unknown_source)==L"Not captured",
+          "native filtered rows show source scope without attributing bulk actions");
     history_readback.iItem=1;
     check((::SendMessageW(history_hwnd, LVM_GETITEMW, 0, reinterpret_cast<LPARAM>(&history_readback)) != 0) &&
           history_readback.lParam==77,
