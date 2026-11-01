@@ -350,6 +350,49 @@ int main() {
           preview_history_visible_indices(history,PreviewHistoryFilter::Undo)==
               std::vector<std::size_t>({3}),
           "history filtering preserves stable source event indexes");
+    // Successful live exact-edition/public-track comparisons become
+    // separate read-only History actions with exact source ordinal guards.
+    SessionPreviewHistory provider_history;
+    check(provider_history.append(PreviewHistoryKind::DiscogsEdition,1,1,0,7) &&
+          provider_history.append(PreviewHistoryKind::MusicBrainzEdition,1,1,0) &&
+          provider_history.append(PreviewHistoryKind::BeatportTrack,1,1,1,2) &&
+          !provider_history.append(PreviewHistoryKind::DiscogsEdition,0,0,0),
+          "provider comparison history includes successful no-op-aware lookups");
+    check(static_cast<int>(PreviewHistoryFilter::Lookup)==4 &&
+          preview_history_visible_indices(
+              provider_history,PreviewHistoryFilter::Lookup)==
+              std::vector<std::size_t>({0,1,2}) &&
+          preview_history_visible_indices(
+              provider_history,PreviewHistoryFilter::Review).empty() &&
+          preview_history_visible_indices(
+              provider_history,PreviewHistoryFilter::Lookup,7)==
+              std::vector<std::size_t>({0}) &&
+          !preview_history_single_source(provider_history.events()[1],8),
+          "lookup filter isolates providers and never assigns CUE a physical ordinal");
+    const auto provider_visible=preview_history_visible_indices(
+        provider_history,PreviewHistoryFilter::Lookup);
+    const auto provider_impact=djmeta_foobar::preview_history_impact_summary(
+        provider_history,provider_visible);
+    const auto provider_receipt=djmeta_foobar::preview_history_export_tsv(
+        provider_history,PreviewHistoryFilter::Lookup,std::nullopt,8);
+    check(provider_impact && provider_impact->actions==3 &&
+          provider_impact->lookups==3 && provider_impact->review==0 &&
+          provider_receipt &&
+          provider_receipt->find(L"1\tInspect Discogs edition\tExact edition\t1\t1\t8")!=std::wstring::npos &&
+          provider_receipt->find(L"2\tInspect MusicBrainz edition\tExact edition\t1\t1\t(not captured / multiple)")!=std::wstring::npos &&
+          provider_receipt->find(L"3\tInspect Beatport track\tPublic track\t1\t1\t3")!=std::wstring::npos &&
+          provider_receipt->find(L"No metadata, CUE or file operation was executed")!=std::wstring::npos &&
+          provider_receipt->find(L"37332711")==std::wstring::npos,
+          "history receipts expose provider and scope, never URL, edition ID, token or writer consent");
+    const auto selected_provider=djmeta_foobar::preview_history_export_tsv(
+        provider_history,PreviewHistoryFilter::Lookup,1,8);
+    check(selected_provider &&
+          selected_provider->find(L"MusicBrainz edition")!=std::wstring::npos &&
+          selected_provider->find(L"Discogs edition")==std::wstring::npos &&
+          selected_provider->find(L"Beatport track")==std::wstring::npos &&
+          !djmeta_foobar::preview_history_export_tsv(
+              provider_history,PreviewHistoryFilter::Lookup,3,8),
+          "selected provider row uses exact stable identity and bounded selection");
     using djmeta_foobar::preview_history_parse_source;
     const auto source8=preview_history_parse_source(L"8",8);
     const auto all_sources=preview_history_parse_source(L"",8);
@@ -455,7 +498,7 @@ int main() {
     const auto all_history=preview_history_export_tsv(
         history,PreviewHistoryFilter::All,std::nullopt,8);
     check(all_history &&
-          all_history->find(L"Summary: Actions 4 (review 2, route 1, undo 1); track-action touches 6, items 8.")!=std::wstring::npos &&
+          all_history->find(L"Summary: Actions 4 (review 2, route 1, undo 1, lookup 0); track-action touches 6, items 8.")!=std::wstring::npos &&
           all_history->find(L"Step\tAction\tScope\tTracks\tItems\tPhysical source #")!=std::wstring::npos &&
           all_history->find(L"1\tAccept proposals\tSelected fields\t1\t2\t8\r\n")!=std::wstring::npos &&
           all_history->find(L"2\tReject proposals\tSelected tracks\t3\t4\t(not captured / multiple)")!=std::wstring::npos &&

@@ -11,9 +11,10 @@
 namespace djmeta_foobar {
 
 enum class PreviewHistoryKind {
-    Accept, Reject, Reset, Manual, Route, UndoReview, UndoRoute
+    Accept, Reject, Reset, Manual, Route, UndoReview, UndoRoute,
+    DiscogsEdition, MusicBrainzEdition, BeatportTrack
 };
-enum class PreviewHistoryFilter { All, Review, Routing, Undo };
+enum class PreviewHistoryFilter { All, Review, Routing, Undo, Lookup };
 struct PreviewHistoryEvent {
     std::size_t sequence=0;
     PreviewHistoryKind kind=PreviewHistoryKind::Reset;
@@ -69,9 +70,15 @@ inline PreviewHistorySourceQuery preview_history_parse_source(
     return {true,ordinal-1};
 }
 // A display filter never mutates, renumbers or authorizes the source events.
+inline bool preview_history_is_lookup(PreviewHistoryKind kind) noexcept {
+    return kind==PreviewHistoryKind::DiscogsEdition ||
+           kind==PreviewHistoryKind::MusicBrainzEdition ||
+           kind==PreviewHistoryKind::BeatportTrack;
+}
 inline bool preview_history_matches(PreviewHistoryKind kind,
                                     PreviewHistoryFilter filter) noexcept {
     if(filter==PreviewHistoryFilter::All) return true;
+    if(filter==PreviewHistoryFilter::Lookup) return preview_history_is_lookup(kind);
     if(filter==PreviewHistoryFilter::Routing) return kind==PreviewHistoryKind::Route;
     if(filter==PreviewHistoryFilter::Undo)
         return kind==PreviewHistoryKind::UndoReview ||
@@ -101,7 +108,7 @@ inline std::vector<std::size_t> preview_history_visible_indices(
 }
 
 struct PreviewHistoryImpactSummary {
-    std::size_t actions=0, review=0, routing=0, undo=0;
+    std::size_t actions=0, review=0, routing=0, undo=0, lookups=0;
     // These are action-scoped counts, NOT unique physical tracks or edits.
     std::size_t track_action_touches=0, item_action_touches=0;
     std::size_t session_total=0, session_retained=0, session_evicted=0;
@@ -141,6 +148,9 @@ inline std::optional<PreviewHistoryImpactSummary> preview_history_impact_summary
         case PreviewHistoryKind::Route: ++out.routing; break;
         case PreviewHistoryKind::UndoReview:
         case PreviewHistoryKind::UndoRoute: ++out.undo; break;
+        case PreviewHistoryKind::DiscogsEdition:
+        case PreviewHistoryKind::MusicBrainzEdition:
+        case PreviewHistoryKind::BeatportTrack: ++out.lookups; break;
         default: return std::nullopt;
         }
     }
@@ -152,6 +162,7 @@ inline std::wstring preview_history_impact_caption(
         L" (review "+std::to_wstring(s.review)+
         L", route "+std::to_wstring(s.routing)+
         L", undo "+std::to_wstring(s.undo)+
+        L", lookup "+std::to_wstring(s.lookups)+
         L"); track-action touches "+std::to_wstring(s.track_action_touches)+
         L", items "+std::to_wstring(s.item_action_touches)+
         L". Preview only; no writes. Session retained "+
@@ -199,10 +210,16 @@ inline const wchar_t* preview_history_receipt_action(PreviewHistoryKind kind) no
     case PreviewHistoryKind::Route: return L"Recalculate route";
     case PreviewHistoryKind::UndoReview: return L"Undo review";
     case PreviewHistoryKind::UndoRoute: return L"Undo route";
+    case PreviewHistoryKind::DiscogsEdition: return L"Inspect Discogs edition";
+    case PreviewHistoryKind::MusicBrainzEdition: return L"Inspect MusicBrainz edition";
+    case PreviewHistoryKind::BeatportTrack: return L"Inspect Beatport track";
     }
     return L"Unknown";
 }
 inline const wchar_t* preview_history_receipt_scope(const PreviewHistoryEvent& event) noexcept {
+    if(preview_history_is_lookup(event.kind))
+        return event.kind==PreviewHistoryKind::BeatportTrack
+            ? L"Public track" : L"Exact edition";
     if(event.kind==PreviewHistoryKind::Route)
         return event.scope==2 ? L"All tracks" : L"Selected tracks";
     if(event.kind==PreviewHistoryKind::UndoReview ||

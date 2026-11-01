@@ -2697,10 +2697,16 @@ const wchar_t* preview_history_action(PreviewHistoryKind kind) noexcept {
     case PreviewHistoryKind::Route: return L"Recalculate route";
     case PreviewHistoryKind::UndoReview: return L"Undo review";
     case PreviewHistoryKind::UndoRoute: return L"Undo route";
+    case PreviewHistoryKind::DiscogsEdition: return L"Inspect Discogs edition";
+    case PreviewHistoryKind::MusicBrainzEdition: return L"Inspect MusicBrainz edition";
+    case PreviewHistoryKind::BeatportTrack: return L"Inspect Beatport track";
     }
     return L"Unknown";
 }
 const wchar_t* preview_history_scope(const PreviewHistoryEvent& event) noexcept {
+    if(preview_history_is_lookup(event.kind))
+        return event.kind==PreviewHistoryKind::BeatportTrack
+            ? L"Public track" : L"Exact edition";
     if(event.kind==PreviewHistoryKind::Route)
         return event.scope==2 ? L"All tracks" : L"Selected tracks";
     if(event.kind==PreviewHistoryKind::UndoReview ||
@@ -5667,6 +5673,10 @@ void consume_beatport_public_network(HWND dialog,PreviewState& state) {
             L"Public Beatport HTML (unverified website facts). Independent "
             L"track/mix/ISRC/duration comparison only; never auto-stage or write.";
         update_metadata_table(state);
+        // One real user-triggered, source-verified comparison, not a write.
+        // Failed, canceled or partial searches do not create history.
+        record_preview_history(state,PreviewHistoryKind::BeatportTrack,
+            1,1,1,ctx->source_index);
         SetDlgItemTextW(dialog,IDC_BATCH_HINT,
             state.search_attempt_notice.c_str());
     } catch(const std::exception& error) {
@@ -6272,6 +6282,12 @@ void publish_discogs_release(HWND dialog, PreviewState& state,
             L" uniquely matched; see Batch details (no bulk approval).";
     ListView_SetItemState(state.metadata_list,-1,0,LVIS_SELECTED);
     update_metadata_table(state);
+    // Exact edition really loaded; optional master-year enrichment is not
+    // another review step. Never label a CUE as a physical audio ordinal.
+    record_preview_history(state,PreviewHistoryKind::DiscogsEdition,1,1,0,
+        !cue && entry.input.physical_source_qualified &&
+        entry.handle->get_subsong_index()==0
+            ? request.source_index : static_cast<std::size_t>(-1));
     // Master lookup is a distinct official GET, initiated only as part of
     // this explicit exact-release Load action, never by browsing or focus.
     if(state.online_field_snapshot && !edition.master_id.empty()) {
@@ -6759,6 +6775,11 @@ void publish_musicbrainz_release(
               L"No tag selection or file writes.";
     ListView_SetItemState(state.metadata_list,-1,0,LVIS_SELECTED);
     update_metadata_table(state);
+    record_preview_history(state,PreviewHistoryKind::MusicBrainzEdition,
+        1,1,0,
+        !request.cue_mode && entry.input.physical_source_qualified &&
+        entry.handle->get_subsong_index()==0
+            ? request.source_index : static_cast<std::size_t>(-1));
 }
 
 void consume_musicbrainz_network(HWND dialog, PreviewState& state) {
@@ -7160,7 +7181,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         add_column(state->history_list,3,L"Tracks",76);
         add_column(state->history_list,4,L"Items",76);
         for(const wchar_t* choice:{L"All actions",L"Review decisions",
-            L"Route previews",L"Undo actions"})
+            L"Route previews",L"Undo actions",L"Provider lookups"})
             SendDlgItemMessageW(dialog,IDC_BATCH_HISTORY_FILTER,CB_ADDSTRING,
                 0,reinterpret_cast<LPARAM>(choice));
         SendDlgItemMessageW(dialog,IDC_BATCH_HISTORY_FILTER,CB_SETCURSEL,0,0);
@@ -9726,7 +9747,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         if(id==IDC_BATCH_HISTORY_FILTER && HIWORD(wp)==CBN_SELCHANGE) {
             const auto selected=SendDlgItemMessageW(
                 dialog,IDC_BATCH_HISTORY_FILTER,CB_GETCURSEL,0,0);
-            if(selected<0 || selected>3)
+            if(selected<0 ||
+               selected>static_cast<int>(PreviewHistoryFilter::Lookup))
                 throw std::invalid_argument("Unknown history filter.");
             state->history_filter=static_cast<PreviewHistoryFilter>(selected);
             refresh_preview_history_list(*state);
