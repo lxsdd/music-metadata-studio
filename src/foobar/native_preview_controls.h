@@ -36,8 +36,9 @@ inline bool native_setup_history_columns(HWND list) {
         column.pszText=const_cast<LPWSTR>(kNativeHistoryColumns[i].label);
         column.cx=kNativeHistoryColumns[i].width;
         column.iSubItem=static_cast<int>(i);
-        if(ListView_InsertColumn(list,static_cast<int>(i),&column)!=
-           static_cast<int>(i)) return false;
+        if(SendMessageW(list,LVM_INSERTCOLUMNW,static_cast<WPARAM>(i),
+                        reinterpret_cast<LPARAM>(&column))!=
+           static_cast<LRESULT>(i)) return false;
     }
     return true;
 }
