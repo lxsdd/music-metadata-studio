@@ -103,6 +103,19 @@ Titel-/Künstler-/Mix-/Dauerzuordnung. Ungesicherte CUE-Zuordnungen, jedes
 automatische Schreiben und das unqualifizierte Crates-Datum bleiben gesperrt.
 Der Nutzer muss die öffentliche Seite selbst öffnen und den Helfer auslösen.
 
+## Native History source provenance (Draft PR #64)
+
+The read-only **History** page shows a **Source #** column beside each
+preview action. A number is the original 1-based captured physical track
+ordinal, not a sorted row, path, provider ID or authorization to write.
+**Multiple** means a bulk action; **Not captured** means a single-source
+event without a valid retained ordinal (including CUE-only inspections).
+Provider-specific filters, the source-number filter, Enter/double-click
+navigation and Ctrl+C receipts continue to use the immutable event
+sequence, and no tag, CUE or file is modified. Real Win32 resource-backed
+tests verify the column factory, labels, negative bounds and row identity.
+An installed owner's visual acceptance is still separate from CI.
+
 ## Current qualification (23 October 2026)
 
 Development continues in Draft PR #45; this is not a merged or released component.
