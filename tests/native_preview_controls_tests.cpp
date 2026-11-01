@@ -83,6 +83,18 @@ int main() {
     check(djmeta::validate_precision_cue_physical_selection(physical_sources) ==
           SourceState::AmbiguousBasename,
           "native MP3 picker refuses ambiguous case-insensitive names");
+    physical_sources[1].basename = "CON.mp3";
+    check(djmeta::validate_precision_cue_physical_selection(physical_sources) ==
+          SourceState::InvalidSource, "native picker rejects reserved device basename");
+    physical_sources[1].basename = "bad\xE2\x80\xAE.mp3";
+    check(djmeta::validate_precision_cue_physical_selection(physical_sources) ==
+          SourceState::InvalidSource, "native picker rejects bidi filename deception");
+    physical_sources[1].basename = "bad?.mp3";
+    check(djmeta::validate_precision_cue_physical_selection(physical_sources) ==
+          SourceState::InvalidSource, "native picker rejects unsafe CUE filename");
+    physical_sources[1].basename = "Mix \xE6\x9D\xB1\xE4\xBA\xAC.mp3";
+    check(djmeta::validate_precision_cue_physical_selection(physical_sources) ==
+          SourceState::Qualified, "native picker preserves valid multilingual filename");
     INITCOMMONCONTROLSEX controls{sizeof(controls),
                                   ICC_LISTVIEW_CLASSES | ICC_TAB_CLASSES};
     check(InitCommonControlsEx(&controls) != FALSE,
