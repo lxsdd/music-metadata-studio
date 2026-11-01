@@ -26,6 +26,7 @@
 #include "djmeta/precision_cue_foobar_path.h"
 #include "djmeta/precision_cue_external_inspect.h"
 #include "djmeta/precision_cue_external_host_review.h"
+#include "djmeta/precision_cue_selected_sources.h"
 #include "djmeta/precision_cue_external_create.h"
 #include "djmeta/precision_cue_external_batch.h"
 #include "djmeta/precision_cue_embedded_inventory.h"
@@ -459,9 +460,26 @@ std::vector<LocalFile> capture_files(metadb_handle_list_cref handles) {
     std::sort(out.begin(), out.end(), [](const LocalFile& a, const LocalFile& b) {
         return a.basename < b.basename;
     });
-    for (std::size_t i = 1; i < out.size(); ++i)
-        if (out[i].basename == out[i - 1].basename)
-            throw std::invalid_argument("Duplicate MP3 basenames cannot be mapped safely");
+    // Distinct canonical names may be hardlinks to ONE physical mix.
+    // Refuse aliases and ambiguous displayed names before album lookup.
+    std::vector<djmeta::PrecisionCuePhysicalSelectionEvidence> evidence;
+    evidence.reserve(out.size());
+    for (const auto& file : out)
+        evidence.push_back({file.basename, file.snapshot.volume_id,
+                            file.snapshot.file_id});
+    using SourceState = djmeta::PrecisionCuePhysicalSelectionState;
+    switch (djmeta::validate_precision_cue_physical_selection(evidence)) {
+    case SourceState::Qualified: break;
+    case SourceState::DuplicatePhysicalIdentity:
+        throw std::invalid_argument(
+            "One physical MP3 appears more than once (hardlink or alias)");
+    case SourceState::AmbiguousBasename:
+        throw std::invalid_argument(
+            "Duplicate or case-ambiguous MP3 basenames cannot be mapped");
+    case SourceState::InvalidSource:
+        throw std::invalid_argument(
+            "Selected physical MP3 identities are incomplete or invalid");
+    }
     return out;
 }
 
@@ -1766,8 +1784,12 @@ void open_precision_workspace(metadb_handle_list_cref handles) {
                     ? "Precision CUE - Reject file identity" :
                 why.find("changed during metadata inspection")!=std::string::npos
                     ? "Precision CUE - Reject source race" :
-                why.find("Duplicate MP3 basenames")!=std::string::npos
+                why.find("Duplicate or case-ambiguous MP3")!=std::string::npos
                     ? "Precision CUE - Reject duplicate names" :
+                why.find("One physical MP3 appears more than once")!=std::string::npos
+                    ? "Precision CUE - Reject physical alias" :
+                why.find("physical MP3 identities are incomplete")!=std::string::npos
+                    ? "Precision CUE - Reject invalid identity" :
                     "Precision CUE - Reject metadata inspection";
             std::string caption(category);
             if (why.find("requires a physical local drive MP3 path")!=std::string::npos) {

@@ -599,4 +599,15 @@ if "creation is locked pending separate owner release" not in resources:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: owner writer lock is not visible in native resource")
 if "production resource explicitly discloses the independent owner writer lock" not in gui_test:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: real native writer-lock label regression missing")
+# Test the actual foobar context selection, not merely a standalone core
+# validator. Distinct canonical hardlink paths cannot map one mix to two discs.
+capture = precision.split("std::vector<LocalFile> capture_files(", 1)[-1].split(
+    "std::vector<std::int64_t> provider_disc_totals(", 1)[0]
+for token in ("file.snapshot.volume_id", "file.snapshot.file_id",
+              "validate_precision_cue_physical_selection(evidence)",
+              "DuplicatePhysicalIdentity", "AmbiguousBasename"):
+    if token not in capture:
+        raise SystemExit(
+            "STATIC FOOBAR AUDIT FAIL: native physical selection guard missing " + token)
+
 print("PASS: foobar preview is analysis-only; no tag/file write path is present")

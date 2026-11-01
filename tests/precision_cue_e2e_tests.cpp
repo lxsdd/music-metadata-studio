@@ -8,6 +8,7 @@
 #include "djmeta/precision_cue_boundary_audit.h"
 #include "djmeta/precision_cue_reference_diff.h"
 #include "djmeta/precision_cue_external_host_review.h"
+#include "djmeta/precision_cue_selected_sources.h"
 #include "djmeta/precision_cue_external_inspect.h"
 #include "djmeta/precision_cue_external_batch.h"
 #include "djmeta/precision_cue_studio_handoff.h"
@@ -82,6 +83,40 @@ struct SyntheticDirectory {
         }
     }
 };
+
+void physical_selection_alias_regressions() {
+    using State = PrecisionCuePhysicalSelectionState;
+    std::vector<PrecisionCuePhysicalSelectionEvidence> selected{
+        {"Disc A.mp3", 42, 1234}, {"Disc B.mp3", 42, 5678}};
+    CHECK(validate_precision_cue_physical_selection(selected) == State::Qualified);
+    selected[1].file_id = 1234; // Distinct hardlink names, same inode.
+    CHECK(validate_precision_cue_physical_selection(selected) ==
+          State::DuplicatePhysicalIdentity);
+    selected[1].volume_id = 43; // Equal inode on a different volume is independent.
+    CHECK(validate_precision_cue_physical_selection(selected) == State::Qualified);
+    selected[1].volume_id = 42;
+    selected[1].file_id = 5678;
+    selected[1].basename = "DISC A.MP3";
+    CHECK(validate_precision_cue_physical_selection(selected) ==
+          State::AmbiguousBasename);
+    selected[1].basename = "Disc A.mp3";
+    CHECK(validate_precision_cue_physical_selection(selected) ==
+          State::AmbiguousBasename);
+    selected[1].basename = "Disc B.mp3";
+    selected[1].file_id = 0;
+    CHECK(validate_precision_cue_physical_selection(selected) == State::InvalidSource);
+    selected[1].file_id = UINT64_MAX;
+    CHECK(validate_precision_cue_physical_selection(selected) == State::InvalidSource);
+    selected[1].file_id = 5678;
+    selected[1].volume_id = 0;
+    CHECK(validate_precision_cue_physical_selection(selected) == State::InvalidSource);
+    selected[1].volume_id = 42;
+    CHECK(validate_precision_cue_physical_selection({}) == State::InvalidSource);
+    CHECK(validate_precision_cue_physical_selection(
+        std::vector<PrecisionCuePhysicalSelectionEvidence>(9, selected[0])) ==
+          State::InvalidSource);
+    CHECK(validate_precision_cue_physical_selection(selected) == State::Qualified);
+}
 
 void synthetic_file(const fs::path& path, char fill) {
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
@@ -2062,6 +2097,7 @@ void single_disc_readonly_review_regressions() {
 } // namespace
 
 int main() {
+    physical_selection_alias_regressions();
     cross_provider_release_and_cue();
     single_disc_readonly_review_regressions();
     return 0;

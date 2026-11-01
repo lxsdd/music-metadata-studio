@@ -1,4 +1,5 @@
 #include "../src/foobar/native_preview_controls.h"
+#include "../include/djmeta/precision_cue_selected_sources.h"
 #include "../src/foobar/review_grid_controls.h"
 #include "../src/foobar/legacy_routing_profiles.h"
 
@@ -68,6 +69,20 @@ bool centers_match(HWND dialog, int label_id, int control_id) {
 }
 
 int main() {
+    using SourceState = djmeta::PrecisionCuePhysicalSelectionState;
+    std::vector<djmeta::PrecisionCuePhysicalSelectionEvidence> selected{
+        {"Mix 1.mp3", 44, 101}, {"Mix 2.mp3", 44, 102}};
+    check(djmeta::validate_precision_cue_physical_selection(selected) ==
+          SourceState::Qualified, "distinct physical MP3 source IDs accepted");
+    selected[1].file_id = 101;
+    check(djmeta::validate_precision_cue_physical_selection(selected) ==
+          SourceState::DuplicatePhysicalIdentity,
+          "native disc assignment refuses aliased MP3 source ID");
+    selected[1].file_id = 102;
+    selected[1].basename = "MIX 1.MP3";
+    check(djmeta::validate_precision_cue_physical_selection(selected) ==
+          SourceState::AmbiguousBasename,
+          "native MP3 picker refuses ambiguous case-insensitive names");
     INITCOMMONCONTROLSEX controls{sizeof(controls),
                                   ICC_LISTVIEW_CLASSES | ICC_TAB_CLASSES};
     check(InitCommonControlsEx(&controls) != FALSE,
