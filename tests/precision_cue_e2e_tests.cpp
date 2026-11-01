@@ -173,6 +173,56 @@ void reference_cue_timeline_regressions(const PrecisionCuePlan& plan) {
     diff = compare_precision_cue_external_reference(plan, malformed_rem, basename);
     CHECK(diff.state == State::Unqualified);
     CHECK(std::string(diff.diagnostic) == "CUE_REFERENCE_MALFORMED_REM");
+    // Album/disc identity belongs to the album header, not to a TRACK.
+    // Unknown track REM metadata is still allowed as explicit REVIEW.
+    for (const auto* claim : {"REM DISCNUMBER 1", "REM TOTALDISCS 2"}) {
+        auto misplaced_disc_rem = original;
+        replace_once(misplaced_disc_rem, "    INDEX 01 02:00:00",
+                     std::string("    ") + claim + "\n    INDEX 01 02:00:00");
+        diff = compare_precision_cue_external_reference(
+            plan, misplaced_disc_rem, basename);
+        CHECK(diff.state == State::Unqualified);
+        CHECK(std::string(diff.diagnostic) ==
+              "CUE_REFERENCE_METADATA_SCOPE_INVALID");
+    }
+    auto track_genre_rem = original;
+    replace_once(track_genre_rem, "    INDEX 01 02:00:00",
+                 "    REM GENRE \"Unverified\"\n    INDEX 01 02:00:00");
+    diff = compare_precision_cue_external_reference(
+        plan, track_genre_rem, basename);
+    CHECK(diff.state == State::ReviewRequired);
+    CHECK(diff.track_metadata_conflicts[1] && !diff.album_metadata_conflict);
+
+    // Bare or explicitly empty metadata operands are malformed, not
+    // evidence of a different album/edition. Never promote to frame-exact.
+    for (const auto* directive :
+         {"TITLE", "PERFORMER", "ISRC", "FLAGS", "SONGWRITER"}) {
+        auto missing_operand = original;
+        replace_once(missing_operand, "    INDEX 01 02:00:00",
+                     std::string("    ") + directive + "\n    INDEX 01 02:00:00");
+        diff = compare_precision_cue_external_reference(
+            plan, missing_operand, basename);
+        CHECK(diff.state == State::Unqualified);
+        CHECK(std::string(diff.diagnostic) ==
+              "CUE_REFERENCE_METADATA_OPERAND_MISSING");
+    }
+    auto missing_catalog = original;
+    replace_once(missing_catalog, "REM TOTALDISCS 2\n",
+                 "REM TOTALDISCS 2\nCATALOG\n");
+    diff = compare_precision_cue_external_reference(
+        plan, missing_catalog, basename);
+    CHECK(diff.state == State::Unqualified);
+    CHECK(std::string(diff.diagnostic) ==
+          "CUE_REFERENCE_METADATA_OPERAND_MISSING");
+    auto empty_track_title = original;
+    replace_once(empty_track_title, "    TITLE \"Mix Track 1 (Mixed)\"",
+                 "    TITLE \"\"");
+    diff = compare_precision_cue_external_reference(
+        plan, empty_track_title, basename);
+    CHECK(diff.state == State::Unqualified);
+    CHECK(std::string(diff.diagnostic) ==
+          "CUE_REFERENCE_METADATA_OPERAND_MISSING");
+
     auto album_isrc = original;
     replace_once(album_isrc, "REM TOTALDISCS 2\n",
                  "REM TOTALDISCS 2\nISRC USAAA1234567\n");
@@ -1834,6 +1884,20 @@ void single_disc_readonly_review_regressions() {
     CHECK(one_frame.rows[1].reference_state ==
           PrecisionCueStudioReferenceState::WithinOneFrameNotAudioProof);
     CHECK(one_frame.rows[1].signed_reference_delta_frames == -1);
+
+    // The same malformed disc-identity claim must remain UNQUALIFIED in
+    // the single canonical Studio handoff, never a writer-ready review row.
+    reference[0] = preview.discs[0].external_cue_utf8;
+    replace_once(*reference[0], "    INDEX 01 02:00:00",
+                 "    REM DISCNUMBER 1\n    INDEX 01 02:00:00");
+    const auto invalid_reference = prepare_precision_cue_studio_review(
+        request, preview, sources, reference);
+    CHECK(invalid_reference.state ==
+          PrecisionCueStudioHandoffState::RowsRequireReview);
+    CHECK(invalid_reference.rows.size() == 15);
+    CHECK(invalid_reference.rows[1].reference_state ==
+          PrecisionCueStudioReferenceState::Unqualified);
+    CHECK(!invalid_reference.rows[1].signed_reference_delta_frames);
 
     // Partial catalog dates preserve evidence but never grant write status.
     auto partial_date = request;
