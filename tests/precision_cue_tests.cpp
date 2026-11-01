@@ -122,6 +122,38 @@ void test_frame_classification() {
     assert(djmeta::classify_cue_delta(-1, 100) == Review);
 }
 
+void test_bounded_generated_cue_metadata() {
+    // Untrusted catalog fields are bounded in UTF-8 bytes before CUE parsing.
+    auto disc = synthetic_disc();
+    disc.album_title = std::string(4096, 'A');
+    assert(djmeta::make_precision_cue(disc).external_cue_utf8.find(
+        disc.album_title) != std::string::npos);
+    disc.album_title.push_back('A');
+    must_reject([&] { (void)djmeta::make_precision_cue(disc); });
+
+    disc = synthetic_disc();
+    disc.album_performer = std::string(4097, 'B');
+    must_reject([&] { (void)djmeta::make_precision_cue(disc); });
+    disc = synthetic_disc();
+    disc.genre = std::string(4097, 'C');
+    must_reject([&] { (void)djmeta::make_precision_cue(disc); });
+    disc = synthetic_disc();
+    disc.tracks[0].title = std::string(4097, 'D');
+    must_reject([&] { (void)djmeta::make_precision_cue(disc); });
+    disc = synthetic_disc();
+    disc.tracks[0].performer = std::string(4097, 'E');
+    must_reject([&] { (void)djmeta::make_precision_cue(disc); });
+
+    disc = synthetic_disc();
+    const std::string emoji = "\xF0\x9F\x8E\xA7";
+    disc.tracks[0].title.clear();
+    for (unsigned i = 0; i < 1024; ++i) disc.tracks[0].title += emoji;
+    assert(djmeta::make_precision_cue(disc).external_cue_utf8.find(
+        disc.tracks[0].title) != std::string::npos);
+    disc.tracks[0].title += emoji;
+    must_reject([&] { (void)djmeta::make_precision_cue(disc); });
+}
+
 void test_generated_utf8_validation() {
     auto d = synthetic_disc();
     d.album_title = std::string("bad ") + static_cast<char>(static_cast<unsigned char>(0xc3)) + '(';
@@ -747,6 +779,7 @@ int main() {
     test_cue_diff_rejects_incoherent_generated_plan();
     test_invalid_input_fail_closed();
     test_calendar_date_cue_headers();
+    test_bounded_generated_cue_metadata();
     test_generated_utf8_validation();
     test_unicode_control_and_bidi_safety();
     test_eight_disc_99_track_plan();
