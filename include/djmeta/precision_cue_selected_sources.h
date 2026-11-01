@@ -1,6 +1,7 @@
 #pragma once
 // Read-only native source integrity: distinct paths/names may be hardlinks
 // to the same physical continuous-mix MP3, never two independent discs.
+#include "djmeta/precision_cue_filename.h"
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -56,7 +57,7 @@ validate_precision_cue_physical_selection(
     if (sources.empty() || sources.size() > 8) return State::InvalidSource;
     for (std::size_t i = 0; i < sources.size(); ++i) {
         const auto& s = sources[i];
-        if (s.basename.empty() || s.volume_id == 0 ||
+        if (!precision_cue_safe_mp3_basename(s.basename) || s.volume_id == 0 ||
             s.volume_id == UINT64_MAX || s.file_id == 0 ||
             s.file_id == UINT64_MAX) return State::InvalidSource;
         for (std::size_t j = 0; j < i; ++j) {
