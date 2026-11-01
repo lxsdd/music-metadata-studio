@@ -216,6 +216,65 @@ void export_generated_layout_positive_edge_cases() {
     VERIFY(plan_precision_cue_external_export(single, disc.audio_file_basename).eligible);
 }
 
+
+void canonical_generated_export_roundtrip_regressions() {
+    // Two independent physical synthetic discs, 15 tracks each: no music,
+    // real provider requests, foobar handles or productive writer calls.
+    for (unsigned disc_number = 1; disc_number <= 2; ++disc_number) {
+        PrecisionCueDisc disc;
+        disc.album_title = "Synthetic Continuous Mix – 東京";
+        disc.album_performer = "Various Artists";
+        disc.audio_file_basename =
+            "Synthetic Disc " + std::to_string(disc_number) + ".mp3";
+        disc.genre = "Electronic";
+        disc.release_date = "2024-02-29";
+        disc.disc_number = disc_number;
+        disc.total_discs = 2;
+        for (unsigned i = 0; i < 15; ++i)
+            disc.tracks.push_back({
+                "Synthetic " + std::to_string(i + 1), "DJ", 100001 + i * 19
+            });
+        for (const auto date : {"2024", "2024-02", "2024-02-29"}) {
+            disc.release_date = date;
+            const auto positive = make_precision_cue(disc);
+            VERIFY(positive.boundaries.size() == 15);
+            VERIFY(plan_precision_cue_external_export(
+                positive, disc.audio_file_basename).eligible);
+        }
+        disc.release_date = "2024-02-29";
+        const auto valid = make_precision_cue(disc);
+        const auto reject_changed = [&](std::string_view from,
+                                        std::string_view to) {
+            auto forged = valid;
+            const auto pos = forged.external_cue_utf8.find(from);
+            VERIFY(pos != std::string::npos);
+            forged.external_cue_utf8.replace(pos, from.size(), to);
+            VERIFY(!plan_precision_cue_external_export(
+                forged, disc.audio_file_basename).eligible);
+        };
+        // Both substitutions previously passed the superficial layout
+        // parser. The generator's own calendar and <=8-disc invariants
+        // must be reapplied before a forged plan is export-eligible.
+        reject_changed("REM DATE \"2024-02-29\"",
+                       "REM DATE \"2023-02-29\"");
+        reject_changed("REM DATE \"2024-02-29\"",
+                       "REM DATE \"2024-02-30\"");
+        reject_changed("REM TOTALDISCS 2", "REM TOTALDISCS 9");
+        reject_changed("REM DATE \"2024-02-29\"",
+                       "REM DATE \"2024-02-29 \"");
+        // A forged last-track duration can exceed the generator's
+        // supported 24-hour window without altering any INDEX 01 text.
+        auto impossible_tail = valid;
+        impossible_tail.total_duration_ms = 24LL * 60 * 60 * 1000 + 1;
+        VERIFY(!plan_precision_cue_external_export(
+            impossible_tail, disc.audio_file_basename).eligible);
+        auto impossible_frame = valid;
+        impossible_frame.boundaries.back().cue_frame += 1;
+        VERIFY(!plan_precision_cue_external_export(
+            impossible_frame, disc.audio_file_basename).eligible);
+    }
+}
+
 PrecisionCueWritePreflight approved() {
     PrecisionCueWritePreflight p;
     p.preview_available = true;
