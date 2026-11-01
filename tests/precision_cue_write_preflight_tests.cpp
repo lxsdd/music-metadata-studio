@@ -1008,6 +1008,7 @@ int main() {
         export_planning_positive_and_negative();
         reserved_unicode_device_alias_regressions();
         export_generated_layout_positive_edge_cases();
+        canonical_generated_export_roundtrip_regressions();
         preflight_fail_closed_matrix();
         sha256_exact_byte_regressions();
         commit_revalidation_fail_closed_matrix();
