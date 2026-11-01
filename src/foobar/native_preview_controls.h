@@ -1200,6 +1200,31 @@ inline NativeBrowserIdentityMatch native_browser_identity_match(
     return {row,false};
 }
 
+// A visible browser row is only a release-load target when its exact
+// provider and edition ID occur once in BOTH the current visible candidate
+// list and the official provider results. This deliberately counts repeated
+// editions even when their displayed fields differ: field identity is useful
+// for preview selection, but cannot disambiguate a network Load request.
+inline bool native_verified_release_row(
+    const std::vector<NativeBrowserCandidateKey>& visible_keys,
+    std::size_t selected_row, std::string_view expected_provider,
+    const std::vector<std::string>& verified_ids) noexcept {
+    if(selected_row>=visible_keys.size() || expected_provider.empty())
+        return false;
+    const auto& selected=visible_keys[selected_row];
+    if(std::string_view(selected[0])!=expected_provider ||
+       selected[1].empty() || selected[2].empty())
+        return false;
+    std::size_t visible_matches=0;
+    for(const auto& key:visible_keys)
+        if(std::string_view(key[0])==expected_provider &&
+           key[1]==selected[1]) ++visible_matches;
+    std::size_t verified_matches=0;
+    for(const auto& id:verified_ids)
+        if(id==selected[1]) ++verified_matches;
+    return visible_matches==1 && verified_matches==1;
+}
+
 // After a new provider query or a changed track, a virtual ListView may
 // retain selection INDEX 0/1 while representing an entirely different
 // release. A selected row is not an identity. Unless the exact source ID
