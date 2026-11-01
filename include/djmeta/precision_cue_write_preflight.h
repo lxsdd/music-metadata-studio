@@ -134,17 +134,17 @@ inline bool precision_cue_strict_generated_layout(
         const unsigned track = static_cast<unsigned>(i + 1);
         const std::string track_line = "  TRACK " +
             std::string(track < 10 ? "0" : "") + std::to_string(track) + " AUDIO";
-        PrecisionCueTrack track;
-        if (!exact(track_line) || !quoted("    TITLE ", &track.title) ||
-            !quoted("    PERFORMER ", &track.performer) ||
+        PrecisionCueTrack track_data;
+        if (!exact(track_line) || !quoted("    TITLE ", &track_data.title) ||
+            !quoted("    PERFORMER ", &track_data.performer) ||
             !exact("    INDEX 01 " +
                    cue_frame_to_index(plan.boundaries[i].cue_frame)))
             return false;
         const auto end_ms = i + 1 < plan.boundaries.size()
             ? plan.boundaries[i + 1].elapsed_ms : plan.total_duration_ms;
         if (end_ms <= plan.boundaries[i].elapsed_ms) return false;
-        track.duration_ms = end_ms - plan.boundaries[i].elapsed_ms;
-        reconstructed.tracks.push_back(track);
+        track_data.duration_ms = end_ms - plan.boundaries[i].elapsed_ms;
+        reconstructed.tracks.push_back(track_data);
     }
     if (pos != lines.size()) return false;
     // Only the existing engine defines valid dates, disc counts, source
