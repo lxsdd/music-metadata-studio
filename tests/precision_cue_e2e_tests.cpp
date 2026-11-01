@@ -223,6 +223,109 @@ void reference_cue_timeline_regressions(const PrecisionCuePlan& plan) {
     CHECK(std::string(diff.diagnostic) ==
           "CUE_REFERENCE_METADATA_OPERAND_MISSING");
 
+    // Valid but independently unverified CUE identity is REVIEW-only.
+    // Invalid numeric disc claims and malformed identifier syntax are not
+    // usable as reference evidence, even when all 75-fps frames match.
+    auto alternate_disc = original;
+    replace_once(alternate_disc, "REM DISCNUMBER 1",
+                 "REM DISCNUMBER 2");
+    diff = compare_precision_cue_external_reference(plan, alternate_disc, basename);
+    CHECK(diff.state == State::ReviewRequired);
+    CHECK(diff.album_metadata_conflict && diff.audit.exact_count == 15);
+    auto alternate_total = original;
+    replace_once(alternate_total, "REM TOTALDISCS 2",
+                 "REM TOTALDISCS 3");
+    diff = compare_precision_cue_external_reference(plan, alternate_total, basename);
+    CHECK(diff.state == State::ReviewRequired && diff.album_metadata_conflict);
+    for (const auto* bad : {"0", "-1", "100", "abc", "\"1\"", "1 extra"}) {
+        auto malformed_disc = original;
+        replace_once(malformed_disc, "REM DISCNUMBER 1",
+                     std::string("REM DISCNUMBER ") + bad);
+        diff = compare_precision_cue_external_reference(
+            plan, malformed_disc, basename);
+        CHECK(diff.state == State::Unqualified);
+        CHECK(std::string(diff.diagnostic) ==
+              "CUE_REFERENCE_DISC_IDENTITY_MALFORMED");
+    }
+    for (const auto* bad : {"0", "-1", "100", "two", "\"2\"", "2 extra"}) {
+        auto malformed_total = original;
+        replace_once(malformed_total, "REM TOTALDISCS 2",
+                     std::string("REM TOTALDISCS ") + bad);
+        diff = compare_precision_cue_external_reference(
+            plan, malformed_total, basename);
+        CHECK(diff.state == State::Unqualified);
+        CHECK(std::string(diff.diagnostic) ==
+              "CUE_REFERENCE_DISC_IDENTITY_MALFORMED");
+    }
+    auto impossible_disc = original;
+    replace_once(impossible_disc, "REM DISCNUMBER 1",
+                 "REM DISCNUMBER 3");
+    diff = compare_precision_cue_external_reference(plan, impossible_disc, basename);
+    CHECK(diff.state == State::Unqualified);
+    CHECK(std::string(diff.diagnostic) ==
+          "CUE_REFERENCE_DISC_IDENTITY_IMPOSSIBLE");
+
+    for (const auto* rem : {"REM DISCID \"\"", "REM GENRE \"\"",
+                            "REM DATE \"\""}) {
+        auto empty_rem = original;
+        replace_once(empty_rem, "REM TOTALDISCS 2\n",
+                     std::string("REM TOTALDISCS 2\n") + rem + "\n");
+        diff = compare_precision_cue_external_reference(plan, empty_rem, basename);
+        CHECK(diff.state == State::Unqualified);
+        CHECK(std::string(diff.diagnostic) == "CUE_REFERENCE_MALFORMED_REM");
+    }
+
+    auto catalog = original;
+    replace_once(catalog, "REM TOTALDISCS 2\n",
+                 "REM TOTALDISCS 2\nCATALOG 1234567890123\n");
+    diff = compare_precision_cue_external_reference(plan, catalog, basename);
+    CHECK(diff.state == State::ReviewRequired && diff.album_metadata_conflict);
+    CHECK(diff.audit.exact_count == 15);
+    for (const auto* bad : {"123456789012", "123456789012X",
+                            "12345678901234", "\"1234567890123\""}) {
+        auto malformed_catalog = original;
+        replace_once(malformed_catalog, "REM TOTALDISCS 2\n",
+                     std::string("REM TOTALDISCS 2\nCATALOG ") + bad + "\n");
+        diff = compare_precision_cue_external_reference(
+            plan, malformed_catalog, basename);
+        CHECK(diff.state == State::Unqualified);
+        CHECK(std::string(diff.diagnostic) ==
+              "CUE_REFERENCE_IDENTIFIER_MALFORMED");
+    }
+    auto isrc = original;
+    replace_once(isrc, "    INDEX 01 02:00:00",
+                 "    ISRC USAAA1234567\n    INDEX 01 02:00:00");
+    diff = compare_precision_cue_external_reference(plan, isrc, basename);
+    CHECK(diff.state == State::ReviewRequired);
+    CHECK(diff.track_metadata_conflicts[1] && !diff.album_metadata_conflict);
+    for (const auto* bad : {"USAAA123456", "USAAA12345-7",
+                            "1SAAA1234567", "USAAA12X4567"}) {
+        auto malformed_isrc = original;
+        replace_once(malformed_isrc, "    INDEX 01 02:00:00",
+                     std::string("    ISRC ") + bad + "\n    INDEX 01 02:00:00");
+        diff = compare_precision_cue_external_reference(
+            plan, malformed_isrc, basename);
+        CHECK(diff.state == State::Unqualified);
+        CHECK(std::string(diff.diagnostic) ==
+              "CUE_REFERENCE_IDENTIFIER_MALFORMED");
+    }
+    auto flags = original;
+    replace_once(flags, "    INDEX 01 02:00:00",
+                 "    FLAGS PRE DCP\n    INDEX 01 02:00:00");
+    diff = compare_precision_cue_external_reference(plan, flags, basename);
+    CHECK(diff.state == State::ReviewRequired);
+    CHECK(diff.track_metadata_conflicts[1] && !diff.album_metadata_conflict);
+    for (const auto* bad : {"PRE PRE", "UNKNOWN", "PRE UNKNOWN",
+                            "DCP DCP"}) {
+        auto malformed_flags = original;
+        replace_once(malformed_flags, "    INDEX 01 02:00:00",
+                     std::string("    FLAGS ") + bad + "\n    INDEX 01 02:00:00");
+        diff = compare_precision_cue_external_reference(
+            plan, malformed_flags, basename);
+        CHECK(diff.state == State::Unqualified);
+        CHECK(std::string(diff.diagnostic) == "CUE_REFERENCE_FLAGS_MALFORMED");
+    }
+
     auto album_isrc = original;
     replace_once(album_isrc, "REM TOTALDISCS 2\n",
                  "REM TOTALDISCS 2\nISRC USAAA1234567\n");
