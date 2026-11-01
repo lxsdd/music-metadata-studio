@@ -293,7 +293,25 @@ inline PrecisionCueReferenceDiff compare_precision_cue_external_reference(
             // REM can carry arbitrary unverified edition/identity claims.
             // A syntactically incomplete REM is not a usable CUE reference;
             // an unknown but well-formed REM remains explicit REVIEW evidence.
-            if (op == "REM" && words(line).size() < 3) {
+            const auto metadata_tokens = words(line);
+            if (op != "REM" &&
+                (metadata_tokens.size() < 2 ||
+                 (metadata_tokens.size() == 2 &&
+                  metadata_tokens[1] == "\"\""))) {
+                out.diagnostic = "CUE_REFERENCE_METADATA_OPERAND_MISSING";
+                return out;
+            }
+            // DISCNUMBER/TOTALDISCS identify the physical release disc,
+            // never an individual TRACK. A track-scoped declaration must
+            // not be laundered into a mere text mismatch on exact frames.
+            if (op == "REM" && current_track != 0 &&
+                metadata_tokens.size() >= 2 &&
+                (metadata_tokens[1] == "DISCNUMBER" ||
+                 metadata_tokens[1] == "TOTALDISCS")) {
+                out.diagnostic = "CUE_REFERENCE_METADATA_SCOPE_INVALID";
+                return out;
+            }
+            if (op == "REM" && metadata_tokens.size() < 3) {
                 out.diagnostic = "CUE_REFERENCE_MALFORMED_REM";
                 return out;
             }
