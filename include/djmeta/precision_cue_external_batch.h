@@ -308,6 +308,11 @@ PrecisionCueExternalBatchResult create_confirmed_batch_with_probe(
     result = preflight_precision_cue_external_batch(reviews, selected_edition);
     if (result.state != State::ReadyForConfirmation)
         return result;
+    // Freeze the identity of each published target. Equal bytes under a
+    // different inode/file ID do not prove the original publication survived.
+    std::vector<precision_cue_external_detail::PhysicalSourceFingerprint>
+        published_target_snapshots;
+    published_target_snapshots.reserve(reviews.size());
     for (std::size_t index = 0; index < reviews.size(); ++index) {
         result.failed_disc_index = index;
         // A hook throwing before the writer starts has no ambiguous current
@@ -316,6 +321,38 @@ PrecisionCueExternalBatchResult create_confirmed_batch_with_probe(
         bool entered_writer = false;
         try {
             before_disc(index);
+            // Before extending a partially published batch, recheck every
+            // earlier physical identity and exact CUE target. This bounded
+            // identity/<=1 MiB byte check is not a substitute for the final
+            // full source SHA-256 (which catches restored-mtime changes).
+            for (std::size_t prior = 0; prior < index; ++prior) {
+                const auto& old = reviews[prior];
+                const auto& req = old.request;
+                const auto target_name = plan_precision_cue_external_export(
+                    req.plan, req.mp3_basename).target_cue_basename;
+                if (!precision_cue_external_detail::physical_source_unchanged(
+                        old.reviewed_source, req.physical_mp3_absolute_path,
+                        req.qualified_sibling_directory, req.mp3_basename)) {
+                    result.failed_disc_index = prior;
+                    result.state = State::PublishedNeedsReview;
+                    result.diagnostic =
+                        "CUE_BATCH_MIDFLIGHT_SOURCE_CHANGED_RETAIN_ALL";
+                    return result;
+                }
+                if (!precision_cue_external_detail::physical_source_unchanged(
+                        published_target_snapshots[prior],
+                        result.target_paths[prior],
+                        req.qualified_sibling_directory, target_name) ||
+                    !precision_cue_external_detail::verify_published_external_cue(
+                        result.target_paths[prior],
+                        req.plan.external_cue_utf8)) {
+                    result.failed_disc_index = prior;
+                    result.state = State::PublishedNeedsReview;
+                    result.diagnostic =
+                        "CUE_BATCH_MIDFLIGHT_TARGET_CHANGED_RETAIN_ALL";
+                    return result;
+                }
+            }
             auto reviewed = reviews[index]; // Keep original review for final all-disc attestation.
             // One batch consent is materialized only on this local copy.
             reviewed.request.explicitly_approved_for_external_create = true;
@@ -335,6 +372,21 @@ PrecisionCueExternalBatchResult create_confirmed_batch_with_probe(
                 return result;
             }
             ++result.created_count;
+            const auto& req = reviews[index].request;
+            const auto target_name = plan_precision_cue_external_export(
+                req.plan, req.mp3_basename).target_cue_basename;
+            const auto published = precision_cue_external_detail::
+                physical_source_snapshot(result.target_paths[index],
+                    req.qualified_sibling_directory, target_name);
+            if (!published ||
+                !precision_cue_external_detail::verify_published_external_cue(
+                    result.target_paths[index], req.plan.external_cue_utf8)) {
+                result.state = State::PublishedNeedsReview;
+                result.diagnostic =
+                    "CUE_BATCH_PUBLISHED_TARGET_IDENTITY_UNQUALIFIED_RETAIN_ALL";
+                return result;
+            }
+            published_target_snapshots.push_back(*published);
         } catch (...) {
             result.diagnostic = entered_writer
                 ? "CUE_BATCH_WRITER_EXCEPTION_PUBLISHED_TARGET_UNCERTAIN"
@@ -364,7 +416,13 @@ PrecisionCueExternalBatchResult create_confirmed_batch_with_probe(
                 precision_cue_external_detail::physical_source_unchanged(
                     review.reviewed_source, req.physical_mp3_absolute_path,
                     req.qualified_sibling_directory, req.mp3_basename);
+            const auto target_name = plan_precision_cue_external_export(
+                req.plan, req.mp3_basename).target_cue_basename;
             target_unchanged =
+                precision_cue_external_detail::physical_source_unchanged(
+                    published_target_snapshots[index],
+                    result.target_paths[index],
+                    req.qualified_sibling_directory, target_name) &&
                 precision_cue_external_detail::verify_published_external_cue(
                     result.target_paths[index], req.plan.external_cue_utf8);
         } catch (...) {

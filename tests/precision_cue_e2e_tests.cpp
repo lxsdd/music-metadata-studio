@@ -14,6 +14,7 @@
 #include "djmeta/precision_cue_studio_handoff.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -855,8 +856,7 @@ void batch_midflight_external_race_regressions(
                         CHECK(!ec);
                     }
                     if (mode == 7 && index == 1) {
-                        // Disc 1's previously verified target is changed
-                        // in place while the second disc is being published.
+                        // Previously published target changed before disc 2.
                         std::fstream changed(cue_a, std::ios::binary |
                             std::ios::in | std::ios::out);
                         CHECK(changed.good());
@@ -865,21 +865,38 @@ void batch_midflight_external_race_regressions(
                         changed.close();
                         CHECK(changed.good());
                     }
+                    if (mode == 8 && index == 1) {
+                        // A changed earlier source stops the next publication.
+                        synthetic_file(a, 'Y');
+                        fs::last_write_time(a, fs::last_write_time(a) +
+                            std::chrono::seconds(5));
+                    }
+                    if (mode == 9 && index == 1)
+                        CHECK(fs::remove(cue_a));
+                    if (mode == 10 && index == 1) {
+                        // Same CUE bytes under a different file identity.
+                        const auto saved = temporary.path / "Disc 1 saved.cue";
+                        fs::rename(cue_a, saved);
+                        CHECK(fs::copy_file(saved, cue_a));
+                    }
                 });
-        const bool postpublish_race = mode == 6 || mode == 7;
+        const bool postpublish_race = mode >= 6;
         CHECK(raced.state == (postpublish_race ? State::PublishedNeedsReview :
             (mode == 3 || mode == 4 ? State::RejectedBeforeCreate :
              State::PartialNeedsReview)));
-        CHECK(raced.created_count == (postpublish_race ? 2u :
+        CHECK(raced.created_count == (mode == 6 ? 2u :
             (mode == 3 || mode == 4 ? 0u : 1u)));
         CHECK(raced.failed_disc_index == (postpublish_race ? 0u :
             (mode == 3 || mode == 4 ? 0u : 1u)));
         if (mode == 6)
             CHECK(raced.diagnostic ==
                   "CUE_BATCH_POSTVERIFY_SOURCE_CHANGED_RETAIN_ALL");
-        if (mode == 7)
+        if (mode == 7 || mode == 9 || mode == 10)
             CHECK(raced.diagnostic ==
-                  "CUE_BATCH_POSTVERIFY_TARGET_CHANGED_RETAIN_ALL");
+                  "CUE_BATCH_MIDFLIGHT_TARGET_CHANGED_RETAIN_ALL");
+        if (mode == 8)
+            CHECK(raced.diagnostic ==
+                  "CUE_BATCH_MIDFLIGHT_SOURCE_CHANGED_RETAIN_ALL");
         CHECK(raced.target_paths.size() == 2);
         CHECK(raced.target_paths[0] == cue_a &&
               raced.target_paths[1] == cue_b);
@@ -890,21 +907,26 @@ void batch_midflight_external_race_regressions(
         } else if (mode == 7) {
             CHECK(inspect_precision_cue_existing_target(
                 plans[0], a, "Disc 1.mp3").state == Existing::Different);
+        } else if (mode == 9) {
+            CHECK(inspect_precision_cue_existing_target(
+                plans[0], a, "Disc 1.mp3").state == Existing::Absent);
         } else {
             CHECK(inspect_precision_cue_existing_target(
                 plans[0], a, "Disc 1.mp3").state == Existing::Identical);
         }
-        if (postpublish_race) {
+        if (mode == 6) {
             CHECK(fs::exists(cue_a) && fs::exists(cue_b));
             CHECK(inspect_precision_cue_existing_target(
                 plans[1], b, "Disc 2.mp3").state == Existing::Identical);
         }
+        if (mode >= 7)
+            CHECK(precision_cue_target_is_absent(cue_b));
         if (mode == 6) {
             const auto changed = precision_cue_review_source_sha256(
                 a, temporary.path, "Disc 1.mp3");
             CHECK(changed && *changed != ra->reviewed_source_sha256);
         }
-        if (mode == 1 || mode == 5)
+        if (mode == 1 || mode == 5 || mode >= 7)
             CHECK(precision_cue_target_is_absent(cue_b));
         if (mode == 2 || mode == 3) {
             const auto target = mode == 2 ? cue_b : cue_a;
@@ -919,7 +941,7 @@ void batch_midflight_external_race_regressions(
         for (const auto& entry : fs::directory_iterator(temporary.path))
             CHECK(entry.path().filename().string().find(".precision-cue-") != 0);
     };
-    for (int mode = 1; mode <= 7; ++mode) scenario(mode);
+    for (int mode = 1; mode <= 10; ++mode) scenario(mode);
 }
 
 void cross_provider_release_and_cue() {
