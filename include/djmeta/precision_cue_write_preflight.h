@@ -10,6 +10,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -83,7 +84,7 @@ inline bool precision_cue_strict_generated_layout(
         ++pos;
         return true;
     };
-    const auto quoted = [&](std::string_view prefix) {
+    const auto quoted = [&](std::string_view prefix, std::string* captured = nullptr) {
         if (pos == lines.size()) return false;
         const auto line = lines[pos];
         if (!line.starts_with(prefix) || line.size() <= prefix.size() + 2 ||
@@ -93,6 +94,7 @@ inline bool precision_cue_strict_generated_layout(
         if (value.find('"') != std::string_view::npos ||
             !precision_cue_safe_unicode_text(value))
             return false;
+        if (captured) *captured = std::string(value);
         ++pos;
         return true;
     };
@@ -110,28 +112,61 @@ inline bool precision_cue_strict_generated_layout(
         ++pos;
         return true;
     };
+    // Reconstruct the canonical generator inputs from the reviewed bytes.
+    // A forged but superficially well-formed plan is not generator evidence.
+    PrecisionCueDisc reconstructed;
+    reconstructed.audio_file_basename = std::string(mp3_basename);
     if (pos < lines.size() && lines[pos].starts_with("REM GENRE ") &&
-        !quoted("REM GENRE ")) return false;
+        !quoted("REM GENRE ", &reconstructed.genre)) return false;
     if (pos < lines.size() && lines[pos].starts_with("REM DATE ") &&
-        !quoted("REM DATE ")) return false;
+        !quoted("REM DATE ", &reconstructed.release_date)) return false;
     unsigned disc = 0, total_discs = 0;
     if (!number("REM DISCNUMBER ", disc) ||
         !number("REM TOTALDISCS ", total_discs) ||
         disc > total_discs ||
-        !quoted("PERFORMER ") || !quoted("TITLE ") ||
+        !quoted("PERFORMER ", &reconstructed.album_performer) ||
+        !quoted("TITLE ", &reconstructed.album_title) ||
         !exact("FILE \"" + std::string(mp3_basename) + "\" WAVE")) return false;
+    reconstructed.disc_number = disc;
+    reconstructed.total_discs = total_discs;
 
     for (std::size_t i = 0; i < plan.boundaries.size(); ++i) {
         const unsigned track = static_cast<unsigned>(i + 1);
         const std::string track_line = "  TRACK " +
             std::string(track < 10 ? "0" : "") + std::to_string(track) + " AUDIO";
-        if (!exact(track_line) || !quoted("    TITLE ") ||
-            !quoted("    PERFORMER ") ||
+        PrecisionCueTrack track;
+        if (!exact(track_line) || !quoted("    TITLE ", &track.title) ||
+            !quoted("    PERFORMER ", &track.performer) ||
             !exact("    INDEX 01 " +
                    cue_frame_to_index(plan.boundaries[i].cue_frame)))
             return false;
+        const auto end_ms = i + 1 < plan.boundaries.size()
+            ? plan.boundaries[i + 1].elapsed_ms : plan.total_duration_ms;
+        if (end_ms <= plan.boundaries[i].elapsed_ms) return false;
+        track.duration_ms = end_ms - plan.boundaries[i].elapsed_ms;
+        reconstructed.tracks.push_back(track);
     }
-    return pos == lines.size();
+    if (pos != lines.size()) return false;
+    // Only the existing engine defines valid dates, disc counts, source
+    // durations, Unicode and canonical CUE serialization. A round-trip
+    // rejects edited header metadata and impossible tail durations without
+    // adding another parser or granting any filesystem/write permission.
+    try {
+        const auto canonical = make_precision_cue(reconstructed);
+        if (canonical.external_cue_utf8 != plan.external_cue_utf8 ||
+            canonical.total_duration_ms != plan.total_duration_ms ||
+            canonical.boundaries.size() != plan.boundaries.size()) return false;
+        for (std::size_t i = 0; i < plan.boundaries.size(); ++i) {
+            const auto& actual = canonical.boundaries[i];
+            const auto& reviewed = plan.boundaries[i];
+            if (actual.track_number != reviewed.track_number ||
+                actual.elapsed_ms != reviewed.elapsed_ms ||
+                actual.cue_frame != reviewed.cue_frame) return false;
+        }
+        return true;
+    } catch (const std::exception&) {
+        return false;
+    }
 }
 
 // Only a proposed sibling filename; NEVER a qualified destination path.
