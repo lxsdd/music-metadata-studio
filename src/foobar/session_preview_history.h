@@ -200,6 +200,15 @@ inline std::optional<std::size_t> preview_history_single_source(
     if(event.sources!=1 || event.source_index>=batch_size) return std::nullopt;
     return event.source_index;
 }
+// Source ordinals are captured-batch positions, never paths, tag values or
+// provider IDs. Distinguish a bulk action from a single source whose identity
+// was deliberately not captured (or has become invalid).
+inline std::wstring preview_history_source_label(
+    const PreviewHistoryEvent& event,std::size_t captured_batch_size) {
+    if(event.sources!=1) return L"Multiple";
+    const auto source=preview_history_single_source(event,captured_batch_size);
+    return source ? std::to_wstring(*source+1) : L"Not captured";
+}
 
 // The clipboard receipt mirrors the on-screen History labels using the
 // same vocabulary. This is an audit of PREVIEW decisions, never an execution
