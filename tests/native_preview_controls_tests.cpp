@@ -369,6 +369,31 @@ int main() {
               std::vector<std::size_t>({0}) &&
           !preview_history_single_source(provider_history.events()[1],8),
           "lookup filter isolates providers and never assigns CUE a physical ordinal");
+    // The real native filter combo exposes provider-specific views. Each
+    // view and its clipboard receipt must preserve the original event ID.
+    check(preview_history_visible_indices(provider_history,PreviewHistoryFilter::Discogs)==
+              std::vector<std::size_t>({0}) &&
+          preview_history_visible_indices(provider_history,PreviewHistoryFilter::MusicBrainz)==
+              std::vector<std::size_t>({1}) &&
+          preview_history_visible_indices(provider_history,PreviewHistoryFilter::Beatport)==
+              std::vector<std::size_t>({2}) &&
+          preview_history_visible_indices(provider_history,PreviewHistoryFilter::Discogs,2).empty() &&
+          static_cast<int>(PreviewHistoryFilter::Beatport)==7,
+          "native provider-specific History filters preserve immutable event order and source identity");
+    for(const auto choice : {PreviewHistoryFilter::Discogs,
+                             PreviewHistoryFilter::MusicBrainz,
+                             PreviewHistoryFilter::Beatport}) {
+        const auto receipt=preview_history_export_tsv(provider_history,choice,std::nullopt,8);
+        check(receipt && receipt->find(L"Summary: Actions 1")!=std::wstring::npos &&
+              receipt->find(L"No metadata, CUE or file operation was executed")!=std::wstring::npos &&
+              (receipt->find(L"Inspect Discogs edition")!=std::wstring::npos)==
+                  (choice==PreviewHistoryFilter::Discogs) &&
+              (receipt->find(L"Inspect MusicBrainz edition")!=std::wstring::npos)==
+                  (choice==PreviewHistoryFilter::MusicBrainz) &&
+              (receipt->find(L"Inspect Beatport track")!=std::wstring::npos)==
+                  (choice==PreviewHistoryFilter::Beatport),
+              "provider-specific receipts exclude other providers, paths and write authorization");
+    }
     const auto provider_visible=preview_history_visible_indices(
         provider_history,PreviewHistoryFilter::Lookup);
     const auto provider_impact=djmeta_foobar::preview_history_impact_summary(
