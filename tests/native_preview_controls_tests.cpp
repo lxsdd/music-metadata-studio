@@ -670,7 +670,8 @@ int main() {
     source_column.mask=LVCF_TEXT|LVCF_WIDTH;
     source_column.pszText=source_column_title;
     source_column.cchTextMax=64;
-    check(ListView_GetColumn(history_hwnd,5,&source_column) &&
+    check((SendMessageW(history_hwnd,LVM_GETCOLUMNW,5,
+              reinterpret_cast<LPARAM>(&source_column))!=FALSE) &&
           std::wstring(source_column_title)==L"Source #" &&
           source_column.cx==100,
           "real History ListView exposes captured physical source ordinal");
@@ -698,7 +699,12 @@ int main() {
               history_hwnd,1,exact_source,8),
           "History source provenance is bounded and distinguishes bulk, unknown and stale IDs");
     wchar_t displayed_source[64]{};
-    ListView_GetItemText(history_hwnd,0,5,displayed_source,64);
+    LVITEMW displayed_source_item{};
+    displayed_source_item.iSubItem=5;
+    displayed_source_item.pszText=displayed_source;
+    displayed_source_item.cchTextMax=64;
+    SendMessageW(history_hwnd,LVM_GETITEMTEXTW,0,
+                 reinterpret_cast<LPARAM>(&displayed_source_item));
     check(std::wstring(displayed_source)==L"8",
           "real production History source cell displays ordinal without path or provider ID");
     LVITEMW history_readback{};
@@ -734,8 +740,15 @@ int main() {
               history_hwnd,1,uncaptured_source,8),
           "native History original event survives filtered row move");
     wchar_t bulk_source[64]{},unknown_source[64]{};
-    ListView_GetItemText(history_hwnd,0,5,bulk_source,64);
-    ListView_GetItemText(history_hwnd,1,5,unknown_source,64);
+    LVITEMW visible_source_item{};
+    visible_source_item.iSubItem=5;
+    visible_source_item.cchTextMax=64;
+    visible_source_item.pszText=bulk_source;
+    SendMessageW(history_hwnd,LVM_GETITEMTEXTW,0,
+                 reinterpret_cast<LPARAM>(&visible_source_item));
+    visible_source_item.pszText=unknown_source;
+    SendMessageW(history_hwnd,LVM_GETITEMTEXTW,1,
+                 reinterpret_cast<LPARAM>(&visible_source_item));
     check(std::wstring(bulk_source)==L"Multiple" &&
           std::wstring(unknown_source)==L"Not captured",
           "native filtered rows show source scope without attributing bulk actions");
