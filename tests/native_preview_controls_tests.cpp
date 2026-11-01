@@ -70,17 +70,17 @@ bool centers_match(HWND dialog, int label_id, int control_id) {
 
 int main() {
     using SourceState = djmeta::PrecisionCuePhysicalSelectionState;
-    std::vector<djmeta::PrecisionCuePhysicalSelectionEvidence> selected{
+    std::vector<djmeta::PrecisionCuePhysicalSelectionEvidence> physical_sources{
         {"Mix 1.mp3", 44, 101}, {"Mix 2.mp3", 44, 102}};
-    check(djmeta::validate_precision_cue_physical_selection(selected) ==
+    check(djmeta::validate_precision_cue_physical_selection(physical_sources) ==
           SourceState::Qualified, "distinct physical MP3 source IDs accepted");
-    selected[1].file_id = 101;
-    check(djmeta::validate_precision_cue_physical_selection(selected) ==
+    physical_sources[1].file_id = 101;
+    check(djmeta::validate_precision_cue_physical_selection(physical_sources) ==
           SourceState::DuplicatePhysicalIdentity,
           "native disc assignment refuses aliased MP3 source ID");
-    selected[1].file_id = 102;
-    selected[1].basename = "MIX 1.MP3";
-    check(djmeta::validate_precision_cue_physical_selection(selected) ==
+    physical_sources[1].file_id = 102;
+    physical_sources[1].basename = "MIX 1.MP3";
+    check(djmeta::validate_precision_cue_physical_selection(physical_sources) ==
           SourceState::AmbiguousBasename,
           "native MP3 picker refuses ambiguous case-insensitive names");
     INITCOMMONCONTROLSEX controls{sizeof(controls),
