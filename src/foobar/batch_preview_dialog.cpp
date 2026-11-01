@@ -3134,14 +3134,15 @@ void navigate_preview_history(HWND dialog,PreviewState& state,int visible_row) {
         update_table(state);
         TabCtrl_SetCurSel(state.tabs,2);
         show_preview_page(dialog,state,false,false);
-        const auto it=std::find(state.view_order.begin(),state.view_order.end(),*source);
-        if(it==state.view_order.end())
-            throw std::invalid_argument("History source not in file queue.");
-        const int row=static_cast<int>(it-state.view_order.begin());
-        ListView_SetItemState(state.list,-1,0,LVIS_SELECTED);
-        ListView_SetItemState(state.list,row,LVIS_SELECTED|LVIS_FOCUSED,
-                              LVIS_SELECTED|LVIS_FOCUSED);
-        ListView_EnsureVisible(state.list,row,FALSE);
+        // The file queue is owner-data and may be sorted/rebuilt between
+        // the History click and this navigation. A visible row number alone
+        // is never a physical source identity. Reject missing, duplicate or
+        // stale mappings before touching the current ListView selection.
+        const auto focused=native_focus_history_source(
+            state.list,state.view_order,*source);
+        if(!focused)
+            throw std::invalid_argument(
+                "History source not uniquely in current file queue.");
         SetFocus(state.list);
     } else {
         state.track_discovery=djmeta::TrackDiscovery::All;

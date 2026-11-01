@@ -688,6 +688,37 @@ int main() {
           ListView_GetNextItem(history_target,-1,LVNI_SELECTED)==1,
           "missing, duplicate and stale owner-data rows preserve selection");
     DestroyWindow(history_target);
+    // The actual File locations resource is an owner-data ListView too.
+    // A History route jump must bind the physical source after sorting,
+    // and malformed/stale mappings must leave the existing selection intact.
+    HWND route_target=GetDlgItem(dialog,IDC_BATCH_LIST);
+    check(route_target && IsWindow(route_target)!=FALSE &&
+          (GetWindowLongPtrW(route_target,GWL_STYLE)&LVS_OWNERDATA)!=0,
+          "real File locations owner-data queue is available for History jump");
+    check(ListView_SetItemCountEx(route_target,3,
+              LVSICF_NOINVALIDATEALL|LVSICF_NOSCROLL)!=FALSE,
+          "real File locations queue accepts reordered physical sources");
+    const std::vector<std::size_t> route_order{7,2,5};
+    ListView_SetItemState(route_target,0,LVIS_SELECTED|LVIS_FOCUSED,
+                          LVIS_SELECTED|LVIS_FOCUSED);
+    const auto route_jump=djmeta_foobar::native_focus_history_source(
+        route_target,route_order,5);
+    check(route_jump && *route_jump==2 &&
+          ListView_GetSelectedCount(route_target)==1 &&
+          ListView_GetNextItem(route_target,-1,LVNI_SELECTED)==2 &&
+          (ListView_GetItemState(route_target,2,LVIS_FOCUSED)&LVIS_FOCUSED)!=0,
+          "History File locations jump selects exact physical source after reorder");
+    check(!djmeta_foobar::native_focus_history_source(
+              route_target,route_order,99) &&
+          !djmeta_foobar::native_focus_history_source(
+              route_target,{7,5,5},5) &&
+          !djmeta_foobar::native_focus_history_source(
+              route_target,{7,2},5) &&
+          ListView_GetSelectedCount(route_target)==1 &&
+          ListView_GetNextItem(route_target,-1,LVNI_SELECTED)==2,
+          "missing, duplicate and stale File locations sources cannot retarget History");
+    ListView_SetItemCountEx(route_target,0,
+        LVSICF_NOINVALIDATEALL|LVSICF_NOSCROLL);
     check(djmeta_foobar::native_setup_history_columns(history_hwnd) &&
           Header_GetItemCount(ListView_GetHeader(history_hwnd))==6 &&
           !djmeta_foobar::native_setup_history_columns(history_hwnd),
