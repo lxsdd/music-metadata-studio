@@ -3,6 +3,7 @@
 // SDK-independent native Win32 layout adapter shared by production dialogs
 // and resource-backed runtime tests. IDs come from the real dialog resource.
 #include "resource.h"
+#include "session_preview_history.h"
 #include <windows.h>
 #include <commctrl.h>
 #include <algorithm>
@@ -18,6 +19,41 @@
 #include <stdexcept>
 
 namespace djmeta_foobar {
+
+// One production-owned column specification is used by the actual foobar
+// History ListView and the resource-backed Windows integration test.
+struct NativeHistoryColumn { const wchar_t* label; int width; };
+inline constexpr std::array<NativeHistoryColumn,6> kNativeHistoryColumns{{
+    {L"Step",54}, {L"Action",153}, {L"Scope",143},
+    {L"Tracks",76}, {L"Items",76}, {L"Source #",100}
+}};
+inline bool native_setup_history_columns(HWND list) {
+    if(!IsWindow(list) || !ListView_GetHeader(list) ||
+       Header_GetItemCount(ListView_GetHeader(list))!=0) return false;
+    for(std::size_t i=0;i<kNativeHistoryColumns.size();++i) {
+        LVCOLUMNW column{};
+        column.mask=LVCF_TEXT|LVCF_WIDTH|LVCF_SUBITEM;
+        column.pszText=const_cast<LPWSTR>(kNativeHistoryColumns[i].label);
+        column.cx=kNativeHistoryColumns[i].width;
+        column.iSubItem=static_cast<int>(i);
+        if(ListView_InsertColumn(list,static_cast<int>(i),&column)!=
+           static_cast<int>(i)) return false;
+    }
+    return true;
+}
+// The displayed source is an exact, bounded ordinal only; never a path or
+// replayable provider ID. The immutable event sequence remains in LPARAM.
+inline bool native_set_history_source_cell(
+    HWND list,int row,const PreviewHistoryEvent& event,std::size_t batch_size) {
+    if(!IsWindow(list) || row<0 || row>=ListView_GetItemCount(list))
+        return false;
+    std::wstring label=preview_history_source_label(event,batch_size);
+    LVITEMW item{};
+    item.iSubItem=5;
+    item.pszText=label.data();
+    return SendMessageW(list,LVM_SETITEMTEXTW,static_cast<WPARAM>(row),
+                        reinterpret_cast<LPARAM>(&item))!=FALSE;
+}
 
 // Online selections belong to an immutable source, not to the visible tab.
 // Returning to the local Review page must NOT disable a conflict cross-check
