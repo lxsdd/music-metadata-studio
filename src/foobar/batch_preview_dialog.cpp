@@ -2248,8 +2248,9 @@ void update_online_release_load_button(PreviewState& state) {
             state.musicbrainz_kind==djmeta::online::musicbrainz::SearchKind::Release,
         state.musicbrainz_release_loaded,
         state.candidate_source_index==state.selected_track_index,
-        state.discogs_request!=nullptr || state.musicbrainz_request!=nullptr,
-        selected_identity,exact_ids);
+        state.discogs_request!=nullptr || state.musicbrainz_request!=nullptr ||
+            state.beatport_public_request!=nullptr,
+        selected_identity,exact_ids,ListView_GetSelectedCount(state.metadata_list));
     EnableWindow(GetDlgItem(state.dialog,IDC_METADATA_MB_LOAD_RELEASE),
                  native_workspace_action_ready(state.stale,ready)?TRUE:FALSE);
     update_online_field_preview_controls(state);
@@ -2370,7 +2371,8 @@ void update_metadata_table(PreviewState& state) {
             ((physical || (!state.beatport_offline_selected && cue_readable)) &&
              !pending_online && !state.stale) ? TRUE : FALSE);
         // Preserve the candidate, not its old sorted view row.
-        std::string selected_browser_id;
+        NativeBrowserCandidateKey selected_browser_key{};
+        bool had_browser_selection=false;
         const int selected_before=ListView_GetNextItem(
             state.metadata_list,-1,LVNI_SELECTED);
         if (selected_before>=0 &&
@@ -2379,7 +2381,9 @@ void update_metadata_table(PreviewState& state) {
                 static_cast<std::size_t>(selected_before)];
             if (old_index<state.candidate_rows.size()) {
                 const auto& old=state.candidate_rows[old_index];
-                selected_browser_id=old.candidate.source_id+"|"+old.field;
+                selected_browser_key={
+                    old.candidate.provider,old.candidate.source_id,old.field};
+                had_browser_selection=true;
             }
         }
         state.candidate_view_order.clear();
@@ -2400,22 +2404,30 @@ void update_metadata_table(PreviewState& state) {
         update_musicbrainz_browse_headers(state);
         if (state.musicbrainz_live_view &&
             state.candidate_source_index==state.selected_track_index) {
-            std::size_t target=0;
-            bool found=false;
-            for (std::size_t i=0;i<state.candidate_view_order.size();++i) {
-                const auto& row=state.candidate_rows[state.candidate_view_order[i]];
-                if (!selected_browser_id.empty() &&
-                    row.candidate.source_id+"|"+row.field==selected_browser_id) {
-                    target=i;
-                    found=true;
-                    break;
-                }
+            std::vector<NativeBrowserCandidateKey> visible_keys;
+            visible_keys.reserve(state.candidate_view_order.size());
+            for(const auto index:state.candidate_view_order) {
+                const auto& row=state.candidate_rows.at(index);
+                visible_keys.push_back({
+                    row.candidate.provider,row.candidate.source_id,row.field});
             }
+            const auto match=had_browser_selection
+                ? native_browser_identity_match(visible_keys,selected_browser_key)
+                : NativeBrowserIdentityMatch{};
+            const bool found=match.unique_row.has_value();
+            const std::size_t target=match.unique_row.value_or(0);
             const int selected_now=ListView_GetNextItem(
                 state.metadata_list,-1,LVNI_SELECTED);
-            if (!state.candidate_view_order.empty() &&
-                native_browser_selection_requires_reset(
-                    found,selected_now,target)) {
+            if(match.ambiguous) {
+                // A duplicated provider/edition/field cannot silently inherit
+                // the old selected row after a search, sort or page refresh.
+                state.updating_musicbrainz_selection=true;
+                ListView_SetItemState(state.metadata_list,-1,0,
+                                      LVIS_SELECTED|LVIS_FOCUSED);
+                state.updating_musicbrainz_selection=false;
+            } else if(!state.candidate_view_order.empty() &&
+                      native_browser_selection_requires_reset(
+                          found,selected_now,target)) {
                 state.updating_musicbrainz_selection=true;
                 ListView_SetItemState(state.metadata_list,-1,0,LVIS_SELECTED);
                 ListView_SetItemState(state.metadata_list,static_cast<int>(target),
@@ -6041,8 +6053,9 @@ void perform_discogs_load(HWND dialog, PreviewState& state) {
        state.selected_track_index>=state.entries.size())
         throw std::invalid_argument("Run a Discogs search for this source first.");
     const int selected=ListView_GetNextItem(state.metadata_list,-1,LVNI_SELECTED);
-    if(selected<0 || static_cast<std::size_t>(selected)>=state.candidate_view_order.size())
-        throw std::invalid_argument("Select a concrete Discogs release first.");
+    if(ListView_GetSelectedCount(state.metadata_list)!=1 || selected<0 ||
+       static_cast<std::size_t>(selected)>=state.candidate_view_order.size())
+        throw std::invalid_argument("Select exactly one Discogs edition first.");
     const auto rowid=state.candidate_view_order[static_cast<std::size_t>(selected)];
     if(rowid>=state.candidate_rows.size())
         throw std::invalid_argument("Selected Discogs result expired.");
@@ -6057,11 +6070,11 @@ void perform_discogs_load(HWND dialog, PreviewState& state) {
         if(ec!=std::errc{} || end!=digits.data()+digits.size() || !master_id ||
            source_id!="master:"+std::to_string(master_id))
             throw std::invalid_argument("Invalid Discogs master identity.");
-        const bool verified=std::any_of(
+        const bool verified=std::count_if(
             state.discogs_results.begin(),state.discogs_results.end(),
             [master_id](const auto& hit) {
                 return hit.kind==EntityKind::Master && hit.id==master_id;
-            });
+            })==1;
         if(!verified)
             throw std::invalid_argument("Discogs master was not in the current results.");
         const auto& entry=state.entries[state.selected_track_index];
@@ -6079,11 +6092,11 @@ void perform_discogs_load(HWND dialog, PreviewState& state) {
     const auto [end,ec]=std::from_chars(digits.data(),digits.data()+digits.size(),id);
     if(ec!=std::errc{} || end!=digits.data()+digits.size() || !id)
         throw std::invalid_argument("Discogs release identity is invalid.");
-    const bool verified=std::any_of(
+    const bool verified=std::count_if(
         state.discogs_results.begin(),state.discogs_results.end(),
         [id](const auto& hit) {
             return hit.kind==EntityKind::Release && hit.id==id;
-        });
+        })==1;
     if(!verified)
         throw std::invalid_argument("Selected Discogs release was not in the current result set.");
     const auto& entry=state.entries[state.selected_track_index];
@@ -9372,20 +9385,23 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                     "Search for a MusicBrainz release before loading its tracks.");
             const int selected=ListView_GetNextItem(
                 state->metadata_list,-1,LVNI_SELECTED);
-            if (selected<0 ||
+            if (ListView_GetSelectedCount(state->metadata_list)!=1 ||
+                selected<0 ||
                 static_cast<std::size_t>(selected)>=state->candidate_view_order.size())
                 throw std::invalid_argument(
-                    "Select one candidate row in the right table first.");
+                    "Select exactly one release candidate in the right table.");
             const auto rowid=state->candidate_view_order[
                 static_cast<std::size_t>(selected)];
             if(rowid>=state->candidate_rows.size())
                 throw std::invalid_argument("Candidate selection expired.");
             const auto mbid=state->candidate_rows[rowid].candidate.source_id;
-            bool found=false;
-            for(const auto& result:state->musicbrainz_results)
-                if (result.kind==djmeta::online::musicbrainz::SearchKind::Release &&
-                    result.mbid==mbid) found=true;
-            if(!found || !djmeta::online::musicbrainz::valid_mbid(mbid))
+            const auto matches=std::count_if(
+                state->musicbrainz_results.begin(),state->musicbrainz_results.end(),
+                [&mbid](const auto& result) {
+                    return result.kind==djmeta::online::musicbrainz::SearchKind::Release &&
+                           result.mbid==mbid;
+                });
+            if(matches!=1 || !djmeta::online::musicbrainz::valid_mbid(mbid))
                 throw std::invalid_argument("Selected release was not verified by this search.");
 
             const auto& entry=state->entries[state->selected_track_index];

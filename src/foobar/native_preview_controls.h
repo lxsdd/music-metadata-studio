@@ -286,10 +286,16 @@ inline constexpr const wchar_t* native_workspace_display_hint(
 // can never enable release-track inspection.
 inline bool native_release_loadable(
     bool live, bool loaded, bool source_matches, bool request_pending,
-    std::string_view selected_id, const std::vector<std::string>& exact_ids) {
+    std::string_view selected_id, const std::vector<std::string>& exact_ids,
+    int selected_count) {
+    // The Load button must not pick an arbitrary first row or an edition
+    // duplicated across provider pages. A click is not an identity decision.
     return live && !loaded && source_matches && !request_pending &&
-        !selected_id.empty() &&
-        std::find(exact_ids.begin(),exact_ids.end(),selected_id)!=exact_ids.end();
+        selected_count==1 && !selected_id.empty() &&
+        std::count_if(exact_ids.begin(),exact_ids.end(),
+            [selected_id](const std::string& id) {
+                return std::string_view(id)==selected_id;
+            })==1;
 }
 
 enum class NativeRoutePreviewScope { Selected, Visible, All };
@@ -1171,6 +1177,27 @@ inline bool native_sort_evidence_details(HWND list,int column,bool descending) {
     }
     return ListView_SortItems(list,native_evidence_compare,
                               reinterpret_cast<LPARAM>(&context))!=FALSE;
+}
+
+// Provider, exact source ID and field are independent identity components.
+// Never join them with an ambiguous delimiter: a provider may legitimately
+// return repeated field names or source IDs across pages. A duplicated
+// identity must clear selection instead of binding an unrelated visible row.
+using NativeBrowserCandidateKey=std::array<std::string,3>;
+struct NativeBrowserIdentityMatch {
+    std::optional<std::size_t> unique_row;
+    bool ambiguous=false;
+};
+inline NativeBrowserIdentityMatch native_browser_identity_match(
+    const std::vector<NativeBrowserCandidateKey>& visible_keys,
+    const NativeBrowserCandidateKey& previous_key) noexcept {
+    std::optional<std::size_t> row;
+    for(std::size_t i=0;i<visible_keys.size();++i) {
+        if(visible_keys[i]!=previous_key) continue;
+        if(row) return {std::nullopt,true};
+        row=i;
+    }
+    return {row,false};
 }
 
 // After a new provider query or a changed track, a virtual ListView may

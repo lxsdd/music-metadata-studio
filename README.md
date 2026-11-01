@@ -103,6 +103,15 @@ Titel-/Künstler-/Mix-/Dauerzuordnung. Ungesicherte CUE-Zuordnungen, jedes
 automatische Schreiben und das unqualifizierte Crates-Datum bleiben gesperrt.
 Der Nutzer muss die öffentliche Seite selbst öffnen und den Helfer auslösen.
 
+## Native online release identity (Draft PR #64)
+
+The Find & compare release action requires exactly one selected result and
+exactly one matching current provider release ID. Repeated release IDs,
+stale/ambiguous browser row identities and unrelated providers cannot silently
+select a different edition after sorting, paging or refresh. Double-click and
+Enter still select one exact edition; Discogs masters remain navigation-only.
+All checks precede network retrieval and do not authorize tag/CUE/file writes.
+
 ## Native History source provenance (Draft PR #64)
 
 The read-only **History** page shows a **Source #** column beside each

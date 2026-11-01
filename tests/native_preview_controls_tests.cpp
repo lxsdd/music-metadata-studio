@@ -1442,18 +1442,28 @@ int main() {
     const std::vector<std::string> exact_ids{
         "release:38012673", "release:37332711"};
     check(djmeta_foobar::native_release_loadable(
-              true,false,true,false,"release:38012673",exact_ids) &&
+              true,false,true,false,"release:38012673",exact_ids,1) &&
           !djmeta_foobar::native_release_loadable(
-              true,false,true,false,"master:38012673",exact_ids) &&
+              true,false,true,false,"master:38012673",exact_ids,1) &&
           !djmeta_foobar::native_release_loadable(
-              true,false,true,false,"release:999",exact_ids) &&
+              true,false,true,false,"release:999",exact_ids,1) &&
           !djmeta_foobar::native_release_loadable(
-              true,false,true,true,"release:38012673",exact_ids) &&
+              true,false,true,true,"release:38012673",exact_ids,1) &&
           !djmeta_foobar::native_release_loadable(
-              true,false,false,false,"release:38012673",exact_ids) &&
+              true,false,false,false,"release:38012673",exact_ids,1) &&
           !djmeta_foobar::native_release_loadable(
-              true,true,true,false,"release:38012673",exact_ids),
-          "native release action rejects masters, unrelated, pending, stale and loaded rows");
+              true,true,true,false,"release:38012673",exact_ids,1) &&
+          !djmeta_foobar::native_release_loadable(
+              true,false,true,false,"release:38012673",exact_ids,0) &&
+          !djmeta_foobar::native_release_loadable(
+              true,false,true,false,"release:38012673",exact_ids,2) &&
+          !djmeta_foobar::native_release_loadable(
+              true,false,true,false,"release:38012673",
+              {"release:38012673","release:38012673"},1) &&
+          djmeta_foobar::native_release_loadable(
+              true,false,true,false,"master:73",{"master:73","release:73"},1),
+          "release Load requires exactly one selected row and one verified "
+          "provider identity; Discogs master navigation remains distinct");
     check(djmeta_foobar::native_selected_release_activation_row(
         NM_DBLCLK,3,3,true,true)==3 &&
           djmeta_foobar::native_selected_release_activation_row(
@@ -2273,6 +2283,33 @@ int main() {
               "DPI capture retains logical width and hidden column width");
     }
 
+    using djmeta_foobar::NativeBrowserCandidateKey;
+    using djmeta_foobar::native_browser_identity_match;
+    const std::vector<NativeBrowserCandidateKey> candidate_keys{
+        {"Discogs","release:10","TITLE"},
+        {"MusicBrainz","release:10","TITLE"},
+        {"Discogs","release:11","TITLE"},
+        {"Discogs","release:10","ARTIST"}};
+    const auto exact_browser=native_browser_identity_match(
+        candidate_keys,{"Discogs","release:11","TITLE"});
+    const auto provider_browser=native_browser_identity_match(
+        candidate_keys,{"MusicBrainz","release:10","TITLE"});
+    const auto missing_browser=native_browser_identity_match(
+        candidate_keys,{"Discogs","release:99","TITLE"});
+    const auto duplicate_browser=native_browser_identity_match(
+        {{"Discogs","release:10","TITLE"},
+         {"Discogs","release:10","TITLE"}},
+        {"Discogs","release:10","TITLE"});
+    const auto delimiter_browser=native_browser_identity_match(
+        {{"A|B","C","D"},{"A","B|C","D"}},
+        {"A","B|C","D"});
+    check(exact_browser.unique_row==2 && !exact_browser.ambiguous &&
+          provider_browser.unique_row==1 && !provider_browser.ambiguous &&
+          !missing_browser.unique_row && !missing_browser.ambiguous &&
+          !duplicate_browser.unique_row && duplicate_browser.ambiguous &&
+          delimiter_browser.unique_row==1 && !delimiter_browser.ambiguous,
+          "browser preserves exact provider/edition/field identity across "
+          "sorts, rejects duplicates and avoids delimiter collisions");
     check(djmeta_foobar::native_browser_selection_requires_reset(false,0,0) &&
           djmeta_foobar::native_browser_selection_requires_reset(false,2,0) &&
           djmeta_foobar::native_browser_selection_requires_reset(true,-1,0) &&
