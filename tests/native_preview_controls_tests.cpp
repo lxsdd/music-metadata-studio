@@ -383,14 +383,14 @@ int main() {
     for(const auto choice : {PreviewHistoryFilter::Discogs,
                              PreviewHistoryFilter::MusicBrainz,
                              PreviewHistoryFilter::Beatport}) {
-        const auto receipt=djmeta_foobar::preview_history_export_tsv(provider_history,choice,std::nullopt,8);
-        check(receipt && receipt->find(L"Summary: Actions 1")!=std::wstring::npos &&
-              receipt->find(L"No metadata, CUE or file operation was executed")!=std::wstring::npos &&
-              (receipt->find(L"Inspect Discogs edition")!=std::wstring::npos)==
+        const auto filtered_receipt=djmeta_foobar::preview_history_export_tsv(provider_history,choice,std::nullopt,8);
+        check(filtered_receipt && filtered_receipt->find(L"Summary: Actions 1")!=std::wstring::npos &&
+              filtered_receipt->find(L"No metadata, CUE or file operation was executed")!=std::wstring::npos &&
+              (filtered_receipt->find(L"Inspect Discogs edition")!=std::wstring::npos)==
                   (choice==PreviewHistoryFilter::Discogs) &&
-              (receipt->find(L"Inspect MusicBrainz edition")!=std::wstring::npos)==
+              (filtered_receipt->find(L"Inspect MusicBrainz edition")!=std::wstring::npos)==
                   (choice==PreviewHistoryFilter::MusicBrainz) &&
-              (receipt->find(L"Inspect Beatport track")!=std::wstring::npos)==
+              (filtered_receipt->find(L"Inspect Beatport track")!=std::wstring::npos)==
                   (choice==PreviewHistoryFilter::Beatport),
               "provider-specific receipts exclude other providers, paths and write authorization");
     }
