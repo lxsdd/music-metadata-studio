@@ -150,6 +150,11 @@ void test_unicode_control_and_bidi_safety() {
     disc.tracks[0].title = "Café 👩‍🎤";
     const auto accepted = djmeta::make_precision_cue(disc);
     assert(accepted.external_cue_utf8.find(disc.tracks[0].title) != std::string::npos);
+    // ZWNJ is meaningful in Persian spelling; preserve it while rejecting
+    // unrelated invisible spoofing controls and keeping emoji ZWJ intact.
+    disc.tracks[1].title = "می‌کس";
+    const auto persian = djmeta::make_precision_cue(disc);
+    assert(persian.external_cue_utf8.find(disc.tracks[1].title) != std::string::npos);
 
     const std::vector<std::string> unsafe = {
         "\xC2\x85",          // U+0085 NEL (Unicode C1)
@@ -158,6 +163,13 @@ void test_unicode_control_and_bidi_safety() {
         "\xE2\x81\xA6",      // U+2066 bidi isolate
         "\xD8\x9C",          // U+061C Arabic letter mark
         "\xEF\xBB\xBF",      // U+FEFF embedded BOM
+        "\xC2\xAD",          // U+00AD soft hyphen (invisible edition alias)
+        "\xCD\x8F",          // U+034F combining grapheme joiner
+        "\xE1\xA0\x8E",      // U+180E Mongolian vowel separator
+        "\xE2\x80\x8B",      // U+200B zero-width space
+        "\xE2\x81\xA0",      // U+2060 word joiner
+        "\xE2\x81\xA1",      // U+2061 invisible function application
+        "\xE2\x81\xAF",      // U+206F deprecated invisible formatting
         "\xEF\xB7\x90",      // U+FDD0 noncharacter
         "\xF4\x8F\xBF\xBF",  // U+10FFFF noncharacter
         "\xC0\xAF",          // overlong UTF-8
