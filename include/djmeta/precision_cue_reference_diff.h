@@ -220,6 +220,11 @@ inline PrecisionCueReferenceDiff compare_precision_cue_external_reference(
     std::int64_t index_00_frame = -1;
     std::int64_t last_index_01_frame = -1;
     bool extra_index = false;
+    // Reference disc identity is independent of matching INDEX 01 frames.
+    // Malformed numbers or an impossible disc/total pair are not reviewable
+    // edition evidence. Valid contradictory values remain REVIEW-only.
+    std::optional<unsigned> reference_disc_number;
+    std::optional<unsigned> reference_total_discs;
     unsigned current_track = 0;
     std::size_t line_count = 0;
     std::size_t cursor = 0;
@@ -311,9 +316,72 @@ inline PrecisionCueReferenceDiff compare_precision_cue_external_reference(
                 out.diagnostic = "CUE_REFERENCE_METADATA_SCOPE_INVALID";
                 return out;
             }
-            if (op == "REM" && metadata_tokens.size() < 3) {
+            if (op == "REM" &&
+                (metadata_tokens.size() < 3 ||
+                 metadata_tokens[2] == "\"\"")) {
                 out.diagnostic = "CUE_REFERENCE_MALFORMED_REM";
                 return out;
+            }
+            if (op == "REM" && metadata_tokens.size() >= 2 &&
+                (metadata_tokens[1] == "DISCNUMBER" ||
+                 metadata_tokens[1] == "TOTALDISCS")) {
+                unsigned number = 0;
+                if (metadata_tokens.size() != 3 ||
+                    !decimal(metadata_tokens[2], number, 99, 2) ||
+                    number == 0) {
+                    out.diagnostic = "CUE_REFERENCE_DISC_IDENTITY_MALFORMED";
+                    return out;
+                }
+                auto& field = metadata_tokens[1] == "DISCNUMBER"
+                    ? reference_disc_number : reference_total_discs;
+                if (!field) field = number;
+                if (reference_disc_number && reference_total_discs &&
+                    *reference_disc_number > *reference_total_discs) {
+                    out.diagnostic = "CUE_REFERENCE_DISC_IDENTITY_IMPOSSIBLE";
+                    return out;
+                }
+            }
+            // A malformed catalog/ISRC/flag operand is not independently
+            // verifiable provenance. Do not turn it into a frame-exact match.
+            if (op == "CATALOG") {
+                const auto value = metadata_tokens.size() == 2
+                    ? metadata_tokens[1] : std::string_view{};
+                if (value.size() != 13 ||
+                    !std::all_of(value.begin(), value.end(), [](char c) {
+                        return c >= '0' && c <= '9';
+                    })) {
+                    out.diagnostic = "CUE_REFERENCE_IDENTIFIER_MALFORMED";
+                    return out;
+                }
+            } else if (op == "ISRC") {
+                const auto value = metadata_tokens.size() == 2
+                    ? metadata_tokens[1] : std::string_view{};
+                bool valid = value.size() == 12;
+                for (std::size_t i = 0; valid && i < value.size(); ++i) {
+                    const char c = value[i];
+                    const bool letter = (c >= 'A' && c <= 'Z') ||
+                                        (c >= 'a' && c <= 'z');
+                    const bool digit = c >= '0' && c <= '9';
+                    valid = (i < 2 ? letter : i < 5 ? (letter || digit) : digit);
+                }
+                if (!valid) {
+                    out.diagnostic = "CUE_REFERENCE_IDENTIFIER_MALFORMED";
+                    return out;
+                }
+            } else if (op == "FLAGS") {
+                bool valid = metadata_tokens.size() >= 2 &&
+                             metadata_tokens.size() <= 5;
+                for (std::size_t i = 1; valid && i < metadata_tokens.size(); ++i) {
+                    const auto flag = metadata_tokens[i];
+                    valid = (flag == "DCP" || flag == "4CH" ||
+                             flag == "PRE" || flag == "SCMS");
+                    for (std::size_t j = 1; valid && j < i; ++j)
+                        if (metadata_tokens[j] == flag) valid = false;
+                }
+                if (!valid) {
+                    out.diagnostic = "CUE_REFERENCE_FLAGS_MALFORMED";
+                    return out;
+                }
             }
             // CATALOG belongs to the disc, ISRC/FLAGS to a track. Reject
             // structurally misplaced claims instead of laundering them into
