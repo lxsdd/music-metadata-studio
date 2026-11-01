@@ -383,7 +383,7 @@ int main() {
     for(const auto choice : {PreviewHistoryFilter::Discogs,
                              PreviewHistoryFilter::MusicBrainz,
                              PreviewHistoryFilter::Beatport}) {
-        const auto receipt=preview_history_export_tsv(provider_history,choice,std::nullopt,8);
+        const auto receipt=djmeta_foobar::preview_history_export_tsv(provider_history,choice,std::nullopt,8);
         check(receipt && receipt->find(L"Summary: Actions 1")!=std::wstring::npos &&
               receipt->find(L"No metadata, CUE or file operation was executed")!=std::wstring::npos &&
               (receipt->find(L"Inspect Discogs edition")!=std::wstring::npos)==
