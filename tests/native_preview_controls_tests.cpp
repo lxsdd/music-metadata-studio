@@ -2310,6 +2310,41 @@ int main() {
           delimiter_browser.unique_row==1 && !delimiter_browser.ambiguous,
           "browser preserves exact provider/edition/field identity across "
           "sorts, rejects duplicates and avoids delimiter collisions");
+    using djmeta_foobar::native_verified_release_row;
+    const std::vector<NativeBrowserCandidateKey> official_rows{
+        {"discogs","release:17","Exact edition"},
+        {"musicbrainz","release:17","Other provider"},
+        {"discogs","master:17","Navigation only"}};
+    check(native_verified_release_row(
+              official_rows,0,"discogs",{"release:17","master:17"}) &&
+          native_verified_release_row(
+              official_rows,1,"musicbrainz",{"release:17"}) &&
+          native_verified_release_row(
+              official_rows,2,"discogs",{"master:17","release:17"}) &&
+          !native_verified_release_row(
+              official_rows,0,"musicbrainz",{"release:17"}) &&
+          !native_verified_release_row(
+              official_rows,0,"discogs",{"release:99"}) &&
+          !native_verified_release_row(
+              official_rows,0,"discogs",{"release:17","release:17"}) &&
+          !native_verified_release_row(
+              official_rows,3,"discogs",{"release:17"}) &&
+          !native_verified_release_row(
+              {{"discogs","release:17","A"},{"discogs","release:17","B"}},
+              0,"discogs",{"release:17"}) &&
+          !native_verified_release_row(
+              {{"discogs","release:17","A"},{"discogs","release:17","A"}},
+              0,"discogs",{"release:17"}) &&
+          !native_verified_release_row(
+              {{"discogs","release:17",""}},
+              0,"discogs",{"release:17"}) &&
+          !native_verified_release_row(
+              {{"discogs","","A"}},0,"discogs",{""}) &&
+          !native_verified_release_row(
+              official_rows,0,"",{"release:17"}),
+          "provider-bound release Load accepts exact unique edition only; "
+          "duplicate candidate, duplicate provider ID, foreign source, "
+          "invalid row and empty identity all fail without a request");
     check(djmeta_foobar::native_browser_selection_requires_reset(false,0,0) &&
           djmeta_foobar::native_browser_selection_requires_reset(false,2,0) &&
           djmeta_foobar::native_browser_selection_requires_reset(true,-1,0) &&
