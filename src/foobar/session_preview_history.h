@@ -14,7 +14,7 @@ enum class PreviewHistoryKind {
     Accept, Reject, Reset, Manual, Route, UndoReview, UndoRoute,
     DiscogsEdition, MusicBrainzEdition, BeatportTrack
 };
-enum class PreviewHistoryFilter { All, Review, Routing, Undo, Lookup };
+enum class PreviewHistoryFilter { All, Review, Routing, Undo, Lookup, Discogs, MusicBrainz, Beatport };
 struct PreviewHistoryEvent {
     std::size_t sequence=0;
     PreviewHistoryKind kind=PreviewHistoryKind::Reset;
@@ -79,6 +79,9 @@ inline bool preview_history_matches(PreviewHistoryKind kind,
                                     PreviewHistoryFilter filter) noexcept {
     if(filter==PreviewHistoryFilter::All) return true;
     if(filter==PreviewHistoryFilter::Lookup) return preview_history_is_lookup(kind);
+    if(filter==PreviewHistoryFilter::Discogs) return kind==PreviewHistoryKind::DiscogsEdition;
+    if(filter==PreviewHistoryFilter::MusicBrainz) return kind==PreviewHistoryKind::MusicBrainzEdition;
+    if(filter==PreviewHistoryFilter::Beatport) return kind==PreviewHistoryKind::BeatportTrack;
     if(filter==PreviewHistoryFilter::Routing) return kind==PreviewHistoryKind::Route;
     if(filter==PreviewHistoryFilter::Undo)
         return kind==PreviewHistoryKind::UndoReview ||
