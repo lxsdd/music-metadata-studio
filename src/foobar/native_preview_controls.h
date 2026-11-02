@@ -1225,6 +1225,21 @@ inline bool native_verified_release_row(
     return visible_matches==1 && verified_matches==1;
 }
 
+// A pending asynchronous edition lookup is bound to the entire selected
+// provider/edition/field triple, not merely to the reused ListView index.
+// Recheck unique current provider evidence and EXACTLY one selected row
+// immediately before publishing a response; no stale reply may be staged.
+inline bool native_verified_pending_release_row(
+    const std::vector<NativeBrowserCandidateKey>& visible_keys,
+    std::size_t selected_row, std::size_t selected_count,
+    const NativeBrowserCandidateKey& requested_key,
+    const std::vector<std::string>& verified_ids) noexcept {
+    return selected_count==1 && selected_row<visible_keys.size() &&
+           visible_keys[selected_row]==requested_key &&
+           native_verified_release_row(visible_keys,selected_row,
+                                       requested_key[0],verified_ids);
+}
+
 // After a new provider query or a changed track, a virtual ListView may
 // retain selection INDEX 0/1 while representing an entirely different
 // release. A selected row is not an identity. Unless the exact source ID

@@ -2376,6 +2376,44 @@ int main() {
           "provider-bound release Load accepts exact unique edition only; "
           "duplicate candidate, duplicate provider ID, foreign source, "
           "invalid row and empty identity all fail without a request");
+    // A late official response must still belong to the exact row captured
+    // when Load was clicked; changing only field/provider or selecting two
+    // rows is not equivalent to the original user's choice.
+    using djmeta_foobar::native_verified_pending_release_row;
+    const NativeBrowserCandidateKey pending_discogs=official_rows[0];
+    const NativeBrowserCandidateKey pending_musicbrainz=official_rows[1];
+    check(native_verified_pending_release_row(
+              official_rows,0,1,pending_discogs,{"release:17","master:17"}) &&
+          native_verified_pending_release_row(
+              official_rows,1,1,pending_musicbrainz,{"release:17"}) &&
+          !native_verified_pending_release_row(
+              official_rows,0,0,pending_discogs,{"release:17"}) &&
+          !native_verified_pending_release_row(
+              official_rows,0,2,pending_discogs,{"release:17"}) &&
+          !native_verified_pending_release_row(
+              official_rows,1,1,pending_discogs,{"release:17"}) &&
+          !native_verified_pending_release_row(
+              official_rows,0,1,{"discogs","release:17","Different field"},
+              {"release:17"}) &&
+          !native_verified_pending_release_row(
+              official_rows,0,1,{"musicbrainz","release:17","Exact edition"},
+              {"release:17"}) &&
+          !native_verified_pending_release_row(
+              official_rows,0,1,{"discogs","release:99","Exact edition"},
+              {"release:17"}) &&
+          !native_verified_pending_release_row(
+              official_rows,3,1,pending_discogs,{"release:17"}) &&
+          !native_verified_pending_release_row(
+              official_rows,0,1,pending_discogs,{"release:17","release:17"}) &&
+          !native_verified_pending_release_row(
+              {{"discogs","release:17","Exact edition"},
+               {"discogs","release:17","Other field"}},
+              0,1,pending_discogs,{"release:17"}) &&
+          !native_verified_pending_release_row(
+              {{"discogs","release:17",""}},0,1,
+              {"discogs","release:17",""},{"release:17"}),
+          "late provider responses require exact pending provider, edition, "
+          "field, single selection and unique official result");
     check(djmeta_foobar::native_browser_selection_requires_reset(false,0,0) &&
           djmeta_foobar::native_browser_selection_requires_reset(false,2,0) &&
           djmeta_foobar::native_browser_selection_requires_reset(true,-1,0) &&

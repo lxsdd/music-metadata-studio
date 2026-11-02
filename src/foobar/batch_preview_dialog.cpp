@@ -138,6 +138,7 @@ struct PendingDiscogsContext {
     std::string cue_before;
     djmeta::MetadataDocument originals;
     std::uint64_t release_id=0;
+    NativeBrowserCandidateKey selected_release_key{}; // exact pending UI provenance
     std::uint64_t master_id=0; // versions are candidates only
     std::uint64_t master_page=1;
     std::uint64_t result_page=1;
@@ -165,6 +166,7 @@ struct PendingMusicBrainzContext {
     std::size_t attempt_index=0;
     std::size_t total=1;
     std::string release_mbid;
+    NativeBrowserCandidateKey selected_release_key{}; // exact pending UI provenance
     // Explicit browser URL identities, never arbitrary network URLs.
     std::string exact_recording_mbid;
     bool direct_release=false;
@@ -2223,7 +2225,8 @@ void update_musicbrainz_browse_headers(PreviewState& state) {
 // The exact same provider/edition identity fence is used by the native
 // button and BOTH explicit Load handlers. ListView position, displayed title,
 // and a provider result ID alone are never sufficient for a network request.
-bool online_selected_release_verified(const PreviewState& state,int selected) {
+bool online_selected_release_verified(const PreviewState& state,int selected,
+                                      const NativeBrowserCandidateKey* pending_key=nullptr) {
     if(!state.metadata_list || !state.show_candidate ||
        !state.musicbrainz_live_view ||
        state.candidate_source_index!=state.selected_track_index ||
@@ -2260,6 +2263,11 @@ bool online_selected_release_verified(const PreviewState& state,int selected) {
             if(hit.kind==djmeta::online::musicbrainz::SearchKind::Release)
                 verified_ids.push_back(hit.mbid);
     }
+    if(pending_key)
+        return native_verified_pending_release_row(
+            visible,static_cast<std::size_t>(selected),
+            static_cast<std::size_t>(ListView_GetSelectedCount(state.metadata_list)),
+            *pending_key,verified_ids);
     return native_verified_release_row(
         visible,static_cast<std::size_t>(selected),
         expected_provider,verified_ids);
@@ -6171,6 +6179,10 @@ void perform_discogs_load(HWND dialog, PreviewState& state) {
     context.kind=PendingDiscogsContext::Kind::Release;
     context.source_index=state.selected_track_index;
     context.release_id=id;
+    context.selected_release_key={
+        state.candidate_rows[rowid].candidate.provider,
+        state.candidate_rows[rowid].candidate.source_id,
+        state.candidate_rows[rowid].field};
     context.cue_mode=state.discogs_search_was_cue;
     context.cue_before=std::move(cue_before);
     context.context_version=state.online_context_version.current();
@@ -6208,12 +6220,10 @@ void publish_discogs_release(HWND dialog, PreviewState& state,
        static_cast<std::size_t>(selected)>=state.candidate_view_order.size())
         throw std::runtime_error(
             "Discogs release selection changed during lookup.");
-    const auto row=state.candidate_view_order[
-        static_cast<std::size_t>(selected)];
-    if(row>=state.candidate_rows.size() ||
-       !djmeta::online::discogs::selected_exact_release_id(
-           state.candidate_rows[row].candidate.source_id,
-           request.release_id))
+    if(!online_selected_release_verified(state,selected,
+            &request.selected_release_key) ||
+       request.selected_release_key[1]!=
+           "release:"+std::to_string(request.release_id))
         throw std::runtime_error(
             "Discogs release selection changed during lookup.");
     const auto& entry=state.entries[request.source_index];
@@ -6689,13 +6699,9 @@ void publish_musicbrainz_release(
         throw std::runtime_error("MusicBrainz release no longer belongs to the current search.");
     if(!request.direct_release) {
         const int selected=ListView_GetNextItem(state.metadata_list,-1,LVNI_SELECTED);
-        if(selected<0 ||
-           static_cast<std::size_t>(selected)>=state.candidate_view_order.size() ||
-           state.candidate_view_order[static_cast<std::size_t>(selected)]>=
-               state.candidate_rows.size() ||
-           state.candidate_rows[
-               state.candidate_view_order[static_cast<std::size_t>(selected)]]
-                   .candidate.source_id!=request.release_mbid)
+        if(!online_selected_release_verified(state,selected,
+                &request.selected_release_key) ||
+           request.selected_release_key[1]!=request.release_mbid)
             throw std::runtime_error("MusicBrainz release selection changed during lookup.");
     }
     const auto& entry=state.entries[request.source_index];
@@ -9488,6 +9494,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             request.cue_before=std::move(cue_before);
             request.originals=state->musicbrainz_page_originals;
             request.release_mbid=mbid;
+            request.selected_release_key={
+                state->candidate_rows[rowid].candidate.provider,
+                state->candidate_rows[rowid].candidate.source_id,
+                state->candidate_rows[rowid].field};
             begin_musicbrainz_network(dialog,*state,
                 djmeta::online::musicbrainz::make_release_lookup_path(mbid),
                 std::move(request));
