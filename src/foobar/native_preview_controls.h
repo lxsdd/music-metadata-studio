@@ -1062,19 +1062,58 @@ inline int native_selected_release_activation_row(
 
 // The existing Load release command consumes the first selected ListView row.
 // Retarget it to the explicitly activated identity BEFORE dispatch, otherwise
-// a multi-selection could load the wrong edition. This deliberately collapses
-// the candidate selection on activation, never during ordinary comparison.
+// a multi-selection could load the wrong edition. Preserve the complete
+// selection/focus snapshot until the native transition is verified. A failed
+// ListView operation must not leave a different edition selected for Load.
 inline bool native_focus_exact_release_row(HWND list, int target_row) {
-    if (!list || target_row < 0 || target_row >= ListView_GetItemCount(list) ||
-        (ListView_GetItemState(list, target_row, LVIS_SELECTED) &
-         LVIS_SELECTED) == 0)
+    if (!list || target_row < 0) return false;
+    const int count=ListView_GetItemCount(list);
+    // Release browsing is bounded; never enumerate an unrelated 54k-track grid.
+    if (count<=0 || count>4096 || target_row>=count ||
+        (ListView_GetItemState(list,target_row,LVIS_SELECTED)&
+         LVIS_SELECTED)==0)
         return false;
-    ListView_SetItemState(list, -1, 0, LVIS_SELECTED);
-    ListView_SetItemState(list, target_row,
-        LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
-    return ListView_GetSelectedCount(list) == 1 &&
-        ListView_GetNextItem(list, -1, LVNI_SELECTED) == target_row &&
-        ListView_GetNextItem(list, -1, LVNI_FOCUSED) == target_row;
+    std::vector<int> selected;
+    int row=-1;
+    while ((row=ListView_GetNextItem(list,row,LVNI_SELECTED))>=0) {
+        if (row>=count) return false;
+        selected.push_back(row);
+    }
+    if (selected.size()!=static_cast<std::size_t>(
+            ListView_GetSelectedCount(list))) return false;
+    const int prior_focus=ListView_GetNextItem(list,-1,LVNI_FOCUSED);
+    if (prior_focus>=count) return false;
+    if (selected.size()==1 && selected[0]==target_row &&
+        prior_focus==target_row)
+        return true; // Already exact: no redundant selection notifications.
+    const auto set_state=[list](int index,UINT state,UINT mask) {
+        LVITEMW item{};
+        item.state=state;
+        item.stateMask=mask;
+        return SendMessageW(list,LVM_SETITEMSTATE,
+            static_cast<WPARAM>(index),
+            reinterpret_cast<LPARAM>(&item))!=FALSE;
+    };
+    const auto restore=[&]() {
+        bool restored=set_state(-1,0,LVIS_SELECTED|LVIS_FOCUSED);
+        for(const int original:selected)
+            restored=set_state(original,LVIS_SELECTED,LVIS_SELECTED)&&restored;
+        if(prior_focus>=0)
+            restored=set_state(prior_focus,LVIS_FOCUSED,LVIS_FOCUSED)&&restored;
+        return restored;
+    };
+    if(!set_state(-1,0,LVIS_SELECTED|LVIS_FOCUSED) ||
+       !set_state(target_row,LVIS_SELECTED|LVIS_FOCUSED,
+                  LVIS_SELECTED|LVIS_FOCUSED)) {
+        restore();
+        return false;
+    }
+    if(ListView_GetSelectedCount(list)==1 &&
+       ListView_GetNextItem(list,-1,LVNI_SELECTED)==target_row &&
+       ListView_GetNextItem(list,-1,LVNI_FOCUSED)==target_row)
+        return true;
+    restore();
+    return false;
 }
 
 // LVN_ITEMACTIVATE is the ListView's platform-native user intent for
