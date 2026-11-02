@@ -813,6 +813,15 @@ int main() {
           ListView_GetNextItem(route_target,-1,LVNI_SELECTED)==2 &&
           (ListView_GetItemState(route_target,2,LVIS_FOCUSED)&LVIS_FOCUSED)!=0,
           "History File locations jump selects exact physical source after reorder");
+    check(djmeta_foobar::native_focus_verified_physical_source(
+              route_target,route_order,5,8)==route_jump &&
+          !djmeta_foobar::native_focus_verified_physical_source(
+              route_target,route_order,5,7) &&
+          !djmeta_foobar::native_focus_verified_physical_source(
+              route_target,{7,2,8},5,8) &&
+          ListView_GetSelectedCount(route_target)==1 &&
+          ListView_GetNextItem(route_target,-1,LVNI_SELECTED)==2,
+          "History route jump rejects out-of-range physical source maps without selection mutation");
     check(!djmeta_foobar::native_focus_history_source(
               route_target,route_order,99) &&
           !djmeta_foobar::native_focus_history_source(
@@ -986,6 +995,45 @@ int main() {
           native_history_selected_sequence(history_hwnd,{77,78})==
               std::optional<std::size_t>{77},
           "real History restores exact event and focus after failed attempt");
+    // The real History HWND must not navigate a different selected row,
+    // a focused-but-unselected row, or a stale/recycled event LPARAM.
+    using djmeta_foobar::native_history_activation_row;
+    check(native_history_activation_row(history_hwnd,{77,78},NM_DBLCLK,0)==0 &&
+          native_history_activation_row(history_hwnd,{77,78},LVN_KEYDOWN,-1,VK_RETURN)==0 &&
+          native_history_activation_row(history_hwnd,{77,78},NM_DBLCLK,1)==-1 &&
+          native_history_activation_row(history_hwnd,{77,78},NM_DBLCLK,-1)==-1 &&
+          native_history_activation_row(history_hwnd,{77,78},LVN_KEYDOWN,-1,VK_SPACE)==-1,
+          "History activation binds mouse/Return to the exact sole selected event");
+    ListView_SetItemState(history_hwnd,1,LVIS_FOCUSED,LVIS_FOCUSED);
+    check(native_history_activation_row(history_hwnd,{77,78},LVN_KEYDOWN,-1,VK_RETURN)==-1 &&
+          native_history_activation_row(history_hwnd,{78,77},NM_DBLCLK,0)==-1,
+          "unselected focus and stale History sequence cannot navigate");
+    ListView_SetItemState(history_hwnd,0,LVIS_FOCUSED,LVIS_FOCUSED);
+    check(native_history_activation_row(history_hwnd,{77,78},LVN_KEYDOWN,-1,VK_RETURN)==0,
+          "return navigation is restored only after exact selected focus");
+    HWND multi_history=CreateWindowExW(0,WC_LISTVIEWW,L"",
+        WS_CHILD|LVS_REPORT,0,0,320,100,dialog,nullptr,
+        GetModuleHandleW(nullptr),nullptr);
+    check(multi_history!=nullptr,"native multi-selection History fixture exists");
+    LVITEMW multi_item{};
+    multi_item.mask=LVIF_TEXT|LVIF_PARAM;
+    multi_item.pszText=history_caption;
+    multi_item.iItem=0;
+    multi_item.lParam=77;
+    check(ListView_InsertItem(multi_history,&multi_item)==0,
+          "multi-selection History first event inserted");
+    multi_item.iItem=1;
+    multi_item.lParam=78;
+    check(ListView_InsertItem(multi_history,&multi_item)==1,
+          "multi-selection History second event inserted");
+    ListView_SetItemState(multi_history,0,LVIS_SELECTED|LVIS_FOCUSED,
+                          LVIS_SELECTED|LVIS_FOCUSED);
+    ListView_SetItemState(multi_history,1,LVIS_SELECTED,LVIS_SELECTED);
+    check(ListView_GetSelectedCount(multi_history)==2 &&
+          native_history_activation_row(multi_history,{77,78},NM_DBLCLK,0)==-1 &&
+          native_history_activation_row(multi_history,{77,78},LVN_KEYDOWN,-1,VK_RETURN)==-1,
+          "multiple History selections never authorize source navigation");
+    DestroyWindow(multi_history);
     check(RemoveWindowSubclass(history_hwnd,release_selection_probe,84)!=FALSE,
           "History state failure probe removed before other tests");
     ListView_SetItemState(history_hwnd,-1,0,LVIS_SELECTED|LVIS_FOCUSED);
