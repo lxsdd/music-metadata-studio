@@ -7975,14 +7975,16 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 header->code,clicked,focused,clicked_selected!=0,
                 focused_selected!=0,
                 header->code==LVN_KEYDOWN?VK_RETURN:0);
-            if(activated<0 ||
-               static_cast<std::size_t>(activated)>=
-                   state->candidate_view_order.size())
+            const auto candidate=native_verified_online_activation_source(
+                state->metadata_list,state->candidate_view_order,
+                state->candidate_rows.size(),activated);
+            if(!candidate) {
+                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                    L"CUE candidate selection changed; select one current "
+                    L"source and retry. No navigation or writes occurred.");
                 return TRUE;
-            const auto candidate=state->candidate_view_order[
-                static_cast<std::size_t>(activated)];
-            if(candidate>=state->candidate_rows.size()) return TRUE;
-            const auto& row=state->candidate_rows[candidate];
+            }
+            const auto& row=state->candidate_rows[*candidate];
             if(row.reason!="cue_raw_routing_impact_not_final_approval" &&
                row.reason!="cue_carrier_action_not_final_approval")
                 return TRUE;
@@ -8022,18 +8024,14 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             update_table(*state);
             TabCtrl_SetCurSel(state->tabs,2);
             show_preview_page(dialog,*state,false,false);
-            const auto where=std::find(state->view_order.begin(),
-                                       state->view_order.end(),
-                                       target->source_index);
-            if(where==state->view_order.end())
+            // CUE FILE navigation validates the entire physical queue and
+            // restores prior selection/focus if the native transition fails.
+            const auto focused=native_focus_verified_physical_source(
+                state->list,state->view_order,target->source_index,
+                state->entries.size());
+            if(!focused)
                 throw std::runtime_error(
-                    "Linked source no longer visible in complete File locations queue.");
-            const auto position=static_cast<int>(where-state->view_order.begin());
-            ListView_SetItemState(state->list,-1,0,LVIS_SELECTED);
-            ListView_SetItemState(state->list,position,
-                                  LVIS_SELECTED|LVIS_FOCUSED,
-                                  LVIS_SELECTED|LVIS_FOCUSED);
-            ListView_EnsureVisible(state->list,position,FALSE);
+                    "CUE linked source is stale or cannot be focused in File locations.");
             SetFocus(state->list);
             const std::wstring hint=target->carrier
                 ? L"CUE carrier opened in File locations. Stage an explicit "
@@ -8076,10 +8074,11 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 focus_selected,header->code==LVN_KEYDOWN?VK_RETURN:0);
             if(activated>=0 &&
                static_cast<std::size_t>(activated)<state->candidate_view_order.size()) {
-                const auto row_id=state->candidate_view_order[
-                    static_cast<std::size_t>(activated)];
-                if(row_id<state->candidate_rows.size()) {
-                    const auto& row=state->candidate_rows[row_id];
+                const auto row_id=native_verified_online_activation_source(
+                    state->metadata_list,state->candidate_view_order,
+                    state->candidate_rows.size(),activated);
+                if(row_id) {
+                    const auto& row=state->candidate_rows[*row_id];
                     const auto target=native_verified_album_source_target(
                         row.field,row.reason,true,true,state->entries.size());
                     if(target) {
