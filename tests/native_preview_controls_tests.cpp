@@ -29,6 +29,22 @@ void check(bool value, const char* message) {
         std::exit(1);
     }
 }
+struct EvidenceSortTextProbe {
+    int expected_column=0;
+    std::size_t reads=0;
+    std::size_t wrong_columns=0;
+};
+LRESULT CALLBACK evidence_sort_text_probe(HWND window,UINT message,
+    WPARAM wp,LPARAM lp,UINT_PTR,DWORD_PTR data) {
+    auto* probe=reinterpret_cast<EvidenceSortTextProbe*>(data);
+    if(message==LVM_GETITEMTEXTW) {
+        ++probe->reads;
+        const auto* item=reinterpret_cast<const LVITEMW*>(lp);
+        if(!item || item->iSubItem!=probe->expected_column)
+            ++probe->wrong_columns;
+    }
+    return DefSubclassProc(window,message,wp,lp);
+}
 djmeta_foobar::PreviewCommand last_command = djmeta_foobar::PreviewCommand::None;
 int command_notifications = 0;
 std::vector<std::size_t> active_track_order;
@@ -2632,6 +2648,10 @@ int main() {
               evidence_view,3,L"Raw filename (what-if)",L"x",L"y",L"RAW",-2),
           "native HWND field IDs and non-source route warning");
     ListView_SetItemState(evidence_view,0,LVIS_SELECTED,LVIS_SELECTED);
+    EvidenceSortTextProbe sort_probe{};
+    check(SetWindowSubclass(evidence_view,evidence_sort_text_probe,7,
+              reinterpret_cast<DWORD_PTR>(&sort_probe))!=FALSE,
+          "native provider sort probe installed on actual HWND");
     check(djmeta_foobar::native_sort_evidence_details(evidence_view,0,false) &&
           djmeta_foobar::native_evidence_source_row(evidence_view,0,3)==
               std::optional<std::size_t>{1} &&
@@ -2642,6 +2662,11 @@ int main() {
           !djmeta_foobar::native_evidence_source_row(evidence_view,3,3) &&
           ListView_GetNextItem(evidence_view,-1,LVNI_SELECTED)==2,
           "ascending field sort retains selected original field, pins warning");
+    check(sort_probe.reads>=3 && sort_probe.wrong_columns==0,
+          "field sort reads only requested field, not unrelated provider cells");
+    sort_probe.expected_column=3;
+    sort_probe.reads=0;
+    sort_probe.wrong_columns=0;
     check(djmeta_foobar::native_sort_evidence_details(evidence_view,3,true) &&
           djmeta_foobar::native_evidence_source_row(evidence_view,0,3)==
               std::optional<std::size_t>{0} &&
@@ -2651,6 +2676,10 @@ int main() {
               std::optional<std::size_t>{1} &&
           ListView_GetNextItem(evidence_view,-1,LVNI_SELECTED)==0,
           "descending status sort retains selected original field");
+    check(sort_probe.reads>=3 && sort_probe.wrong_columns==0,
+          "status sort reads only requested status, not other columns");
+    check(RemoveWindowSubclass(evidence_view,evidence_sort_text_probe,7)!=FALSE,
+          "provider sort probe removed without retaining HWND");
     check(!djmeta_foobar::native_sort_evidence_details(evidence_view,-1,false) &&
           !djmeta_foobar::native_sort_evidence_details(evidence_view,4,false) &&
           !djmeta_foobar::native_evidence_source_row(evidence_view,0,0) &&
