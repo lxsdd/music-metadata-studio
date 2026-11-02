@@ -2293,6 +2293,15 @@ int main() {
     check(ListView_GetSelectedCount(master)==3 &&
           ListView_GetNextItem(master,-1,LVNI_FOCUSED)==0,
           "album navigation preflight does not mutate the current multi-selection");
+    // The CUE FILE cross-tab link uses the same exact physical transaction.
+    using djmeta_foobar::native_focus_verified_physical_source;
+    check(!native_focus_verified_physical_source(master,{9,13,13},13,24) &&
+          !native_focus_verified_physical_source(master,{9,13,25},13,24) &&
+          !native_focus_verified_physical_source(master,sorted_order,13,13) &&
+          ListView_GetSelectedCount(master)==3 &&
+          ListView_GetNextItem(master,-1,LVNI_FOCUSED)==0,
+          "CUE navigation refuses duplicate, foreign and stale queue maps "
+          "without touching selection or focus");
     rebuilding_master=true;
     const int commands_before_album=command_notifications;
     ReleaseSelectionProbe album_probe{0,1,true};
@@ -2323,6 +2332,9 @@ int main() {
           command_notifications==commands_before_album,
           "already focused album emits no redundant ListView mutation or "
           "implicit metadata/provider command");
+    check(native_focus_verified_physical_source(master,sorted_order,13,24)==album_row &&
+          album_probe.state_writes==writes_after_album,
+          "CUE physical source navigation reuses the exact no-op focus transaction");
     check(RemoveWindowSubclass(master,release_selection_probe,85)!=FALSE,
           "album navigation failure probe removed after native regression");
     rebuilding_master=false;
@@ -2385,8 +2397,10 @@ int main() {
     ListView_SetItemState(detail,-1,0,LVIS_SELECTED|LVIS_FOCUSED);
     ListView_SetItemState(detail,1,LVIS_SELECTED|LVIS_FOCUSED,
                           LVIS_SELECTED|LVIS_FOCUSED);
-    check(!native_online_view_selection_matches(detail,release_view,3,1),
-          "partial native ListView rebuild cannot authorize release lookup");
+    check(!native_online_view_selection_matches(detail,release_view,3,1) &&
+          !djmeta_foobar::native_verified_online_activation_source(
+              detail,release_view,3,1),
+          "partial native ListView rebuild cannot authorize release or CUE navigation");
     check(ListView_SetItemCountEx(detail,3,0)!=FALSE,
           "restore full native provider result count");
     ListView_SetItemState(detail,-1,0,LVIS_SELECTED|LVIS_FOCUSED);
@@ -2394,6 +2408,17 @@ int main() {
                           LVIS_SELECTED|LVIS_FOCUSED);
     check(native_online_view_selection_matches(detail,release_view,3,2),
           "complete provider view rebind permits the exact selected edition");
+    using djmeta_foobar::native_verified_online_activation_source;
+    check(native_verified_online_activation_source(
+              detail,release_view,3,2)==std::optional<std::size_t>{1} &&
+          !native_verified_online_activation_source(detail,release_view,3,1) &&
+          !native_verified_online_activation_source(detail,{2,2,1},3,2) &&
+          !native_verified_online_activation_source(detail,{2,0,3},3,2) &&
+          !native_verified_online_activation_source(detail,{2,0},3,2) &&
+          !native_verified_online_activation_source(history_hwnd,release_view,3,2) &&
+          ListView_GetSelectedCount(detail)==1,
+          "CUE and album activation require one exact native row and full "
+          "current provider permutation; invalid activation is read-only");
 
     // Native provider detail panes, field staging, CUE review and clipboard
     // receipts must all resolve the same exact single selected candidate.
@@ -2414,10 +2439,12 @@ int main() {
           "view mappings without retargeting the native selection");
     ListView_SetItemState(detail,1,LVIS_SELECTED,LVIS_SELECTED);
     check(!native_online_selected_candidate_index(detail,release_view,3) &&
+          !native_verified_online_activation_source(detail,release_view,3,2) &&
           ListView_GetSelectedCount(detail)==2,
           "multi-selected provider candidates cannot supply detail provenance");
     ListView_SetItemState(detail,-1,0,LVIS_SELECTED);
     check(!native_online_selected_candidate_index(detail,release_view,3) &&
+          !native_verified_online_activation_source(detail,release_view,3,2) &&
           ListView_GetSelectedCount(detail)==0,
           "empty native provider selection cannot supply field or CUE preview");
     ListView_SetItemState(detail,2,LVIS_SELECTED|LVIS_FOCUSED,
