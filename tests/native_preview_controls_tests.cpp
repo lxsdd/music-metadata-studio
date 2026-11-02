@@ -2395,6 +2395,39 @@ int main() {
     check(native_online_view_selection_matches(detail,release_view,3,2),
           "complete provider view rebind permits the exact selected edition");
 
+    // Native provider detail panes, field staging, CUE review and clipboard
+    // receipts must all resolve the same exact single selected candidate.
+    // The guard is read-only: failed identities preserve focus and selection.
+    using djmeta_foobar::native_online_selected_candidate_index;
+    check(native_online_selected_candidate_index(
+              detail,release_view,3).value_or(999)==1 &&
+          !native_online_selected_candidate_index(
+              detail,{2,2,1},3) &&
+          !native_online_selected_candidate_index(
+              detail,{2,0,3},3) &&
+          !native_online_selected_candidate_index(
+              detail,{2,0},3) &&
+          !native_online_selected_candidate_index(
+              history_hwnd,release_view,3) &&
+          ListView_GetSelectedCount(detail)==1,
+          "detail evidence rejects duplicate, missing and foreign provider "
+          "view mappings without retargeting the native selection");
+    ListView_SetItemState(detail,1,LVIS_SELECTED,LVIS_SELECTED);
+    check(!native_online_selected_candidate_index(detail,release_view,3) &&
+          ListView_GetSelectedCount(detail)==2,
+          "multi-selected provider candidates cannot supply detail provenance");
+    ListView_SetItemState(detail,-1,0,LVIS_SELECTED);
+    check(!native_online_selected_candidate_index(detail,release_view,3) &&
+          ListView_GetSelectedCount(detail)==0,
+          "empty native provider selection cannot supply field or CUE preview");
+    ListView_SetItemState(detail,2,LVIS_SELECTED|LVIS_FOCUSED,
+                          LVIS_SELECTED|LVIS_FOCUSED);
+    check(native_online_selected_candidate_index(
+              detail,release_view,3).value_or(999)==1 &&
+          ListView_GetNextItem(detail,-1,LVNI_FOCUSED)==2,
+          "restored exact provider row re-enables the original evidence "
+          "without changing focus or issuing a request");
+
     // A real failed LVM_SETITEMSTATE must restore the original multi-selection
     // and focused edition. Repeated activation of the exact same row is a no-op.
     ListView_SetItemState(detail,-1,0,LVIS_SELECTED|LVIS_FOCUSED);
