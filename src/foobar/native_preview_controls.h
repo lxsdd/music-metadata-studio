@@ -58,6 +58,68 @@ inline bool native_set_history_source_cell(
                         reinterpret_cast<LPARAM>(&item))!=FALSE;
 }
 
+ // A History filter must never preserve selection by a recycled row index.
+ // Capture the immutable event sequences ACTUALLY rendered before a refresh,
+ // even if the bounded session log has since evicted earlier events.
+ inline bool native_history_rows_match(
+     HWND list,const std::vector<std::size_t>& sequences) noexcept {
+     if(!IsWindow(list) || sequences.size()>SessionPreviewHistory::limit ||
+        ListView_GetItemCount(list)!=static_cast<int>(sequences.size()))
+         return false;
+     std::set<std::size_t> seen;
+     for(std::size_t row=0;row<sequences.size();++row) {
+         if(sequences[row]==0 || !seen.insert(sequences[row]).second)
+             return false;
+         LVITEMW item{};
+         item.mask=LVIF_PARAM;
+         item.iItem=static_cast<int>(row);
+         if(!SendMessageW(list,LVM_GETITEMW,0,
+                          reinterpret_cast<LPARAM>(&item)) ||
+            item.lParam<=0 ||
+            static_cast<std::size_t>(item.lParam)!=sequences[row])
+             return false;
+     }
+     return true;
+ }
+ inline std::optional<std::size_t> native_history_selected_sequence(
+     HWND list,const std::vector<std::size_t>& sequences) noexcept {
+     if(!native_history_rows_match(list,sequences) ||
+        ListView_GetSelectedCount(list)!=1)
+         return std::nullopt;
+     const int row=ListView_GetNextItem(list,-1,LVNI_SELECTED);
+     if(row<0 || static_cast<std::size_t>(row)>=sequences.size())
+         return std::nullopt;
+     return sequences[static_cast<std::size_t>(row)];
+ }
+ // Restore only to the exact verified sequence on the rebuilt ListView.
+ // Failed native state changes clear the attempted selection; never focus an
+ // unrelated action or interpret a partially selected row as user intent.
+ inline bool native_history_restore_sequence(
+     HWND list,const std::vector<std::size_t>& sequences,
+     std::size_t sequence) noexcept {
+     if(sequence==0 || !native_history_rows_match(list,sequences) ||
+        ListView_GetSelectedCount(list)!=0)
+         return false;
+     const auto found=std::find(sequences.begin(),sequences.end(),sequence);
+     if(found==sequences.end()) return false;
+     const int row=static_cast<int>(std::distance(sequences.begin(),found));
+     LVITEMW item{};
+     item.state=LVIS_SELECTED|LVIS_FOCUSED;
+     item.stateMask=LVIS_SELECTED|LVIS_FOCUSED;
+     if(!SendMessageW(list,LVM_SETITEMSTATE,static_cast<WPARAM>(row),
+                      reinterpret_cast<LPARAM>(&item)))
+         return false;
+     if(!native_history_rows_match(list,sequences) ||
+        ListView_GetSelectedCount(list)!=1 ||
+        ListView_GetNextItem(list,-1,LVNI_SELECTED)!=row ||
+        ListView_GetNextItem(list,-1,LVNI_FOCUSED)!=row) {
+         ListView_SetItemState(list,-1,0,LVIS_SELECTED|LVIS_FOCUSED);
+         return false;
+     }
+     ListView_EnsureVisible(list,row,FALSE);
+     return true;
+ }
+
 // History deep links target an exact physical source in the CURRENT visible
 // owner-data track grid. Never infer an identity from a caption, row number,
 // provider result or previous filtered order. A missing/duplicate identity

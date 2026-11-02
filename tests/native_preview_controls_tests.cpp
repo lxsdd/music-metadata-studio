@@ -895,6 +895,72 @@ int main() {
     check((::SendMessageW(history_hwnd, LVM_GETITEMW, 0, reinterpret_cast<LPARAM>(&history_readback)) != 0) &&
           history_readback.lParam!=77,
           "native History recycled row cannot authorize old event receipt");
+
+    // Filter refreshes and bounded log eviction can recycle a native row.
+    // Preserve the actual rendered immutable event, never the old row number.
+    using djmeta_foobar::native_history_rows_match;
+    using djmeta_foobar::native_history_selected_sequence;
+    using djmeta_foobar::native_history_restore_sequence;
+    check(native_history_rows_match(history_hwnd,{78,77}) &&
+          !native_history_rows_match(history_hwnd,{77,78}) &&
+          !native_history_rows_match(history_hwnd,{78,78}) &&
+          !native_history_rows_match(history_hwnd,{78}) &&
+          !native_history_selected_sequence(history_hwnd,{78,77}),
+          "History verifies every native sequence before preserving selection");
+    ListView_SetItemState(history_hwnd,1,LVIS_SELECTED|LVIS_FOCUSED,
+                          LVIS_SELECTED|LVIS_FOCUSED);
+    check(native_history_selected_sequence(history_hwnd,{78,77})==
+              std::optional<std::size_t>{77},
+          "History captures exact event sequence before filter rebuild");
+    LVITEMW stale_history{};
+    stale_history.mask=LVIF_PARAM;
+    stale_history.iItem=1;
+    stale_history.lParam=78;
+    check(SendMessageW(history_hwnd,LVM_SETITEMW,0,
+                       reinterpret_cast<LPARAM>(&stale_history))!=FALSE &&
+          !native_history_rows_match(history_hwnd,{78,77}) &&
+          !native_history_selected_sequence(history_hwnd,{78,77}),
+          "recycled native History LPARAM invalidates selected event");
+    stale_history.lParam=77;
+    check(SendMessageW(history_hwnd,LVM_SETITEMW,0,
+                       reinterpret_cast<LPARAM>(&stale_history))!=FALSE &&
+          native_history_selected_sequence(history_hwnd,{78,77})==
+              std::optional<std::size_t>{77},
+          "corrected History sequence is independently accepted");
+    check(ListView_DeleteAllItems(history_hwnd)!=FALSE,
+          "native History filter rebuild clears previous row identities");
+    history_item.iItem=0;
+    history_item.pszText=history_caption;
+    history_item.lParam=77;
+    check(ListView_InsertItem(history_hwnd,&history_item)==0,
+          "reordered History inserts selected event at a new row");
+    history_item.iItem=1;
+    history_item.pszText=later_caption;
+    history_item.lParam=78;
+    check(ListView_InsertItem(history_hwnd,&history_item)==1 &&
+          native_history_rows_match(history_hwnd,{77,78}) &&
+          !native_history_restore_sequence(history_hwnd,{78,77},77) &&
+          !native_history_restore_sequence(history_hwnd,{77,77},77) &&
+          !native_history_restore_sequence(history_hwnd,{77,78},79),
+          "stale, duplicate and missing History sequences never retarget");
+    ReleaseSelectionProbe history_probe{0,0,true};
+    check(SetWindowSubclass(history_hwnd,release_selection_probe,84,
+              reinterpret_cast<DWORD_PTR>(&history_probe))!=FALSE,
+          "real History ListView accepts state failure probe");
+    check(!native_history_restore_sequence(history_hwnd,{77,78},77) &&
+          !history_probe.reject_once &&
+          ListView_GetSelectedCount(history_hwnd)==0,
+          "failed native History restore cannot leave wrong event selected");
+    check(native_history_restore_sequence(history_hwnd,{77,78},77) &&
+          ListView_GetSelectedCount(history_hwnd)==1 &&
+          ListView_GetNextItem(history_hwnd,-1,LVNI_SELECTED)==0 &&
+          ListView_GetNextItem(history_hwnd,-1,LVNI_FOCUSED)==0 &&
+          native_history_selected_sequence(history_hwnd,{77,78})==
+              std::optional<std::size_t>{77},
+          "real History restores exact event and focus after failed attempt");
+    check(RemoveWindowSubclass(history_hwnd,release_selection_probe,84)!=FALSE,
+          "History state failure probe removed before other tests");
+    ListView_SetItemState(history_hwnd,-1,0,LVIS_SELECTED|LVIS_FOCUSED);
     // Actual native resource-backed hint; no new dialog or write control.
     const HWND mix_hint=GetDlgItem(dialog,IDC_BATCH_HINT);
     check(mix_hint!=nullptr && IsWindow(mix_hint)!=FALSE,

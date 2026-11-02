@@ -267,6 +267,7 @@ struct PreviewState {
     PreviewHistoryFilter history_filter=PreviewHistoryFilter::All;
     PreviewHistorySourceQuery history_source_query;
     std::vector<std::size_t> history_view_order;
+    std::vector<std::size_t> history_visible_sequences;
     bool show_metadata = true;
     bool show_candidate = false; // third tab, never a write path
     bool cue_inspection_mode = false; // exact CUE source view, no online proposal
@@ -2790,28 +2791,24 @@ void refresh_preview_history_list(PreviewState& state) {
     if(!state.history_list) return;
     // Preserve the immutable event identity, not its filtered row position.
     // A bounded history may evict its oldest event while the tab is visible.
-    std::optional<std::size_t> selected_sequence;
-    if(ListView_GetSelectedCount(state.history_list)==1) {
-        const int selected=ListView_GetNextItem(
-            state.history_list,-1,LVNI_SELECTED);
-        LVITEMW previous{};
-        previous.mask=LVIF_PARAM;
-        previous.iItem=selected;
-        if(selected>=0 && (::SendMessageW(state.history_list, LVM_GETITEMW, 0, reinterpret_cast<LPARAM>(&previous)) != 0))
-            selected_sequence=static_cast<std::size_t>(previous.lParam);
+    const auto selected_sequence=native_history_selected_sequence(
+        state.history_list,state.history_visible_sequences);
+    if(!ListView_DeleteAllItems(state.history_list)) {
+        state.history_view_order.clear();
+        state.history_visible_sequences.clear();
+        throw std::runtime_error("Cannot reset native History rows.");
     }
-    ListView_DeleteAllItems(state.history_list);
     const auto& events=state.preview_history.events();
     state.history_view_order=state.history_source_query.valid
         ? preview_history_visible_indices(state.preview_history,
               state.history_filter,state.history_source_query.source)
         : std::vector<std::size_t>{};
-    const auto retained_row=selected_sequence
-        ? preview_history_visible_row_for_sequence(
-            state.preview_history,state.history_view_order,*selected_sequence)
-        : std::nullopt;
+    state.history_visible_sequences.clear();
+    state.history_visible_sequences.reserve(state.history_view_order.size());
+    try {
     for(std::size_t i=0;i<state.history_view_order.size();++i) {
         const auto& event=events[state.history_view_order[i]];
+        state.history_visible_sequences.push_back(event.sequence);
         std::wstring sequence=std::to_wstring(event.sequence);
         LVITEMW row{};
         row.mask=LVIF_TEXT|LVIF_PARAM;
@@ -2833,12 +2830,23 @@ void refresh_preview_history_list(PreviewState& state) {
                state.history_list,index,event,state.entries.size()))
             throw std::runtime_error("Cannot display History physical source.");
     }
-    if(retained_row) {
-        const int row=static_cast<int>(*retained_row);
-        ListView_SetItemState(state.history_list,row,
-            LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);
-        ListView_EnsureVisible(state.history_list,row,FALSE);
+    if(!native_history_rows_match(state.history_list,
+                                  state.history_visible_sequences))
+        throw std::runtime_error("Native History row identity mismatch.");
+    } catch (...) {
+        ListView_DeleteAllItems(state.history_list);
+        state.history_view_order.clear();
+        state.history_visible_sequences.clear();
+        throw;
     }
+    if(selected_sequence &&
+       std::find(state.history_visible_sequences.begin(),
+                 state.history_visible_sequences.end(),*selected_sequence)!=
+                 state.history_visible_sequences.end() &&
+       !native_history_restore_sequence(state.history_list,
+             state.history_visible_sequences,*selected_sequence))
+        ListView_SetItemState(state.history_list,-1,0,
+                              LVIS_SELECTED|LVIS_FOCUSED);
     // History hint always follows exact filtered row identities; source
     // filters never attribute multi-track actions to an individual track.
     if(state.dialog && state.tabs && TabCtrl_GetCurSel(state.tabs)==3) {
@@ -3108,6 +3116,8 @@ void navigate_preview_history(HWND dialog,PreviewState& state,int visible_row) {
     if(visible_row<0 ||
        static_cast<std::size_t>(visible_row)>=state.history_view_order.size()) return;
     if(!state.history_source_query.valid ||
+       !native_history_rows_match(state.history_list,state.history_visible_sequences) ||
+       state.history_visible_sequences.size()!=state.history_view_order.size() ||
        state.history_view_order!=preview_history_visible_indices(
            state.preview_history,state.history_filter,
            state.history_source_query.source))
@@ -5233,6 +5243,7 @@ void refresh_workspace_snapshot(PreviewState& state) {
         // even if its first history sequence is also 1.
         if(state.history_list) ListView_DeleteAllItems(state.history_list);
         state.history_view_order.clear();
+        state.history_visible_sequences.clear();
         state.preview_history.clear();
         EnableWindow(GetDlgItem(state.dialog,IDC_BATCH_UNDO),FALSE);
         state.analyses.swap(next.analyses);
@@ -7167,8 +7178,9 @@ void copy_session_preview_history(HWND dialog,PreviewState& state,
         throw std::invalid_argument("History requires a fresh visible workspace.");
     const auto visible=preview_history_visible_indices(
         state.preview_history,state.history_filter,state.history_source_query.source);
-    if(visible.empty() || visible!=state.history_view_order)
-        throw std::invalid_argument("History filter changed; refresh the view.");
+    if(visible.empty() || visible!=state.history_view_order ||
+       !native_history_rows_match(state.history_list,state.history_visible_sequences))
+        throw std::invalid_argument("History filter or native row identities changed; refresh.");
     std::optional<std::size_t> selected;
     std::optional<std::size_t> selected_sequence;
     if(selected_only) {
@@ -7192,6 +7204,7 @@ void copy_session_preview_history(HWND dialog,PreviewState& state,
     // Full captured-source and rule recheck before an exact-session receipt.
     revalidate_workspace(state,true);
     if(state.stale || state.refreshing || state.checking_snapshot ||
+       !native_history_rows_match(state.history_list,state.history_visible_sequences) ||
        state.history_view_order!=preview_history_visible_indices(
            state.preview_history,state.history_filter,
            state.history_source_query.source))
