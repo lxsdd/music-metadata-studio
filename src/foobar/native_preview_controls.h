@@ -91,6 +91,25 @@ inline bool native_set_history_source_cell(
          return std::nullopt;
      return sequences[static_cast<std::size_t>(row)];
  }
+// Mouse double-click and keyboard Return must activate the ONE actually
+// selected History event. Focus alone or a recycled row is not consent to
+// navigate another physical source. All displayed LPARAMs are checked first.
+inline int native_history_activation_row(
+    HWND list,const std::vector<std::size_t>& sequences,
+    UINT notification,int clicked_row,unsigned key=0) noexcept {
+    if(!native_history_rows_match(list,sequences) ||
+       ListView_GetSelectedCount(list)!=1) return -1;
+    const int selected=ListView_GetNextItem(list,-1,LVNI_SELECTED);
+    if(selected<0 || static_cast<std::size_t>(selected)>=sequences.size())
+        return -1;
+    if(notification==NM_DBLCLK)
+        return clicked_row==selected ? selected : -1;
+    if(notification==LVN_KEYDOWN && key==VK_RETURN)
+        return ListView_GetNextItem(list,-1,LVNI_FOCUSED)==selected
+            ? selected : -1;
+    return -1;
+}
+
  // Restore only to the exact verified sequence on the rebuilt ListView.
  // Failed native state changes clear the attempted selection; never focus an
  // unrelated action or interpret a partially selected row as user intent.
