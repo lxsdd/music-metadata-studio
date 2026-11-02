@@ -8026,10 +8026,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             show_preview_page(dialog,*state,false,false);
             // CUE FILE navigation validates the entire physical queue and
             // restores prior selection/focus if the native transition fails.
-            const auto focused=native_focus_verified_physical_source(
+            const auto cue_focused_row=native_focus_verified_physical_source(
                 state->list,state->view_order,target->source_index,
                 state->entries.size());
-            if(!focused)
+            if(!cue_focused_row)
                 throw std::runtime_error(
                     "CUE linked source is stale or cannot be focused in File locations.");
             SetFocus(state->list);
