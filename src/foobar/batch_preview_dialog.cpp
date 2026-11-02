@@ -6221,7 +6221,13 @@ void publish_discogs_release(HWND dialog, PreviewState& state,
        static_cast<std::size_t>(selected)>=state.candidate_view_order.size())
         throw std::runtime_error(
             "Discogs release selection changed during lookup.");
-    if(!online_selected_release_verified(state,selected,
+    const auto row=state.candidate_view_order[
+        static_cast<std::size_t>(selected)];
+    if(row>=state.candidate_rows.size() ||
+       !djmeta::online::discogs::selected_exact_release_id(
+           state.candidate_rows[row].candidate.source_id,
+           request.release_id) ||
+       !online_selected_release_verified(state,selected,
             &request.selected_release_key) ||
        request.selected_release_key[1]!=
            "release:"+std::to_string(request.release_id))
