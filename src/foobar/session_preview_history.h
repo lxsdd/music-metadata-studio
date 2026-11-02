@@ -29,7 +29,22 @@ public:
     bool append(PreviewHistoryKind kind,std::size_t sources,
                 std::size_t items,unsigned scope,
                 std::size_t source_index=static_cast<std::size_t>(-1)) {
-        if(sources==0 || items==0) return false; // no-op is not an event
+        // Reject malformed native History events before they reach UI/TSV.
+        if(sources==0 || items==0 || sources>1000000 || items>1000000 ||
+           scope>3) return false;
+        switch(kind) {
+        case PreviewHistoryKind::Accept:
+        case PreviewHistoryKind::Reject:
+        case PreviewHistoryKind::Reset:
+        case PreviewHistoryKind::Manual:
+        case PreviewHistoryKind::Route:
+        case PreviewHistoryKind::UndoReview:
+        case PreviewHistoryKind::UndoRoute:
+        case PreviewHistoryKind::DiscogsEdition:
+        case PreviewHistoryKind::MusicBrainzEdition:
+        case PreviewHistoryKind::BeatportTrack: break;
+        default: return false;
+        }
         if(events_.size()==limit) events_.erase(events_.begin());
         events_.push_back({++sequence_,kind,sources,items,scope,
             sources==1 ? source_index : static_cast<std::size_t>(-1)});
@@ -77,19 +92,23 @@ inline bool preview_history_is_lookup(PreviewHistoryKind kind) noexcept {
 }
 inline bool preview_history_matches(PreviewHistoryKind kind,
                                     PreviewHistoryFilter filter) noexcept {
-    if(filter==PreviewHistoryFilter::All) return true;
-    if(filter==PreviewHistoryFilter::Lookup) return preview_history_is_lookup(kind);
-    if(filter==PreviewHistoryFilter::Discogs) return kind==PreviewHistoryKind::DiscogsEdition;
-    if(filter==PreviewHistoryFilter::MusicBrainz) return kind==PreviewHistoryKind::MusicBrainzEdition;
-    if(filter==PreviewHistoryFilter::Beatport) return kind==PreviewHistoryKind::BeatportTrack;
-    if(filter==PreviewHistoryFilter::Routing) return kind==PreviewHistoryKind::Route;
-    if(filter==PreviewHistoryFilter::Undo)
+    switch(filter) {
+    case PreviewHistoryFilter::All: return true;
+    case PreviewHistoryFilter::Lookup: return preview_history_is_lookup(kind);
+    case PreviewHistoryFilter::Discogs: return kind==PreviewHistoryKind::DiscogsEdition;
+    case PreviewHistoryFilter::MusicBrainz: return kind==PreviewHistoryKind::MusicBrainzEdition;
+    case PreviewHistoryFilter::Beatport: return kind==PreviewHistoryKind::BeatportTrack;
+    case PreviewHistoryFilter::Routing: return kind==PreviewHistoryKind::Route;
+    case PreviewHistoryFilter::Undo:
         return kind==PreviewHistoryKind::UndoReview ||
                kind==PreviewHistoryKind::UndoRoute;
-    return kind==PreviewHistoryKind::Accept ||
-           kind==PreviewHistoryKind::Reject ||
-           kind==PreviewHistoryKind::Reset ||
-           kind==PreviewHistoryKind::Manual;
+    case PreviewHistoryFilter::Review:
+        return kind==PreviewHistoryKind::Accept ||
+               kind==PreviewHistoryKind::Reject ||
+               kind==PreviewHistoryKind::Reset ||
+               kind==PreviewHistoryKind::Manual;
+    }
+    return false; // Unknown filter must never fall back to Review.
 }
 // Only visible History Ctrl+C, without other modifiers, requests a receipt.
 inline bool preview_history_copy_hotkey(unsigned key,bool ctrl,bool alt,
@@ -232,8 +251,15 @@ inline const wchar_t* preview_history_receipt_scope(const PreviewHistoryEvent& e
     if(preview_history_is_lookup(event.kind))
         return event.kind==PreviewHistoryKind::BeatportTrack
             ? L"Public track" : L"Exact edition";
-    if(event.kind==PreviewHistoryKind::Route)
-        return event.scope==2 ? L"All tracks" : L"Selected tracks";
+    if(event.kind==PreviewHistoryKind::Route) {
+        switch(event.scope) {
+        case 0:
+        case 1: return L"Selected tracks";
+        case 2: return L"All tracks";
+        case 3: return L"Visible queue";
+        default: return L"Unknown";
+        }
+    }
     if(event.kind==PreviewHistoryKind::UndoReview ||
        event.kind==PreviewHistoryKind::UndoRoute) return L"Last action";
     switch(event.scope) {
