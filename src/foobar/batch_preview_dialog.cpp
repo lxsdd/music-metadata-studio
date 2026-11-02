@@ -8314,7 +8314,6 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                                 L"\nRead-only; no tag or CUE write authorization.";
                             lstrcpynW(tip->pszText,label.c_str(),tip->cchTextMax);
                         }
-                    }
                 }
             }
             return TRUE;
