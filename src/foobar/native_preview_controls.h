@@ -1163,16 +1163,34 @@ inline bool native_sort_evidence_details(HWND list,int column,bool descending) {
            seen[static_cast<std::size_t>(item.lParam)]) return false;
         seen[static_cast<std::size_t>(item.lParam)]=true;
         for(int col=0;col<4;++col) {
-            wchar_t value[4096]{};
-            LVITEMW text{};
-            text.mask=LVIF_TEXT;
-            text.iItem=row;
-            text.iSubItem=col;
-            text.pszText=value;
-            text.cchTextMax=4096;
-            SendMessageW(list,LVM_GETITEMTEXTW,static_cast<WPARAM>(row),
-                         reinterpret_cast<LPARAM>(&text));
-            context.cells[static_cast<std::size_t>(item.lParam)][col]=value;
+            // Provider values may exceed the old 4095-character fixed buffer.
+            // A truncated comparison silently reorders equal prefixes by
+            // source index rather than by the actual displayed field.
+            // Grow only to a bounded 64K UTF-16 units; on larger input,
+            // refuse sorting without changing the existing ListView order.
+            std::wstring value;
+            bool complete=false;
+            for(int capacity=256;capacity<=65536;capacity*=2) {
+                std::vector<wchar_t> buffer(static_cast<std::size_t>(capacity));
+                LVITEMW text{};
+                text.mask=LVIF_TEXT;
+                text.iItem=row;
+                text.iSubItem=col;
+                text.pszText=buffer.data();
+                text.cchTextMax=capacity;
+                const auto copied=SendMessageW(list,LVM_GETITEMTEXTW,
+                    static_cast<WPARAM>(row),
+                    reinterpret_cast<LPARAM>(&text));
+                if(copied<0) return false;
+                if(copied<capacity-1) {
+                    value.assign(buffer.data(),static_cast<std::size_t>(copied));
+                    complete=true;
+                    break;
+                }
+            }
+            if(!complete) return false;
+            context.cells[static_cast<std::size_t>(item.lParam)][col]=
+                std::move(value);
         }
     }
     return ListView_SortItems(list,native_evidence_compare,
