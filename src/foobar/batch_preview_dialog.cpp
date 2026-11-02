@@ -2264,7 +2264,8 @@ bool online_selected_release_verified(const PreviewState& state,int selected,
                 verified_ids.push_back(hit.mbid);
     }
     if(pending_key)
-        return native_verified_pending_release_row(
+        return std::string_view((*pending_key)[0])==expected_provider &&
+            native_verified_pending_release_row(
             visible,static_cast<std::size_t>(selected),
             static_cast<std::size_t>(ListView_GetSelectedCount(state.metadata_list)),
             *pending_key,verified_ids);
