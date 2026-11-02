@@ -2235,7 +2235,10 @@ bool online_selected_release_verified(const PreviewState& state,int selected,
        static_cast<std::size_t>(selected)>=state.candidate_view_order.size())
         return false;
     const auto rowid=state.candidate_view_order[static_cast<std::size_t>(selected)];
-    if(rowid>=state.candidate_rows.size() ||
+    if(!native_online_view_selection_matches(
+           state.metadata_list,state.candidate_view_order,
+           state.candidate_rows.size(),selected) ||
+       rowid>=state.candidate_rows.size() ||
        state.candidate_rows[rowid].candidate.scope!=
            djmeta::online::EvidenceScope::Edition)
         return false;
