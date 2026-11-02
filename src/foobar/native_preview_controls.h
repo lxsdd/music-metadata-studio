@@ -1388,6 +1388,30 @@ inline NativeBrowserIdentityMatch native_browser_identity_match(
     return {row,false};
 }
 
+// A virtual provider ListView has no trustworthy LVIF_PARAM per row. Bind
+// the selected UI row to the COMPLETE current candidate-order permutation
+// before enabling or dispatching any read-only exact-release network request.
+// Reused row indices, duplicate mappings, partial rebuilds and multi-select
+// are not evidence of an unambiguous edition identity.
+inline bool native_online_view_selection_matches(
+    HWND list,const std::vector<std::size_t>& visible_order,
+    std::size_t candidate_count,int selected_row) {
+    if(!IsWindow(list) ||
+       (GetWindowLongPtrW(list,GWL_STYLE)&LVS_OWNERDATA)==0 ||
+       selected_row<0 || visible_order.empty() ||
+       visible_order.size()>static_cast<std::size_t>((std::numeric_limits<int>::max)()) ||
+       ListView_GetItemCount(list)!=static_cast<int>(visible_order.size()) ||
+       ListView_GetSelectedCount(list)!=1 ||
+       ListView_GetNextItem(list,-1,LVNI_SELECTED)!=selected_row ||
+       static_cast<std::size_t>(selected_row)>=visible_order.size())
+        return false;
+    std::set<std::size_t> seen;
+    for(const auto index:visible_order)
+        if(index>=candidate_count || !seen.insert(index).second)
+            return false;
+    return (ListView_GetItemState(list,selected_row,LVIS_SELECTED)&LVIS_SELECTED)!=0;
+}
+
 // A visible browser row is only a release-load target when its exact
 // provider and edition ID occur once in BOTH the current visible candidate
 // list and the official provider results. This deliberately counts repeated
