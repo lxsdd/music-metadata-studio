@@ -2663,6 +2663,38 @@ int main() {
               evidence_view,1,L"TITLE",L"x",L"y",L"Review",0) &&
           !djmeta_foobar::native_sort_evidence_details(evidence_view,0,false),
           "duplicate field identity is rejected");
+    // The old fixed 4096-character buffer silently tied long provider
+    // fields that differ only near the end. Exercise the actual native
+    // ListView, not an independent comparator or a mocked text model.
+    ListView_DeleteAllItems(evidence_view);
+    const std::wstring long_prefix(4200,L'Q');
+    check(djmeta_foobar::insert_native_preview_detail_row(
+              evidence_view,0,long_prefix+L"Z",L"x",L"y",L"Review",0) &&
+          djmeta_foobar::insert_native_preview_detail_row(
+              evidence_view,1,long_prefix+L"A",L"x",L"y",L"Review",1),
+          "native long provider field rows inserted");
+    ListView_SetItemState(evidence_view,0,LVIS_SELECTED,LVIS_SELECTED);
+    check(djmeta_foobar::native_sort_evidence_details(evidence_view,0,false) &&
+          djmeta_foobar::native_evidence_source_row(evidence_view,0,2)==
+              std::optional<std::size_t>{1} &&
+          djmeta_foobar::native_evidence_source_row(evidence_view,1,2)==
+              std::optional<std::size_t>{0} &&
+          ListView_GetNextItem(evidence_view,-1,LVNI_SELECTED)==1,
+          "ascending long provider text uses complete value and preserves selection");
+    check(djmeta_foobar::native_sort_evidence_details(evidence_view,0,true) &&
+          djmeta_foobar::native_evidence_source_row(evidence_view,0,2)==
+              std::optional<std::size_t>{0} &&
+          ListView_GetNextItem(evidence_view,-1,LVNI_SELECTED)==0,
+          "descending long provider text preserves exact source selection");
+    ListView_DeleteAllItems(evidence_view);
+    check(djmeta_foobar::insert_native_preview_detail_row(
+              evidence_view,0,long_prefix+L"Z",L"x",L"y",L"Review",0) &&
+          djmeta_foobar::insert_native_preview_detail_row(
+              evidence_view,1,long_prefix+L"A",L"x",L"y",L"Review",0) &&
+          !djmeta_foobar::native_sort_evidence_details(evidence_view,0,false) &&
+          djmeta_foobar::native_evidence_source_row(evidence_view,0,2)==
+              std::optional<std::size_t>{0},
+          "ambiguous long provider source identity rejects sorting without reordering");
     ListView_DeleteAllItems(evidence_view);
     check(djmeta_foobar::insert_native_preview_detail_row(
               evidence_view,0,L"TITLE",L"x",L"y",L"Review",0) &&
