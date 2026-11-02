@@ -3093,7 +3093,9 @@ void navigate_preview_history(HWND dialog,PreviewState& state,int visible_row) {
     if(state.stale) throw std::invalid_argument("History source snapshot stale; refresh.");
     if(visible_row<0 ||
        static_cast<std::size_t>(visible_row)>=state.history_view_order.size()) return;
-    if(!state.history_source_query.valid ||
+    if(!state.history_source_query.valid || !state.history_list ||
+       ListView_GetSelectedCount(state.history_list)!=1 ||
+       ListView_GetNextItem(state.history_list,-1,LVNI_SELECTED)!=visible_row ||
        !native_history_rows_match(state.history_list,state.history_visible_sequences) ||
        state.history_visible_sequences.size()!=state.history_view_order.size() ||
        state.history_view_order!=preview_history_visible_indices(
@@ -3112,6 +3114,7 @@ void navigate_preview_history(HWND dialog,PreviewState& state,int visible_row) {
         throw std::invalid_argument("History event identity changed; refresh.");
     const auto index=state.history_view_order[static_cast<std::size_t>(visible_row)];
     const auto& event=state.preview_history.events()[index];
+    const auto event_sequence=event.sequence;
     const auto source=preview_history_single_source(event,state.entries.size());
     if(!source) {
         SetDlgItemTextW(dialog,IDC_BATCH_HINT,
@@ -3119,6 +3122,22 @@ void navigate_preview_history(HWND dialog,PreviewState& state,int visible_row) {
         return;
     }
     if(!confirm_online_preview_navigation(dialog,state,*source)) return;
+    // Unlike an online single-source search, a History jump can change the
+    // physical Review/File locations queue. Recheck the complete captured
+    // source batch and exact event identity AFTER any confirmation.
+    revalidate_workspace(state,true);
+    if(state.stale || state.refreshing || state.checking_snapshot ||
+       !state.history_source_query.valid ||
+       !native_history_rows_match(state.history_list,state.history_visible_sequences) ||
+       state.history_view_order!=preview_history_visible_indices(
+           state.preview_history,state.history_filter,
+           state.history_source_query.source) ||
+       ListView_GetSelectedCount(state.history_list)!=1 ||
+       ListView_GetNextItem(state.history_list,-1,LVNI_SELECTED)!=visible_row ||
+       !preview_history_row_identity_matches(
+           state.preview_history,state.history_view_order,
+           static_cast<std::size_t>(visible_row),event_sequence))
+        throw std::invalid_argument("History source or selected event changed; refresh.");
     verify_snapshot(state.entries[*source]);
     verify_rules_snapshot(state.captured_rules);
     if(*source!=state.selected_track_index) invalidate_online_request(state);
@@ -3135,8 +3154,8 @@ void navigate_preview_history(HWND dialog,PreviewState& state,int visible_row) {
         // the History click and this navigation. A visible row number alone
         // is never a physical source identity. Reject missing, duplicate or
         // stale mappings before touching the current ListView selection.
-        const auto focused=native_focus_history_source(
-            state.list,state.view_order,*source);
+        const auto focused=native_focus_verified_physical_source(
+            state.list,state.view_order,*source,state.entries.size());
         if(!focused)
             throw std::invalid_argument(
                 "History source not uniquely in current file queue.");
@@ -3144,9 +3163,8 @@ void navigate_preview_history(HWND dialog,PreviewState& state,int visible_row) {
     } else {
         state.track_discovery=djmeta::TrackDiscovery::All;
         SendDlgItemMessageW(dialog,IDC_METADATA_TRACK_FILTER,CB_SETCURSEL,0,0);
-        state.updating_track_selection=true;
-        ListView_SetItemState(state.metadata_track_list,-1,0,LVIS_SELECTED);
-        state.updating_track_selection=false;
+        // Preserve the previous selection until the verified native focus
+        // transaction can replace it; no premature clear on failed mapping.
         state.selected_track_index=*source;
         state.focused_track_index=static_cast<std::size_t>(-1);
         update_master_table(state);
@@ -3156,8 +3174,9 @@ void navigate_preview_history(HWND dialog,PreviewState& state,int visible_row) {
         // Suppress programmatic LVN_ITEMCHANGED as a user selection gesture;
         // this is a read-only jump, not an online request or review action.
         state.updating_track_selection=true;
-        const auto focused=native_focus_history_source(
-            state.metadata_track_list,state.track_view_order,*source);
+        const auto focused=native_focus_verified_physical_source(
+            state.metadata_track_list,state.track_view_order,
+            *source,state.entries.size());
         state.updating_track_selection=false;
         if(!focused)
             throw std::invalid_argument("History source not uniquely in review queue.");
@@ -7187,6 +7206,11 @@ void copy_session_preview_history(HWND dialog,PreviewState& state,
            state.history_source_query.source))
         throw std::invalid_argument("History source changed; refresh before copying.");
     if(selected) {
+        if(ListView_GetSelectedCount(state.history_list)!=1 ||
+           ListView_GetNextItem(state.history_list,-1,LVNI_SELECTED)!=
+               static_cast<int>(*selected))
+            throw std::invalid_argument(
+                "History selection changed during source recheck.");
         LVITEMW native_row{};
         native_row.mask=LVIF_PARAM;
         native_row.iItem=static_cast<int>(*selected);
@@ -7691,16 +7715,19 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         }
         if(header && header->idFrom==IDC_BATCH_HISTORY_LIST &&
            (header->code==NM_DBLCLK || header->code==LVN_KEYDOWN)) {
-            int row=-1;
+            int clicked_row=-1;
+            unsigned key_code=0;
             if(header->code==NM_DBLCLK) {
                 const auto* click=reinterpret_cast<const NMITEMACTIVATE*>(lp);
-                if(click) row=click->iItem;
+                if(click) clicked_row=click->iItem;
             } else {
                 const auto* key=reinterpret_cast<const NMLVKEYDOWN*>(lp);
-                if(!key || key->wVKey!=VK_RETURN) return FALSE;
-                row=ListView_GetNextItem(state->history_list,-1,LVNI_FOCUSED);
-                if(row<0) row=ListView_GetNextItem(state->history_list,-1,LVNI_SELECTED);
+                if(key) key_code=key->wVKey;
             }
+            const int row=native_history_activation_row(
+                state->history_list,state->history_visible_sequences,
+                header->code,clicked_row,key_code);
+            if(row<0) return TRUE;
             // Source/rules/route exceptions must not escape unmanaged
             // WM_NOTIFY. An aborted navigation cannot replay an action.
             try {
