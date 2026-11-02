@@ -1,4 +1,7 @@
 #include "djmeta/batch_plan.h"
+#include "djmeta/cue_association.h"
+#include "djmeta/cue_value_postimage.h"
+#include "djmeta/normalizer.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -73,12 +76,72 @@ void test_ready_and_immutable() {
             "routing profile edit must change plan");
 }
 
+void test_individual_overwrite_approval_selection_is_exact() {
+    auto replace = audio("ApprovedExisting");
+    replace.target_presence = djmeta::TargetPresence::Existing;
+    replace.target_guard = "observed-existing-target-v1";
+    replace.target_physical_id = "target-physical-existing";
+    auto missing = audio("NotAnOverwrite");
+    auto tag_only = audio("MetadataOnly");
+    tag_only.action = djmeta::FileAction::None;
+    tag_only.target_path.clear();
+    tag_only.target_key.clear();
+    auto exact_noop = audio("AlreadyAtTarget");
+    exact_noop.target_path = exact_noop.source_path;
+    exact_noop.target_key = exact_noop.source_key;
+    exact_noop.target_presence = djmeta::TargetPresence::Existing;
+    exact_noop.target_guard = "observed-same-source-target";
+    exact_noop.target_physical_id = "self-os-file-id";
+    const std::vector<djmeta::FilePlanItem> batch = {
+        replace, missing, tag_only, exact_noop};
+    const auto preview = djmeta::review_batch_plan(batch);
+    require(preview.requires_overwrite == 1 && preview.blocked == 0,
+            "only one existing destination needs explicit individual overwrite consent");
+    const djmeta::BatchApproval exact{
+        preview.plan_fingerprint, false, {"ApprovedExisting"}};
+    const auto good = djmeta::review_batch_plan(batch, &exact);
+    require(good.ready_to_apply && good.blocked == 0 &&
+            good.decisions[0].will_replace_existing_target,
+            "valid exact overwrite subset may approve the selected existing target");
+
+    for (const std::vector<std::string>& ids : {
+             std::vector<std::string>{"ApprovedExisting","UnknownId"},
+             {"ApprovedExisting","ApprovedExisting"},
+             {"NotAnOverwrite"},
+             {"MetadataOnly"},
+             {"AlreadyAtTarget"},
+             {""}}) {
+        const djmeta::BatchApproval unsafe{preview.plan_fingerprint,false,ids};
+        const auto rejected = djmeta::review_batch_plan(batch,&unsafe);
+        require(!rejected.ready_to_apply && rejected.blocked == batch.size(),
+                "unknown, repeated, empty or non-overwrite selection must block whole batch");
+        for (const auto& decision : rejected.decisions)
+            require(decision.status == djmeta::PlanStatus::Blocked &&
+                    has_reason(decision,"INVALID_OVERWRITE_APPROVAL_SELECTION") &&
+                    !decision.will_replace_existing_target &&
+                    !decision.metadata_write_needed &&
+                    !decision.cue_bytes_write_needed &&
+                    !decision.file_operation_needed,
+                    "invalid overwrite subset must clear every mutation intent");
+        try {
+            (void)djmeta::freeze_reviewed_batch_preview(batch,unsafe);
+            require(false,"invalid overwrite selection must not freeze");
+        } catch(const std::invalid_argument&) {}
+    }
+    const djmeta::BatchApproval invalid_blanket{
+        preview.plan_fingerprint,true,{"UnknownId"}};
+    const auto blanket = djmeta::review_batch_plan(batch,&invalid_blanket);
+    require(!blanket.ready_to_apply && blanket.blocked == batch.size(),
+            "blanket overwrite cannot hide an invalid individually selected identifier");
+}
+
 void test_large_batch_one_confirmation() {
     std::vector<djmeta::FilePlanItem> batch;
     for (int i = 0; i < 100; ++i) {
         auto item = audio("Track" + std::to_string(i));
         item.target_presence = djmeta::TargetPresence::Existing;
         item.target_guard = "guard-" + std::to_string(i);
+        item.target_physical_id = "target-file-" + std::to_string(i);
         batch.push_back(std::move(item));
     }
     const auto preview = djmeta::review_batch_plan(batch);
@@ -100,8 +163,10 @@ void test_batch_overwrite_once_and_target_guard() {
     auto b = audio("B");
     a.target_presence = djmeta::TargetPresence::Existing;
     a.target_guard = "target-A-content-v1";
+    a.target_physical_id = "existing-file-A";
     b.target_presence = djmeta::TargetPresence::Existing;
     b.target_guard = "target-B-content-v1";
+    b.target_physical_id = "existing-file-B";
     std::vector<djmeta::FilePlanItem> batch = {a, b};
 
     const auto preview = djmeta::review_batch_plan(batch);
@@ -150,6 +215,7 @@ void test_many_individual_overwrite_approvals_are_indexed() {
         auto item = audio("library-" + std::to_string(i));
         item.target_presence = djmeta::TargetPresence::Existing;
         item.target_guard = "inspected-identity-" + std::to_string(i);
+        item.target_physical_id = "target-real-physical-" + std::to_string(i);
         items.push_back(std::move(item));
     }
     const auto first = djmeta::review_batch_plan(items);
@@ -190,6 +256,7 @@ void test_missing_target_guard_and_no_inspection() {
 
     a.target_presence = djmeta::TargetPresence::Existing;
     a.target_guard.clear();
+    a.target_physical_id = "existing-target-observation";
     result = djmeta::review_batch_plan({a});
     require(result.blocked == 1 &&
             has_reason(result.decisions[0], "EXISTING_TARGET_NOT_GUARDED"),
@@ -205,6 +272,7 @@ void test_new_target_after_clean_review_requires_new_consent() {
     // A third party creates the file between the preview and Apply.
     item.target_presence = djmeta::TargetPresence::Existing;
     item.target_guard = "newly-created-target";
+    item.target_physical_id = "new-real-file";
     const auto changed = djmeta::review_batch_plan({item}, &prior);
     require(changed.blocked == 1 && !changed.ready_to_apply &&
             !changed.decisions[0].will_replace_existing_target &&
@@ -289,6 +357,63 @@ void test_intra_batch_conflicts_cannot_be_overridden() {
     preview = djmeta::review_batch_plan({a, b});
     require(has_reason(preview.decisions[0], "TARGET_IS_BATCH_SOURCE"),
             "cannot replace a selected tag-only file by a batch move");
+}
+
+
+void test_existing_target_physical_identity_and_hardlink_alias_gates() {
+    auto a=audio("target-A");
+    auto b=audio("target-B");
+    a.target_presence=djmeta::TargetPresence::Existing;
+    a.target_guard="existing-v1";
+    a.target_physical_id="os-file-123";
+    b.target_presence=djmeta::TargetPresence::Existing;
+    b.target_guard="other-path-existing-v1";
+    b.target_physical_id="os-file-123"; // two paths/hardlinks, SAME target
+    const auto alias=djmeta::review_batch_plan({a,b});
+    require(alias.blocked==2 && !alias.ready_to_apply &&
+            has_reason(alias.decisions[0],"MULTIPLE_TARGETS_SAME_PHYSICAL_FILE") &&
+            has_reason(alias.decisions[1],"MULTIPLE_TARGETS_SAME_PHYSICAL_FILE"),
+            "two distinct destination paths cannot independently overwrite one hardlinked target");
+
+    b.target_physical_id="os-file-456";
+    const auto independent=djmeta::review_batch_plan({a,b});
+    require(independent.blocked==0 && independent.requires_overwrite==2 &&
+            !independent.ready_to_apply,
+            "two truly independent observed target identities require explicit overwrites");
+    const djmeta::BatchApproval approved{independent.plan_fingerprint,true,{}};
+    require(djmeta::review_batch_plan({a,b},&approved).ready_to_apply,
+            "exact source and target identities may enter advisory frozen plan");
+    b.target_physical_id="os-file-789";
+    const auto stale=djmeta::review_batch_plan({a,b},&approved);
+    require(stale.blocked==2 &&
+            has_reason(stale.decisions[0],"STALE_BATCH_APPROVAL"),
+            "target physical file replacement invalidates previously approved plan");
+
+    b.target_physical_id.clear();
+    const auto uninspected=djmeta::review_batch_plan({a,b});
+    require(uninspected.blocked>=1 &&
+            has_reason(uninspected.decisions[1],
+                "EXISTING_TARGET_PHYSICAL_ID_NOT_INSPECTED"),
+            "existing destination cannot be approved without OS physical ID");
+
+    b.target_physical_id=a.physical_id;
+    const auto source_alias=djmeta::review_batch_plan({a,b});
+    require(!source_alias.ready_to_apply &&
+            has_reason(source_alias.decisions[1],
+                "TARGET_IS_SELECTED_PHYSICAL_SOURCE"),
+            "different destination path pointing to selected audio hardlink must be blocked");
+
+    b.target_presence=djmeta::TargetPresence::Missing;
+    const auto impossible=djmeta::review_batch_plan({a,b});
+    require(has_reason(impossible.decisions[1],"TARGET_ID_WITHOUT_EXISTING_FILE"),
+            "missing target cannot still carry a nonempty OS file ID");
+
+    b.target_presence=djmeta::TargetPresence::Existing;
+    b.target_physical_id="os-file-456";
+    b.target_physical_id.push_back('\0');
+    const auto nul=djmeta::review_batch_plan({a,b});
+    require(has_reason(nul.decisions[1],"EMBEDDED_NUL_IN_PLAN_IDENTITY"),
+            "embedded NUL in target physical ID cannot truncate approved identity");
 }
 
 void test_duplicate_subsong_source_and_self_copy() {
@@ -398,6 +523,134 @@ void test_external_cue_dependencies() {
             "unverified CUE source bytes must block operation");
 }
 
+
+void test_multifile_cue_planned_audio_dependencies() {
+    auto a=audio("first");
+    auto b=audio("second");
+    a.cue_links=djmeta::CueLinkState::Verified;
+    b.cue_links=djmeta::CueLinkState::Verified;
+    auto cue=audio("mix-cue");
+    cue.role=djmeta::FileRole::ExternalCue;
+    cue.source_path="Z:/Music/Downloads/multi.cue";
+    cue.source_key="z:/music/downloads/multi.cue";
+    cue.target_path="Z:/Music/Singles/multi.cue";
+    cue.target_key="z:/music/singles/multi.cue";
+    cue.cue_links=djmeta::CueLinkState::Verified;
+    // Full source-derived chain: parse the two FILE references, resolve
+    // each canonical host physical source, stage only the verified CUE
+    // reference postimage and pass its association into batch preflight.
+    const std::string source_cue =
+        "REM GENRE House\n"
+        "FILE \"first.wav\" WAVE\nTRACK 01 AUDIO\n"
+        "FILE \"second.wav\" WAVE\nTRACK 02 AUDIO\n";
+    const auto cue_link=djmeta::qualify_external_cue_association(
+        source_cue,
+        {{0,"first.wav",a.source_key,"first-new.wav",true,true,a.target_key},
+         {1,"second.wav",b.source_key,"second-new.wav",true,true,b.target_key}},
+        {{a.physical_id,a.source_key,a.target_key},
+         {b.physical_id,b.source_key,b.target_key}});
+    const auto wrong_destination=djmeta::qualify_external_cue_association(
+        source_cue,
+        {{0,"first.wav",a.source_key,"first-new.wav",true,true,a.target_key},
+         {1,"second.wav",b.source_key,"second-new.wav",true,true,a.target_key}},
+        {{a.physical_id,a.source_key,a.target_key},
+         {b.physical_id,b.source_key,b.target_key}});
+    require(!wrong_destination.qualified &&
+            wrong_destination.diagnostics==
+                std::vector<std::string>{"CUE_MULTIPLE_SOURCES_SHARE_DESTINATION"},
+            "actual Multi-FILE destination collision blocks the joint file plan");
+    const auto wrong_selected_target=djmeta::qualify_external_cue_association(
+        source_cue,
+        {{0,"first.wav",a.source_key,"first-new.wav",true,true,a.target_key},
+         {1,"second.wav",b.source_key,"second-new.wav",true,true,"forged-final-target"}},
+        {{a.physical_id,a.source_key,a.target_key},
+         {b.physical_id,b.source_key,b.target_key}});
+    require(!wrong_selected_target.qualified &&
+            wrong_selected_target.diagnostics==
+                std::vector<std::string>{"CUE_TARGET_DIFFERS_FROM_SELECTED_AUDIO_PLAN"},
+            "a source-verified FILE reference cannot substitute an audio target");
+    require(cue_link.qualified && cue_link.changes_references &&
+            cue_link.related_selected_audio_ids==
+                std::vector<std::string>({a.physical_id,b.physical_id}) &&
+            cue_link.proposed_cue_bytes.find("second-new.wav")!=std::string::npos,
+            "parsed Multi-FILE references map both real physical source identities");
+    cue.associated_audio_ids=cue_link.related_selected_audio_ids;
+    cue.cue_source_fingerprint=cue_link.original_cue_fingerprint;
+    cue.cue_postimage_fingerprint=cue_link.proposed_cue_fingerprint;
+    cue.cue_references_will_change=cue_link.changes_references;
+    cue.metadata_fingerprint.clear();
+    cue.planned_metadata_fingerprint.clear();
+    std::vector<djmeta::FilePlanItem> items={a,b,cue};
+    const auto ok=djmeta::review_batch_plan(items);
+    require(ok.ready_to_apply && ok.blocked==0 &&
+            ok.decisions[2].cue_bytes_write_needed,
+            "one external CUE with two qualified physical audio references");
+    const djmeta::BatchApproval approval{ok.plan_fingerprint,false,{}};
+    const auto frozen=djmeta::freeze_reviewed_batch_preview(items,approval);
+    require(frozen.items.size()==3 && frozen.items[2].associated_audio_ids.size()==2 &&
+            frozen.items[2].cue_postimage_fingerprint==
+                cue_link.proposed_cue_fingerprint,
+            "frozen plan retains actual source-derived CUE bytes and both audio dependencies");
+    auto changed=items;
+    changed[2].associated_audio_ids={b.physical_id,a.physical_id};
+    const auto stale=djmeta::review_batch_plan(changed,&approval);
+    require(stale.blocked==3 &&
+            has_reason(stale.decisions[2],"STALE_BATCH_APPROVAL"),
+            "reordering Multi-FILE members invalidates exact approval");
+    // An updated remote/local FILE-reference proposal is a new plan even
+    // if every audio row still refers to its earlier physical destination.
+    changed=items;
+    changed[2].cue_postimage_fingerprint="changed FILE postimage";
+    const auto renamed=djmeta::review_batch_plan(changed,&approval);
+    require(renamed.blocked==3 &&
+            has_reason(renamed.decisions[2],"STALE_BATCH_APPROVAL"),
+            "CUE reference postimage change invalidates multi-file approval");
+
+    changed=items;
+    changed[2].associated_audio_ids={a.physical_id};
+    const auto incomplete=djmeta::review_batch_plan(changed);
+    require(incomplete.blocked>=1 &&
+            has_reason(incomplete.decisions[1],"VERIFIED_CUE_NOT_IN_PLAN"),
+            "dropping second selected physical FILE cannot silently qualify plan");
+    changed=items;
+    changed[2].associated_audio_ids.push_back("absent-file");
+    const auto missing=djmeta::review_batch_plan(changed);
+    require(!missing.ready_to_apply &&
+            has_reason(missing.decisions[2],"CUE_REFERENCE_PLAN_UNQUALIFIED"),
+            "unselected FILE identity blocks the CUE");
+    changed=items;
+    changed[2].associated_audio_ids={a.physical_id,a.physical_id};
+    const auto duplicate=djmeta::review_batch_plan(changed);
+    require(!duplicate.ready_to_apply &&
+            has_reason(duplicate.decisions[2],"CUE_AUDIO_RELATIONSHIP_AMBIGUOUS"),
+            "duplicate physical source in Multi-FILE CUE blocks");
+    changed=items;
+    changed[2].associated_audio_id="different-legacy-id";
+    const auto contradiction=djmeta::review_batch_plan(changed);
+    require(!contradiction.ready_to_apply &&
+            has_reason(contradiction.decisions[2],"CUE_AUDIO_RELATIONSHIP_AMBIGUOUS"),
+            "legacy and multi-file relationships cannot contradict");
+    changed=items;
+    changed[1].cue_links=djmeta::CueLinkState::NoExternalCue;
+    const auto denied=djmeta::review_batch_plan(changed);
+    require(!denied.ready_to_apply &&
+            has_reason(denied.decisions[1],"CUE_ASSOCIATION_CONTRADICTS_NO_EXTERNAL_CUE") &&
+            has_reason(denied.decisions[2],"CUE_REFERENCE_PLAN_UNQUALIFIED"),
+            "one contradictory FILE participant blocks complete plan");
+    changed=items;
+    changed[2].associated_audio_ids[1].push_back('\0');
+    const auto nul=djmeta::review_batch_plan(changed);
+    require(!nul.ready_to_apply &&
+            has_reason(nul.decisions[2],"EMBEDDED_NUL_IN_PLAN_IDENTITY"),
+            "NUL in second FILE association cannot bypass guard");
+    changed=items;
+    changed[0].associated_audio_ids={b.physical_id};
+    const auto wrongRole=djmeta::review_batch_plan(changed);
+    require(!wrongRole.ready_to_apply &&
+            has_reason(wrongRole.decisions[0],"CUE_AUDIO_RELATIONSHIP_AMBIGUOUS"),
+            "non-CUE file cannot declare multi-FILE relation");
+}
+
 void test_contradictory_audio_cue_evidence_rejected() {
     auto source = audio("contradictory");
     djmeta::FilePlanItem cue;
@@ -504,6 +757,85 @@ void test_inactive_cue_relationships_and_tag_only_audio_guard() {
     require(result.blocked == 1 && !result.ready_to_apply &&
             has_reason(result.decisions[0], "VERIFIED_CUE_NOT_IN_PLAN"),
             "inactive CUE listing cannot qualify a real audio move");
+}
+
+void test_multiple_external_cue_carriers_per_audio_block_batch() {
+    auto track=audio("same-physical-audio");
+    track.cue_links=djmeta::CueLinkState::Verified;
+    auto first=audio("cue-one");
+    first.role=djmeta::FileRole::ExternalCue;
+    first.associated_audio_id=track.physical_id;
+    first.cue_links=djmeta::CueLinkState::Verified;
+    first.cue_source_fingerprint="first-before";
+    first.cue_postimage_fingerprint="first-after";
+    first.cue_references_will_change=true;
+    first.metadata_fingerprint.clear();
+    first.planned_metadata_fingerprint.clear();
+    auto second=first;
+    second.physical_id="cue-two";
+    second.source_path="Z:/Music/Downloads/cue-two.cue";
+    second.source_key="z:/music/downloads/cue-two.cue";
+    second.source_guard="source-observation-cue-two";
+    second.target_path="Z:/Music/Singles/cue-two.cue";
+    second.target_key="z:/music/singles/cue-two.cue";
+    second.cue_source_fingerprint="second-before";
+    second.cue_postimage_fingerprint="second-after";
+    const std::vector<djmeta::FilePlanItem> batch{track,first,second};
+    const auto conflict=djmeta::review_batch_plan(batch);
+    require(conflict.blocked==3 && !conflict.ready_to_apply,
+            "two independently writable CUEs cannot share one physical audio");
+    for(const auto& decision:conflict.decisions)
+        require(has_reason(decision,"MULTIPLE_EXTERNAL_CUES_FOR_AUDIO") &&
+                !decision.cue_bytes_write_needed &&
+                !decision.metadata_write_needed &&
+                !decision.file_operation_needed,
+                "all conflicted audio/CUE participants must fail closed");
+
+    // Even a static CUE carrier is a relationship that requires explicit
+    // disambiguation; file-action None is NOT permission to ignore it.
+    auto inactive=batch;
+    inactive[2].action=djmeta::FileAction::None;
+    inactive[2].cue_references_will_change=false;
+    inactive[2].cue_postimage_fingerprint=inactive[2].cue_source_fingerprint;
+    const auto with_inactive=djmeta::review_batch_plan(inactive);
+    require(with_inactive.blocked==3 &&
+            has_reason(with_inactive.decisions[0],
+                "MULTIPLE_EXTERNAL_CUES_FOR_AUDIO") &&
+            has_reason(with_inactive.decisions[2],
+                "MULTIPLE_EXTERNAL_CUES_FOR_AUDIO"),
+            "inactive second CUE still conflicts with audio in file operation");
+
+    // Overwrite approval is not an ambiguity override.
+    const djmeta::BatchApproval unsafe_consent{conflict.plan_fingerprint,true,{}};
+    const auto consented=djmeta::review_batch_plan(batch,&unsafe_consent);
+    require(!consented.ready_to_apply && consented.blocked==3,
+            "even exact batch-wide overwrite consent cannot approve ambiguous CUE graph");
+
+    // One CUE carrying two distinct FILE identities is a valid many-to-one
+    // relation; only two DIFFERENT CUE carriers for a single source conflict.
+    auto other=audio("second-track");
+    other.cue_links=djmeta::CueLinkState::Verified;
+    first.associated_audio_id.clear();
+    first.associated_audio_ids={track.physical_id,other.physical_id};
+    const auto valid=djmeta::review_batch_plan({track,other,first});
+    require(valid.ready_to_apply && valid.blocked==0,
+            "one external Multi-FILE CUE may reference two separate audio files");
+
+    // Distinct CUEs each protecting a distinct audio are valid together.
+    auto other_cue=second;
+    other_cue.associated_audio_id=other.physical_id;
+    const auto independent=djmeta::review_batch_plan(
+        {track,other,first,other_cue});
+    require(!independent.ready_to_apply &&
+            has_reason(independent.decisions[1],
+                "MULTIPLE_EXTERNAL_CUES_FOR_AUDIO"),
+            "multi-file CUE plus another CUE for one of its files remains ambiguous");
+    first.associated_audio_ids={track.physical_id};
+    first.associated_audio_id.clear();
+    const auto independent_clean=djmeta::review_batch_plan(
+        {track,other,first,other_cue});
+    require(independent_clean.ready_to_apply,
+            "independent CUE/audio pairs remain valid in one batch");
 }
 
 void test_cue_rewrite_only_on_external_cue_items() {
@@ -690,6 +1022,47 @@ void test_same_canonical_key_but_different_raw_path_is_not_noop() {
             "exact same source and target path remains a no-op");
 }
 
+void test_same_raw_path_with_different_keys_fails_closed() {
+    // A stale/corrupt canonicalization result must not turn the same
+    // literal file into a purported new target (or an overwrite).
+    for (auto action : {djmeta::FileAction::Copy,
+                        djmeta::FileAction::Move,
+                        djmeta::FileAction::Rename}) {
+        auto item = audio("ContradictoryCanonicalKey");
+        item.action = action;
+        item.target_path = item.source_path;
+        // Retain its nominal 'Singles' key, different from 'Downloads'.
+        for (auto presence : {djmeta::TargetPresence::Missing,
+                              djmeta::TargetPresence::Existing}) {
+            item.target_presence = presence;
+            item.target_guard = presence == djmeta::TargetPresence::Existing
+                ? "fresh-existing-target" : "";
+            item.target_physical_id = presence == djmeta::TargetPresence::Existing
+                ? "existing-os-target" : "";
+            const auto result = djmeta::review_batch_plan({item});
+            require(result.blocked == 1 && !result.ready_to_apply &&
+                    result.decisions[0].status == djmeta::PlanStatus::Blocked &&
+                    has_reason(result.decisions[0],
+                        "SOURCE_TARGET_KEY_CONTRADICTS_SAME_PATH") &&
+                    !result.decisions[0].file_operation_needed &&
+                    !result.decisions[0].will_replace_existing_target,
+                    "exact same pathname with different canonical keys must block FileOps");
+            const djmeta::BatchApproval approval{
+                result.plan_fingerprint, true};
+            const auto reviewed = djmeta::review_batch_plan({item}, &approval);
+            require(reviewed.blocked == 1 && !reviewed.ready_to_apply &&
+                    !reviewed.decisions[0].file_operation_needed &&
+                    !reviewed.decisions[0].will_replace_existing_target,
+                    "blanket consent cannot bypass contradictory identity evidence");
+            try {
+                (void)djmeta::freeze_reviewed_batch_preview({item}, approval);
+                require(false,
+                    "contradictory FileOps target must never freeze for execution");
+            } catch (const std::invalid_argument&) {}
+        }
+    }
+}
+
 void test_embedded_nul_in_plan_identity_fails_closed() {
     const auto sample = audio("nul-input");
     const auto inject_nul = [](std::string& field) {
@@ -768,6 +1141,7 @@ void test_frozen_approved_snapshot_is_detached_and_non_executing() {
     auto existing = audio("Overwrite");
     existing.target_presence = djmeta::TargetPresence::Existing;
     existing.target_guard = "observed-target-sha256";
+    existing.target_physical_id = "observed-existing-physical-id";
     const auto overwrite_review = djmeta::review_batch_plan({existing});
     const djmeta::BatchApproval not_approved{overwrite_review.plan_fingerprint, false};
     try {
@@ -981,6 +1355,122 @@ void test_exact_noop_write_intents() {
             "undeclared CUE postimage mutation must fail closed");
 }
 
+void test_absent_target_cannot_retain_existing_guard() {
+    for (const auto presence : {
+             djmeta::TargetPresence::Missing,
+             djmeta::TargetPresence::Unchecked}) {
+        for (const bool metadata_only : {false, true}) {
+            auto candidate = audio("stale-absence");
+            candidate.target_presence = presence;
+            candidate.target_guard = "old-existing-target-guard";
+            if (metadata_only) {
+                candidate.action = djmeta::FileAction::None;
+                candidate.target_path.clear();
+                candidate.target_key.clear();
+            }
+            const std::vector<djmeta::FilePlanItem> batch{candidate};
+            const auto reviewed = djmeta::review_batch_plan(batch);
+            require(!reviewed.ready_to_apply && reviewed.blocked == 1 &&
+                    reviewed.decisions[0].status == djmeta::PlanStatus::Blocked &&
+                    has_reason(reviewed.decisions[0],
+                               "TARGET_GUARD_WITHOUT_EXISTING_FILE") &&
+                    !reviewed.decisions[0].metadata_write_needed &&
+                    !reviewed.decisions[0].file_operation_needed,
+                    "absent or unchecked target must reject stale existing-target guard");
+            const djmeta::BatchApproval approve{reviewed.plan_fingerprint, true};
+            require(djmeta::review_batch_plan(batch, &approve).blocked == 1,
+                    "blanket overwrite approval cannot legalize contradictory target evidence");
+            try {
+                (void)djmeta::freeze_reviewed_batch_preview(batch, approve);
+                require(false, "contradictory target observation must not freeze");
+            } catch (const std::invalid_argument&) {}
+        }
+    }
+    require(djmeta::review_batch_plan({audio("clean-absent-target")}).ready_to_apply,
+            "ordinary missing target with no residual guard stays qualified");
+}
+
+void test_existing_cue_metadata_value_change_is_not_fileops() {
+    using namespace djmeta;
+    const std::string raw=
+        "TITLE \"DJ Mix\"\n"
+        "FILE \"mix.flac\" WAVE\n"
+        "TRACK 01 AUDIO\n"
+        "TITLE \"Original Track\"\n"
+        "INDEX 01 00:00:00\n";
+    const auto preview=preview_cue_value_postimage(
+        raw,CueCarrierKind::ExternalText,
+        {{0,"TITLE","Original Track","Renamed Track"}});
+    require(preview.eligible && preview.changed &&
+            preview.bytes.find("Renamed Track")!=std::string::npos &&
+            preview.bytes.find("FILE \"mix.flac\" WAVE")!=std::string::npos,
+            "value-only source CUE editing preserves exact FILE relationship");
+
+    auto physical=audio("CUE-value-audio");
+    physical.action=FileAction::None;
+    physical.target_path.clear();physical.target_key.clear();
+    physical.target_presence=TargetPresence::Unchecked;
+    physical.cue_links=CueLinkState::Verified;
+    physical.planned_metadata_fingerprint=physical.metadata_fingerprint;
+    FilePlanItem cue;
+    cue.physical_id="external-cue:value-only";
+    cue.source_path="Z:/Music/set.cue";
+    cue.source_key="z:/music/set.cue";
+    cue.source_guard="observed-cue-carrier-v1";
+    cue.role=FileRole::ExternalCue;
+    cue.action=FileAction::None;
+    cue.cue_links=CueLinkState::Verified;
+    cue.associated_audio_ids={physical.physical_id};
+    cue.ruleset_revision=physical.ruleset_revision;
+    cue.cue_source_fingerprint=fingerprint({{{"CUE_BYTES",{raw}}}});
+    cue.cue_postimage_fingerprint=fingerprint({{{"CUE_BYTES",{preview.bytes}}}});
+    cue.cue_values_will_change=true;
+    const std::vector<FilePlanItem> items={physical,cue};
+    const auto proposed=review_batch_plan(items);
+    require(proposed.ready_to_apply && proposed.blocked==0 &&
+            proposed.decisions.size()==2 &&
+            proposed.decisions[0].status==PlanStatus::Unchanged &&
+            proposed.decisions[1].status==PlanStatus::Ready &&
+            !proposed.decisions[1].file_operation_needed &&
+            proposed.decisions[1].cue_bytes_write_needed &&
+            !proposed.decisions[1].metadata_write_needed,
+            "selected CUE text value yields byte change without file relocation");
+    const BatchApproval approval{proposed.plan_fingerprint,false,{}};
+    const auto frozen=freeze_reviewed_batch_preview(items,approval);
+    require(frozen.items[1].cue_values_will_change &&
+            frozen.decisions[1].cue_bytes_write_needed,
+            "text-only CUE change survives the frozen explicit review");
+    auto unselected=items;
+    unselected[1].cue_values_will_change=false;
+    const auto forbidden=review_batch_plan(unselected);
+    require(forbidden.blocked==1 &&
+            has_reason(forbidden.decisions[1],"UNDECLARED_CUE_BYTE_CHANGE") &&
+            !forbidden.decisions[1].cue_bytes_write_needed &&
+            forbidden.plan_fingerprint!=proposed.plan_fingerprint,
+            "undeclared CUE value change is never quietly allowed");
+    const auto stale=review_batch_plan(unselected,&approval);
+    require(stale.blocked==2,
+            "old consent invalidated when CUE type and postimage contract change");
+    unselected=items;
+    unselected[1].cue_postimage_fingerprint=unselected[1].cue_source_fingerprint;
+    const auto unchanged=review_batch_plan(unselected);
+    require(unchanged.ready_to_apply &&
+            unchanged.decisions[1].status==PlanStatus::Unchanged &&
+            !unchanged.decisions[1].cue_bytes_write_needed,
+            "identical full CUE bytes remain exact no-op, no timestamps changed");
+    unselected=items;
+    unselected[0].cue_values_will_change=true;
+    const auto virtual_carrier=review_batch_plan(unselected);
+    require(virtual_carrier.blocked>=1 &&
+            has_reason(virtual_carrier.decisions[0],
+                       "CUE_REWRITE_ON_NON_CUE_ITEM"),
+            "CUE value edits never route through physical audio/subsong handle");
+    unselected=items;
+    unselected[1].cue_source_fingerprint.clear();
+    require(review_batch_plan(unselected).blocked>=1,
+            "CUE without original byte fingerprint cannot be approved");
+}
+
 void test_noop_and_missing_ids() {
     auto a = audio("A");
     a.target_key = a.source_key;
@@ -1008,23 +1498,30 @@ int main() {
     test_source_observation_approval_binding();
     test_mixed_ruleset_revisions_fail_closed();
     test_batch_overwrite_once_and_target_guard();
+    test_existing_target_physical_identity_and_hardlink_alias_gates();
     test_large_batch_one_confirmation();
+    test_individual_overwrite_approval_selection_is_exact();
     test_many_individual_overwrite_approvals_are_indexed();
     test_missing_target_guard_and_no_inspection();
+    test_absent_target_cannot_retain_existing_guard();
     test_new_target_after_clean_review_requires_new_consent();
     test_intra_batch_conflicts_cannot_be_overridden();
     test_stale_approval_rejects_tag_only_and_noop_rows();
     test_duplicate_subsong_source_and_self_copy();
     test_duplicate_selected_tag_only_source_cannot_escape_preflight();
     test_external_cue_dependencies();
+    test_multiple_external_cue_carriers_per_audio_block_batch();
+    test_multifile_cue_planned_audio_dependencies();
     test_contradictory_audio_cue_evidence_rejected();
     test_inactive_cue_relationships_and_tag_only_audio_guard();
     test_cue_rewrite_only_on_external_cue_items();
     test_metadata_only_requires_physical_identity();
     test_same_canonical_key_but_different_raw_path_is_not_noop();
+    test_same_raw_path_with_different_keys_fails_closed();
     test_embedded_nul_in_plan_identity_fails_closed();
     test_frozen_approved_snapshot_is_detached_and_non_executing();
     test_noop_and_missing_ids();
+    test_existing_cue_metadata_value_change_is_not_fileops();
     test_exact_noop_write_intents();
     test_unknown_plan_enum_values_fail_closed();
     test_companion_files_need_explicit_or_qualified_policy();
