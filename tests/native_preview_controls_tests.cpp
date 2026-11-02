@@ -358,6 +358,13 @@ int main() {
           history.events().back().sequence==300 &&
           history.events().back().scope==2,
           "history retains the latest 256 events and stable ordinal");
+    check(!history.append(static_cast<PreviewHistoryKind>(255),1,1,0) &&
+          !history.append(PreviewHistoryKind::Route,1,1,4) &&
+          !history.append(PreviewHistoryKind::Route,1000001,1,1) &&
+          !history.append(PreviewHistoryKind::Route,1,1000001,1) &&
+          history.total_actions()==300 &&
+          history.events().size()==SessionPreviewHistory::limit,
+          "invalid History kind, scope and impossible counts do not pollute the native session");
     check(djmeta_foobar::preview_history_copy_hotkey(L'C',true,false,false,true) &&
           !djmeta_foobar::preview_history_copy_hotkey(L'C',false,false,false,true) &&
           !djmeta_foobar::preview_history_copy_hotkey(L'C',true,true,false,true) &&
@@ -405,6 +412,11 @@ int main() {
               std::vector<std::size_t>({0}) &&
           !preview_history_single_source(provider_history.events()[1],8),
           "lookup filter isolates providers and never assigns CUE a physical ordinal");
+    const auto unknown_filter=static_cast<PreviewHistoryFilter>(255);
+    check(preview_history_visible_indices(provider_history,unknown_filter).empty() &&
+          !djmeta_foobar::preview_history_export_tsv(
+              provider_history,unknown_filter,std::nullopt,8),
+          "unknown native History filter fails closed without exposing Review or provider events");
     // The real native filter combo exposes provider-specific views. Each
     // view and its clipboard receipt must preserve the original event ID.
     check(preview_history_visible_indices(provider_history,PreviewHistoryFilter::Discogs)==
@@ -454,6 +466,22 @@ int main() {
           !djmeta_foobar::preview_history_export_tsv(
               provider_history,PreviewHistoryFilter::Lookup,3,8),
           "selected provider row uses exact stable identity and bounded selection");
+    // The visible-queue route scope must not be mislabeled as selected tracks.
+    SessionPreviewHistory route_scopes;
+    check(route_scopes.append(PreviewHistoryKind::Route,1,1,1,0) &&
+          route_scopes.append(PreviewHistoryKind::Route,1,1,2,0) &&
+          route_scopes.append(PreviewHistoryKind::Route,1,1,3,0),
+          "selected, all and visible route previews are retained independently");
+    const auto route_scope_receipt=djmeta_foobar::preview_history_export_tsv(
+        route_scopes,PreviewHistoryFilter::Routing,std::nullopt,8);
+    check(route_scope_receipt &&
+          route_scope_receipt->find(L"1\tRecalculate route\tSelected tracks")!=std::wstring::npos &&
+          route_scope_receipt->find(L"2\tRecalculate route\tAll tracks")!=std::wstring::npos &&
+          route_scope_receipt->find(L"3\tRecalculate route\tVisible queue")!=std::wstring::npos &&
+          std::wstring_view(djmeta_foobar::preview_history_receipt_scope(
+              route_scopes.events()[2]))==L"Visible queue" &&
+          route_scope_receipt->find(L"No metadata, CUE or file operation was executed")!=std::wstring::npos,
+          "native History and TSV use one exact route scope with no write authorization");
     using djmeta_foobar::preview_history_parse_source;
     const auto source8=preview_history_parse_source(L"8",8);
     const auto all_sources=preview_history_parse_source(L"",8);
