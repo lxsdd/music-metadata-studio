@@ -1475,12 +1475,30 @@ for token in (
 for token in (
     "return clicked_row >= 0 && clicked_selected ? clicked_row : -1;",
     "return focused_row >= 0 && focused_selected ? focused_row : -1;",
-    "ListView_SetItemState(list, -1, 0, LVIS_SELECTED);",
-    "ListView_GetSelectedCount(list) == 1",
-    "ListView_GetNextItem(list, -1, LVNI_SELECTED) == target_row",
 ):
     if token not in sources:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: exact release target policy missing: "+token)
+# Audit the actual release retarget function, not stale literal ListView
+# macros: the native transaction now snapshots and restores selection/focus.
+release_focus = (foobar / "native_preview_controls.h").read_text(
+    encoding="utf-8").split("inline bool native_focus_exact_release_row(",1)[1].split(
+    "// LVN_ITEMACTIVATE",1)[0]
+for token in (
+    "target_row>=count",
+    "ListView_GetItemState(list,target_row,LVIS_SELECTED)",
+    "std::vector<int> selected;",
+    "selected.size()!=static_cast<std::size_t>(",
+    "const int prior_focus=ListView_GetNextItem(list,-1,LVNI_FOCUSED);",
+    "const auto restore=[&]()",
+    "set_state(-1,0,LVIS_SELECTED|LVIS_FOCUSED)",
+    "set_state(target_row,LVIS_SELECTED|LVIS_FOCUSED,",
+    "restore();",
+    "ListView_GetSelectedCount(list)==1",
+    "ListView_GetNextItem(list,-1,LVNI_SELECTED)==target_row",
+    "ListView_GetNextItem(list,-1,LVNI_FOCUSED)==target_row",
+):
+    if token not in release_focus:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: transactional release target policy missing: "+token)
 
 # Native popup tooltips must be explicitly dismissed BEFORE hiding the
 # modeless dialog while an in-flight HTTPS worker finishes. The popup HWND
