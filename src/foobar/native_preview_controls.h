@@ -118,6 +118,16 @@ inline std::optional<int> native_focus_history_source(
         return row;
     }
 
+    // The Windows ListView_SetItemState macro is a statement block, not a
+    // Boolean expression. Use the underlying LVM_SETITEMSTATE message when
+    // a transactional success/failure result is required.
+    const auto set_state=[list](int item,UINT state,UINT mask) {
+        LVITEMW value{};
+        value.state=state;
+        value.stateMask=mask;
+        return SendMessageW(list,LVM_SETITEMSTATE,
+            static_cast<WPARAM>(item),reinterpret_cast<LPARAM>(&value))!=FALSE;
+    };
     const auto restore=[&]() {
         if(!IsWindow(list) || ListView_GetItemCount(list)!=count ||
            view_order!=captured_order) return;
@@ -127,9 +137,9 @@ inline std::optional<int> native_focus_history_source(
         if(previous_focus>=0)
             ListView_SetItemState(list,previous_focus,LVIS_FOCUSED,LVIS_FOCUSED);
     };
-    if(!ListView_SetItemState(list,-1,0,LVIS_SELECTED|LVIS_FOCUSED) ||
-       !ListView_SetItemState(list,*row,LVIS_SELECTED|LVIS_FOCUSED,
-                              LVIS_SELECTED|LVIS_FOCUSED) ||
+    if(!set_state(-1,0,LVIS_SELECTED|LVIS_FOCUSED) ||
+       !set_state(*row,LVIS_SELECTED|LVIS_FOCUSED,
+                  LVIS_SELECTED|LVIS_FOCUSED) ||
        !IsWindow(list) || ListView_GetItemCount(list)!=count ||
        view_order!=captured_order ||
        ListView_GetSelectedCount(list)!=1 ||
