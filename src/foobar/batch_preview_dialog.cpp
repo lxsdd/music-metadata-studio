@@ -7763,6 +7763,15 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             const int originating_tab=TabCtrl_GetCurSel(state->tabs);
             const auto next_source=state->track_view_order[
                 static_cast<std::size_t>(row)];
+            const auto exact_row=native_verified_physical_source_row(
+                state->metadata_track_list,state->track_view_order,
+                next_source,state->entries.size());
+            if(!exact_row || *exact_row!=row) {
+                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                    L"Physical source mapping changed; refresh before "
+                    L"opening a track. No online request was made.");
+                return TRUE;
+            }
             if(!confirm_online_preview_navigation(dialog,*state,next_source))
                 return TRUE;
             invalidate_online_request(*state);
@@ -8102,23 +8111,22 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                         update_master_table(*state);
                         TabCtrl_SetCurSel(state->tabs,1);
                         show_preview_page(dialog,*state,true,false);
-                        const auto where=std::find(
-                            state->track_view_order.begin(),
-                            state->track_view_order.end(),*target);
-                        if(where==state->track_view_order.end())
+                        const auto position=native_verified_physical_source_row(
+                            state->metadata_track_list,state->track_view_order,
+                            *target,state->entries.size());
+                        if(!position)
                             throw std::runtime_error(
-                                "Exact album physical source not in Review queue.");
-                        const int position=static_cast<int>(
-                            where-state->track_view_order.begin());
+                                "Exact album physical source mapping is stale.");
+                        // Reuse the existing read-only History navigation
+                        // transaction: reject duplicate/stale row identities,
+                        // verify native selection and restore it on failure.
                         state->updating_track_selection=true;
-                        ListView_SetItemState(state->metadata_track_list,
-                            -1,0,LVIS_SELECTED);
-                        ListView_SetItemState(state->metadata_track_list,
-                            position,LVIS_SELECTED|LVIS_FOCUSED,
-                            LVIS_SELECTED|LVIS_FOCUSED);
+                        const auto focused=native_focus_history_source(
+                            state->metadata_track_list,state->track_view_order,*target);
                         state->updating_track_selection=false;
-                        ListView_EnsureVisible(state->metadata_track_list,
-                            position,FALSE);
+                        if(!focused || *focused!=*position)
+                            throw std::runtime_error(
+                                "Exact album source could not be focused.");
                         SetFocus(state->metadata_track_list);
                         const std::wstring hint=L"Physical album source #"+
                             std::to_wstring(*target+1)+
