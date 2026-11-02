@@ -703,6 +703,47 @@ int main() {
           ListView_GetSelectedCount(history_target)==1 &&
           ListView_GetNextItem(history_target,-1,LVNI_SELECTED)==1,
           "missing, duplicate and stale owner-data rows preserve selection");
+    // A valid requested row is NOT sufficient if another physical source
+    // appears twice in the same owner-data mapping. Reject the entire map
+    // before any ListView selection/focus mutation or online side effect.
+    const auto unique_row=djmeta_foobar::native_history_unique_source_row(
+        reordered_sources,0,3);
+    check(unique_row && *unique_row==1 &&
+          !djmeta_foobar::native_history_unique_source_row({2,0,0},2,3) &&
+          !djmeta_foobar::native_history_unique_source_row({2,0,1},99,3) &&
+          !djmeta_foobar::native_history_unique_source_row({2,0,1},0,2) &&
+          !djmeta_foobar::native_history_unique_source_row({},0,0),
+          "full History source mapping must be unique, complete and current");
+    const auto stable_jump=djmeta_foobar::native_focus_history_source(
+        history_target,reordered_sources,0);
+    check(stable_jump && *stable_jump==1 &&
+          !djmeta_foobar::native_focus_history_source(
+              history_target,{2,0,0},2) &&
+          ListView_GetSelectedCount(history_target)==1 &&
+          ListView_GetNextItem(history_target,-1,LVNI_SELECTED)==1 &&
+          (ListView_GetItemState(history_target,1,LVIS_FOCUSED)&LVIS_FOCUSED)!=0,
+          "idempotent History jump and duplicate unrelated source preserve focus");
+    // A multiple-selection owner-data grid must converge to exactly one
+    // physical source without accidentally retaining another selected row.
+    HWND multi_target=CreateWindowExW(0,WC_LISTVIEWW,L"",
+        WS_CHILD|LVS_REPORT|LVS_OWNERDATA,
+        0,0,320,120,dialog,nullptr,GetModuleHandleW(nullptr),nullptr);
+    check(multi_target!=nullptr,"multiple-selection owner-data test grid exists");
+    ListView_SetItemCountEx(multi_target,3,
+        LVSICF_NOINVALIDATEALL|LVSICF_NOSCROLL);
+    ListView_SetItemState(multi_target,0,LVIS_SELECTED|LVIS_FOCUSED,
+                          LVIS_SELECTED|LVIS_FOCUSED);
+    ListView_SetItemState(multi_target,2,LVIS_SELECTED,LVIS_SELECTED);
+    check(ListView_GetSelectedCount(multi_target)==2,
+          "multiple-selection precondition has two selected physical rows");
+    const auto multi_jump=djmeta_foobar::native_focus_history_source(
+        multi_target,reordered_sources,0);
+    check(multi_jump && *multi_jump==1 &&
+          ListView_GetSelectedCount(multi_target)==1 &&
+          ListView_GetNextItem(multi_target,-1,LVNI_SELECTED)==1 &&
+          (ListView_GetItemState(multi_target,1,LVIS_FOCUSED)&LVIS_FOCUSED)!=0,
+          "History jump converges multi-select to one exact source and focus");
+    DestroyWindow(multi_target);
     DestroyWindow(history_target);
     // The actual File locations resource is an owner-data ListView too.
     // A History route jump must bind the physical source after sorting,
