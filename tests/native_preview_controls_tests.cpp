@@ -45,6 +45,26 @@ LRESULT CALLBACK evidence_sort_text_probe(HWND window,UINT message,
     }
     return DefSubclassProc(window,message,wp,lp);
 }
+// Intercept one real ListView state write to prove failed release retargets
+// restore both prior multi-selection and focus without a network request.
+struct ReleaseSelectionProbe {
+    int state_writes=0;
+    int reject_row=-1;
+    bool reject_once=false;
+};
+LRESULT CALLBACK release_selection_probe(HWND window,UINT message,
+    WPARAM wp,LPARAM lp,UINT_PTR,DWORD_PTR data) {
+    auto* probe=reinterpret_cast<ReleaseSelectionProbe*>(data);
+    if(message==LVM_SETITEMSTATE) {
+        ++probe->state_writes;
+        if(probe->reject_once &&
+           static_cast<int>(wp)==probe->reject_row) {
+            probe->reject_once=false;
+            return FALSE;
+        }
+    }
+    return DefSubclassProc(window,message,wp,lp);
+}
 djmeta_foobar::PreviewCommand last_command = djmeta_foobar::PreviewCommand::None;
 int command_notifications = 0;
 std::vector<std::size_t> active_track_order;
@@ -2222,8 +2242,43 @@ int main() {
           "release to the actual double-click/Enter identity");
     check(!djmeta_foobar::native_focus_exact_release_row(detail,-1) &&
           !djmeta_foobar::native_focus_exact_release_row(detail,0) &&
-          !djmeta_foobar::native_focus_exact_release_row(detail,3),
-          "real native activation rejects empty, unselected and stale result rows");
+          !djmeta_foobar::native_focus_exact_release_row(detail,3) &&
+          ListView_GetSelectedCount(detail)==1 &&
+          ListView_GetNextItem(detail,-1,LVNI_SELECTED)==2 &&
+          ListView_GetNextItem(detail,-1,LVNI_FOCUSED)==2,
+          "invalid native release activation preserves selected identity and focus");
+
+    // A real failed LVM_SETITEMSTATE must restore the original multi-selection
+    // and focused edition. Repeated activation of the exact same row is a no-op.
+    ListView_SetItemState(detail,-1,0,LVIS_SELECTED|LVIS_FOCUSED);
+    ListView_SetItemState(detail,1,LVIS_SELECTED|LVIS_FOCUSED,
+                          LVIS_SELECTED|LVIS_FOCUSED);
+    ListView_SetItemState(detail,2,LVIS_SELECTED,LVIS_SELECTED);
+    check(ListView_GetSelectedCount(detail)==2 &&
+          ListView_GetNextItem(detail,-1,LVNI_FOCUSED)==1,
+          "real release list prepares independent focus and multi-selection");
+    ReleaseSelectionProbe release_probe{0,2,true};
+    check(SetWindowSubclass(detail,release_selection_probe,83,
+              reinterpret_cast<DWORD_PTR>(&release_probe))!=FALSE,
+          "native release list accepts state failure probe");
+    check(!djmeta_foobar::native_focus_exact_release_row(detail,2) &&
+          !release_probe.reject_once &&
+          ListView_GetSelectedCount(detail)==2 &&
+          ListView_GetNextItem(detail,-1,LVNI_SELECTED)==1 &&
+          (ListView_GetItemState(detail,2,LVIS_SELECTED)&LVIS_SELECTED)!=0 &&
+          ListView_GetNextItem(detail,-1,LVNI_FOCUSED)==1,
+          "failed native release retarget rolls back selection and focus");
+    check(djmeta_foobar::native_focus_exact_release_row(detail,2) &&
+          ListView_GetSelectedCount(detail)==1 &&
+          ListView_GetNextItem(detail,-1,LVNI_SELECTED)==2 &&
+          ListView_GetNextItem(detail,-1,LVNI_FOCUSED)==2,
+          "retry after native failure targets only the requested edition");
+    const int release_writes=release_probe.state_writes;
+    check(djmeta_foobar::native_focus_exact_release_row(detail,2) &&
+          release_probe.state_writes==release_writes,
+          "already exact release activation emits no redundant state changes");
+    check(RemoveWindowSubclass(detail,release_selection_probe,83)!=FALSE,
+          "native release failure probe is removed before other UI tests");
 
     // Keyboard actions share mouse geometry; modifier leakage, inactive
     // views and unrelated keys cannot change the pane offset or track row.
