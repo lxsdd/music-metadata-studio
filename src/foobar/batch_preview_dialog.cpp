@@ -2758,36 +2758,12 @@ void update_live_provider_controls(PreviewState& state) {
                  next_result || next_musicbrainz || crates_search?TRUE:FALSE);
 }
 
+// Native History and the clipboard receipt share one vocabulary.
 const wchar_t* preview_history_action(PreviewHistoryKind kind) noexcept {
-    switch(kind) {
-    case PreviewHistoryKind::Accept: return L"Accept proposals";
-    case PreviewHistoryKind::Reject: return L"Reject proposals";
-    case PreviewHistoryKind::Reset: return L"Reset decisions";
-    case PreviewHistoryKind::Manual: return L"Manual replacement";
-    case PreviewHistoryKind::Route: return L"Recalculate route";
-    case PreviewHistoryKind::UndoReview: return L"Undo review";
-    case PreviewHistoryKind::UndoRoute: return L"Undo route";
-    case PreviewHistoryKind::DiscogsEdition: return L"Inspect Discogs edition";
-    case PreviewHistoryKind::MusicBrainzEdition: return L"Inspect MusicBrainz edition";
-    case PreviewHistoryKind::BeatportTrack: return L"Inspect Beatport track";
-    }
-    return L"Unknown";
+    return preview_history_receipt_action(kind);
 }
 const wchar_t* preview_history_scope(const PreviewHistoryEvent& event) noexcept {
-    if(preview_history_is_lookup(event.kind))
-        return event.kind==PreviewHistoryKind::BeatportTrack
-            ? L"Public track" : L"Exact edition";
-    if(event.kind==PreviewHistoryKind::Route)
-        return event.scope==2 ? L"All tracks" : L"Selected tracks";
-    if(event.kind==PreviewHistoryKind::UndoReview ||
-       event.kind==PreviewHistoryKind::UndoRoute) return L"Last action";
-    switch(event.scope) {
-    case 0: return L"Selected fields";
-    case 1: return L"Selected tracks";
-    case 2: return L"All tracks";
-    case 3: return L"Visible queue";
-    default: return L"Unknown";
-    }
+    return preview_history_receipt_scope(event);
 }
 void refresh_preview_history_list(PreviewState& state) {
     if(!state.history_list) return;
