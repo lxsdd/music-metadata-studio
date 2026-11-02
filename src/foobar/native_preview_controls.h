@@ -146,6 +146,24 @@ inline std::optional<int> native_history_unique_source_row(
     return row;
 }
 
+// All cross-tab physical-source activations must resolve a complete, unique
+// owner-data permutation against the CURRENT captured queue. An otherwise
+// unique target is unsafe when a different visible row is out of range.
+inline std::optional<int> native_verified_physical_source_row(
+    HWND list,const std::vector<std::size_t>& view_order,
+    std::size_t source_index,std::size_t physical_count) {
+    if(!IsWindow(list) || physical_count==0 ||
+       source_index>=physical_count) return std::nullopt;
+    const int count=ListView_GetItemCount(list);
+    if(count<=0 || view_order.size()!=static_cast<std::size_t>(count) ||
+       std::any_of(view_order.begin(),view_order.end(),
+           [physical_count](std::size_t source) {
+               return source>=physical_count;
+           })) return std::nullopt;
+    return native_history_unique_source_row(
+        view_order,source_index,static_cast<std::size_t>(count));
+}
+
 // A history jump is a read-only navigation transaction. Reject malformed
 // source maps before any HWND mutation; if the ListView refuses the requested
 // selection, restore the previous selection/focus when its row map is still
