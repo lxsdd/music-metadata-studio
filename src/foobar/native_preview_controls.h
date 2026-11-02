@@ -62,26 +62,83 @@ inline bool native_set_history_source_cell(
 // owner-data track grid. Never infer an identity from a caption, row number,
 // provider result or previous filtered order. A missing/duplicate identity
 // leaves the existing selection untouched (no implicit review decision).
+// Resolve a captured physical source against the ENTIRE owner-data row map.
+// A duplicate anywhere in that map makes the current ListView ambiguous, even
+// if the requested source happens to occur only once. Preflight is pure and
+// never changes the current review selection or invokes a metadata writer.
+inline std::optional<int> native_history_unique_source_row(
+    const std::vector<std::size_t>& view_order,
+    std::size_t source_index,std::size_t displayed_count) {
+    if(view_order.empty() ||
+       view_order.size()>static_cast<std::size_t>((std::numeric_limits<int>::max)()) ||
+       view_order.size()!=displayed_count)
+        return std::nullopt;
+    std::set<std::size_t> seen;
+    std::optional<int> row;
+    for(std::size_t i=0;i<view_order.size();++i) {
+        if(!seen.insert(view_order[i]).second)
+            return std::nullopt;
+        if(view_order[i]==source_index)
+            row=static_cast<int>(i);
+    }
+    return row;
+}
+
+// A history jump is a read-only navigation transaction. Reject malformed
+// source maps before any HWND mutation; if the ListView refuses the requested
+// selection, restore the previous selection/focus when its row map is still
+// identical. Never silently accept a partially applied navigation.
 inline std::optional<int> native_focus_history_source(
     HWND list,const std::vector<std::size_t>& view_order,
     std::size_t source_index) {
-    if(!IsWindow(list) || view_order.empty() ||
-       view_order.size()>static_cast<std::size_t>((std::numeric_limits<int>::max)()) ||
-       view_order.size()!=static_cast<std::size_t>(ListView_GetItemCount(list)))
+    if(!IsWindow(list)) return std::nullopt;
+    const auto captured_order=view_order;
+    const int count=ListView_GetItemCount(list);
+    if(count<0) return std::nullopt;
+    const auto row=native_history_unique_source_row(
+        captured_order,source_index,static_cast<std::size_t>(count));
+    if(!row) return std::nullopt;
+
+    std::vector<int> previous_selected;
+    for(int selected=ListView_GetNextItem(list,-1,LVNI_SELECTED);
+        selected!=-1;
+        selected=ListView_GetNextItem(list,selected,LVNI_SELECTED)) {
+        if(selected<0 || selected>=count) return std::nullopt;
+        previous_selected.push_back(selected);
+    }
+    const int previous_focus=ListView_GetNextItem(list,-1,LVNI_FOCUSED);
+    if(previous_focus>=count) return std::nullopt;
+
+    // No selection events are needed when the exact physical source is
+    // already the sole selected and focused row.
+    if(previous_selected.size()==1 && previous_selected[0]==*row &&
+       previous_focus==*row && view_order==captured_order &&
+       ListView_GetItemCount(list)==count) {
+        ListView_EnsureVisible(list,*row,FALSE);
+        return row;
+    }
+
+    const auto restore=[&]() {
+        if(!IsWindow(list) || ListView_GetItemCount(list)!=count ||
+           view_order!=captured_order) return;
+        ListView_SetItemState(list,-1,0,LVIS_SELECTED|LVIS_FOCUSED);
+        for(const int selected:previous_selected)
+            ListView_SetItemState(list,selected,LVIS_SELECTED,LVIS_SELECTED);
+        if(previous_focus>=0)
+            ListView_SetItemState(list,previous_focus,LVIS_FOCUSED,LVIS_FOCUSED);
+    };
+    if(!ListView_SetItemState(list,-1,0,LVIS_SELECTED|LVIS_FOCUSED) ||
+       !ListView_SetItemState(list,*row,LVIS_SELECTED|LVIS_FOCUSED,
+                              LVIS_SELECTED|LVIS_FOCUSED) ||
+       !IsWindow(list) || ListView_GetItemCount(list)!=count ||
+       view_order!=captured_order ||
+       ListView_GetSelectedCount(list)!=1 ||
+       ListView_GetNextItem(list,-1,LVNI_SELECTED)!=*row ||
+       (ListView_GetItemState(list,*row,LVIS_FOCUSED)&LVIS_FOCUSED)==0) {
+        restore();
         return std::nullopt;
-    const auto found=std::find(view_order.begin(),view_order.end(),source_index);
-    if(found==view_order.end() ||
-       std::find(std::next(found),view_order.end(),source_index)!=view_order.end())
-        return std::nullopt;
-    const int row=static_cast<int>(found-view_order.begin());
-    ListView_SetItemState(list,-1,0,LVIS_SELECTED|LVIS_FOCUSED);
-    ListView_SetItemState(list,row,LVIS_SELECTED|LVIS_FOCUSED,
-                          LVIS_SELECTED|LVIS_FOCUSED);
-    if(ListView_GetSelectedCount(list)!=1 ||
-       ListView_GetNextItem(list,-1,LVNI_SELECTED)!=row ||
-       (ListView_GetItemState(list,row,LVIS_FOCUSED)&LVIS_FOCUSED)==0)
-        return std::nullopt;
-    ListView_EnsureVisible(list,row,FALSE);
+    }
+    ListView_EnsureVisible(list,*row,FALSE);
     return row;
 }
 
