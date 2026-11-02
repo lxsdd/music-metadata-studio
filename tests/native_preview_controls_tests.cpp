@@ -2276,6 +2276,56 @@ int main() {
     check(SendMessageW(dialog,WM_NOTIFY,IDC_METADATA_TRACK_LIST,
              reinterpret_cast<LPARAM>(&source_change_notice))==FALSE,
           "native source switching resumes once online selection is reset");
+    // Cross-tab online/album navigation shares the History transaction,
+    // but must first validate EVERY physical row of the real owner-data
+    // Review grid, not merely the activated row's recycled ordinal.
+    using djmeta_foobar::native_verified_physical_source_row;
+    const auto album_row=native_verified_physical_source_row(
+        master,sorted_order,13,24);
+    check(album_row && *album_row==1 &&
+          !native_verified_physical_source_row(master,{9,13,13},9,24) &&
+          !native_verified_physical_source_row(master,{9,13,25},9,24) &&
+          !native_verified_physical_source_row(master,{9,13},13,24) &&
+          !native_verified_physical_source_row(master,sorted_order,13,13) &&
+          !native_verified_physical_source_row(master,sorted_order,23,24),
+          "native physical navigation requires complete unique in-range "
+          "owner-data mapping, not only a plausible clicked row");
+    check(ListView_GetSelectedCount(master)==3 &&
+          ListView_GetNextItem(master,-1,LVNI_FOCUSED)==0,
+          "album navigation preflight does not mutate the current multi-selection");
+    rebuilding_master=true;
+    const int commands_before_album=command_notifications;
+    ReleaseSelectionProbe album_probe{0,1,true};
+    check(SetWindowSubclass(master,release_selection_probe,85,
+              reinterpret_cast<DWORD_PTR>(&album_probe))!=FALSE,
+          "real Review owner-data grid accepts album navigation failure probe");
+    check(!djmeta_foobar::native_focus_history_source(
+              master,sorted_order,13) &&
+          !album_probe.reject_once &&
+          ListView_GetSelectedCount(master)==3 &&
+          ListView_GetNextItem(master,-1,LVNI_FOCUSED)==0 &&
+          (ListView_GetItemState(master,0,LVIS_SELECTED)&LVIS_SELECTED)!=0 &&
+          (ListView_GetItemState(master,1,LVIS_SELECTED)&LVIS_SELECTED)!=0 &&
+          (ListView_GetItemState(master,2,LVIS_SELECTED)&LVIS_SELECTED)!=0,
+          "failed album navigation restores every previous physical source "
+          "selection and focus");
+    const auto album_focus=djmeta_foobar::native_focus_history_source(
+        master,sorted_order,13);
+    check(album_focus && *album_focus==1 &&
+          ListView_GetSelectedCount(master)==1 &&
+          ListView_GetNextItem(master,-1,LVNI_SELECTED)==1 &&
+          ListView_GetNextItem(master,-1,LVNI_FOCUSED)==1,
+          "retry opens exactly the sorted physical album source in Review");
+    const int writes_after_album=album_probe.state_writes;
+    check(djmeta_foobar::native_focus_history_source(
+              master,sorted_order,13)==album_row &&
+          album_probe.state_writes==writes_after_album &&
+          command_notifications==commands_before_album,
+          "already focused album emits no redundant ListView mutation or "
+          "implicit metadata/provider command");
+    check(RemoveWindowSubclass(master,release_selection_probe,85)!=FALSE,
+          "album navigation failure probe removed after native regression");
+    rebuilding_master=false;
     HWND detail = GetDlgItem(dialog, IDC_METADATA_LIST);
     check(ListView_SetItemCountEx(detail, 3, 0) != FALSE,
           "production virtual proposal grid accepts three rows");
