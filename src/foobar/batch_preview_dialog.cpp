@@ -8121,10 +8121,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                         // transaction: reject duplicate/stale row identities,
                         // verify native selection and restore it on failure.
                         state->updating_track_selection=true;
-                        const auto focused=native_focus_history_source(
+                        const auto album_focused_row=native_focus_history_source(
                             state->metadata_track_list,state->track_view_order,*target);
                         state->updating_track_selection=false;
-                        if(!focused || *focused!=*position)
+                        if(!album_focused_row || *album_focused_row!=*position)
                             throw std::runtime_error(
                                 "Exact album source could not be focused.");
                         SetFocus(state->metadata_track_list);
