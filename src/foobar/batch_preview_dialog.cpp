@@ -2067,12 +2067,11 @@ void refresh_musicbrainz_detail_rows(PreviewState& state) {
     ListView_DeleteAllItems(state.musicbrainz_details);
     if (!state.show_candidate || !state.musicbrainz_live_view ||
         state.candidate_source_index!=state.selected_track_index) return;
-    const int selected=ListView_GetNextItem(state.metadata_list,-1,LVNI_SELECTED);
-    if (selected<0 ||
-        static_cast<std::size_t>(selected)>=state.candidate_view_order.size()) return;
-    const std::size_t index=state.candidate_view_order[static_cast<std::size_t>(selected)];
-    if (index>=state.musicbrainz_detail_groups.size()) return;
-    const auto& detail=state.musicbrainz_detail_groups[index];
+    const auto index=native_online_selected_candidate_index(
+        state.metadata_list,state.candidate_view_order,
+        state.candidate_rows.size());
+    if(!index || *index>=state.musicbrainz_detail_groups.size()) return;
+    const auto& detail=state.musicbrainz_detail_groups[*index];
     // Render a bounded but substantial field inventory. Never silently hide
     // additional provider/local fields behind the former 50-row cutoff.
     constexpr std::size_t max_detail_rows=1024;
@@ -6987,14 +6986,13 @@ void change_online_field_preview(PreviewState& state,int action) {
             chosen_target==6?"ORIGINALDATE":"DATE";
         date_targets[pair->edition_index]="RELEASEDATE";
     } else {
-        const int active=ListView_GetNextItem(state.metadata_list,-1,LVNI_SELECTED);
-        if(active<0 || static_cast<std::size_t>(active)>=
-                state.candidate_view_order.size())
-            throw std::invalid_argument("Choose an exact edition field group first.");
-        const auto group=state.candidate_view_order[static_cast<std::size_t>(active)];
-        if(group>=state.musicbrainz_detail_groups.size())
-            throw std::invalid_argument("Edition detail group expired.");
-        const auto& rows=state.musicbrainz_detail_groups[group];
+        const auto group=native_online_selected_candidate_index(
+            state.metadata_list,state.candidate_view_order,
+            state.candidate_rows.size());
+        if(!group || *group>=state.musicbrainz_detail_groups.size())
+            throw std::invalid_argument(
+                "Edition detail group or native selection expired.");
+        const auto& rows=state.musicbrainz_detail_groups[*group];
         int row=-1;
         std::size_t selected_count=0;
         while((row=ListView_GetNextItem(
@@ -8281,14 +8279,11 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             if (tip->iItem>=0 && tip->pszText && tip->cchTextMax>0 &&
                 state->show_candidate && state->musicbrainz_live_view &&
                 state->candidate_source_index==state->selected_track_index) {
-                const int selected=ListView_GetNextItem(
-                    state->metadata_list,-1,LVNI_SELECTED);
-                if (selected>=0 &&
-                    static_cast<std::size_t>(selected)<state->candidate_view_order.size()) {
-                    const auto idx=state->candidate_view_order[
-                        static_cast<std::size_t>(selected)];
-                    if (idx<state->musicbrainz_detail_groups.size()) {
-                        const auto& rows=state->musicbrainz_detail_groups[idx];
+                const auto idx=native_online_selected_candidate_index(
+                    state->metadata_list,state->candidate_view_order,
+                    state->candidate_rows.size());
+                if (idx && *idx<state->musicbrainz_detail_groups.size()) {
+                        const auto& rows=state->musicbrainz_detail_groups[*idx];
                         const auto row=native_evidence_source_row(
                             state->musicbrainz_details,tip->iItem,rows.size());
                         if (row) {
@@ -8952,13 +8947,11 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             // The current selected candidate/field identities are checked
             // before constructing anything; no provider request or SDK writer.
             revalidate_workspace(*state);
-            const int selected_group=ListView_GetNextItem(
-                state->metadata_list,-1,LVNI_SELECTED);
-            std::size_t group=state->musicbrainz_detail_groups.size();
-            if(selected_group>=0 &&
-               static_cast<std::size_t>(selected_group)<state->candidate_view_order.size())
-                group=state->candidate_view_order[
-                    static_cast<std::size_t>(selected_group)];
+            const auto selected_group=native_online_selected_candidate_index(
+                state->metadata_list,state->candidate_view_order,
+                state->candidate_rows.size());
+            const std::size_t group=selected_group.value_or(
+                state->musicbrainz_detail_groups.size());
             const int field_count=ListView_GetSelectedCount(state->musicbrainz_details);
             if(!native_evidence_receipt_allowed(
                   state->show_candidate,state->musicbrainz_live_view,
@@ -9037,16 +9030,13 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             if(selected_count<=0 || selected_count>512)
                 throw std::invalid_argument(
                     "Select up to 512 CUE fields in the lower detail pane.");
-            const int active=ListView_GetNextItem(
-                state->metadata_list,-1,LVNI_SELECTED);
-            if(active<0 ||
-               static_cast<std::size_t>(active)>=state->candidate_view_order.size())
-                throw std::invalid_argument("CUE detail group selection expired.");
-            const auto group=state->candidate_view_order[
-                static_cast<std::size_t>(active)];
-            if(group>=state->musicbrainz_detail_groups.size())
-                throw std::invalid_argument("CUE detail group selection expired.");
-            const auto& displayed=state->musicbrainz_detail_groups[group];
+            const auto group=native_online_selected_candidate_index(
+                state->metadata_list,state->candidate_view_order,
+                state->candidate_rows.size());
+            if(!group || *group>=state->musicbrainz_detail_groups.size())
+                throw std::invalid_argument(
+                    "CUE detail group or native selection expired.");
+            const auto& displayed=state->musicbrainz_detail_groups[*group];
             std::vector<std::size_t> selected_display_rows;
             int chosen=-1;
             while((chosen=ListView_GetNextItem(
