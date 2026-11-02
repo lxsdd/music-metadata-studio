@@ -2314,6 +2314,37 @@ int main() {
           ListView_GetNextItem(detail,-1,LVNI_FOCUSED)==2,
           "invalid native release activation preserves selected identity and focus");
 
+    // The actual owner-data release grid must agree with the complete
+    // candidate permutation, not just a recycled selected row index. This
+    // preflight is read-only and must not disturb selection/focus on failure.
+    using djmeta_foobar::native_online_view_selection_matches;
+    const std::vector<std::size_t> release_view{2,0,1};
+    check(native_online_view_selection_matches(detail,release_view,3,2) &&
+          !native_online_view_selection_matches(detail,{2,0,1},3,1) &&
+          !native_online_view_selection_matches(detail,{2,2,1},3,2) &&
+          !native_online_view_selection_matches(detail,{2,0,3},3,2) &&
+          !native_online_view_selection_matches(detail,{2,0},3,2) &&
+          !native_online_view_selection_matches(detail,{},3,2) &&
+          !native_online_view_selection_matches(history_hwnd,release_view,3,2) &&
+          ListView_GetSelectedCount(detail)==1 &&
+          ListView_GetNextItem(detail,-1,LVNI_SELECTED)==2,
+          "release network preflight rejects duplicate, stale, out-of-range "
+          "or foreign native view identities without mutating selection");
+    check(ListView_SetItemCountEx(detail,2,0)!=FALSE,
+          "real provider grid can simulate an incomplete async rebuild");
+    ListView_SetItemState(detail,-1,0,LVIS_SELECTED|LVIS_FOCUSED);
+    ListView_SetItemState(detail,1,LVIS_SELECTED|LVIS_FOCUSED,
+                          LVIS_SELECTED|LVIS_FOCUSED);
+    check(!native_online_view_selection_matches(detail,release_view,3,1),
+          "partial native ListView rebuild cannot authorize release lookup");
+    check(ListView_SetItemCountEx(detail,3,0)!=FALSE,
+          "restore full native provider result count");
+    ListView_SetItemState(detail,-1,0,LVIS_SELECTED|LVIS_FOCUSED);
+    ListView_SetItemState(detail,2,LVIS_SELECTED|LVIS_FOCUSED,
+                          LVIS_SELECTED|LVIS_FOCUSED);
+    check(native_online_view_selection_matches(detail,release_view,3,2),
+          "complete provider view rebind permits the exact selected edition");
+
     // A real failed LVM_SETITEMSTATE must restore the original multi-selection
     // and focused edition. Repeated activation of the exact same row is a no-op.
     ListView_SetItemState(detail,-1,0,LVIS_SELECTED|LVIS_FOCUSED);
