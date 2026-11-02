@@ -1125,19 +1125,18 @@ inline std::optional<std::size_t> native_evidence_source_row(
     return static_cast<std::size_t>(item.lParam);
 }
 struct NativeEvidenceSortContext {
-    std::vector<std::array<std::wstring,4>> cells;
-    int column=0;
+    std::vector<std::wstring> sort_values;
     bool descending=false;
 };
 inline int CALLBACK native_evidence_compare(LPARAM lhs,LPARAM rhs,
                                             LPARAM opaque) noexcept {
     const auto& c=*reinterpret_cast<const NativeEvidenceSortContext*>(opaque);
-    const bool left=lhs>=0 && static_cast<std::size_t>(lhs)<c.cells.size();
-    const bool right=rhs>=0 && static_cast<std::size_t>(rhs)<c.cells.size();
+    const bool left=lhs>=0 && static_cast<std::size_t>(lhs)<c.sort_values.size();
+    const bool right=rhs>=0 && static_cast<std::size_t>(rhs)<c.sort_values.size();
     if(left!=right) return left?-1:1;
     if(!left) return lhs==rhs?0:lhs>rhs?-1:1;
-    const auto& a=c.cells[static_cast<std::size_t>(lhs)][c.column];
-    const auto& b=c.cells[static_cast<std::size_t>(rhs)][c.column];
+    const auto& a=c.sort_values[static_cast<std::size_t>(lhs)];
+    const auto& b=c.sort_values[static_cast<std::size_t>(rhs)];
     const int comparison=CompareStringOrdinal(a.c_str(),-1,b.c_str(),-1,TRUE);
     if(comparison==CSTR_LESS_THAN) return c.descending?1:-1;
     if(comparison==CSTR_GREATER_THAN) return c.descending?-1:1;
@@ -1148,8 +1147,8 @@ inline bool native_sort_evidence_details(HWND list,int column,bool descending) {
     const int count=ListView_GetItemCount(list);
     if(count<0 || count>1026) return false;
     NativeEvidenceSortContext context;
-    context.cells.resize(static_cast<std::size_t>(count));
-    context.column=column; context.descending=descending;
+    context.sort_values.resize(static_cast<std::size_t>(count));
+    context.descending=descending;
     std::vector<bool> seen(static_cast<std::size_t>(count),false);
     for(int row=0;row<count;++row) {
         LVITEMW item{}; item.mask=LVIF_PARAM; item.iItem=row;
@@ -1162,7 +1161,10 @@ inline bool native_sort_evidence_details(HWND list,int column,bool descending) {
         if(item.lParam>=1024 || item.lParam>=count ||
            seen[static_cast<std::size_t>(item.lParam)]) return false;
         seen[static_cast<std::size_t>(item.lParam)]=true;
-        for(int col=0;col<4;++col) {
+        // Read only the requested column. An unrelated oversized provider
+        // value must not block a valid sort or quadruple Win32 text fetches.
+        {
+            const int col=column;
             // Provider values may exceed the old 4095-character fixed buffer.
             // A truncated comparison silently reorders equal prefixes by
             // source index rather than by the actual displayed field.
@@ -1189,7 +1191,7 @@ inline bool native_sort_evidence_details(HWND list,int column,bool descending) {
                 }
             }
             if(!complete) return false;
-            context.cells[static_cast<std::size_t>(item.lParam)][col]=
+            context.sort_values[static_cast<std::size_t>(item.lParam)]=
                 std::move(value);
         }
     }
