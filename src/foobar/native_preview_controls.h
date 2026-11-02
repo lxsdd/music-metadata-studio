@@ -232,6 +232,19 @@ inline std::optional<int> native_focus_history_source(
     return row;
 }
 
+// CUE FILE jumps and History/album navigation share one physical identity
+// transaction: reject stale, duplicate or out-of-range owner-data mappings
+// BEFORE changing the native selection or focus.
+inline std::optional<int> native_focus_verified_physical_source(
+    HWND list,const std::vector<std::size_t>& view_order,
+    std::size_t source_index,std::size_t physical_count) {
+    const auto expected=native_verified_physical_source_row(
+        list,view_order,source_index,physical_count);
+    if(!expected) return std::nullopt;
+    const auto focused=native_focus_history_source(list,view_order,source_index);
+    return focused && *focused==*expected ? focused : std::nullopt;
+}
+
 // Online selections belong to an immutable source, not to the visible tab.
 // Returning to the local Review page must NOT disable a conflict cross-check
 // just because the online comparison controls are hidden there.
@@ -1443,6 +1456,20 @@ inline std::optional<std::size_t> native_online_selected_candidate_index(
            list,visible_order,candidate_count,selected))
         return std::nullopt;
     return visible_order[static_cast<std::size_t>(selected)];
+}
+
+// An explicit CUE/album drill-down is a physical-source navigation, not a
+// release Load. It requires the activated native row itself to be the SOLE
+// selected row of a complete, unique owner-data candidate permutation.
+// Recycled indices, partial rebuilds and multi-selection cannot retarget
+// the physical source, current review or online Include decisions.
+inline std::optional<std::size_t> native_verified_online_activation_source(
+    HWND list,const std::vector<std::size_t>& visible_order,
+    std::size_t candidate_count,int activated_row) {
+    if(!native_online_view_selection_matches(
+           list,visible_order,candidate_count,activated_row))
+        return std::nullopt;
+    return visible_order[static_cast<std::size_t>(activated_row)];
 }
 
 // A visible browser row is only a release-load target when its exact
