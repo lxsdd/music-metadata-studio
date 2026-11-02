@@ -1430,6 +1430,21 @@ inline bool native_online_view_selection_matches(
     return (ListView_GetItemState(list,selected_row,LVIS_SELECTED)&LVIS_SELECTED)!=0;
 }
 
+// Resolve the currently displayed provider detail source only after the
+// COMPLETE owner-data permutation and exactly one native selection agree.
+// Reused ListView rows after sorting, refresh or partial asynchronous rebuild
+// must never supply field proposals, tooltips, CUE previews or clipboard data.
+inline std::optional<std::size_t> native_online_selected_candidate_index(
+    HWND list,const std::vector<std::size_t>& visible_order,
+    std::size_t candidate_count) {
+    if(!IsWindow(list)) return std::nullopt;
+    const int selected=ListView_GetNextItem(list,-1,LVNI_SELECTED);
+    if(!native_online_view_selection_matches(
+           list,visible_order,candidate_count,selected))
+        return std::nullopt;
+    return visible_order[static_cast<std::size_t>(selected)];
+}
+
 // A visible browser row is only a release-load target when its exact
 // provider and edition ID occur once in BOTH the current visible candidate
 // list and the official provider results. This deliberately counts repeated
