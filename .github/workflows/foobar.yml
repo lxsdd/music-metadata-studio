@@ -2,7 +2,7 @@ name: foobar Preview Component
 
 on:
   push:
-    branches: [ main, feature/online-metadata-discovery-foundation-20261009 ]
+    branches: [ main, feature/online-metadata-discovery-foundation-20261009, fix/studio-c4456-isolated-20261101 ]
     paths:
       - 'include/**'
       - 'src/core/**'
@@ -180,17 +180,21 @@ jobs:
   # RUNNER_TEMP. This custom QA-DLL is NEVER packaged, uploaded or installed
   # in a user profile. Both first write and exact no-op are mandatory gates.
   physical-sdk-runtime-qa:
-    # The canonical Studio PR generates pull_request runs, NOT push runs in
-    # this repository configuration. Previously this legitimate disposable
-    # real-SDK QA was permanently SKIPPED despite green build status.
-    # Never run on forks, other branches, releases, or external user media.
+    # Disposable real-SDK host QA on the two exact same-repository Studio
+    # Draft branches only. The isolated PR #64 now receives native QA in
+    # both push and PR runs; forks and unrelated PRs remain ineligible.
+    # Never use owner media, protected OAuth secrets or public artifacts.
     if: >-
       (github.event_name == 'push' &&
-       github.ref == 'refs/heads/feature/online-metadata-discovery-foundation-20261009') ||
+       (github.ref == 'refs/heads/feature/online-metadata-discovery-foundation-20261009' ||
+        github.ref == 'refs/heads/fix/studio-c4456-isolated-20261101')) ||
       (github.event_name == 'pull_request' &&
        github.event.pull_request.head.repo.full_name == github.repository &&
-       github.event.pull_request.head.ref == 'feature/online-metadata-discovery-foundation-20261009' &&
-       github.event.pull_request.base.ref == 'main')
+       github.event.pull_request.base.ref == 'main' &&
+       ((github.event.pull_request.head.ref == 'feature/online-metadata-discovery-foundation-20261009' &&
+         github.event.pull_request.number == 45) ||
+        (github.event.pull_request.head.ref == 'fix/studio-c4456-isolated-20261101' &&
+         github.event.pull_request.number == 64)))
     needs: static-audit
     runs-on: windows-2022
     timeout-minutes: 25

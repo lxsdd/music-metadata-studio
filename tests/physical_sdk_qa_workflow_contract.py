@@ -12,11 +12,24 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG = (ROOT / ".github/workflows/foobar.yml").read_text(encoding="utf-8")
 SCRIPT = (ROOT / "scripts/qa-physical-writer-host.ps1").read_text(encoding="utf-8")
 TITLE_QA = (ROOT / "scripts/qa-native-title-prefill.ps1").read_text(encoding="utf-8")
+CORE_CONFIG = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+PUSH_ROUTE = "branches: [ main, feature/online-metadata-discovery-foundation-20261009, fix/studio-c4456-isolated-20261101 ]"
+
+def push_route_violations(core: str, native: str) -> list[str]:
+    issues = []
+    for name, workflow in (("core", core), ("native", native)):
+        push = workflow.split("  pull_request:", 1)[0]
+        if push.count(PUSH_ROUTE) != 1:
+            issues.append("isolated PR64 exact push route missing/ambiguous: " + name)
+        if "branches: ['*']" in push or "branches: [ '**' ]" in push:
+            issues.append("unrestricted push route: " + name)
+    return issues
+
 START = "  physical-sdk-runtime-qa:\n"
 END = "  discogs-authorized-native:\n"
 
-def violations(config: str, script: str) -> list[str]:
-    issues: list[str] = []
+def violations(config: str, script: str, core: str = CORE_CONFIG) -> list[str]:
+    issues: list[str] = push_route_violations(core, config)
     if config.count(START) != 1 or config.count(END) != 1:
         return ["physical QA job missing/ambiguous"]
     qa = config.split(START, 1)[1].split(END, 1)[0]
@@ -25,8 +38,12 @@ def violations(config: str, script: str) -> list[str]:
         "github.event.pull_request.head.repo.full_name == github.repository",
         "github.event.pull_request.head.ref == 'feature/online-metadata-discovery-foundation-20261009'",
         "github.event.pull_request.base.ref == 'main'",
+        "github.event.pull_request.number == 45",
+        "github.event.pull_request.number == 64",
+        "github.event.pull_request.head.ref == 'fix/studio-c4456-isolated-20261101'",
         "github.event_name == 'push'",
         "github.ref == 'refs/heads/feature/online-metadata-discovery-foundation-20261009'",
+        "github.ref == 'refs/heads/fix/studio-c4456-isolated-20261101'",
         "runs-on: windows-2022",
         "platform: [Win32, x64]",
         "needs: static-audit",
@@ -101,8 +118,12 @@ def main() -> None:
         mutate_qa("./scripts/qa-physical-writer-host.ps1",
                   "./scripts/fake-writer-qa.ps1"),
         mutate_qa("needs: static-audit", "needs: []"),
+        mutate_qa("github.event.pull_request.number == 64", "github.event.pull_request.number == 65"),
+        mutate_qa("github.ref == 'refs/heads/fix/studio-c4456-isolated-20261101'", "github.ref == 'refs/heads/unsafe'"),
     ):
         assert violations(altered, SCRIPT), "negative workflow mutation escaped"
+    assert violations(CONFIG.replace(PUSH_ROUTE, "branches: [ main ]", 1), SCRIPT), "native push route removal escaped"
+    assert violations(CONFIG, SCRIPT, CORE_CONFIG.replace(PUSH_ROUTE, "branches: [ main ]", 1)), "core push route removal escaped"
     for mutated in (
         SCRIPT.replace("$env:GITHUB_ACTIONS -cne 'true'",
                        "$env:GITHUB_ACTIONS -ceq 'true'", 1),
