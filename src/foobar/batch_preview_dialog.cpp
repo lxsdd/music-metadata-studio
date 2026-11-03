@@ -3087,6 +3087,10 @@ bool confirm_online_preview_navigation(HWND dialog,PreviewState& state,
     return true;
 }
 
+// Forward declaration is required before History navigation invokes the
+// native source revalidation gate; keep the implementation unchanged.
+void revalidate_workspace(PreviewState& state,bool full_source_check);
+
 // Inspect one historical source without replaying an action, starting a
 // network request, or treating the session history as write authorization.
 void navigate_preview_history(HWND dialog,PreviewState& state,int visible_row) {
@@ -4187,7 +4191,6 @@ void apply_review_action(HWND dialog, PreviewState& state,
         affected_tracks.size()==1 ? *affected_tracks.begin() : static_cast<std::size_t>(-1));
 }
 
-void revalidate_workspace(PreviewState& state,bool full_source_check);
 void apply_to_rows(HWND dialog, PreviewState& state, NativeRoutePreviewScope scope) {
     if(state.stale || state.refreshing || TabCtrl_GetCurSel(state.tabs)!=2)
         throw std::invalid_argument("File locations requires a fresh source snapshot.");
