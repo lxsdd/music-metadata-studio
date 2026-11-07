@@ -992,6 +992,61 @@ std::wstring workflow_audit_summary(
             from_utf8(djmeta::file_action_label(row.action))+
             L": "+from_utf8(row.reason);
     }
+    // Validate EVERY eligible local-only physical row in the actual native
+    // Batch audit, not only the currently selected Discogs detail source.
+    // All probes are read-only; this audit never freezes a plan or writes tags.
+    if(state.entries.size()!=state.analyses.size() ||
+       state.entries.size()!=state.review_decisions.size())
+        throw std::invalid_argument("Batch audit: review source arrays changed.");
+    std::size_t verified_local_sources=0;
+    std::size_t verified_local_changes=0;
+    std::size_t deferred_nonphysical_sources=0;
+    for(std::size_t track=0;track<state.entries.size();++track) {
+        const auto& entry=state.entries[track];
+        if(!entry.input.physical_source_qualified ||
+           entry.handle->get_subsong_index()!=0 ||
+           is_external_cue_locator(entry.input.source_path)) {
+            ++deferred_nonphysical_sources;
+            continue; // Unqualified/CUE source cannot become a physical postimage.
+        }
+        if(track==state.online_edition_source &&
+           !state.online_included_fields.empty())
+            continue; // The mixed local + online branch below validates it.
+        verify_snapshot(entry);
+        const auto latest=probe_host_file_readonly(entry.input.source_path);
+        if(latest.state!=HostFileState::ExistingFile ||
+           latest.host_physical_key!=entry.observed_physical_key ||
+           latest.source_guard!=entry.observed_source_guard)
+            throw std::runtime_error(
+                "Batch audit: physical source changed; refresh whole batch.");
+        const auto current=metadata_from_file_info(
+            entry.handle->get_info_ref()->info());
+        djmeta::UnifiedReviewBatchReprobe local;
+        local.normalizer.live.captured={
+            true,false,entry.observed_physical_key,
+            entry.observed_source_guard,current};
+        local.normalizer.live.fresh_tags=current;
+        local.normalizer.live.live_physical_key=latest.host_physical_key;
+        local.normalizer.live.live_source_guard=latest.source_guard;
+        local.normalizer.captured_analysis=state.analyses[track];
+        local.normalizer.active_ruleset_revision=
+            state.analyses[track].ruleset_revision;
+        local.normalizer.decisions=state.review_decisions[track];
+        const auto post=djmeta::preview_unified_review_physical_tags(local);
+        if(!post.physical.eligible)
+            throw std::invalid_argument(
+                "Batch audit: local physical source postimage unqualified: "+
+                post.rejection);
+        ++verified_local_sources;
+        verified_local_changes+=post.physical.explicitly_changed;
+    }
+    report+=L"\nLocal physical postimages revalidated: "+
+        std::to_wstring(verified_local_sources)+
+        L"; explicit field differences: "+
+        std::to_wstring(verified_local_changes)+
+        L"; nonphysical/unqualified sources (no physical proposal): "+
+        std::to_wstring(deferred_nonphysical_sources)+
+        L". Still read-only; full batch source/target/CUE acceptance separate.";
     if(!state.online_included_fields.empty()) {
         // Audit the selected physical source independently of which tab is
         // visible. A summary of online-only edits is NOT the postimage when

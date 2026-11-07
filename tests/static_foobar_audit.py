@@ -2613,3 +2613,38 @@ if ('if (provider == "beatport" || provider == "crates") return 2;' in
         (root / "include" / "djmeta" / "online_match.h").read_text(encoding="utf-8")):
     raise SystemExit("STATIC AUTO ONLINE PROVIDER FAIL: URL-only default")
 
+
+# The actual modeless native Batch Audit must revalidate every eligible
+# physical track against live host identity/tags before displaying the
+# read-only postimage summary, not only the selected online source.
+studio_native_audit = (foobar / "batch_preview_dialog.cpp").read_text(encoding="utf-8")
+audit_body = studio_native_audit.split(
+    "std::wstring workflow_audit_summary(", 1)[1].split(
+    "void show_workflow_audit(", 1)[0]
+native_required = (
+    "for(std::size_t track=0;track<state.entries.size();++track)",
+    "verify_snapshot(entry);",
+    "probe_host_file_readonly(entry.input.source_path)",
+    "latest.host_physical_key!=entry.observed_physical_key",
+    "latest.source_guard!=entry.observed_source_guard",
+    "djmeta::preview_unified_review_physical_tags(local)",
+    "if(!post.physical.eligible)",
+    "verified_local_changes+=post.physical.explicitly_changed;",
+    "deferred_nonphysical_sources",
+)
+def verified_native_batch_audit(text):
+    return all(marker in text for marker in native_required) and (
+        text.index("verify_snapshot(entry);") <
+        text.index("djmeta::preview_unified_review_physical_tags(local)") <
+        text.index("verified_local_changes+=post.physical.explicitly_changed;")
+    )
+assert verified_native_batch_audit(audit_body), "Native full physical batch audit not wired"
+for missing in (
+    "verify_snapshot(entry);",
+    "probe_host_file_readonly(entry.input.source_path)",
+    "latest.host_physical_key!=entry.observed_physical_key",
+    "if(!post.physical.eligible)",
+):
+    assert not verified_native_batch_audit(audit_body.replace(missing, "", 1)), (
+        "Native audit mutation was not detected: " + missing)
+print("PASS: all-track native physical postimage audit, fresh identity and immutable no-write path.")
