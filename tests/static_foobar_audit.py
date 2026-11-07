@@ -2633,10 +2633,18 @@ native_required = (
     "deferred_nonphysical_sources",
 )
 def verified_native_batch_audit(text):
-    return all(marker in text for marker in native_required) and (
-        text.index("verify_snapshot(entry);") <
-        text.index("djmeta::preview_unified_review_physical_tags(local)") <
-        text.index("verified_local_changes+=post.physical.explicitly_changed;")
+    loop_marker = "for(std::size_t track=0;track<state.entries.size();++track)"
+    tail_marker = "if(!state.online_included_fields.empty())"
+    if loop_marker not in text or tail_marker not in text:
+        return False
+    # Scope mutations to the NEW full-track loop. The original online-only
+    # branch below also contains verify_snapshot and host probes, which must
+    # never accidentally satisfy this distinct all-track contract.
+    local_loop = text.split(loop_marker, 1)[1].split(tail_marker, 1)[0]
+    return all(marker in local_loop for marker in native_required[1:]) and (
+        local_loop.index("verify_snapshot(entry);") <
+        local_loop.index("djmeta::preview_unified_review_physical_tags(local)") <
+        local_loop.index("verified_local_changes+=post.physical.explicitly_changed;")
     )
 assert verified_native_batch_audit(audit_body), "Native full physical batch audit not wired"
 for missing in (
