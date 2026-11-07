@@ -1,10 +1,13 @@
 #include "stdafx.h"
 
 #include "guid.h"
-#include "preview.h"
+#include "batch_preview_dialog.h"
+#include "legacy_routing_profiles.h"
 #include "prepare_dialog.h"
 #include "menu_settings.h"
 #include "routing_preview.h"
+#include "djmeta/single_source_tag_load.h"
+#include "host_file_probe.h"
 
 namespace djmeta_foobar {
 namespace {
@@ -12,7 +15,7 @@ namespace {
 contextmenu_group_popup_factory g_context_group(
     guids::context_group,
     contextmenu_groups::root,
-    "DJ Metadata Normalizer",
+    "Music Metadata Studio",
     0);
 
 class normalizer_context_menu : public contextmenu_item_simple {
@@ -49,16 +52,18 @@ public:
         if (index > 4) return false;
         if (index == 0) {
             output =
-                "Analyzes selected tracks with the shared normalizer ruleset "
-                "and displays original and proposed values. Does not write tags.";
+                "Opens the single-instance modeless Studio workspace for local "
+                "normalization review. Only explicit decisions can affect routing; "
+                "nothing is written.";
         } else if (index == 4) {
             output =
-                "Opens the native Prepare Tracks dialog with an editable destination "
-                "and Title Formatting expression. Preview only; no file or tag writes.";
+                "Opens the modeless Studio workspace with editable routing and "
+                "metadata review. Preview only; no file or tag writes.";
         } else {
             output =
-                "Evaluates the selected legacy foobar File Operations profile against "
-                "SAFE-only staged metadata. No tag writes, renames, moves or copies.";
+                "Opens the same Studio workspace with this legacy route preset. "
+                "An existing batch and its decisions are never replaced. "
+                "No tags, files or CUEs are written.";
         }
         return true;
     }
@@ -87,17 +92,47 @@ public:
                     popup_message::g_show(
                         "Unable to load all metadata. "
                         "Nothing was changed.",
-                        "DJ Metadata Normalizer");
+                        "Music Metadata Studio");
                     return;
                 }
-                if (index == 0) show_normalization_preview(retained);
-                else if (index == 4) show_prepare_tracks_dialog(retained);
-                else show_legacy_route_preview(retained, index - 1);
+                // All five entry points share the same modeless workspace.
+                // The requested route is an initial preview preset only;
+                // show_batch_preview_dialog preserves any existing batch.
+                if (index == 0 || index == 4) {
+                    show_prepare_tracks_dialog(retained);
+                } else {
+                    const std::size_t route_index =
+                        static_cast<std::size_t>(index - 1);
+                    if (route_index >= legacy_move_route_count) return;
+                    const LegacyMoveRoute& preset =
+                        legacy_move_routes[route_index];
+                    show_batch_preview_dialog(retained, RoutePreviewChoice{
+                        preset.name, preset.destination_root,
+                        preset.foobar_titleformat}, true);
+                }
             });
 
+        // A single explicit physical source must be read from the actual
+        // file, not an unverified recently imported foobar cache snapshot.
+        // A host context command may arrive immediately after /add: the
+        // cached TITLE can still be empty although the FLAC is tagged.
+        // Larger batches retain change-only reads for library performance.
+        // Virtual subsongs must never be mistaken for physical sources.
+        const bool single_physical = retained.get_count() == 1 &&
+            retained[0]->get_subsong_index() == 0;
+        // Never force the network/virtual streaming handler: a real native
+        // file identity must already be observable with read-only handles.
+        const bool native_existing = single_physical &&
+            probe_host_file_readonly(retained[0]->get_path()).state ==
+                HostFileState::ExistingFile;
+        const auto mode = djmeta::single_source_tag_load_policy(
+            static_cast<std::size_t>(retained.get_count()),
+            single_physical, native_existing);
         metadb_io_v2::get()->load_info_async(
             retained,
-            metadb_io::load_info_check_if_changed,
+            mode == djmeta::SingleSourceTagLoad::ForcePhysicalRefresh
+                ? metadb_io::load_info_force
+                : metadb_io::load_info_check_if_changed,
             core_api::get_main_window(),
             metadb_io_v2::op_flag_delay_ui,
             notify);

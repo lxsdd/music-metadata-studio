@@ -1,8 +1,13 @@
 #pragma once
 
 #include "djmeta/metadata_diff.h"
+#include "djmeta/review_decisions.h"
+#include "djmeta/structural_guard.h"
 
 #include <cstddef>
+#include <set>
+#include <stdexcept>
+#include <utility>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -10,7 +15,9 @@
 namespace djmeta {
 
 enum class MetadataFocus { Music, Extended, All };
-enum class TrackDiscovery { All, Changed, NeedsReview };
+// Presentation-only queue states; never staging or write authorization.
+enum class TrackDiscovery { All, Changed, NeedsReview, PendingAny,
+                            StagedEdits, Reviewed, Unchanged };
 
 struct TrackReviewSummary {
     std::size_t source_index = 0;
@@ -19,7 +26,34 @@ struct TrackReviewSummary {
     std::size_t review_required = 0;
     std::size_t safe_changes = 0;
     std::size_t confident_changes = 0;
+    std::size_t pending_proposals = 0;
+    std::size_t staged_changes = 0;
 };
+
+struct TrackReviewProgress {
+    std::size_t pending_proposals = 0;
+    std::size_t pending_review = 0;
+    std::size_t staged_changes = 0;
+};
+
+// Exact captured analysis + explicit in-memory decisions. Accepted or manual
+// values equal to the original are no-ops, not staged edits.
+TrackReviewProgress summarize_track_review_progress(
+    const AnalysisResult& analysis,
+    const std::vector<ReviewDecision>& decisions);
+
+// One-time source-to-row index for an immutable, flattened review snapshot.
+// Offsets identify contiguous ranges of original row positions, irrespective
+// of the order in which sources occurred in the input. Read-only, never a
+// sorting, staging, approval or physical write authority.
+struct TrackDiffIndex {
+    std::vector<std::size_t> offsets;       // track count + 1
+    std::vector<std::size_t> row_positions; // original diff-row indices
+    std::size_t captured_row_count = 0;
+};
+
+TrackDiffIndex index_track_diffs(
+    const std::vector<MetadataDiffRow>& proposals, std::size_t track_count);
 
 // A view classification ONLY: every proposal and its provenance are retained.
 // Custom/unknown fields remain visible under Extended / All, never deleted.
@@ -28,8 +62,22 @@ std::vector<TrackReviewSummary> summarize_track_changes(
     std::size_t track_count,
     const std::vector<MetadataDiffRow>& proposals);
 
+// Decision-only review counter: source/field/change summaries remain fixed
+// for a captured snapshot. Recount only the tracks touched by an approval.
+// Reject mismatched proposal identities rather than showing a false count.
+std::size_t count_pending_review_proposals(
+    const AnalysisResult& analysis,
+    const std::vector<ReviewDecision>& decisions);
+
 std::vector<MetadataDiffRow> selected_track_diffs(
     const std::vector<MetadataDiffRow>& proposals,
+    std::size_t source_index, MetadataFocus focus);
+
+// Indexed equivalent: O(proposals for the selected track), not O(all proposals).
+// Refuses a structurally stale index and preserves original proposal identity.
+std::vector<MetadataDiffRow> selected_track_diffs(
+    const std::vector<MetadataDiffRow>& proposals,
+    const TrackDiffIndex& index,
     std::size_t source_index, MetadataFocus focus);
 
 // Filter track identities AFTER sorting; no proposal or source is modified.
@@ -37,6 +85,150 @@ std::vector<std::size_t> filter_track_view(
     const std::vector<TrackReviewSummary>& summaries,
     const std::vector<std::size_t>& sorted_source_indices,
     TrackDiscovery discovery);
+
+// Expand a frozen visible track queue into exact (source, proposal) identities.
+// The UI may sort or filter source rows; neither operation may authorize
+// edits to hidden sources, duplicate a source, or silently skip stale IDs.
+// This is an in-memory review selection only, never writer consent.
+inline std::vector<std::pair<std::size_t,std::size_t>> visible_review_proposal_targets(
+    const std::vector<AnalysisResult>& analyses,
+    const std::vector<std::size_t>& visible_sources) {
+    if(analyses.size()>100000 || visible_sources.size()>analyses.size())
+        throw std::invalid_argument("VISIBLE_REVIEW_BATCH_SHAPE_INVALID");
+    std::set<std::size_t> unique_sources;
+    std::vector<std::pair<std::size_t,std::size_t>> targets;
+    for(const auto source:visible_sources) {
+        if(source>=analyses.size() || !unique_sources.insert(source).second)
+            throw std::invalid_argument("VISIBLE_REVIEW_SOURCE_ID_INVALID");
+        const auto& proposals=analyses[source].proposals;
+        if(proposals.size()>10000 ||
+           targets.size()>1000000-proposals.size())
+            throw std::invalid_argument("VISIBLE_REVIEW_PROPOSAL_LIMIT");
+        for(std::size_t proposal=0;proposal<proposals.size();++proposal)
+            targets.emplace_back(source,proposal);
+    }
+    return targets;
+}
+
+// Same-field review is a read-only scope over captured physical source IDs.
+// All values/duplicate field proposals keep their exact indices; ASCII case
+// folds only field names, never user values or non-ASCII bytes.
+inline bool same_review_field_name(std::string_view a,std::string_view b) noexcept {
+    if(a.size()!=b.size()) return false;
+    for(std::size_t i=0;i<a.size();++i) {
+        const auto lower=[](unsigned char c) {
+            return c>='A' && c<='Z'
+                ? static_cast<unsigned char>(c-'A'+'a') : c;
+        };
+        if(lower(static_cast<unsigned char>(a[i]))!=
+           lower(static_cast<unsigned char>(b[i]))) return false;
+    }
+    return true;
+}
+inline std::vector<std::pair<std::size_t,std::size_t>>
+same_field_review_proposal_targets(
+    const std::vector<AnalysisResult>& analyses,
+    const std::vector<std::size_t>& source_ids,
+    std::string_view field) {
+    if(analyses.size()>100000 || source_ids.size()>analyses.size() ||
+       field.empty() || field.size()>255)
+        throw std::invalid_argument("FIELD_REVIEW_SCOPE_SHAPE_INVALID");
+    for(unsigned char c:field)
+        if(c<0x20u || c==0x7fu)
+            throw std::invalid_argument("FIELD_REVIEW_FIELD_INVALID");
+    std::set<std::size_t> seen;
+    std::vector<std::pair<std::size_t,std::size_t>> targets;
+    for(const auto source:source_ids) {
+        if(source>=analyses.size() || !seen.insert(source).second)
+            throw std::invalid_argument("FIELD_REVIEW_SOURCE_ID_INVALID");
+        const auto& proposals=analyses[source].proposals;
+        if(proposals.size()>10000)
+            throw std::invalid_argument("FIELD_REVIEW_SOURCE_PROPOSALS_EXCESSIVE");
+        for(std::size_t i=0;i<proposals.size();++i) {
+            if(!same_review_field_name(proposals[i].field,field)) continue;
+            if(targets.size()>=1000000)
+                throw std::invalid_argument("FIELD_REVIEW_TARGET_LIMIT");
+            targets.emplace_back(source,i);
+        }
+    }
+    return targets;
+}
+
+// Count only decisions that would actually change. The filtered bulk scope
+// must not prompt for an already accepted/rejected/reset exact no-op, and
+// must reject stale proposal coordinates before presenting consent.
+inline std::size_t count_visible_review_action_changes(
+    const std::vector<std::pair<std::size_t,std::size_t>>& targets,
+    const std::vector<std::vector<ReviewDecision>>& decisions,
+    ReviewAction action) {
+    if(action!=ReviewAction::Accept && action!=ReviewAction::Reject &&
+       action!=ReviewAction::Pending)
+        throw std::invalid_argument("VISIBLE_REVIEW_ACTION_INVALID");
+    std::size_t changes=0;
+    for(const auto& [source,proposal]:targets) {
+        if(source>=decisions.size() || proposal>=decisions[source].size())
+            throw std::invalid_argument("VISIBLE_REVIEW_DECISIONS_STALE");
+        if(decisions[source][proposal].action!=action ||
+           !decisions[source][proposal].manual_value.empty())
+            ++changes;
+    }
+    return changes;
+}
+
+// A batch Manual replacement may affect ONE existing scalar value per
+// captured physical source, never a multivalue, duplicate-name, CUE or
+// malformed legacy field. Single-proposal manual review remains independent.
+// The native caller separately proves host physical identity and fresh rules.
+inline bool scalar_manual_review_target(
+    const MetadataDocument& original,const AnalysisResult& analysis,
+    std::size_t proposal_index,std::string_view requested_field) {
+    if(requested_field.empty() || proposal_index>=analysis.proposals.size() ||
+       fingerprint(original)!=analysis.input_fingerprint ||
+       is_protected_cue_metadata(requested_field))
+        return false;
+    const auto& p=analysis.proposals[proposal_index];
+    if(!same_review_field_name(p.field,requested_field) ||
+       p.field_index>=original.fields.size() || p.value_index!=0)
+        return false;
+    const auto& field=original.fields[p.field_index];
+    if(!same_review_field_name(field.name,requested_field) ||
+       field.values.size()!=1 || field.values[0]!=p.original_value ||
+       !valid_manual_review_value(field.values[0]))
+        return false;
+    std::size_t names=0,proposals=0;
+    for(const auto& f:original.fields)
+        if(same_review_field_name(f.name,requested_field) && ++names>1)
+            return false;
+    for(const auto& candidate:analysis.proposals)
+        if(same_review_field_name(candidate.field,requested_field) &&
+           ++proposals>1)
+            return false;
+    return names==1 && proposals==1;
+}
+
+// Exact manual-value no-op detection across source/proposal identities.
+// The action is in-memory only; unlike Accept/Reject it must compare the
+// requested bytes, not just the enum, and reject duplicate/stale targets.
+inline std::size_t count_manual_review_action_changes(
+    const std::vector<std::pair<std::size_t,std::size_t>>& targets,
+    const std::vector<std::vector<ReviewDecision>>& decisions,
+    std::string_view manual_value) {
+    if(!valid_manual_review_value(manual_value))
+        throw std::invalid_argument("MANUAL_BATCH_VALUE_INVALID");
+    std::set<std::pair<std::size_t,std::size_t>> seen;
+    std::size_t changes=0;
+    for(const auto& target:targets) {
+        const auto [source,proposal]=target;
+        if(!seen.insert(target).second || source>=decisions.size() ||
+           proposal>=decisions[source].size())
+            throw std::invalid_argument("MANUAL_BATCH_TARGET_STALE_OR_DUPLICATE");
+        const auto& decision=decisions[source][proposal];
+        if(decision.action!=ReviewAction::ManualValue ||
+           decision.manual_value!=manual_value)
+            ++changes;
+    }
+    return changes;
+}
 
 // Sorting changes presentation only; source index identity remains stable.
 std::vector<std::size_t> sort_track_summaries(

@@ -1,4 +1,5 @@
 #include "djmeta/write_guard.h"
+#include "djmeta/structural_guard.h"
 
 #include <map>
 #include <string>
@@ -44,6 +45,20 @@ TagWriteDecision compare_physical_text_tags(
     if (!normalized_fields(original, source) ||
         !normalized_fields(approved_postimage, target))
         return TagWriteDecision::Unqualified;
+    // The generic physical text-tag path has NO authority to create,
+    // delete or modify an embedded CUE. Its own carrier-aware transaction
+    // must qualify that change separately. Equal original CUE bytes may
+    // coexist with ordinary physical TITLE/GENRE edits.
+    for(const auto& [name, values] : source) {
+        if(!is_protected_cue_metadata(name)) continue;
+        const auto it=target.find(name);
+        if(it==target.end() || it->second!=values)
+            return TagWriteDecision::Unqualified;
+    }
+    for(const auto& [name, values] : target) {
+        if(is_protected_cue_metadata(name) && !source.contains(name))
+            return TagWriteDecision::Unqualified;
+    }
     return source == target
         ? TagWriteDecision::Unchanged : TagWriteDecision::Changed;
 }

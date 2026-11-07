@@ -17,7 +17,7 @@ std::string yesno(bool value) { return value ? "1" : "0"; }
 
 std::string plan_fingerprint(const std::vector<FilePlanItem>& items) {
     MetadataDocument document;
-    document.fields.push_back({"PLAN_CONTRACT", {"djmeta-batch-v2"}});
+    document.fields.push_back({"PLAN_CONTRACT", {"djmeta-batch-v3"}});
     for (const FilePlanItem& item : items) {
         // The existing SHA-256 metadata fingerprint uses explicit lengths for
         // every field/value and includes field ordering. Never concatenate
@@ -35,11 +35,15 @@ std::string plan_fingerprint(const std::vector<FilePlanItem>& items) {
             yesno(item.manual_override),
             yesno(item.companion_policy_qualified),
             decimal(static_cast<int>(item.target_presence)),
-            item.target_guard,
+            item.target_guard, item.target_physical_id,
             decimal(static_cast<int>(item.cue_links)),
             item.cue_source_fingerprint, item.cue_postimage_fingerprint,
-            yesno(item.cue_references_will_change)
+            yesno(item.cue_references_will_change),
+            yesno(item.cue_values_will_change),
+            std::to_string(item.associated_audio_ids.size())
         }});
+        for (const auto& id : item.associated_audio_ids)
+            document.fields.back().values.push_back(id);
     }
     return fingerprint(document);
 }
@@ -97,11 +101,35 @@ bool contains_embedded_nul(const FilePlanItem& item) {
         &item.metadata_fingerprint, &item.planned_metadata_fingerprint,
         &item.ruleset_revision, &item.routing_profile,
         &item.naming_expression, &item.target_guard,
+        &item.target_physical_id,
         &item.cue_source_fingerprint, &item.cue_postimage_fingerprint
     };
     for (const auto* field : fields)
         if (field->find('\0') != std::string::npos) return true;
+    for (const auto& id : item.associated_audio_ids)
+        if (id.find('\0') != std::string::npos) return true;
     return false;
+}
+
+std::vector<std::string> cue_audio_dependencies(const FilePlanItem& item) {
+    if (!item.associated_audio_ids.empty()) return item.associated_audio_ids;
+    return item.associated_audio_id.empty()
+        ? std::vector<std::string>{}
+        : std::vector<std::string>{item.associated_audio_id};
+}
+
+bool valid_cue_participants(const FilePlanItem& item) {
+    if (!item.associated_audio_ids.empty() &&
+        item.role != FileRole::ExternalCue) return false;
+    if (item.role != FileRole::ExternalCue) return true;
+    const auto ids = cue_audio_dependencies(item);
+    if (ids.empty()) return false;
+    std::set<std::string> unique;
+    for (const auto& id : ids)
+        if (id.empty() || !unique.insert(id).second) return false;
+    if (!item.associated_audio_id.empty() &&
+        unique.count(item.associated_audio_id) == 0) return false;
+    return true;
 }
 
 bool active_file_action(const FilePlanItem& item) {
@@ -109,7 +137,8 @@ bool active_file_action(const FilePlanItem& item) {
 }
 
 bool active_item(const FilePlanItem& item) {
-    return active_file_action(item) || item.cue_references_will_change;
+    return active_file_action(item) ||
+           item.cue_references_will_change || item.cue_values_will_change;
 }
 
 } // namespace
@@ -130,10 +159,33 @@ BatchPlanReview review_batch_plan(
     // Build once: linear searches for each existing target used to make
     // individually approved large batches O(N * approval_count).
     std::set<std::string> individually_approved;
-    if (approval && !stale_approval)
-        individually_approved.insert(
-            approval->individually_approved_physical_ids.begin(),
-            approval->individually_approved_physical_ids.end());
+    // An individual overwrite approval is valid only for a DISTINCT source
+    // whose active file action has a separately observed EXISTING target.
+    // Unknown, repeated, empty, tag-only and missing-target identifiers must
+    // never be silently ignored by an otherwise valid blanket/batch approval.
+    // Reject the entire approval set, including rows that need no overwrite:
+    // approval is an indivisible snapshot of user intent.
+    bool invalid_overwrite_approval_selection = false;
+    if (approval && !stale_approval) {
+        std::set<std::string> eligible_overwrite_source_ids;
+        for (const auto& item : items)
+            if (active_file_action(item) &&
+                // A nominal rename/move whose exact source and target
+                // paths/keys are identical is a no-op, not an overwrite.
+                !(item.action != FileAction::Copy &&
+                  item.source_key == item.target_key &&
+                  item.source_path == item.target_path) &&
+                item.target_presence == TargetPresence::Existing &&
+                !item.physical_id.empty() &&
+                !item.target_guard.empty() &&
+                !item.target_physical_id.empty())
+                eligible_overwrite_source_ids.insert(item.physical_id);
+        for (const auto& id : approval->individually_approved_physical_ids)
+            if (id.empty() ||
+                eligible_overwrite_source_ids.count(id) == 0 ||
+                !individually_approved.insert(id).second)
+                invalid_overwrite_approval_selection = true;
+    }
 
     // The preview must correspond to ONE immutable ruleset across audio,
     // CUE and companion rows, including rows with no physical file action.
@@ -151,6 +203,8 @@ BatchPlanReview review_batch_plan(
     std::map<std::string, std::size_t> source_key_counts;
     std::map<std::string, std::size_t> physical_id_counts;
     std::map<std::string, std::size_t> target_key_counts;
+    std::map<std::string, std::size_t> existing_target_physical_counts;
+    std::set<std::string> all_source_physical_ids;
     std::set<std::string> audio_ids;
     std::map<std::string, CueLinkState> audio_cue_states;
     std::set<std::string> all_source_keys;
@@ -162,9 +216,11 @@ BatchPlanReview review_batch_plan(
 
     for (const FilePlanItem& item : items) {
         if (!item.source_key.empty()) all_source_keys.insert(item.source_key);
-        if (item.role == FileRole::ExternalCue &&
-            !item.associated_audio_id.empty())
-            ++all_cue_counts[item.associated_audio_id];
+        if (!item.physical_id.empty())
+            all_source_physical_ids.insert(item.physical_id);
+        if (item.role == FileRole::ExternalCue)
+            for (const auto& id : cue_audio_dependencies(item))
+                ++all_cue_counts[id];
         if (item.role == FileRole::Audio && !item.physical_id.empty()) {
             audio_ids.insert(item.physical_id);
             // Preserve the host-qualified relationship state of every audio
@@ -179,8 +235,13 @@ BatchPlanReview review_batch_plan(
         if (!active_item(item)) continue;
         if (active_file_action(item) && !item.target_key.empty())
             ++target_key_counts[item.target_key];
-        if (item.role == FileRole::ExternalCue && !item.associated_audio_id.empty())
-            ++cue_counts[item.associated_audio_id];
+        if (active_file_action(item) &&
+            item.target_presence == TargetPresence::Existing &&
+            !item.target_physical_id.empty())
+            ++existing_target_physical_counts[item.target_physical_id];
+        if (item.role == FileRole::ExternalCue)
+            for (const auto& id : cue_audio_dependencies(item))
+                ++cue_counts[id];
     }
 
     for (std::size_t index = 0; index < items.size(); ++index) {
@@ -192,18 +253,47 @@ BatchPlanReview review_batch_plan(
             !valid_presence(item.target_presence) || !valid_cue_state(item.cue_links)) {
             block(decision, "UNKNOWN_PLAN_ENUM_VALUE");
             if (stale_approval) block(decision, "STALE_BATCH_APPROVAL");
+            if (invalid_overwrite_approval_selection)
+                block(decision, "INVALID_OVERWRITE_APPROVAL_SELECTION");
             ++review.blocked;
             continue;
         }
 
+        if (invalid_overwrite_approval_selection)
+            block(decision, "INVALID_OVERWRITE_APPROVAL_SELECTION");
         if (contains_embedded_nul(item))
             block(decision, "EMBEDDED_NUL_IN_PLAN_IDENTITY");
+        if (!valid_cue_participants(item))
+            block(decision, "CUE_AUDIO_RELATIONSHIP_AMBIGUOUS");
+        // A selected audio source must never be attached to multiple
+        // independently managed external CUE carriers. Count even inactive
+        // CUE rows: a second CUE cannot be ignored just because its own
+        // file path does not change in this preview.
+        if (item.role == FileRole::Audio && !item.physical_id.empty() &&
+            all_cue_counts[item.physical_id] > 1)
+            block(decision, "MULTIPLE_EXTERNAL_CUES_FOR_AUDIO");
+        if (item.role == FileRole::ExternalCue)
+            for (const auto& id : cue_audio_dependencies(item))
+                if (all_cue_counts[id] > 1) {
+                    block(decision, "MULTIPLE_EXTERNAL_CUES_FOR_AUDIO");
+                    break;
+                }
         if (mixed_ruleset_revisions)
             block(decision, "MIXED_RULESET_REVISIONS");
         if (item.source_guard.empty())
             block(decision, "SOURCE_NOT_INSPECTED");
+        if (item.target_presence != TargetPresence::Existing &&
+            !item.target_physical_id.empty())
+            block(decision, "TARGET_ID_WITHOUT_EXISTING_FILE");
+        // Missing/unchecked observations cannot carry an old EXISTING-target
+        // guard. Reject mixed snapshots even on tag-only/no-op rows, before
+        // those rows can return early from the read-only preflight.
+        if (item.target_presence != TargetPresence::Existing &&
+            !item.target_guard.empty())
+            block(decision, "TARGET_GUARD_WITHOUT_EXISTING_FILE");
 
-        if (item.cue_references_will_change && item.role != FileRole::ExternalCue)
+        if ((item.cue_references_will_change || item.cue_values_will_change) &&
+            item.role != FileRole::ExternalCue)
             block(decision, "CUE_REWRITE_ON_NON_CUE_ITEM");
         // Enforce uniqueness before the tag-only/no-action early exit.
         if (!item.source_key.empty() && source_key_counts[item.source_key] > 1)
@@ -229,12 +319,12 @@ BatchPlanReview review_batch_plan(
             !item.planned_metadata_fingerprint.empty() &&
             item.metadata_fingerprint != item.planned_metadata_fingerprint;
         decision.cue_bytes_write_needed = item.role == FileRole::ExternalCue &&
-            item.cue_references_will_change &&
+            (item.cue_references_will_change || item.cue_values_will_change) &&
             !item.cue_source_fingerprint.empty() &&
             !item.cue_postimage_fingerprint.empty() &&
             item.cue_source_fingerprint != item.cue_postimage_fingerprint;
         if (item.role == FileRole::ExternalCue &&
-            !item.cue_references_will_change &&
+            !item.cue_references_will_change && !item.cue_values_will_change &&
             !item.cue_source_fingerprint.empty() &&
             !item.cue_postimage_fingerprint.empty() &&
             item.cue_source_fingerprint != item.cue_postimage_fingerprint)
@@ -289,9 +379,13 @@ BatchPlanReview review_batch_plan(
                 (!item.companion_policy_qualified && !item.manual_override))
                 block(decision, "COMPANION_NOT_AUTHORIZED");
         } else if (item.role == FileRole::ExternalCue) {
-            if (item.associated_audio_id.empty() ||
-                audio_ids.count(item.associated_audio_id) == 0 ||
-                audio_cue_states[item.associated_audio_id] != CueLinkState::Verified ||
+            const auto related = cue_audio_dependencies(item);
+            bool all_audio_verified = !related.empty();
+            for (const auto& id : related)
+                if (audio_ids.count(id) == 0 ||
+                    audio_cue_states[id] != CueLinkState::Verified)
+                    all_audio_verified = false;
+            if (!valid_cue_participants(item) || !all_audio_verified ||
                 item.cue_links != CueLinkState::Verified ||
                 item.cue_source_fingerprint.empty() ||
                 item.cue_postimage_fingerprint.empty()) {
@@ -304,6 +398,15 @@ BatchPlanReview review_batch_plan(
                 !(item.action != FileAction::Copy &&
                   item.source_key == item.target_key &&
                   item.source_path == item.target_path);
+            // A host-supplied canonical key may be stale or inconsistent.
+            // Equal literal source/target paths cannot describe a distinct
+            // copy/move destination even when their supplied keys disagree.
+            // Never turn such a contradiction into a destructive self-copy
+            // or a separately approved overwrite.
+            if (!item.target_path.empty() &&
+                item.target_path == item.source_path &&
+                item.target_key != item.source_key)
+                block(decision, "SOURCE_TARGET_KEY_CONTRADICTS_SAME_PATH");
             if (item.target_path.empty() || item.target_key.empty())
                 block(decision, "MISSING_TARGET_PATH_OR_IDENTITY");
             if (!item.target_key.empty() && target_key_counts[item.target_key] > 1)
@@ -327,7 +430,8 @@ BatchPlanReview review_batch_plan(
                     // executable while byte-identical plans are true no-ops.
                     decision.file_operation_needed = false;
                     decision.status = decision.reasons.empty()
-                        ? (decision.metadata_write_needed
+                        ? (decision.metadata_write_needed ||
+                           decision.cue_bytes_write_needed
                             ? PlanStatus::Ready : PlanStatus::Unchanged)
                         : PlanStatus::Blocked;
                     if (stale_approval) block(decision, "STALE_BATCH_APPROVAL");
@@ -343,9 +447,17 @@ BatchPlanReview review_batch_plan(
             if (item.target_presence == TargetPresence::Unchecked)
                 block(decision, "TARGET_NOT_INSPECTED");
             else if (item.target_presence == TargetPresence::Existing) {
+                if (item.target_physical_id.empty())
+                    block(decision, "EXISTING_TARGET_PHYSICAL_ID_NOT_INSPECTED");
+                else {
+                    if (all_source_physical_ids.count(item.target_physical_id))
+                        block(decision, "TARGET_IS_SELECTED_PHYSICAL_SOURCE");
+                    if (existing_target_physical_counts[item.target_physical_id] > 1)
+                        block(decision, "MULTIPLE_TARGETS_SAME_PHYSICAL_FILE");
+                }
                 if (item.target_guard.empty()) {
                     block(decision, "EXISTING_TARGET_NOT_GUARDED");
-                } else {
+                } else if (!item.target_physical_id.empty()) {
                     ++review.requires_overwrite;
                     const bool approved_one =
                         individually_approved.count(item.physical_id) != 0;
