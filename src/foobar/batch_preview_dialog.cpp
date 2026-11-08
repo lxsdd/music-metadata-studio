@@ -4279,8 +4279,50 @@ void apply_to_rows(HWND dialog, PreviewState& state, NativeRoutePreviewScope sco
         next.input.raw_relative_path.clear();
         if(next.input.physical_source_qualified) {
             const auto current=next.handle->get_info_ref();
+            // The in-memory local-only staged document deliberately omits
+            // separately accepted online edition fields. File locations
+            // must use their JOINT, independently verified postimage for
+            // this exact source rather than silently naming from local tags.
+            auto route_postimage=next.staged;
+            if(native_recheck_preserved_online_selection(
+                   state.online_field_snapshot.has_value(),
+                   state.online_edition_source,index,
+                   state.online_included_fields.size())) {
+                const auto original=metadata_from_file_info(current->info());
+                const auto latest=probe_host_file_readonly(next.input.source_path);
+                if(latest.state!=HostFileState::ExistingFile ||
+                   latest.host_physical_key!=next.observed_physical_key ||
+                   latest.source_guard!=next.observed_source_guard)
+                    throw std::runtime_error(
+                        "Physical source changed before combined File locations preview.");
+                const djmeta::PhysicalTagSourceSnapshot physical{
+                    next.input.physical_source_qualified,
+                    next.handle->get_subsong_index()!=0,
+                    next.observed_physical_key,next.observed_source_guard,
+                    original
+                };
+                djmeta::UnifiedReviewBatchReprobe unified;
+                unified.normalizer.live.captured=physical;
+                unified.normalizer.live.fresh_tags=original;
+                unified.normalizer.live.live_physical_key=latest.host_physical_key;
+                unified.normalizer.live.live_source_guard=latest.source_guard;
+                unified.normalizer.captured_analysis=state.analyses.at(index);
+                unified.normalizer.active_ruleset_revision=
+                    state.analyses.at(index).ruleset_revision;
+                unified.normalizer.decisions=state.review_decisions.at(index);
+                unified.online_capture=*state.online_field_snapshot;
+                unified.selected_online_indices=state.online_included_fields;
+                unified.explicit_date_targets=state.online_date_targets;
+                const auto joint=djmeta::preview_unified_review_physical_tags(
+                    unified);
+                if(!joint.physical.eligible)
+                    throw std::invalid_argument(
+                        "Conflicting accepted online/local fields prevent File locations preview: "+
+                        joint.rejection);
+                route_postimage=joint.physical.planned;
+            }
             next.input.raw_relative_path=formatter.evaluate(
-                next.handle->get_location(),current->info(),next.staged,
+                next.handle->get_location(),current->info(),route_postimage,
                 choice.titleformat_expression);
         }
         if(next.file_action==old.file_action &&
