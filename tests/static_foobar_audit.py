@@ -1955,6 +1955,36 @@ for marker in (
 ):
     if marker not in local_audit:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: combined raw route stale: "+marker)
+# A File locations action on the selected online source must compute
+# the same source-verified, combined postimage as the native online review.
+# Reject a local-only fallback or partial source/version confirmation. The
+# action is still purely read-only and updates the full-batch collision table.
+required_online_route = (
+    'native_recheck_preserved_online_selection(',
+    'state.online_edition_source,index,',
+    'state.online_included_fields.size()',
+    'probe_host_file_readonly(next.input.source_path)',
+    'latest.host_physical_key!=next.observed_physical_key',
+    'latest.source_guard!=next.observed_source_guard',
+    'unified.normalizer.decisions=state.review_decisions.at(index);',
+    'unified.selected_online_indices=state.online_included_fields;',
+    'const auto joint=djmeta::preview_unified_review_physical_tags(',
+    'if(!joint.physical.eligible)',
+    'route_postimage=joint.physical.planned;',
+    'current->info(),route_postimage,',
+    'update_table(state); // collision scan always covers the entire batch',
+)
+for marker in required_online_route:
+    if marker not in native_route:
+        raise SystemExit(
+            "STATIC FOOBAR AUDIT FAIL: combined File locations route must use source-verified postimage: "+marker)
+if 'current->info(),next.staged,' in native_route:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: File locations still uses local-only tags")
+if native_route.index('route_postimage=joint.physical.planned;') > native_route.index('current->info(),route_postimage,'):
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: File locations uses route before combined review")
+if 'metadb_io::' in native_route or 'commit_preflighted_' in native_route:
+    raise SystemExit("STATIC FOOBAR AUDIT FAIL: File locations entered productive writer")
+
 for name,fragment in (("route",native_route),("undo",native_undo)):
     if not all(x in fragment for x in (
         'state.online_raw_route_valid=false;',
