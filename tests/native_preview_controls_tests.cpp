@@ -1,4 +1,6 @@
 #include "../src/foobar/native_preview_controls.h"
+#include "../src/foobar/native_route_postimage.h"
+#include "djmeta/batch_preview.h"
 #include "../src/foobar/field_evidence_receipt.h"
 #include "../include/djmeta/title_version_review.h"
 #include "../src/foobar/session_preview_history.h"
@@ -17,6 +19,7 @@
 #include <tuple>
 #include <utility>
 #include <future>
+#include <functional>
 #include <atomic>
 #include <chrono>
 #include <thread>
@@ -83,7 +86,13 @@ int query_key_notifications = 0;
 UINT last_query_key = 0;
 djmeta_foobar::NativeReviewSplitAction last_split_action = djmeta_foobar::NativeReviewSplitAction::None;
 djmeta_foobar::ReadOnlyContextVersion test_request_context;
+std::function<void(djmeta_foobar::NativeRoutePreviewScope)> route_hwnd_fixture;
 INT_PTR CALLBACK test_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
+    if(const auto scope=djmeta_foobar::native_route_preview_command_scope(
+           message,wp)) {
+        if(route_hwnd_fixture) route_hwnd_fixture(*scope);
+        return TRUE;
+    }
     if(message==djmeta_foobar::kNativeQueryKeyMessage) {
         ++query_key_notifications;
         last_query_key=static_cast<UINT>(wp);
@@ -162,6 +171,131 @@ bool centers_match(HWND dialog, int label_id, int control_id) {
     const int offset = (a.top + a.bottom) - (b.top + b.bottom);
     return offset >= -2 && offset <= 2;
 }
+}
+
+void test_joint_route_hwnd(HWND dialog) {
+    using namespace djmeta;
+    using namespace djmeta_foobar;
+    using namespace djmeta::online;
+    const MetadataDocument original{{{"TITLE",{"Original A"}},
+        {"ARTIST",{" Artist "}},{"GENRE",{"House","Trance"}},
+        {"CUSTOM DJ",{"Keep original"}}}};
+    const PhysicalTagSourceSnapshot physical{
+        true,false,"disk:qa-A","guard:initial",original};
+    AnalysisResult analysis;
+    analysis.input_fingerprint=fingerprint(original);
+    analysis.ruleset_revision="rules:joint-route-qa";
+    Proposal artist;
+    artist.field_index=1;
+    artist.field="ARTIST";
+    artist.value_index=0;
+    artist.original_value=" Artist ";
+    artist.proposed_value="Artist";
+    artist.safety=SafetyClass::Safe;
+    artist.rule_ids={"safe.trim-whitespace"};
+    analysis.proposals={artist};
+    const std::vector<ReviewDecision> accepted{{ReviewAction::Accept,{}}};
+    auto online=capture_online_field_review(original,
+        {{"TITLE",{"Shared"},"discogs","release:42",EvidenceScope::Edition}},
+        true,true);
+    bool refreshing=false,stale=false;
+    std::string live_key="disk:qa-A",live_guard="guard:initial";
+    int tab=2,positive=0,refused=0;
+    bool collision=false;
+    std::vector<std::string> resulting_targets;
+    route_hwnd_fixture=[&](NativeRoutePreviewScope scope) {
+        if(!native_route_preview_snapshot_ready(stale,refreshing,tab)) {
+            ++refused;
+            return;
+        }
+        const auto selected=native_route_preview_source_ids(
+            scope,2,{0,1},{0});
+        if(selected.empty() || selected.front()!=0) {
+            ++refused;
+            return;
+        }
+        try {
+            const auto joint=native_verified_joint_route_postimage(
+                physical,original,live_key,live_guard,analysis,
+                analysis.ruleset_revision,accepted,online,{0},{});
+            if(!joint.physical.eligible) {
+                ++refused;
+                return;
+            }
+            check(joint.normalizer_changed_fields==1 &&
+                  joint.online_changed_fields==1 &&
+                  joint.physical.planned.fields[0].values==
+                      std::vector<std::string>{"Shared"} &&
+                  joint.physical.planned.fields[1].values==
+                      std::vector<std::string>{"Artist"} &&
+                  joint.physical.planned.fields[2].values==
+                      std::vector<std::string>({"House","Trance"}) &&
+                  joint.physical.planned.fields[3].values==
+                      std::vector<std::string>{"Keep original"},
+                  "joint postimage combines selected provider and local decisions");
+            const auto target=joint.physical.planned.fields[1].values[0]+
+                "/"+joint.physical.planned.fields[0].values[0]+".flac";
+            check(target=="Artist/Shared.flac" &&
+                  fingerprint(original)==analysis.input_fingerprint,
+                  "joint destination uses accepted tags without original mutation");
+            resulting_targets.push_back(target);
+            BatchPreviewInputRow first;
+            first.source_path="file:///Z:/qa/a.flac";
+            first.physical_id="disk:qa-A";
+            first.profile="QA";
+            first.destination_root="Z:\\QA";
+            first.raw_relative_path=target;
+            first.physical_source_qualified=true;
+            auto second=first;
+            second.source_path="file:///Z:/qa/b.flac";
+            second.physical_id="disk:qa-B";
+            second.raw_relative_path="Artist/Shared.flac";
+            const auto batch=describe_batch_preview({first,second});
+            collision=batch.raw_collision_items==2 &&
+                batch.rows[0].has_raw_target_collision &&
+                batch.rows[1].has_raw_target_collision;
+            ++positive;
+        } catch(const std::invalid_argument&) {
+            ++refused;
+        }
+    };
+    const auto click=[&](int control) {
+        const auto child=GetDlgItem(dialog,control);
+        check(child!=nullptr,"actual native route button exists");
+        SendMessageW(dialog,WM_COMMAND,MAKEWPARAM(control,BN_CLICKED),
+                     reinterpret_cast<LPARAM>(child));
+    };
+    check(!native_route_preview_command_scope(
+              WM_COMMAND,MAKEWPARAM(IDC_BATCH_APPLY_SELECTED,EN_CHANGE)) &&
+          !native_route_preview_command_scope(
+              WM_NOTIFY,MAKEWPARAM(IDC_BATCH_APPLY_ALL,BN_CLICKED)),
+          "no foreign HWND event or change notification may preview");
+    click(IDC_BATCH_APPLY_SELECTED);
+    check(positive==1 && collision && resulting_targets.size()==1,
+          "native selected click stages joint postimage into collision review");
+    click(IDC_BATCH_APPLY_VISIBLE);
+    click(IDC_BATCH_APPLY_ALL);
+    check(positive==3 && collision &&
+          resulting_targets==std::vector<std::string>(3,"Artist/Shared.flac"),
+          "native visible/all commands retain physical source identity");
+    refreshing=true;click(IDC_BATCH_APPLY_SELECTED);refreshing=false;
+    stale=true;click(IDC_BATCH_APPLY_ALL);stale=false;
+    tab=1;click(IDC_BATCH_APPLY_SELECTED);tab=2;
+    check(refused==3 && positive==3,
+          "refresh, stale source and wrong tab fail closed");
+    live_guard="guard:replaced";click(IDC_BATCH_APPLY_SELECTED);
+    live_guard="guard:initial";
+    live_key="disk:foreign";click(IDC_BATCH_APPLY_SELECTED);
+    live_key="disk:qa-A";
+    check(refused==5 && positive==3,
+          "old physical guard or substituted identity cannot re-use approval");
+    online=capture_online_field_review(original,
+        {{"ARTIST",{"Unrelated"},"discogs","release:42",EvidenceScope::Edition}},
+        true,true);
+    click(IDC_BATCH_APPLY_SELECTED);
+    check(refused==6 && positive==3,
+          "conflicting provider/local field choices reject entire destination");
+    route_hwnd_fixture={};
 }
 
 int main() {
@@ -710,6 +844,7 @@ int main() {
     HWND dialog = CreateDialogParamW(GetModuleHandleW(nullptr),
         MAKEINTRESOURCEW(IDD_BATCH_PREVIEW), nullptr, test_dialog_proc, 0);
     check(dialog != nullptr, "actual production dialog template instantiation");
+    test_joint_route_hwnd(dialog);
     const HWND history_source=GetDlgItem(dialog,IDC_BATCH_HISTORY_SOURCE);
     const HWND history_source_label=GetDlgItem(dialog,IDC_BATCH_HISTORY_SOURCE_LABEL);
     check(history_source && history_source_label &&

@@ -14,6 +14,7 @@
 #include "legacy_routing_profiles.h"
 #include "djmeta/named_route_profiles.h"
 #include "native_preview_controls.h"
+#include "native_route_postimage.h"
 #include "field_evidence_receipt.h"
 #include "session_preview_history.h"
 #include "review_grid_controls.h"
@@ -4247,7 +4248,8 @@ void apply_review_action(HWND dialog, PreviewState& state,
 }
 
 void apply_to_rows(HWND dialog, PreviewState& state, NativeRoutePreviewScope scope) {
-    if(state.stale || state.refreshing || TabCtrl_GetCurSel(state.tabs)!=2)
+    if(!native_route_preview_snapshot_ready(
+           state.stale,state.refreshing,TabCtrl_GetCurSel(state.tabs)))
         throw std::invalid_argument("File locations requires a fresh source snapshot.");
     verify_rules_snapshot(state.captured_rules);
     const auto choice=read_choice(dialog);
@@ -4263,9 +4265,16 @@ void apply_to_rows(HWND dialog, PreviewState& state, NativeRoutePreviewScope sco
     };
     const auto selected=native_route_preview_source_ids(
         scope,state.entries.size(),state.view_order,selected_rows());
+    const bool online_source_scoped=
+        state.online_field_snapshot.has_value() &&
+        !state.online_included_fields.empty() &&
+        std::find(selected.begin(),selected.end(),
+                  state.online_edition_source)!=selected.end();
+
     revalidate_workspace(state,true);
     if(state.stale) throw std::runtime_error("Source changed; refresh preview.");
     std::map<std::size_t,PreviewEntry> candidate;
+    std::optional<std::pair<std::string,std::string>> refreshed_joint_route;
     TitleformatBatchEvaluator formatter;
     for(auto index:selected) {
         const auto& old=state.entries.at(index);
@@ -4301,20 +4310,13 @@ void apply_to_rows(HWND dialog, PreviewState& state, NativeRoutePreviewScope sco
                     next.observed_physical_key,next.observed_source_guard,
                     original
                 };
-                djmeta::UnifiedReviewBatchReprobe unified;
-                unified.normalizer.live.captured=physical;
-                unified.normalizer.live.fresh_tags=original;
-                unified.normalizer.live.live_physical_key=latest.host_physical_key;
-                unified.normalizer.live.live_source_guard=latest.source_guard;
-                unified.normalizer.captured_analysis=state.analyses.at(index);
-                unified.normalizer.active_ruleset_revision=
-                    state.analyses.at(index).ruleset_revision;
-                unified.normalizer.decisions=state.review_decisions.at(index);
-                unified.online_capture=*state.online_field_snapshot;
-                unified.selected_online_indices=state.online_included_fields;
-                unified.explicit_date_targets=state.online_date_targets;
-                const auto joint=djmeta::preview_unified_review_physical_tags(
-                    unified);
+                const auto joint=native_verified_joint_route_postimage(
+                    physical,original,latest.host_physical_key,
+                    latest.source_guard,state.analyses.at(index),
+                    state.analyses.at(index).ruleset_revision,
+                    state.review_decisions.at(index),
+                    *state.online_field_snapshot,
+                    state.online_included_fields,state.online_date_targets);
                 if(!joint.physical.eligible)
                     throw std::invalid_argument(
                         "Conflicting accepted online/local fields prevent File locations preview: "+
@@ -4324,6 +4326,18 @@ void apply_to_rows(HWND dialog, PreviewState& state, NativeRoutePreviewScope sco
             next.input.raw_relative_path=formatter.evaluate(
                 next.handle->get_location(),current->info(),route_postimage,
                 choice.titleformat_expression);
+            if(index==state.online_edition_source &&
+               online_source_scoped) {
+                const auto original=metadata_from_file_info(current->info());
+                const auto before=formatter.evaluate(
+                    next.handle->get_location(),current->info(),original,
+                    choice.titleformat_expression);
+                const auto& after=next.input.raw_relative_path;
+                if(before.size()<=2048 && after.size()<=2048 &&
+                   djmeta::raw_relative_path_lexically_safe(before) &&
+                   djmeta::raw_relative_path_lexically_safe(after))
+                    refreshed_joint_route=std::make_pair(before,after);
+            }
         }
         if(next.file_action==old.file_action &&
            next.file_action_explicitly_staged==old.file_action_explicitly_staged &&
@@ -4395,9 +4409,15 @@ void apply_to_rows(HWND dialog, PreviewState& state, NativeRoutePreviewScope sco
         state.last_preview_undo=std::move(frame);
     } else state.last_preview_undo.reset();
     state.current_choice=choice;
-    state.online_raw_route_valid=false;
-    state.online_raw_route_before.clear();
-    state.online_raw_route_after.clear();
+    // Preserve the independently verified joint raw route for update_table().
+    // Clearing it here hid same-target collisions from the complete batch.
+    if(online_source_scoped) {
+        state.online_raw_route_valid=refreshed_joint_route.has_value();
+        state.online_raw_route_before=refreshed_joint_route
+            ? std::move(refreshed_joint_route->first):std::string{};
+        state.online_raw_route_after=refreshed_joint_route
+            ? std::move(refreshed_joint_route->second):std::string{};
+    }
     state.online_raw_target_observation.reset();
     EnableWindow(GetDlgItem(dialog,IDC_BATCH_UNDO),
                  state.last_preview_undo ? TRUE : FALSE);
@@ -10447,16 +10467,8 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             SetFocus(state->metadata_list);
             return TRUE;
         }
-        if (id == IDC_BATCH_APPLY_SELECTED && HIWORD(wp) == BN_CLICKED) {
-            apply_to_rows(dialog, *state, NativeRoutePreviewScope::Selected);
-            return TRUE;
-        }
-        if (id == IDC_BATCH_APPLY_VISIBLE && HIWORD(wp) == BN_CLICKED) {
-            apply_to_rows(dialog, *state, NativeRoutePreviewScope::Visible);
-            return TRUE;
-        }
-        if (id == IDC_BATCH_APPLY_ALL && HIWORD(wp) == BN_CLICKED) {
-            apply_to_rows(dialog, *state, NativeRoutePreviewScope::All);
+        if(const auto scope=native_route_preview_command_scope(message,wp)) {
+            apply_to_rows(dialog,*state,*scope);
             return TRUE;
         }
     } catch (const std::exception& error) {

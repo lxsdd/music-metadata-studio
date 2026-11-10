@@ -478,6 +478,22 @@ inline bool native_release_loadable(
 }
 
 enum class NativeRoutePreviewScope { Selected, Visible, All };
+inline constexpr bool native_route_preview_snapshot_ready(
+    bool stale, bool refreshing, int tab_index) noexcept {
+    return !stale && !refreshing && tab_index==2;
+}
+// One command decoder for the production HWND and the native fixture.
+inline std::optional<NativeRoutePreviewScope> native_route_preview_command_scope(
+    UINT message, WPARAM wp) noexcept {
+    if(message!=WM_COMMAND || HIWORD(wp)!=BN_CLICKED) return std::nullopt;
+    switch(LOWORD(wp)) {
+    case IDC_BATCH_APPLY_SELECTED: return NativeRoutePreviewScope::Selected;
+    case IDC_BATCH_APPLY_VISIBLE: return NativeRoutePreviewScope::Visible;
+    case IDC_BATCH_APPLY_ALL: return NativeRoutePreviewScope::All;
+    default: return std::nullopt;
+    }
+}
+
 // Source IDs, not sorted/filtered ListView row indices, are routing authority.
 inline std::vector<std::size_t> native_route_preview_source_ids(
     NativeRoutePreviewScope scope,std::size_t count,
