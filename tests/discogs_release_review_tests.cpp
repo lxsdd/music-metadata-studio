@@ -475,10 +475,13 @@ int main() {
     require(!review_discogs_physical_batch({
         {0,physical,242000,true},{1,album_case_second,242000,true}},album_case_forged).complete,
         "album_case_forged track provenance never certifies album");
-    require(!review_discogs_physical_batch({
-        {0,physical,242000,true},{1,album_case_second,242000,false}},exact).complete &&
-            !review_discogs_physical_batch({
-        {0,physical,242000,true},{1,album_case_second,-1,true}},exact).complete,
+    // Retain both independently owned temporary results under GCC 16
+    // -Wdangling-pointer= rather than chaining temporaries in a boolean.
+    const auto unqualified_physical_review=review_discogs_physical_batch({
+        {0,physical,242000,true},{1,album_case_second,242000,false}},exact);
+    const auto missing_duration_review=review_discogs_physical_batch({
+        {0,physical,242000,true},{1,album_case_second,-1,true}},exact);
+    require(!unqualified_physical_review.complete && !missing_duration_review.complete,
         "unqualified physical or missing duration fails closed");
     bool album_case_rejected=false;
     try{(void)review_discogs_physical_batch({{0,physical,242000,true}},exact);}

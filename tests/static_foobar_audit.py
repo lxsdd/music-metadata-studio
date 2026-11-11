@@ -544,8 +544,8 @@ for label, source, token in [
     ("layout settings persist", batch_table_dialog, "store_batch_table_layout(state->layout)"),
     ("foobar profile layout cfg", layout_storage, "cfg_string"),
     ("batch table model", batch_table_dialog, "djmeta::describe_batch_preview"),
-    ("group route override", batch_table_dialog, "apply_to_rows(dialog, *state, NativeRoutePreviewScope::All)"),
-    ("selected route override", batch_table_dialog, "apply_to_rows(dialog, *state, NativeRoutePreviewScope::Selected)"),
+    ("production native route dispatcher", batch_table_dialog, "native_route_preview_command_scope(message,wp)"),
+    ("production native File locations execution", batch_table_dialog, "apply_to_rows(dialog,*state,*scope)"),
     ("selection stale guard", batch_table_dialog, "verify_snapshot(old)"),
     ("sparse transactional route edits", batch_table_dialog, "swap(state.entries[index],next)"),
     ("unverified CUE gate", batch_table_dialog, "next.input.cue_dependencies_checked=false"),
@@ -1966,9 +1966,9 @@ required_online_route = (
     'probe_host_file_readonly(next.input.source_path)',
     'latest.host_physical_key!=next.observed_physical_key',
     'latest.source_guard!=next.observed_source_guard',
-    'unified.normalizer.decisions=state.review_decisions.at(index);',
-    'unified.selected_online_indices=state.online_included_fields;',
-    'const auto joint=djmeta::preview_unified_review_physical_tags(',
+    'state.review_decisions.at(index)',
+    '*state.online_field_snapshot,',
+    'native_verified_joint_route_postimage(',
     'if(!joint.physical.eligible)',
     'route_postimage=joint.physical.planned;',
     'current->info(),route_postimage,',
@@ -1985,12 +1985,35 @@ if native_route.index('route_postimage=joint.physical.planned;') > native_route.
 if 'metadb_io::' in native_route or 'commit_preflighted_' in native_route:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: File locations entered productive writer")
 
-for name,fragment in (("route",native_route),("undo",native_undo)):
-    if not all(x in fragment for x in (
-        'state.online_raw_route_valid=false;',
-        'state.online_raw_route_before.clear();',
-        'state.online_raw_route_after.clear();')):
-        raise SystemExit("STATIC FOOBAR AUDIT FAIL: stale online raw route after "+name)
+# The new verified online/local target must survive the complete-batch
+# collision table recomputation. Undo alone must clear that advisory route.
+for marker in (
+    'state.online_raw_route_valid=refreshed_joint_route.has_value();',
+    'state.online_raw_route_before=refreshed_joint_route',
+    'state.online_raw_route_after=refreshed_joint_route',
+    'update_table(state); // collision scan always covers the entire batch',
+):
+    if marker not in native_route:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: joint target not retained: "+marker)
+for marker in (
+    'state.online_raw_route_valid=false;',
+    'state.online_raw_route_before.clear();',
+    'state.online_raw_route_after.clear();',
+):
+    if marker not in native_undo:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: stale online raw route after undo: "+marker)
+route_postimage_gate=(foobar / 'native_route_postimage.h').read_text(encoding='utf-8')
+for marker in (
+    'captured.host_physical_key!=live_physical_key',
+    'captured.source_guard!=live_source_guard',
+    'captured.original!=fresh_tags',
+    'active_ruleset_revision!=analysis.ruleset_revision',
+    'row.normalizer.decisions=local_decisions;',
+    'row.selected_online_indices=included_fields;',
+    'return djmeta::preview_unified_review_physical_tags(row);',
+):
+    if marker not in route_postimage_gate:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: joint gate missing: "+marker)
 if ("entry.route_expression==typed_route.titleformat_expression" not in
     workspace_dialog.split(
         "void change_online_field_preview(PreviewState& state,int action) {",1)[1].split(
