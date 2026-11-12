@@ -478,6 +478,27 @@ inline bool native_release_loadable(
 }
 
 enum class NativeRoutePreviewScope { Selected, Visible, All };
+// Query edits invalidate a selected online raw destination. The native File
+// locations queue is owner-data: refresh it once at the valid->invalid edge,
+// before a subsequent edit can expose the old collision snapshot. Both the
+// production WM_COMMAND handler and the resource-backed HWND test use this
+// transition; neither callback can authorize a writer.
+template<class Invalidate,class Refresh>
+bool native_dispatch_online_query_edit(UINT message, WPARAM wp,
+    bool route_was_valid,
+    Invalidate&& invalidate, Refresh&& refresh) {
+    if(message!=WM_COMMAND || LOWORD(wp)!=IDC_METADATA_MB_QUERY ||
+       HIWORD(wp)!=EN_CHANGE) return false;
+    invalidate();
+    if(route_was_valid) refresh();
+    return true;
+}
+inline void native_set_location_ownerdata_count(HWND list,std::size_t count) {
+    if(!list || count>static_cast<std::size_t>((std::numeric_limits<int>::max)()))
+        throw std::invalid_argument("File locations row count invalid.");
+    ListView_SetItemCountEx(list,static_cast<int>(count),
+        LVSICF_NOINVALIDATEALL | LVSICF_NOSCROLL);
+}
 inline constexpr bool native_route_preview_snapshot_ready(
     bool stale, bool refreshing, int tab_index) noexcept {
     return !stale && !refreshing && tab_index==2;

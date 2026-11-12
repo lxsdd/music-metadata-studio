@@ -183,15 +183,6 @@ struct PendingBeatportPageContext {
     djmeta::MetadataDocument originals;
     std::int64_t duration_ms=-1;
 };
-// Single exact Discogs source's read-only raw target evidence, NEVER a
-// foobar-sanitized final path, frozen approval, or writer authorization.
-struct JointRawTargetObservation {
-    std::size_t source_index=0;
-    std::string raw_candidate;
-    std::string source_physical_key;
-    std::string source_guard;
-    HostFileObservation target;
-};
 struct PreviewState {
     HWND dialog = nullptr;
     HWND help_tooltips = nullptr; // Native tooltip HWND lives/dies with dialog.
@@ -757,49 +748,15 @@ std::vector<djmeta::BatchPreviewInputRow> current_batch_route_inputs(
     // the local normalizer naming candidate. The complete edition remains
     // an advisory route overlay: no host-resolved target or CUE approval.
     for (std::size_t index=0;index<state.entries.size();++index) {
-        auto input=state.entries[index].input;
-        if(native_recheck_preserved_online_selection(
-               state.online_field_snapshot.has_value(),
-               state.online_edition_source,index,
-               state.online_included_fields.size())) {
-            input.raw_relative_path=state.online_raw_route_valid
-                ? state.online_raw_route_after:std::string{};
-            input.raw_target_presence=djmeta::RawTargetPresence::NotInspected;
-            input.raw_target_physical_key.clear();
-            input.raw_target_guard.clear();
-            input.raw_target_host_canonical.clear();
-            input.filesystem_target_checked=false;
-            input.cue_dependencies_checked=false;
-            if(state.online_raw_route_valid &&
-               state.online_raw_target_observation) {
-                const auto& probe=*state.online_raw_target_observation;
-                const auto candidate=input.destination_root+"\\"+
-                    input.raw_relative_path;
-                if(native_joint_raw_observation_matches(
-                       probe.source_index,index,probe.raw_candidate,candidate,
-                       probe.source_physical_key,
-                       state.entries[index].observed_physical_key,
-                       probe.source_guard,
-                       state.entries[index].observed_source_guard)) {
-                    switch(probe.target.state) {
-                    case HostFileState::Missing:
-                        input.raw_target_presence=djmeta::RawTargetPresence::Missing;
-                        input.raw_target_host_canonical=probe.target.canonical_path;
-                        break;
-                    case HostFileState::ExistingFile:
-                        input.raw_target_presence=djmeta::RawTargetPresence::Existing;
-                        input.raw_target_host_canonical=probe.target.canonical_path;
-                        input.raw_target_physical_key=probe.target.host_physical_key;
-                        input.raw_target_guard=probe.target.source_guard;
-                        break;
-                    case HostFileState::Unqualified:
-                        input.raw_target_presence=djmeta::RawTargetPresence::Unqualified;
-                        break;
-                    }
-                }
-            }
-        }
-        inputs.push_back(std::move(input));
+        inputs.push_back(native_joint_route_queue_input(
+            state.entries[index].input,
+            state.online_field_snapshot.has_value(),
+            state.online_edition_source,index,
+            state.online_included_fields.size(),
+            state.online_raw_route_valid,state.online_raw_route_after,
+            state.entries[index].observed_physical_key,
+            state.entries[index].observed_source_guard,
+            state.online_raw_target_observation));
     }
     return inputs;
 }
@@ -871,8 +828,7 @@ void update_table(PreviewState& state) {
     }
 
     if (state.list) {
-        ListView_SetItemCountEx(state.list, static_cast<int>(state.view_order.size()),
-            LVSICF_NOINVALIDATEALL | LVSICF_NOSCROLL);
+        native_set_location_ownerdata_count(state.list,state.view_order.size());
         // Owner-data selections are VIEW positions; never let hidden rows
         // inherit a stale selection after a filter or sort.
         ListView_SetItemState(state.list, -1, 0, LVIS_SELECTED);
@@ -8944,9 +8900,18 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
     const int id = LOWORD(wp);
     const auto native_command = native_preview_command(message, wp);
     try {
-        if(id==IDC_METADATA_MB_QUERY && HIWORD(wp)==EN_CHANGE) {
+        if(native_dispatch_online_query_edit(message,wp,
+               state->online_raw_route_valid,
+               [&] { invalidate_online_request(*state); },
+               [&] {
+                   try {
+                       update_table(*state); // full-batch File locations/CUE queue
+                   } catch (...) {
+                       mark_stale_workspace(*state);
+                       throw;
+                   }
+               })) {
             // A delayed response must fail closed even after edit-and-restore.
-            invalidate_online_request(*state);
             state->search_plan_identity.clear();
             state->musicbrainz_has_published_attempt=false;
             if(state->discogs_provider_selected)

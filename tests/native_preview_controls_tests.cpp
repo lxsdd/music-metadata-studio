@@ -87,6 +87,9 @@ UINT last_query_key = 0;
 djmeta_foobar::NativeReviewSplitAction last_split_action = djmeta_foobar::NativeReviewSplitAction::None;
 djmeta_foobar::ReadOnlyContextVersion test_request_context;
 std::function<void(djmeta_foobar::NativeRoutePreviewScope)> route_hwnd_fixture;
+bool query_route_valid=false;
+std::function<void()> query_route_invalidate;
+std::function<void()> query_route_refresh;
 INT_PTR CALLBACK test_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
     if(const auto scope=djmeta_foobar::native_route_preview_command_scope(
            message,wp)) {
@@ -103,10 +106,15 @@ INT_PTR CALLBACK test_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM l
         last_split_action=static_cast<djmeta_foobar::NativeReviewSplitAction>(wp);
         return TRUE;
     }
-    if(message==WM_COMMAND && LOWORD(wp)==IDC_METADATA_MB_QUERY &&
-       HIWORD(wp)==EN_CHANGE) {
+    if(djmeta_foobar::native_dispatch_online_query_edit(message,wp,
+           query_route_valid,
+           [&] {
+               test_request_context.invalidate();
+               query_route_valid=false;
+               if(query_route_invalidate) query_route_invalidate();
+           },
+           [&] { if(query_route_refresh) query_route_refresh(); })) {
         ++query_edit_events;
-        test_request_context.invalidate();
         return TRUE;
     }
     if(message==djmeta_foobar::kReadOnlyNetworkDoneMessage) {
@@ -296,6 +304,113 @@ void test_joint_route_hwnd(HWND dialog) {
     check(refused==6 && positive==3,
           "conflicting provider/local field choices reject entire destination");
     route_hwnd_fixture={};
+}
+
+void test_query_edit_invalidates_joint_queue_hwnd(HWND dialog) {
+    using namespace djmeta;
+    BatchPreviewInputRow first;
+    first.source_path="file:///Z:/qa/a.flac";
+    first.physical_id="disk:qa-A";
+    first.profile="QA";
+    first.destination_root="Z:\\QA";
+    first.raw_relative_path="Artist/Original.flac";
+    first.physical_source_qualified=true;
+    auto second=first;
+    second.source_path="file:///Z:/qa/b.flac";
+    second.physical_id="disk:qa-B";
+    second.raw_relative_path="Artist/Shared.flac";
+    query_route_valid=true;
+    std::string route_after="Artist/Shared.flac";
+    std::optional<djmeta_foobar::JointRawTargetObservation> observation;
+    djmeta_foobar::JointRawTargetObservation inspected;
+    inspected.source_index=0;
+    inspected.raw_candidate="Z:\\QA\\Artist/Shared.flac";
+    inspected.source_physical_key="disk:qa-A";
+    inspected.source_guard="guard:qa-A";
+    inspected.target.state=djmeta_foobar::HostFileState::ExistingFile;
+    inspected.target.canonical_path="file:///Z:/QA/Artist/Shared.flac";
+    inspected.target.host_physical_key="disk:existing-target";
+    inspected.target.source_guard="guard:existing-target";
+    observation=inspected;
+    auto inputs=std::vector<BatchPreviewInputRow>{
+        djmeta_foobar::native_joint_route_queue_input(first,true,0,0,1,
+            query_route_valid,route_after,"disk:qa-A","guard:qa-A",observation),
+        second};
+    auto table=describe_batch_preview(inputs);
+    const HWND file_locations=GetDlgItem(dialog,IDC_BATCH_LIST);
+    check(file_locations!=nullptr,"actual File locations owner-data ListView exists");
+    const int original_count=ListView_GetItemCount(file_locations);
+    const auto show_collisions=[&] {
+        const auto visible=filter_batch_location_view(
+            table,{0,1},BatchLocationQueue::RawCollisions);
+        djmeta_foobar::native_set_location_ownerdata_count(
+            file_locations,visible.size());
+    };
+    show_collisions();
+    check(table.raw_collision_items==2 &&
+          table.rows[0].has_raw_target_collision &&
+          inputs[0].raw_target_presence==RawTargetPresence::Existing &&
+          ListView_GetItemCount(file_locations)==2,
+          "accepted online/local route is visible in full-batch collision queue");
+    const auto replaced_guard=djmeta_foobar::native_joint_route_queue_input(
+        first,true,0,0,1,true,route_after,
+        "disk:qa-A","guard:replaced",observation);
+    check(replaced_guard.raw_target_presence==RawTargetPresence::NotInspected &&
+          replaced_guard.raw_target_physical_key.empty(),
+          "stale source guard cannot preserve old inspected online target");
+    int refreshes=0;
+    const auto initial_context=test_request_context.current();
+    query_route_invalidate=[&] { route_after.clear(); observation.reset(); };
+    query_route_refresh=[&] {
+        ++refreshes;
+        inputs[0]=djmeta_foobar::native_joint_route_queue_input(
+            first,true,0,0,1,query_route_valid,route_after,
+            "disk:qa-A","guard:qa-A",observation);
+        table=describe_batch_preview(inputs);
+        show_collisions();
+    };
+    const auto edit=GetDlgItem(dialog,IDC_METADATA_MB_QUERY);
+    check(edit!=nullptr,"production query EDIT exists in native resource");
+    const int edits_before=query_edit_events;
+    SendMessageW(dialog,WM_COMMAND,MAKEWPARAM(IDC_METADATA_MB_QUERY,BN_CLICKED),
+                 reinterpret_cast<LPARAM>(edit));
+    check(query_edit_events==edits_before && query_route_valid &&
+          refreshes==0 && table.raw_collision_items==2,
+          "foreign query notification cannot invalidate accepted route");
+    SetWindowTextW(edit,L"changed search"); // actual EN_CHANGE WM_COMMAND
+    check(query_edit_events==edits_before+1 &&
+          test_request_context.current()!=initial_context &&
+          refreshes==1 && !query_route_valid && table.raw_collision_items==0 &&
+          !table.rows[0].has_raw_target_collision &&
+          inputs[0].raw_relative_path.empty() &&
+          inputs[0].raw_target_presence==RawTargetPresence::NotInspected &&
+          inputs[0].raw_target_physical_key.empty() &&
+          ListView_GetItemCount(file_locations)==0 &&
+          table.rows[0].raw_destination!=first.destination_root+"\\"+
+              second.raw_relative_path,
+          "original query edit removes former online raw target and collision");
+    SetWindowTextW(edit,L"changed search again");
+    check(query_edit_events==edits_before+2 && refreshes==1 &&
+          table.raw_collision_items==0 &&
+          ListView_GetItemCount(file_locations)==0,
+          "later keystrokes cancel requests without rebuilding a large batch");
+    const auto no_capture=djmeta_foobar::native_joint_route_queue_input(
+        first,false,0,0,1,true,"Artist/Shared.flac",
+        "disk:qa-A","guard:qa-A",observation);
+    const auto wrong_source=djmeta_foobar::native_joint_route_queue_input(
+        first,true,1,0,1,true,"Artist/Shared.flac",
+        "disk:qa-A","guard:qa-A",observation);
+    const auto no_selection=djmeta_foobar::native_joint_route_queue_input(
+        first,true,0,0,0,true,"Artist/Shared.flac",
+        "disk:qa-A","guard:qa-A",observation);
+    check(no_capture.raw_relative_path==first.raw_relative_path &&
+          wrong_source.raw_relative_path==first.raw_relative_path &&
+          no_selection.raw_relative_path==first.raw_relative_path,
+          "unverified, wrong physical source or empty selection cannot revive overlay");
+    query_route_invalidate={};
+    query_route_refresh={};
+    djmeta_foobar::native_set_location_ownerdata_count(
+        file_locations,static_cast<std::size_t>(original_count));
 }
 
 int main() {
@@ -845,6 +960,7 @@ int main() {
         MAKEINTRESOURCEW(IDD_BATCH_PREVIEW), nullptr, test_dialog_proc, 0);
     check(dialog != nullptr, "actual production dialog template instantiation");
     test_joint_route_hwnd(dialog);
+    test_query_edit_invalidates_joint_queue_hwnd(dialog);
     const HWND history_source=GetDlgItem(dialog,IDC_BATCH_HISTORY_SOURCE);
     const HWND history_source_label=GetDlgItem(dialog,IDC_BATCH_HISTORY_SOURCE_LABEL);
     check(history_source && history_source_label &&

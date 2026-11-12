@@ -2072,15 +2072,27 @@ native_online_change=workspace_dialog.split(
     "void change_online_field_preview(PreviewState& state,int action)",1)[1].split(
     "INT_PTR CALLBACK batch_dialog_proc",1)[0]
 for marker in (
-    'input.raw_relative_path=state.online_raw_route_valid',
-    'state.online_raw_route_after:std::string{};',
-    'input.raw_target_presence=djmeta::RawTargetPresence::NotInspected;',
-    'input.filesystem_target_checked=false;',
-    'input.cue_dependencies_checked=false;',
+    'inputs.push_back(native_joint_route_queue_input(',
+    'state.online_raw_route_valid,state.online_raw_route_after,',
+    'state.online_raw_target_observation));',
     'state.table = djmeta::describe_batch_preview(inputs);',
+    'native_set_location_ownerdata_count(state.list,state.view_order.size());',
 ):
     if marker not in native_update_table:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: joint FileOps table missing "+marker)
+native_queue_projection=(foobar / 'native_route_postimage.h').read_text(
+    encoding='utf-8').split('native_joint_route_queue_input(',1)[1].split(
+    'native_verified_joint_route_postimage(',1)[0]
+for marker in (
+    'native_recheck_preserved_online_selection(',
+    'input.raw_relative_path=route_valid ? route_after:std::string{};',
+    'input.raw_target_presence=djmeta::RawTargetPresence::NotInspected;',
+    'input.filesystem_target_checked=false;',
+    'input.cue_dependencies_checked=false;',
+    'native_joint_raw_observation_matches(',
+):
+    if marker not in native_queue_projection:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: joint queue projection missing "+marker)
 if ('return L"Joint raw route: unqualified";' not in native_fileops_cell or
     'L"Joint raw preview; not probed"' not in native_fileops_cell or
     'L"Joint raw inspected; not final"' not in native_fileops_cell):
@@ -2114,7 +2126,8 @@ for marker in (
 ):
     if marker not in joint_recheck:
         raise SystemExit("STATIC FOOBAR AUDIT FAIL: joined source reread lacks "+marker)
-if ('native_joint_raw_observation_matches(' not in native_update_table or
+if ('native_joint_route_queue_input(' not in native_update_table or
+    'native_joint_raw_observation_matches(' not in native_queue_projection or
     'state.online_raw_target_observation.reset();' not in
     workspace_dialog.split("void change_online_field_preview(PreviewState& state,int action)",1)[1].split(
         "INT_PTR CALLBACK batch_dialog_proc",1)[0] or
@@ -2671,6 +2684,22 @@ if ('if (provider == "beatport" || provider == "crates") return 2;' in
 # physical track against live host identity/tags before displaying the
 # read-only postimage summary, not only the selected online source.
 studio_native_audit = (foobar / "batch_preview_dialog.cpp").read_text(encoding="utf-8")
+query_edit_handler = studio_native_audit.split(
+    "if(native_dispatch_online_query_edit(message,wp,", 1
+)[1].split("if(id==IDC_METADATA_ONLINE_PROVIDER", 1)[0]
+for token in ("state->online_raw_route_valid,",
+              "invalidate_online_request(*state);", "update_table(*state);",
+              "mark_stale_workspace(*state);"):
+    if token not in query_edit_handler:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: actual query edit route refresh missing " + token)
+native_query_test = (root / "tests" / "native_preview_controls_tests.cpp").read_text(encoding="utf-8")
+for token in ("test_query_edit_invalidates_joint_queue_hwnd(dialog);",
+              "native_dispatch_online_query_edit(message,wp,",
+              "SetWindowTextW(edit,L\"changed search\")",
+              "refreshes==1", "table.raw_collision_items==0",
+              "ListView_GetItemCount(file_locations)==0"):
+    if token not in native_query_test:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: native HWND query transition absent " + token)
 audit_body = studio_native_audit.split(
     "std::wstring workflow_audit_summary(", 1)[1].split(
     "void show_workflow_audit(", 1)[0]
