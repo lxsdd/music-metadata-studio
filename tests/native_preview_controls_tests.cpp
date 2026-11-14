@@ -551,6 +551,9 @@ void test_candidate_switch_invalidates_joint_queue_hwnd(HWND dialog) {
           test_request_context.matches(settled_version) &&
           cue_queue.stage(0)==CueQueueStage::Stale,
           "same-source reselect does not reapply or refresh stale result");
+    // Source 0 is still selected in the multi-select grid. A repeated
+    // SetItemState alone does not emit LVN_ITEMCHANGED on Windows.
+    ListView_SetItemState(master,0,0,LVIS_SELECTED);
     ListView_SetItemState(master,0,LVIS_SELECTED,LVIS_SELECTED);
     check(source_current==0 && discards==2 && refreshes==2 &&
           !test_request_context.matches(old_result_version) &&
