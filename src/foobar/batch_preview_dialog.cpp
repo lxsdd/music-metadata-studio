@@ -7956,14 +7956,53 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 const bool selected_source_changed =
                     *track != state->selected_track_index;
                 if (selected_source_changed) {
-                    invalidate_online_request(*state);
-                    state->online_included_fields.clear();
-                    state->online_date_targets.clear();
-                    state->online_field_preview.reset();
-                    state->online_physical_edition.reset();
-                    state->online_field_snapshot.reset();
-                    state->online_raw_target_observation.reset();
-                    state->online_edition_source=(std::numeric_limits<std::size_t>::max)();
+                    // The old selected edition may have changed a raw
+                    // destination and collision/CUE plan. Capture that fact
+                    // before invalidate_online_request clears its evidence.
+                    const bool had_projection=
+                        state->online_field_snapshot.has_value() &&
+                        !state->online_included_fields.empty();
+                    try {
+                        native_refresh_online_candidate_selection(
+                            state->selected_track_index,*track,had_projection,
+                            [&](std::size_t next_source) {
+                                invalidate_online_request(*state);
+                                state->online_included_fields.clear();
+                                state->online_date_targets.clear();
+                                state->online_field_preview.reset();
+                                state->online_physical_edition.reset();
+                                state->online_field_snapshot.reset();
+                                state->online_edition_source=
+                                    (std::numeric_limits<std::size_t>::max)();
+                                // An old provider hit must not reappear if
+                                // the user later returns to its source row.
+                                state->candidate_source_index=
+                                    (std::numeric_limits<std::size_t>::max)();
+                                state->candidate_rows.clear();
+                                state->candidate_view_order.clear();
+                                state->musicbrainz_detail_groups.clear();
+                                state->musicbrainz_results.clear();
+                                state->discogs_results.clear();
+                                state->discogs_direct_edition.reset();
+                                state->musicbrainz_live_view=false;
+                                state->musicbrainz_release_loaded=false;
+                                state->discogs_live_view=false;
+                                state->cue_inspection_mode=false;
+                                state->cue_candidate_comparison_mode=false;
+                                state->cue_return.reset();
+                                state->search_plan_identity.clear();
+                                state->musicbrainz_has_published_attempt=false;
+                                state->search_attempt_notice.clear();
+                                state->selected_track_index=next_source;
+                            },
+                            [&] { update_table(*state); });
+                    } catch (...) {
+                        mark_stale_workspace(*state);
+                        SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                            L"Candidate switch aborted: stale File/CUE route. "
+                            L"Refresh snapshot; no result was applied.");
+                        return TRUE;
+                    }
                 }
                 state->selected_track_index = *track;
                 // Ordinary selection must not override manually typed terms.

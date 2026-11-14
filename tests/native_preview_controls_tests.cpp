@@ -1,6 +1,7 @@
 #include "../src/foobar/native_preview_controls.h"
 #include "../src/foobar/native_route_postimage.h"
 #include "djmeta/batch_preview.h"
+#include "djmeta/cue_inspection_queue.h"
 #include "../src/foobar/field_evidence_receipt.h"
 #include "../include/djmeta/title_version_review.h"
 #include "../src/foobar/session_preview_history.h"
@@ -90,6 +91,10 @@ std::function<void(djmeta_foobar::NativeRoutePreviewScope)> route_hwnd_fixture;
 bool query_route_valid=false;
 std::function<void()> query_route_invalidate;
 std::function<void()> query_route_refresh;
+std::function<void(std::size_t)> source_change_discard;
+std::function<void()> source_change_refresh;
+bool source_had_projection=false;
+std::size_t source_current=0;
 INT_PTR CALLBACK test_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
     if(const auto scope=djmeta_foobar::native_route_preview_command_scope(
            message,wp)) {
@@ -147,9 +152,15 @@ INT_PTR CALLBACK test_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM l
             hdr->code == LVN_ITEMCHANGED) {
             const auto* change = reinterpret_cast<const NMLISTVIEW*>(lp);
             if (const auto track = djmeta_foobar::native_selected_track_change(
-                    *change, active_track_order, rebuilding_master))
+                    *change, active_track_order, rebuilding_master)) {
                 notified_track_identity = *track;
-            else if (djmeta_foobar::native_master_track_deselected(
+                if(source_change_discard)
+                    djmeta_foobar::native_refresh_online_candidate_selection(
+                        source_current,*track,source_had_projection,
+                        source_change_discard,[&] {
+                            if(source_change_refresh) source_change_refresh();
+                        });
+            } else if (djmeta_foobar::native_master_track_deselected(
                          *change,rebuilding_master))
                 ++notified_master_deselections;
         }
@@ -411,6 +422,152 @@ void test_query_edit_invalidates_joint_queue_hwnd(HWND dialog) {
     query_route_refresh={};
     djmeta_foobar::native_set_location_ownerdata_count(
         file_locations,static_cast<std::size_t>(original_count));
+}
+
+void test_candidate_switch_invalidates_joint_queue_hwnd(HWND dialog) {
+    using namespace djmeta;
+    using namespace djmeta_foobar;
+    const HWND master=GetDlgItem(dialog,IDC_METADATA_TRACK_LIST);
+    const HWND file_locations=GetDlgItem(dialog,IDC_BATCH_LIST);
+    check(master && file_locations,"candidate switch uses production HWND controls");
+    BatchPreviewInputRow first;
+    first.source_path="file:///Z:/qa/a.flac";
+    first.physical_id="disk:qa-A";
+    first.profile="QA";
+    first.destination_root="Z:\\QA";
+    first.raw_relative_path="Artist/Original.flac";
+    first.physical_source_qualified=true;
+    auto second=first;
+    second.source_path="file:///Z:/qa/b.flac";
+    second.physical_id="disk:qa-B";
+    second.raw_relative_path="Artist/Shared.flac";
+    const std::string source_guard="guard:qa-A";
+    std::string route_after="Artist/Shared.flac";
+    query_route_valid=true;
+    std::optional<JointRawTargetObservation> observation;
+    JointRawTargetObservation inspected;
+    inspected.source_index=0;
+    inspected.raw_candidate="Z:\\QA\\Artist/Shared.flac";
+    inspected.source_physical_key="disk:qa-A";
+    inspected.source_guard=source_guard;
+    inspected.target.state=HostFileState::ExistingFile;
+    inspected.target.host_physical_key="disk:existing-target";
+    inspected.target.source_guard="guard:target";
+    observation=inspected;
+    std::vector<BatchPreviewInputRow> inputs;
+    BatchPreviewTable table;
+    CueInspectionQueue cue_queue;
+    int refreshes=0,discards=0;
+    const int original_file_count=ListView_GetItemCount(file_locations);
+    const int original_master_count=ListView_GetItemCount(master);
+    const auto original_order=active_track_order;
+    const auto original_source=source_current;
+    const auto original_projection=source_had_projection;
+    const auto original_veto=live_included_online_fields;
+    const auto rebuild=[&] {
+        ++refreshes;
+        inputs={native_joint_route_queue_input(first,true,0,0,
+                    query_route_valid?1:0,query_route_valid,route_after,
+                    "disk:qa-A",source_guard,observation),second};
+        table=describe_batch_preview(inputs);
+        std::vector<CueQueuePlanRow> plan;
+        for(std::size_t i=0;i<inputs.size();++i)
+            plan.push_back({inputs[i].physical_id,
+                i==0?source_guard:"guard:qa-B",
+                inputs[i].destination_root,inputs[i].raw_relative_path,
+                FileAction::None,false,true,false,
+                table.rows[i].has_raw_target_collision});
+        cue_queue.observe(plan);
+        const auto visible=filter_batch_location_view(
+            table,{0,1},BatchLocationQueue::RawCollisions);
+        native_set_location_ownerdata_count(file_locations,visible.size());
+    };
+    // Start with a selected online edition and a collision in the full
+    // physical batch. Its CUE receipt must expire with the old route plan.
+    rebuild();
+    auto& receipt=cue_queue.receipts[0];
+    receipt.epoch=cue_queue.epoch;
+    receipt.files=1;
+    receipt.qualified_graph=true;
+    receipt.original_kept=true;
+    const auto old_epoch=cue_queue.epoch;
+    const auto old_result_version=test_request_context.current();
+    check(table.raw_collision_items==2 && cue_queue.stage(0)==
+              CueQueueStage::OriginalKept &&
+          ListView_GetItemCount(file_locations)==2,
+          "old candidate collision and CUE receipt are visible before switch");
+    source_current=0;
+    source_had_projection=true;
+    source_change_discard=[&](std::size_t next) {
+        ++discards;
+        test_request_context.invalidate();
+        query_route_valid=false;
+        route_after.clear();
+        observation.reset();
+        source_current=next;
+    };
+    source_change_refresh=rebuild;
+    // The test callback receives actual owner-data ListView notifications.
+    // A wrong control and a programmatic rebind must not discard results.
+    NMLISTVIEW foreign{};
+    foreign.hdr.hwndFrom=master;
+    foreign.hdr.idFrom=IDC_BATCH_LIST;
+    foreign.hdr.code=LVN_ITEMCHANGED;
+    foreign.iItem=1;
+    foreign.uChanged=LVIF_STATE;
+    foreign.uNewState=LVIS_SELECTED;
+    SendMessageW(dialog,WM_NOTIFY,IDC_BATCH_LIST,
+                 reinterpret_cast<LPARAM>(&foreign));
+    check(discards==0 && refreshes==1 &&
+          test_request_context.matches(old_result_version),
+          "foreign notify cannot discard selected online evidence");
+    rebuilding_master=true;
+    active_track_order={0,1};
+    check(ListView_SetItemCountEx(master,2,0)!=FALSE,
+          "owner-data master accepts two source rows");
+    ListView_SetItemState(master,0,LVIS_SELECTED,LVIS_SELECTED);
+    rebuilding_master=false;
+    // The earlier ITEMCHANGING veto is tested separately. Force this
+    // committed ITEMCHANGED edge with no veto to cover host rebinds too.
+    live_included_online_fields=false;
+    ListView_SetItemState(master,1,LVIS_SELECTED,LVIS_SELECTED);
+    check(notified_track_identity==1 && source_current==1 &&
+          discards==1 && refreshes==2 && !query_route_valid &&
+          !test_request_context.matches(old_result_version),
+          "real LVN_ITEMCHANGED invalidates prior candidate and pending result");
+    check(table.raw_collision_items==0 &&
+          !table.rows[0].has_raw_target_collision &&
+          inputs[0].raw_relative_path==first.raw_relative_path &&
+          inputs[0].raw_target_presence==RawTargetPresence::NotInspected &&
+          ListView_GetItemCount(file_locations)==0 &&
+          cue_queue.epoch==old_epoch+1 &&
+          !cue_queue.plan[0].raw_collision &&
+          cue_queue.stage(0)==CueQueueStage::Stale,
+          "candidate change refreshes table and expires stale CUE evidence");
+    const auto settled_version=test_request_context.current();
+    ListView_SetItemState(master,1,0,LVIS_SELECTED);
+    ListView_SetItemState(master,1,LVIS_SELECTED,LVIS_SELECTED);
+    check(discards==1 && refreshes==2 &&
+          test_request_context.matches(settled_version) &&
+          cue_queue.stage(0)==CueQueueStage::Stale,
+          "same-source reselect does not reapply or refresh stale result");
+    ListView_SetItemState(master,0,LVIS_SELECTED,LVIS_SELECTED);
+    check(source_current==0 && discards==2 && refreshes==2 &&
+          !test_request_context.matches(old_result_version) &&
+          table.raw_collision_items==0 &&
+          cue_queue.stage(0)==CueQueueStage::Stale,
+          "returning to former source cannot revive its candidate or CUE receipt");
+    rebuilding_master=true;
+    ListView_SetItemCountEx(master,original_master_count,0);
+    rebuilding_master=false;
+    active_track_order=original_order;
+    source_change_discard={};
+    source_change_refresh={};
+    source_current=original_source;
+    source_had_projection=original_projection;
+    live_included_online_fields=original_veto;
+    native_set_location_ownerdata_count(file_locations,
+        static_cast<std::size_t>(original_file_count));
 }
 
 int main() {
@@ -961,6 +1118,7 @@ int main() {
     check(dialog != nullptr, "actual production dialog template instantiation");
     test_joint_route_hwnd(dialog);
     test_query_edit_invalidates_joint_queue_hwnd(dialog);
+    test_candidate_switch_invalidates_joint_queue_hwnd(dialog);
     const HWND history_source=GetDlgItem(dialog,IDC_BATCH_HISTORY_SOURCE);
     const HWND history_source_label=GetDlgItem(dialog,IDC_BATCH_HISTORY_SOURCE_LABEL);
     check(history_source && history_source_label &&

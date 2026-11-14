@@ -735,6 +735,20 @@ inline std::optional<std::size_t> native_selected_track_change(
     return view_order[row];
 }
 
+// A committed owner-data selection can outlive an earlier ITEMCHANGING
+// veto (for example after a host-driven rebind). Discard the old source's
+// provider evidence first, then rebuild its projected File/CUE queues once.
+// An ordinary source switch without an online overlay needs no batch scan.
+template<class Discard,class Refresh>
+inline bool native_refresh_online_candidate_selection(
+    std::size_t current_source,std::size_t next_source,bool had_projection,
+    Discard&& discard,Refresh&& refresh) {
+    if(current_source==next_source) return false;
+    discard(next_source);
+    if(had_projection) refresh();
+    return true;
+}
+
 // Deselecting a master row changes the batch scope count without choosing
 // a new current source. Refresh only the caption, never retarget the detail
 // grid or perform a network/source revalidation on this notification.

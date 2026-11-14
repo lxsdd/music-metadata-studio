@@ -1180,6 +1180,28 @@ if 'native_preview_command(message, wp)' not in batch_table_dialog or 'native_pr
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: actual production event decoder not shared with resource-backed GUI test")
 if 'native_selected_track_change(' not in batch_table_dialog or 'native_selected_track_change(' not in gui_test:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: actual track selection notification not exercised with shared event adapter")
+candidate_change_handler = batch_table_dialog.split(
+    'header->code == LVN_ITEMCHANGED) {', 1
+)[1].split('header->code == LVN_GETINFOTIPW)', 1)[0]
+for marker in ('native_refresh_online_candidate_selection(',
+               'state->online_field_snapshot.has_value()',
+               'invalidate_online_request(*state);',
+               'state->online_field_snapshot.reset();',
+               'state->candidate_source_index=',
+               'state->candidate_rows.clear();',
+               'state->discogs_results.clear();',
+               'state->musicbrainz_results.clear();',
+               'state->selected_track_index=next_source;',
+               'update_table(*state);', 'mark_stale_workspace(*state);'):
+    if marker not in candidate_change_handler:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: selected candidate File/CUE refresh missing " + marker)
+for marker in ('test_candidate_switch_invalidates_joint_queue_hwnd(dialog);',
+               'source_change_discard=[&]', 'native_refresh_online_candidate_selection(',
+               'ListView_SetItemState(master,1,LVIS_SELECTED,LVIS_SELECTED);',
+               'cue_queue.stage(0)==CueQueueStage::Stale',
+               '!test_request_context.matches(old_result_version)'):
+    if marker not in gui_test:
+        raise SystemExit("STATIC FOOBAR AUDIT FAIL: native candidate switch regression missing " + marker)
 if 'selected_native_view_ids(' not in batch_table_dialog or 'restore_native_view_selection(' not in batch_table_dialog:
     raise SystemExit("STATIC FOOBAR AUDIT FAIL: production sort/review does not use tested stable selection adapter")
 for token in ['load_track_grid_layout()', 'load_detail_grid_layout()',
