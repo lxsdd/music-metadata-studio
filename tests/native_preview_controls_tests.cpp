@@ -502,6 +502,7 @@ void test_candidate_switch_invalidates_joint_queue_hwnd(HWND dialog) {
         ++discards;
         test_request_context.invalidate();
         query_route_valid=false;
+        source_had_projection=false;
         route_after.clear();
         observation.reset();
         source_current=next;
