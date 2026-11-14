@@ -2,17 +2,16 @@
 
 **Entwicklungsmodus; keine öffentliche Binär-Freigabe.** Dieses Verfahren liefert ein
 persönlich auf dem eigenen Windows-Rechner kompiliertes foobar2000-Paket für die
-gesonderte Endabnahme, ohne GitHub-Actions-Artefakte oder GitHub-Releases anzulegen. Die SDK-Beschaffung
-verwendet ausschließlich einen temporären, geprüften Git-Checkout; er wird beim
-Aufräumen des isolierten Buildordners wieder entfernt. Eine Rechtefreigabe zur Weitergabe ist damit **nicht**
+gesonderte Endabnahme, ohne GitHub-Actions-Artefakte, GitHub-Releases oder dauerhaft
+lokale Repositories anzulegen. Der SDK-Git-Checkout liegt nur im temporären Buildordner. Eine Rechtefreigabe zur Weitergabe ist damit **nicht**
 verbunden.
 
 ## Voraussetzungen
 
 - Windows 10/11; Visual Studio 2022 **C++ Build Tools** mit MSBuild / v143
   (PowerShell aus **Developer PowerShell for VS 2022** starten)
-- Git (git.exe) und Netzwerkzugriff auf GitHub; **kein** 7-Zip und kein Zugriff
-  auf foobar2000.org für die SDK-Beschaffung erforderlich
+- Git (git.exe) und Netzwerkzugriff auf GitHub; **kein** 7-Zip und
+  **kein** Zugriff auf foobar2000.org für das SDK erforderlich
 - Genügend freier temporärer Festplattenspeicher für SDK, Win32/x64-Builds
 - Ein vollständig bestimmter **40-stelliger lowercase Commit-SHA**, der explizit
   für den privaten Abnahme-Build ausgewählt wurde
@@ -37,8 +36,7 @@ Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/lxsdd
 
 Der Helper lädt das exakte Commit-Archiv per HTTPS von `codeload.github.com`,
 prüft dessen Commit-Präfix, erstellt Win32-/x64-DLLs mit den unveränderten
-Projekt-Buildskripten und dem auf **Git-Commit plus Git-Tree fixierten offiziellen
-SDK-Quellstand vom 01.10.2026**,
+Projekt-Buildskripten und dem **auf Git-Commit und Git-Tree gepinnten SDK-Quellstand 2026-10-01** (Originalarchiv-Hash wird nicht als selbst geprüft ausgegeben),
 nutzt das bestehende Original-Paketierungsskript, verifiziert PE-Maschinenkennung
 und SHA-256 sowie Git-SHA-Eintrag im Build-Manifest und kopiert ausschließlich
 Komponente, Manifest und Prüfsummendatei in:
@@ -52,15 +50,13 @@ es werden keine vorhandenen Daten gelöscht.
 
 **Kein automatisches Installieren, Patchen, Tagging, Datenbank- oder Audiozugriff.**
 Das Paket darf erst nach separater Freigabe und Prüfung im Endgerät installiert
-werden. Eine ältere Bootstrap-Variante der vollständigen lokalen Download-und-Build-Reihenfolge wurde auf einem
-Windows-Runner einschließlich Win32/x64, Paketmanifest und SHA-256 bereits
-nachgewiesen ([Lauf 39435120160](https://github.com/lxsdd/music-metadata-studio/actions/runs/39435120160)).
-Der Standalone-Aufruf aus einem isolierten Windows-Temp-Ordner ohne
-Projektdateien wurde separat erfolgreich geprüft
-([Lauf 39438568386](https://github.com/lxsdd/music-metadata-studio/actions/runs/39438568386)).
-Beide historischen Läufe veröffentlichten **keine Binär-Artefakte**. Diese Belege
-qualifizieren **nicht** automatisch die jetzt übernommene Git-Tree-basierte SDK-Beschaffung;
-sie benötigt die aktuellen separaten Win32/x64 CI-Prüfungen. Eine Installation
+werden. Die früheren Hilfsskript-Läufe [39435120160](https://github.com/lxsdd/music-metadata-studio/actions/runs/39435120160)
+und [39438568386](https://github.com/lxsdd/music-metadata-studio/actions/runs/39438568386)
+qualifizierten den **Vorgänger**, nicht die Studio-spezifischen Projektnamen.
+Die aktuelle Studio-Version hat einen eigenen Win32/x64-Preflight-Gate in
+der foobar-CI. Eine **vollständige lokale Paketerstellung** auf dem letzten
+freigegebenen SHA und die echte Endgerätabnahme bleiben separat nachzuweisen.
+Keine Binär-Artefakte werden aus einem öffentlichen PR bereitgestellt. Eine Installation
 und die **echte Endgerätabnahme auf deinem Windows-Rechner** bleiben separat
 und sind nicht durch GitHub-CI ersetzbar.
 
@@ -68,3 +64,51 @@ Die bestehenden öffentlichen Sicherheits-PRs verhindern parallel, dass ein
 Github-Actions-Build des gleichen Quellcodes als öffentlich abrufbare DLL
 hochgeladen wird. Auf geschütztem `main` wird dies erst nach separater
 ausdrücklicher Merge-Freigabe wirksam.
+
+
+## Studio-spezifische Paketidentität
+
+Diese Version prüft ausdrücklich `foo_music_metadata_studio.vcxproj`, die
+gebauten `foo_music_metadata_studio.dll` für Win32 und x64 und das Paket
+`foo_music_metadata_studio-<VERSION>.fb2k-component`. Sie darf weder das
+alte `foo_dj_metadata_normalizer`-Paket erwarten noch es als Studio-Build
+umbenennen. SHA-Pin, Manifest-Prüfung, Architektur-Kennungen und `SHA256SUMS`
+bleiben verpflichtend. Der Vorgang installiert keine Komponente und
+schreibt weder Musikdateien noch CUEs oder Metadaten.
+
+## Optionale Schreib-Endabnahme (nicht öffentlich)
+
+Die normale Ausführung bleibt **read-only**. Erst der ausdrücklich gesetzte
+Schalter `-EnablePhysicalWrites` baut die private, separat gekennzeichnete
+Abnahmevariante mit freigegebenen **physischen SDK-Tagänderungen** und
+**externen CUE-Wertänderungen**. Sie schreibt weiterhin niemals im
+Hintergrund; jede Dateiänderung benötigt eine konkrete Vorschau und eine
+abschließende Bestätigung im foobar-Dialog. Eingebettete CUE-Schreibvorgänge,
+CUE-`FILE`-Referenzänderungen und File Operations bleiben deaktiviert.
+
+```powershell
+& $helper -SourceSha $sha -OutputDirectory 'C:\Temp\MMS-PrivateAcceptance' -EnablePhysicalWrites
+```
+
+Die beiden Varianten erhalten unterschiedliche Ausgabeordner. Das
+`BUILD-MANIFEST.txt` benennt `physical_tags_write_enabled`,
+`external_cue_write_enabled` und den auf `value-only-exact-edition`
+begrenzten CUE-Schreibumfang. Ein privater Build ist noch keine
+Windows-foobar-Praxisabnahme.
+
+## Private SHA-exact package qualification in the trusted Studio PR
+
+The private package job previously remained **SKIPPED** on all Studio PR
+runs, because its sole trigger was an explicitly marked branch `push`.
+It now follows the existing successful static, original Win32/x64 host-build
+and real SDK physical/CUE fixture tests on **trusted same-repository Studio
+PRs only**, or the existing one-shot marked branch-push event. A fork or
+another branch cannot activate the job. For a PR it reads
+`github.event.pull_request.head.sha` (the real Studio source revision),
+not GitHub's synthetic merge ref. It builds the **read-only** acceptance
+package in a unique disposable GitHub runner directory, checks actual Win32
+and x64 PE IDs, the matching 40-character source revision, manifest and
+SHA-256, and deletes the entire runner temporary output afterward. No
+component DLL, package, token, user path or media is uploaded or publicly
+released. This tests technical reproducibility, **not** installation into
+the owner's foobar or authorization of productive tag/CUE/FileOps writes.

@@ -2,7 +2,8 @@
 param(
     [string]$SourceSha = '',
     [string]$OutputDirectory = '',
-    [switch]$PreflightOnly
+    [switch]$PreflightOnly,
+    [switch]$EnablePhysicalWrites
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -10,7 +11,7 @@ if ($env:OS -ne 'Windows_NT') { throw 'Windows 10/11 required.' }
 $msbuild = Get-Command msbuild.exe -ErrorAction SilentlyContinue
 $git = Get-Command git.exe -ErrorAction SilentlyContinue
 if (-not $msbuild -or -not $git) {
-    throw 'Preflight: Visual Studio C++ MSBuild and Git are required (SDK comes from verified Git source); 7-Zip is no longer required. No installation attempted.'
+    throw 'Preflight: VS2022 C++ MSBuild and Git are required (pinned SDK comes from GitHub). 7-Zip and manufacturer downloads are not required. No installation attempted.'
 }
 # Runs standalone from any directory, including a single downloaded script
 # under $env:TEMP. Source project files are checked after exact-SHA download.
@@ -20,7 +21,9 @@ if ($PreflightOnly) {
 }
 if ($SourceSha -cnotmatch '^[a-f0-9]{40}$') { throw 'Pass exact lowercase 40-digit Git SHA.' }
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) { throw 'Explicit -OutputDirectory required.' }
-$destination = Join-Path ([IO.Path]::GetFullPath($OutputDirectory)) ("MMS-local-" + $SourceSha)
+$mode = if ($EnablePhysicalWrites) { 'physical-tags' } else { 'readonly' }
+$suffix = if ($EnablePhysicalWrites) { '-physical-tags' } else { '' }
+$destination = Join-Path ([IO.Path]::GetFullPath($OutputDirectory)) ("MMS-local-" + $SourceSha + $suffix)
 if (Test-Path -LiteralPath $destination) { throw 'Output already exists: refuse overwrite.' }
 $temp = Join-Path ([IO.Path]::GetTempPath()) ('m-' + [guid]::NewGuid().ToString('N').Substring(0,8))
 New-Item -ItemType Directory -Path $temp | Out-Null
@@ -42,18 +45,21 @@ try {
     $root = Join-Path $temp 'r'
     Move-Item -LiteralPath $roots[0].FullName -Destination $root
     foreach ($f in @('scripts\build-foobar.ps1','scripts\package-foobar.ps1',
-                     'scripts\bootstrap-sdk.ps1','VERSION','foo_dj_metadata_normalizer.vcxproj')) {
+                     'scripts\bootstrap-sdk.ps1','VERSION','foo_music_metadata_studio.vcxproj')) {
         if (-not (Test-Path -LiteralPath (Join-Path $root $f) -PathType Leaf)) {
             throw "Pinned source missing $f"
         }
     }
+    # Keep the exact-SHA source build non-public and use only pinned SDK
+    # acquisition rules within this repository's own bootstrap script.
     $build = Join-Path $root 'scripts\build-foobar.ps1'
-    & $build -Platform Win32 -Configuration Release -PlatformToolset v143
+    & $build -Platform Win32 -Configuration Release -PlatformToolset v143 -EnablePhysicalWrites:$EnablePhysicalWrites
     if ($LASTEXITCODE -ne 0) { throw 'Win32 build failed.' }
-    & $build -Platform x64 -Configuration Release -PlatformToolset v143
+    & $build -Platform x64 -Configuration Release -PlatformToolset v143 -EnablePhysicalWrites:$EnablePhysicalWrites
     if ($LASTEXITCODE -ne 0) { throw 'x64 build failed.' }
-    $dll32 = Join-Path $root 'out\foobar\Win32\Release\foo_dj_metadata_normalizer.dll'
-    $dll64 = Join-Path $root 'out\foobar\x64\Release\foo_dj_metadata_normalizer.dll'
+    $binaryRoot = if ($EnablePhysicalWrites) { 'out\physical-write-qa' } else { 'out\foobar' }
+    $dll32 = Join-Path $root ($binaryRoot + '\Win32\Release\foo_music_metadata_studio.dll')
+    $dll64 = Join-Path $root ($binaryRoot + '\x64\Release\foo_music_metadata_studio.dll')
     foreach ($p in @($dll32,$dll64)) {
         if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { throw "Missing compiled DLL $p" }
     }
@@ -62,16 +68,26 @@ try {
         throw 'Unexpected version string.'
     }
     $stage = Join-Path $temp 'package'
-    & (Join-Path $root 'scripts\package-foobar.ps1') -Win32Dll $dll32 -X64Dll $dll64 -OutputDirectory $stage -Version $version -Commit $SourceSha
-    $file = Join-Path $stage ("foo_dj_metadata_normalizer-" + $version + ".fb2k-component")
+    & (Join-Path $root 'scripts\package-foobar.ps1') -Win32Dll $dll32 -X64Dll $dll64 -OutputDirectory $stage -Version $version -Commit $SourceSha -WriteMode $mode
+    $file = Join-Path $stage ("foo_music_metadata_studio-" + $version + ".fb2k-component")
     $manifest = Join-Path $stage 'BUILD-MANIFEST.txt'
     $sums = Join-Path $stage 'SHA256SUMS.txt'
     foreach ($p in @($file,$manifest,$sums)) {
         if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { throw 'Incomplete package.' }
     }
     $proof = Get-Content -LiteralPath $manifest -Raw
+    $analysisOnly = if ($EnablePhysicalWrites) { 'false' } else { 'true' }
+    $physicalWriteEnabled = if ($EnablePhysicalWrites) { 'true' } else { 'false' }
+    $externalCueWriteEnabled = $physicalWriteEnabled
+    $externalCueScope = if ($externalCueWriteEnabled -eq 'true') { 'value-only-exact-edition' } else { 'none' }
     foreach ($value in @("commit=$SourceSha",'root_dll_machine=0x014C',
-                         'x64_dll_machine=0x8664','status=PASS')) {
+                         'x64_dll_machine=0x8664',"write_mode=$mode",
+                         "analysis_only=$analysisOnly",
+                         "physical_tags_write_enabled=$physicalWriteEnabled",
+                         "external_cue_write_enabled=$externalCueWriteEnabled",
+                         "external_cue_write_scope=$externalCueScope",
+                         'embedded_cue_write_enabled=false',
+                         'file_operations_write_enabled=false','status=PASS')) {
         if (-not $proof.Contains($value)) { throw "Missing manifest proof: $value" }
     }
     $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -83,8 +99,11 @@ try {
     Copy-Item -LiteralPath $file,$manifest,$sums -Destination $destination
     $copiedHash = (Get-FileHash -LiteralPath (Join-Path $destination (Split-Path -Leaf $file)) -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($copiedHash -ne $hash) { throw 'Local copy checksum mismatch.' }
-    Write-Host "LOCAL_ACCEPTANCE_BUILD=PASS PATH=$destination SOURCE_SHA=$SourceSha SHA256=$hash"
+    Write-Host "LOCAL_ACCEPTANCE_BUILD=PASS PATH=$destination SOURCE_SHA=$SourceSha SHA256=$hash WRITE_MODE=$mode"
     Write-Host 'No installation, tag/database/music writes or public GitHub binary artifacts.'
+    if ($EnablePhysicalWrites) {
+        Write-Warning 'Private opt-in physical tag writer: use only after review and on backed-up files. CUE and FileOps writing remain disabled.'
+    }
 } finally {
     if (Test-Path -LiteralPath $temp) {
         Remove-Item -LiteralPath $temp -Force -Recurse -ErrorAction SilentlyContinue
