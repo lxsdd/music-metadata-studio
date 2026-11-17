@@ -44,6 +44,13 @@ void run_studio_original_dialog_qa(HWND dialog) {
     require(state->metadata_track_list != nullptr);
     const auto original_entries=state->entries;
     const auto original_order=state->track_view_order;
+    const auto original_summaries=state->track_summaries;
+    const auto original_labels=state->cached_track_sort_labels;
+    const auto original_ascending=state->cached_name_order_ascending;
+    const auto original_descending=state->cached_name_order_descending;
+    const auto original_discovery=state->track_discovery;
+    const auto original_grid=state->track_grid;
+    const auto original_detail=state->selected_track_index;
     const auto original_selected=selected_native_view_ids(
         state->metadata_track_list,state->track_view_order);
     const bool original_candidate=state->show_candidate;
@@ -52,6 +59,13 @@ void run_studio_original_dialog_qa(HWND dialog) {
         state->updating_track_selection=true;
         state->entries=original_entries;
         state->track_view_order=original_order;
+        state->track_summaries=original_summaries;
+        state->cached_track_sort_labels=original_labels;
+        state->cached_name_order_ascending=original_ascending;
+        state->cached_name_order_descending=original_descending;
+        state->track_discovery=original_discovery;
+        state->track_grid=original_grid;
+        state->selected_track_index=original_detail;
         state->show_candidate=original_candidate;
         state->stale=false;
         ListView_SetItemCountEx(state->metadata_track_list,
@@ -129,6 +143,55 @@ void run_studio_original_dialog_qa(HWND dialog) {
         state->stale=true; rejected(); state->stale=false;
         state->show_candidate=false; rejected(); state->show_candidate=true;
         project({2,10},{2,10}); accepted({2,10});
+        // Real production table rebuild: two explicitly marked MP3s are
+        // filtered away while other qualified MP3s remain visible.
+        // A visible detail/focus fallback is NOT a new CUE selection.
+        state->track_summaries.resize(12);
+        state->cached_track_sort_labels.clear();
+        for(std::size_t i=0;i<12;++i) {
+            state->track_summaries[i].source_index=i;
+            state->track_summaries[i].music_changes=(i==2 || i==10)?0:1;
+            state->track_summaries[i].extended_changes=0;
+            state->cached_track_sort_labels.push_back(
+                "synthetic-track-"+std::to_string(100+i));
+        }
+        state->cached_name_order_ascending.clear();
+        state->cached_name_order_descending.clear();
+        state->track_grid.sort_column=0;
+        state->track_grid.sort_descending=false;
+        state->track_discovery=djmeta::TrackDiscovery::All;
+        project({0,1,2,3,4,5,6,7,8,9,10,11},{2,10});
+        update_master_table(*state);
+        accepted({2,10});
+        state->track_discovery=djmeta::TrackDiscovery::Changed;
+        update_master_table(*state);
+        require(!state->track_view_order.empty());
+        require(std::find(state->track_view_order.begin(),
+                          state->track_view_order.end(),2)==state->track_view_order.end());
+        require(std::find(state->track_view_order.begin(),
+                          state->track_view_order.end(),10)==state->track_view_order.end());
+        require(ListView_GetSelectedCount(state->metadata_track_list)==0);
+        rejected();
+        require(!IsWindowEnabled(GetDlgItem(dialog,IDC_METADATA_GENERATE_CUE)));
+        // A user mark after filtering, not automatic focus, authorizes scope.
+        const auto newly_visible=state->track_view_order.front();
+        project(state->track_view_order,{newly_visible});
+        accepted({newly_visible});
+        // A partial intersection retains only the explicitly marked visible
+        // identity, including across descending sort.
+        state->track_discovery=djmeta::TrackDiscovery::All;
+        project({0,1,2,3,4,5,6,7,8,9,10,11},{2,10});
+        state->track_summaries[2].music_changes=1;
+        state->track_grid.sort_descending=true;
+        update_master_table(*state);
+        state->track_discovery=djmeta::TrackDiscovery::Changed;
+        update_master_table(*state);
+        accepted({2});
+        // Refresh-like empty mark: rebuilding must never invent selection.
+        project(state->track_view_order,{});
+        update_master_table(*state);
+        require(ListView_GetSelectedCount(state->metadata_track_list)==0);
+        rejected();
     } catch (...) { restore(); throw; }
     restore();
 }

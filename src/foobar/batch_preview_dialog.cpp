@@ -2714,16 +2714,17 @@ void update_master_table(PreviewState& state) {
     std::vector<std::size_t> selected;
     for (const auto id : previously_selected)
         if (visible.count(id) != 0) selected.push_back(id);
-    if (selected.empty() && !state.track_view_order.empty()) {
-        selected.push_back(visible.count(state.selected_track_index)
-            ? state.selected_track_index : state.track_view_order.front());
-    }
-    // Focus and selected-track detail always refer to one selected source.
+    // Filtering may remove every explicitly marked row. Keep a visible
+    // detail/focus target, but NEVER turn it into an LVIS_SELECTED action
+    // scope: Generate CUE and batch review require a deliberate mark.
     if (!selected.empty() &&
         std::find(selected.begin(), selected.end(), state.selected_track_index) == selected.end())
         state.selected_track_index = selected.front();
     else if (selected.empty())
-        state.selected_track_index = state.track_summaries.size();
+        state.selected_track_index = state.track_view_order.empty()
+            ? state.track_summaries.size()
+            : (visible.count(state.selected_track_index)
+                ? state.selected_track_index : state.track_view_order.front());
     if (!state.metadata_track_list) return;
     state.updating_track_selection = true;
     ListView_SetItemCountEx(state.metadata_track_list,
@@ -2732,6 +2733,11 @@ void update_master_table(PreviewState& state) {
     restore_native_view_selection(state.metadata_track_list, state.track_view_order,
                                   selected, state.selected_track_index);
     state.updating_track_selection = false;
+    // A filter rebuild may erase every explicit mark without emitting an
+    // LVN_ITEMCHANGED. Recompute CUE eligibility from the rebuilt native grid.
+    if (state.dialog)
+        EnableWindow(GetDlgItem(state.dialog,IDC_METADATA_GENERATE_CUE),
+            marked_precision_cue_ready(state) ? TRUE : FALSE);
     InvalidateRect(state.metadata_track_list, nullptr, FALSE);
 }
 
