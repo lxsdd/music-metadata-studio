@@ -15,3 +15,5 @@ Read-only donor sources: integrated PR63 `cff4a1cf0f566c2e881c8c3b6c5a7a29c6cea9
 Local Linux build and 70 CTest targets passed during preparation. This is not Windows or final product acceptance. The combined commit must pass its own six required jobs, including the new original-dialog checks inside Win32/x64 windows-build. Owner installed GUI/precision acceptance, productive writer activation, and full one-surface final UX remain open. No merge, release or final acceptance is asserted.
 
 The Precision CUE preview is reached from the captured Studio batch and remains a modeless read-only child workflow. This ports the existing reviewed integration; it does not claim that the final one-window composition or every overall Studio requirement is finished.
+
+CI source correction: required core/static/host/native jobs explicitly check out the PR head (or push SHA) and assert `git rev-parse HEAD` before testing. The first integration run passed against GitHub's synthetic merge tree, so it is not exact-head qualification. Only the new explicitly pinned run qualifies the product commit.
