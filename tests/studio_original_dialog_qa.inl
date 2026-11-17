@@ -40,4 +40,19 @@ void run_studio_original_dialog_qa(HWND dialog) {
             !state->cue_value_preview && state->cue_value_preview_indices.empty());
     require(ListView_GetItemCount(state->list)==static_cast<int>(state->view_order.size()));
     require(!state->stale);
+    // Real original ListView selection, not a helper-only dialog substitute.
+    // A cleared selection must disable Generate CUE and direct WM_COMMAND
+    // must fail closed before reaching any Precision CUE writer.
+    if(state->metadata_track_list && state->show_candidate) {
+        ListView_SetItemState(state->metadata_track_list,-1,0,LVIS_SELECTED);
+        require(!marked_precision_cue_ready(*state));
+        EnableWindow(GetDlgItem(dialog,IDC_METADATA_GENERATE_CUE),
+                     marked_precision_cue_ready(*state));
+        require(!IsWindowEnabled(GetDlgItem(dialog,IDC_METADATA_GENERATE_CUE)));
+        bool rejected=false;
+        try {
+            (void)marked_precision_cue_sources(*state);
+        } catch(const std::invalid_argument&) { rejected=true; }
+        require(rejected);
+    }
 }

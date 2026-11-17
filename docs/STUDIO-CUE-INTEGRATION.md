@@ -17,3 +17,7 @@ Local Linux build and 70 CTest targets passed during preparation. This is not Wi
 The Precision CUE preview is reached from the captured Studio batch and remains a modeless read-only child workflow. This ports the existing reviewed integration; it does not claim that the final one-window composition or every overall Studio requirement is finished.
 
 CI source correction: required core/static/host/native jobs explicitly check out the PR head (or push SHA) and assert `git rev-parse HEAD` before testing. The first integration run passed against GitHub's synthetic merge tree, so it is not exact-head qualification. Only the new explicitly pinned run qualifies the product commit.
+
+## Marked Precision CUE source scope (next source slice)
+
+Generate CUE now resolves only selected visible Find mastergrid rows through immutable `track_view_order` source indices. It rejects empty, stale, virtual, duplicate, non-MP3 or unguarded selections, and caps the marked set at eight independently of batch size. Each selected physical identity is re-probed before the read-only Precision workspace opens. Button eligibility and tooltip use the same scope. The original dialog QA exercises the cleared-selection negative path; broad synthetic multi-row, sort/filter and writer-invocation evidence remains a qualification gate until exact-head CI and fixture expansion.

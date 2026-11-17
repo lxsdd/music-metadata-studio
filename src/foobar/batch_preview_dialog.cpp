@@ -688,6 +688,55 @@ std::vector<std::size_t> captured_cue_carriers(const PreviewState& state) {
             rows.push_back(i);
     return rows;
 }
+
+// Resolve ONLY explicitly marked, currently visible mastergrid rows. The
+// projection is immutable source-index based; neither focus nor a hidden row
+// silently expands the Precision CUE scope.
+std::vector<std::size_t> marked_precision_cue_sources(
+    const PreviewState& state) {
+    if(state.stale || state.refreshing || !state.metadata_track_list ||
+       !state.show_candidate)
+        throw std::invalid_argument("Precision CUE requires a current Find selection.");
+    std::vector<std::size_t> result;
+    std::set<std::size_t> unique_sources;
+    std::set<std::string> unique_physical_keys;
+    int row=-1;
+    while((row=ListView_GetNextItem(
+               state.metadata_track_list,row,LVNI_SELECTED))>=0) {
+        const auto view=static_cast<std::size_t>(row);
+        if(view>=state.track_view_order.size())
+            throw std::invalid_argument("Precision CUE selection mapping expired.");
+        const auto source=state.track_view_order[view];
+        if(source>=state.entries.size() || !unique_sources.insert(source).second)
+            throw std::invalid_argument("Precision CUE source identity is ambiguous.");
+        const auto& entry=state.entries[source];
+        const auto& path=entry.input.source_path;
+        const bool mp3=path.size()>=4 &&
+            path[path.size()-4]=='.' &&
+            (path[path.size()-3]=='m'||path[path.size()-3]=='M') &&
+            (path[path.size()-2]=='p'||path[path.size()-2]=='P') &&
+            path[path.size()-1]=='3';
+        if(!entry.handle || !entry.input.physical_source_qualified ||
+           entry.handle->get_subsong_index()!=0 ||
+           is_external_cue_locator(path) || !mp3 ||
+           entry.observed_physical_key.empty() ||
+           entry.observed_source_guard.empty() ||
+           !unique_physical_keys.insert(entry.observed_physical_key).second)
+            throw std::invalid_argument(
+                "Precision CUE selection contains an unqualified, duplicate or virtual MP3.");
+        result.push_back(source);
+        if(result.size()>8)
+            throw std::invalid_argument("Precision CUE accepts at most eight marked MP3s.");
+    }
+    if(result.empty())
+        throw std::invalid_argument("Mark 1-8 physical MP3s in the visible source grid.");
+    return result;
+}
+
+bool marked_precision_cue_ready(const PreviewState& state) {
+    try { return !marked_precision_cue_sources(state).empty(); }
+    catch(const std::exception&) { return false; }
+}
 // Resolve a single highlighted physical File locations row against current
 // CUE FILE receipts. Sorted/filtered ListView positions are never source IDs.
 // This is display/navigation only and never authorizes an operation.
@@ -2435,7 +2484,7 @@ void update_metadata_table(PreviewState& state) {
         EnableWindow(GetDlgItem(state.dialog, IDC_METADATA_INSPECT_CUE),
                      native_workspace_action_ready(state.stale,cue_readable)?TRUE:FALSE);
         EnableWindow(GetDlgItem(state.dialog, IDC_METADATA_GENERATE_CUE),
-            !state.stale && !state.entries.empty() && state.entries.size()<=8 ? TRUE : FALSE);
+            marked_precision_cue_ready(state) ? TRUE : FALSE);
         const bool pending_online=state.discogs_request ||
             state.musicbrainz_request || state.beatport_public_request;
         EnableWindow(GetDlgItem(state.dialog, IDC_METADATA_MB_SEARCH),
@@ -5435,7 +5484,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_ONLINE_IGNORE_FIELDS,L"Remove highlighted edition fields from the in-memory preview. Existing tags remain intact."},
         {IDC_ONLINE_RESET_FIELDS,L"Clear every included online field for this exact edition. Does not modify any file or saved metadata."},
         {IDC_ONLINE_WRITE_SELECTED,L"QA-only: submit the exact displayed physical tag differences for this one verified file after a separate final confirmation. No CUE or file move."},
-        {IDC_METADATA_GENERATE_CUE,L"Open Precision CUE for the captured batch (1-8 physical MP3s). Review and copy only; file creation remains locked."},
+        {IDC_METADATA_GENERATE_CUE,L"Mark 1-8 visible qualified physical MP3s in the Find source grid (Ctrl/Shift selection). Sort/filter preserves source identities; hidden and unmarked sources are excluded. Read-only preview; creation locked."},
         {IDC_METADATA_INSPECT_CUE,L"Inspect original CUE FILE sources and sidecar actions. Double-click/Enter a linked FILE routing row to jump to its exact physical source, or the carrier row to stage its sidecar action in File locations. No file changes."},
         {IDC_METADATA_IMPORT_CANDIDATE,L"Import structured clipboard evidence for Beatport/Crates, MusicBrainz, Discogs, Deezer or Spotify. Manual @provider claims are unverified, even if an ID is supplied. No authentication claim, tag change or file write."},
         {IDC_METADATA_LIST,L"Select a candidate or proposed change to inspect its source and status."},
@@ -8030,6 +8079,10 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 // Do not rerender/sort the detail grid or probe every track.
                 update_local_review_hint(*state);
             }
+            // Selection changes also change the explicit Precision CUE scope.
+            // Do not infer eligibility from the captured batch size or focus.
+            EnableWindow(GetDlgItem(dialog,IDC_METADATA_GENERATE_CUE),
+                marked_precision_cue_ready(*state) ? TRUE : FALSE);
             return TRUE;
         }
         if (header && header->idFrom == IDC_METADATA_TRACK_LIST &&
@@ -9049,18 +9102,20 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             return TRUE;
         }
         if (id == IDC_METADATA_GENERATE_CUE && HIWORD(wp) == BN_CLICKED) {
-            if (state->stale || state->entries.empty() || state->entries.size() > 8)
-                throw std::runtime_error(
-                    "Precision CUE requires 1-8 freshly qualified local MP3s.");
+            const auto source_ids=marked_precision_cue_sources(*state);
             metadb_handle_list selected;
-            for (const auto& entry : state->entries) {
+            for(const auto source : source_ids) {
+                const auto& entry=state->entries[source];
                 verify_snapshot(entry);
-                if (!entry.handle || entry.handle->get_subsong_index() != 0 ||
-                    !entry.input.physical_source_qualified)
+                const auto observed=probe_host_file_readonly(entry.input.source_path);
+                if(observed.state!=HostFileState::ExistingFile ||
+                   observed.host_physical_key!=entry.observed_physical_key ||
+                   observed.source_guard!=entry.observed_source_guard)
                     throw std::runtime_error(
-                        "Precision CUE rejects virtual or unqualified sources.");
+                        "Precision CUE selected MP3 changed; refresh snapshot.");
                 selected.add_item(entry.handle);
             }
+            // The read-only Precision workspace owns no active writer.
             open_studio_precision_cue_generator(selected);
             return TRUE;
         }
