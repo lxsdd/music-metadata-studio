@@ -21,3 +21,7 @@ CI source correction: required core/static/host/native jobs explicitly check out
 ## Marked Precision CUE source scope (next source slice)
 
 Generate CUE now resolves only selected visible Find mastergrid rows through immutable `track_view_order` source indices. It rejects empty, stale, virtual, duplicate, non-MP3 or unguarded selections, and caps the marked set at eight independently of batch size. Each selected physical identity is re-probed before the read-only Precision workspace opens. Button eligibility and tooltip use the same scope. The original dialog QA exercises the cleared-selection negative path; broad synthetic multi-row, sort/filter and writer-invocation evidence remains a qualification gate until exact-head CI and fixture expansion.
+
+## Original mastergrid scope regression
+
+The mandatory original-dialog QA now uses twelve synthetic captured identities and the real owner-data ListView to check two marked sources, descending and filtered projections, exclusion of hidden sources, empty and oversized selections, ambiguous mappings, duplicate physical IDs, missing guards, non-MP3, virtual subsongs, stale snapshots and non-Find views. Original WM_NOTIFY dispatch updates button eligibility. These are selection/identity regressions, not media decoding or export acceptance; no source files or writers are invoked. The prior optional conditional that could skip scope QA is removed. Exact-head native Win32/x64 CI remains required for this addition.

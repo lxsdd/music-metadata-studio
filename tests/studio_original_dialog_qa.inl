@@ -40,19 +40,95 @@ void run_studio_original_dialog_qa(HWND dialog) {
             !state->cue_value_preview && state->cue_value_preview_indices.empty());
     require(ListView_GetItemCount(state->list)==static_cast<int>(state->view_order.size()));
     require(!state->stale);
-    // Real original ListView selection, not a helper-only dialog substitute.
-    // A cleared selection must disable Generate CUE and direct WM_COMMAND
-    // must fail closed before reaching any Precision CUE writer.
-    if(state->metadata_track_list && state->show_candidate) {
-        ListView_SetItemState(state->metadata_track_list,-1,0,LVIS_SELECTED);
-        require(!marked_precision_cue_ready(*state));
-        EnableWindow(GetDlgItem(dialog,IDC_METADATA_GENERATE_CUE),
-                     marked_precision_cue_ready(*state));
+    // This gate is mandatory: a hidden/non-Find grid must not skip scope QA.
+    require(state->metadata_track_list != nullptr);
+    const auto original_entries=state->entries;
+    const auto original_order=state->track_view_order;
+    const auto original_selected=selected_native_view_ids(
+        state->metadata_track_list,state->track_view_order);
+    const bool original_candidate=state->show_candidate;
+    const bool original_updating=state->updating_track_selection;
+    const auto restore=[&] {
+        state->updating_track_selection=true;
+        state->entries=original_entries;
+        state->track_view_order=original_order;
+        state->show_candidate=original_candidate;
+        state->stale=false;
+        ListView_SetItemCountEx(state->metadata_track_list,
+            static_cast<int>(original_order.size()),LVSICF_NOSCROLL);
+        restore_native_view_selection(state->metadata_track_list,original_order,
+            original_selected,state->selected_track_index);
+        state->updating_track_selection=original_updating;
+    };
+    try {
+        // Synthetic captured records only. SDK handles are identities; no
+        // files are created/read, no Generate handler or writer is invoked.
+        state->updating_track_selection=true;
+        state->show_candidate=true;
+        state->entries.resize(12);
+        for(std::size_t i=0;i<state->entries.size();++i) {
+            auto& entry=state->entries[i];
+            entry.input.source_path="file://C:/mms-synthetic-scope/track-"+
+                std::to_string(i)+".mp3";
+            metadb::get()->handle_create(entry.handle,
+                make_playable_location(entry.input.source_path.c_str(),0));
+            entry.input.physical_source_qualified=true;
+            entry.observed_physical_key="synthetic-id-"+std::to_string(i);
+            entry.observed_source_guard="synthetic-guard-"+std::to_string(i);
+        }
+        const auto project=[&](std::vector<std::size_t> order,
+                               std::vector<std::size_t> selected) {
+            state->track_view_order=std::move(order);
+            ListView_SetItemCountEx(state->metadata_track_list,
+                static_cast<int>(state->track_view_order.size()),LVSICF_NOSCROLL);
+            restore_native_view_selection(state->metadata_track_list,
+                state->track_view_order,selected,state->selected_track_index);
+            // Exercise the original notification handler even when a projection
+            // has the same row count and Windows emits no item change event.
+            NMLISTVIEW changed{};
+            changed.hdr.hwndFrom=state->metadata_track_list;
+            changed.hdr.idFrom=IDC_METADATA_TRACK_LIST;
+            changed.hdr.code=LVN_ITEMCHANGED;
+            SendMessageW(dialog,WM_NOTIFY,IDC_METADATA_TRACK_LIST,
+                reinterpret_cast<LPARAM>(&changed));
+        };
+        const auto accepted=[&](std::vector<std::size_t> expected) {
+            require(marked_precision_cue_sources(*state)==expected);
+            require(IsWindowEnabled(GetDlgItem(dialog,IDC_METADATA_GENERATE_CUE))!=FALSE);
+        };
+        const auto rejected=[&] {
+            bool blocked=false;
+            try { (void)marked_precision_cue_sources(*state); }
+            catch(const std::invalid_argument&) { blocked=true; }
+            require(blocked && !marked_precision_cue_ready(*state));
+        };
+        // More than eight captured records, exactly two marked. The returned
+        // identities follow the visible projection, never the entire batch.
+        project({0,1,2,3,4,5,6,7,8,9,10,11},{2,10}); accepted({2,10});
+        project({11,10,9,8,7,6,5,4,3,2,1,0},{2,10}); accepted({10,2});
+        project({10,7,2},{2,10}); accepted({10,2});
+        project({7,2},{2,10}); accepted({2}); // hidden identity 10 excluded
+        project({7,2},{}); rejected();
         require(!IsWindowEnabled(GetDlgItem(dialog,IDC_METADATA_GENERATE_CUE)));
-        bool rejected=false;
-        try {
-            (void)marked_precision_cue_sources(*state);
-        } catch(const std::invalid_argument&) { rejected=true; }
-        require(rejected);
-    }
+        project({0,1,2,3,4,5,6,7,8},{0,1,2,3,4,5,6,7,8}); rejected();
+        project({2,2},{2}); rejected(); // ambiguous row-to-source mapping
+        project({2,10},{2,10}); accepted({2,10});
+        state->entries[10].observed_physical_key=state->entries[2].observed_physical_key;
+        rejected();
+        state->entries[10].observed_physical_key="synthetic-id-10";
+        state->entries[10].observed_source_guard.clear(); rejected();
+        state->entries[10].observed_source_guard="synthetic-guard-10";
+        state->entries[10].input.source_path="file://C:/mms-synthetic-scope/not-mp3.flac";
+        rejected();
+        state->entries[10].input.source_path="file://C:/mms-synthetic-scope/track-10.mp3";
+        metadb::get()->handle_create(state->entries[10].handle,
+            make_playable_location(state->entries[10].input.source_path.c_str(),1));
+        rejected(); // a virtual subsong must never become a physical CUE input
+        metadb::get()->handle_create(state->entries[10].handle,
+            make_playable_location(state->entries[10].input.source_path.c_str(),0));
+        state->stale=true; rejected(); state->stale=false;
+        state->show_candidate=false; rejected(); state->show_candidate=true;
+        project({2,10},{2,10}); accepted({2,10});
+    } catch (...) { restore(); throw; }
+    restore();
 }
