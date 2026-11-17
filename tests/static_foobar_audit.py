@@ -1386,7 +1386,7 @@ for token in (
 if workflow.count(
     "lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@"
     "31930d4fca571f449f2c57044bea5ba2e01f0ca7"
-) != 1 or protected_job.count(
+) != 2 or protected_job.count(
     "lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@"
     "2878afb5c1625dc1344ff357353133ef0a11b5eb"
 ) != 1 or "MMS_PROTECTED_NATIVE_HOST=SKIPPED_PINNED_ACTION_MANUAL_ONLY" in protected_job:
@@ -2760,3 +2760,20 @@ for missing in (
     assert not verified_native_batch_audit(audit_body.replace(missing, "", 1)), (
         "Native audit mutation was not detected: " + missing)
 print("PASS: all-track native physical postimage audit, fresh identity and immutable no-write path.")
+
+# Combined Studio/CUE source must retain one component entry and both original
+# dialog procedures. The second host smoke is a disposable read-only QA build.
+precision = (foobar / "precision_cue_workspace.cpp").read_text(encoding="utf-8")
+assert "precision_context_menu" not in precision
+assert "open_studio_precision_cue_generator" in precision
+assert "run_precision_original_dialog_qa" in precision
+assert 'MMS_DIALOG_DISPATCH_QA' in precision
+assert 'run_studio_original_dialog_qa(created)' in batch_rules_guard
+assert 'Studio original dialog dispatch PASS' in workflow
+assert '/p:EnableDialogDispatchQA=true' in workflow
+assert 'if(had_online_route)' in batch_rules_guard
+for action in ("Single", "Batch"):
+    assert 'PrecisionCueNativeOperation::CreateExternal' + action in precision
+assert 'no Deezer request was sent.' in precision
+assert precision.index('if (deezer_link)') < precision.index('deezer_request.album_id')
+print("PASS: combined Studio/CUE wiring, original-dialog QA and provider/write holds")

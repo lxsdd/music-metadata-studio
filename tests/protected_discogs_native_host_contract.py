@@ -41,7 +41,7 @@ def problems(full:str)->list[str]:
         bad.append("protected token scope changed or escaped")
     if full.count("lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@"+NEW)!=1:
         bad.append("new privileged ref reused by unprotected job")
-    if full.count("lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@"+OLD)!=1:
+    if full.count("lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@"+OLD)!=2:
         bad.append("original unprivileged action pin drift")
     if "pull_request_target:" in full or "uses: actions/upload-artifact@" not in full:
         bad.append("unexpected protected event or publication contract changed")

@@ -4,6 +4,7 @@
 #include <SDK/modeless_dialog.h>
 
 #include "batch_preview_dialog.h"
+#include "precision_cue_workspace.h"
 #include "host_file_probe.h"
 #include "cue_readonly_source.h"
 #include "musicbrainz_http.h"
@@ -2433,6 +2434,8 @@ void update_metadata_table(PreviewState& state) {
               state.entries[state.selected_track_index].handle->get_subsong_index() != 0));
         EnableWindow(GetDlgItem(state.dialog, IDC_METADATA_INSPECT_CUE),
                      native_workspace_action_ready(state.stale,cue_readable)?TRUE:FALSE);
+        EnableWindow(GetDlgItem(state.dialog, IDC_METADATA_GENERATE_CUE),
+            !state.stale && !state.entries.empty() && state.entries.size()<=8 ? TRUE : FALSE);
         const bool pending_online=state.discogs_request ||
             state.musicbrainz_request || state.beatport_public_request;
         EnableWindow(GetDlgItem(state.dialog, IDC_METADATA_MB_SEARCH),
@@ -2911,6 +2914,8 @@ void show_preview_page(HWND dialog, PreviewState& state,
     ShowWindow(GetDlgItem(dialog, IDC_METADATA_IMPORT_CANDIDATE),
         candidate ? SW_SHOW : SW_HIDE);
     ShowWindow(GetDlgItem(dialog, IDC_METADATA_INSPECT_CUE),
+        candidate ? SW_SHOW : SW_HIDE);
+    ShowWindow(GetDlgItem(dialog, IDC_METADATA_GENERATE_CUE),
         candidate ? SW_SHOW : SW_HIDE);
     ShowWindow(GetDlgItem(dialog, IDC_METADATA_MB_QUERY),
         candidate ? SW_SHOW : SW_HIDE);
@@ -3580,7 +3585,8 @@ void capture_resize_layout(PreviewState& state) {
             id != IDC_BATCH_TABS &&
             layout.original.top >= current.initial_list_bottom;
         if (id == IDC_BATCH_GUIDE) layout.stretch_width=true;
-        layout.shift_right = id == IDC_METADATA_INSPECT_CUE ||
+        layout.shift_right = id == IDC_METADATA_GENERATE_CUE ||
+                             id == IDC_METADATA_INSPECT_CUE ||
                              id == IDC_METADATA_MB_LOAD_RELEASE ||
                              id == IDC_METADATA_IMPORT_CANDIDATE ||
                              id == IDC_METADATA_USE_VALUE ||
@@ -5177,7 +5183,8 @@ void mark_stale_workspace(PreviewState& state) {
                    IDC_ONLINE_INCLUDE_FIELDS,IDC_ONLINE_IGNORE_FIELDS,
                    IDC_ONLINE_RESET_FIELDS, IDC_ONLINE_DATE_TARGET_LABEL,
                    IDC_ONLINE_DATE_TARGET, IDC_ONLINE_WRITE_SELECTED,
-                   IDC_METADATA_INSPECT_CUE, IDC_METADATA_IMPORT_CANDIDATE})
+                   IDC_METADATA_INSPECT_CUE, IDC_METADATA_GENERATE_CUE,
+                   IDC_METADATA_IMPORT_CANDIDATE})
         EnableWindow(GetDlgItem(state.dialog,id), FALSE);
     SetWindowTextW(state.dialog,L"Music Metadata Studio - STALE snapshot (Read-only)");
     SetDlgItemTextW(state.dialog,IDC_BATCH_HINT,kNativeStaleWorkspaceHint);
@@ -5428,6 +5435,7 @@ void install_workspace_tooltips(PreviewState& state) {
         {IDC_ONLINE_IGNORE_FIELDS,L"Remove highlighted edition fields from the in-memory preview. Existing tags remain intact."},
         {IDC_ONLINE_RESET_FIELDS,L"Clear every included online field for this exact edition. Does not modify any file or saved metadata."},
         {IDC_ONLINE_WRITE_SELECTED,L"QA-only: submit the exact displayed physical tag differences for this one verified file after a separate final confirmation. No CUE or file move."},
+        {IDC_METADATA_GENERATE_CUE,L"Open Precision CUE for the captured batch (1-8 physical MP3s). Review and copy only; file creation remains locked."},
         {IDC_METADATA_INSPECT_CUE,L"Inspect original CUE FILE sources and sidecar actions. Double-click/Enter a linked FILE routing row to jump to its exact physical source, or the carrier row to stage its sidecar action in File locations. No file changes."},
         {IDC_METADATA_IMPORT_CANDIDATE,L"Import structured clipboard evidence for Beatport/Crates, MusicBrainz, Discogs, Deezer or Spotify. Manual @provider claims are unverified, even if an ID is supplied. No authentication claim, tag change or file write."},
         {IDC_METADATA_LIST,L"Select a candidate or proposed change to inspect its source and status."},
@@ -8967,7 +8975,12 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                     CB_SETCURSEL,original,0);
                 return TRUE;
             }
+            const bool had_online_route=state->online_raw_route_valid;
             invalidate_online_request(*state);
+            if(had_online_route) {
+                try { update_table(*state); }
+                catch (...) { mark_stale_workspace(*state); throw; }
+            }
             const auto selected_provider=SendDlgItemMessageW(
                 dialog,IDC_METADATA_ONLINE_PROVIDER,CB_GETCURSEL,0,0);
             const bool was_beatport=state->beatport_offline_selected;
@@ -9033,6 +9046,22 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             // ESC/Cancel follows the same modeless close lifecycle as the
             // caption X. Never join a live WinHTTP worker on the UI thread.
             SendMessageW(dialog,WM_CLOSE,0,0);
+            return TRUE;
+        }
+        if (id == IDC_METADATA_GENERATE_CUE && HIWORD(wp) == BN_CLICKED) {
+            if (state->stale || state->entries.empty() || state->entries.size() > 8)
+                throw std::runtime_error(
+                    "Precision CUE requires 1-8 freshly qualified local MP3s.");
+            metadb_handle_list selected;
+            for (const auto& entry : state->entries) {
+                verify_snapshot(entry);
+                if (!entry.handle || entry.handle->get_subsong_index() != 0 ||
+                    !entry.input.physical_source_qualified)
+                    throw std::runtime_error(
+                        "Precision CUE rejects virtual or unqualified sources.");
+                selected.add_item(entry.handle);
+            }
+            open_studio_precision_cue_generator(selected);
             return TRUE;
         }
         if (id == IDC_BATCH_REFRESH && HIWORD(wp) == BN_CLICKED) {
@@ -10494,6 +10523,10 @@ public:
 };
 initquit_factory_t<workspace_shutdown> g_workspace_shutdown;
 
+#ifdef MMS_DIALOG_DISPATCH_QA
+#include "../../tests/studio_original_dialog_qa.inl"
+#endif
+
 } // namespace
 
 void show_batch_preview_dialog(
@@ -10573,6 +10606,15 @@ void show_batch_preview_dialog(
         }
         ShowWindow(created,IsZoomed(created)?SW_SHOWMAXIMIZED:SW_SHOW);
         UpdateWindow(created);
+#ifdef MMS_DIALOG_DISPATCH_QA
+        try {
+            run_studio_original_dialog_qa(created);
+            run_precision_original_dialog_qa();
+            SetWindowTextW(created,L"Studio original dialog dispatch PASS");
+        } catch (...) {
+            SetWindowTextW(created,L"Studio original dialog dispatch FAIL");
+        }
+#endif
     } catch (const std::exception& error) {
         std::string message =
             "Unable to prepare the read-only batch preview. Nothing was changed.\n\n";

@@ -148,6 +148,23 @@ jobs:
           multi-file-cue-host-probe: 'true'
           raw-target-host-probe: 'true'
           stale-physical-host-probe: 'true'
+      - name: Build original-dialog regression component (read-only QA)
+        shell: pwsh
+        run: |
+          & msbuild.exe .\foo_music_metadata_studio.vcxproj /m /restore /p:Configuration=Release "/p:Platform=${{ matrix.platform }}" /p:PlatformToolset=v143 /p:EnableDialogDispatchQA=true
+          if ($LASTEXITCODE -ne 0) { throw 'Original-dialog QA compile failed' }
+      - name: Original Studio and Precision CUE dialog dispatch in foobar
+        uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@31930d4fca571f449f2c57044bea5ba2e01f0ca7
+        with:
+          architecture: ${{ matrix.platform }}
+          component-dll: out/dialog-dispatch-qa/${{ matrix.platform }}/Release/foo_music_metadata_studio.dll
+          context-command: 'Music Metadata Studio/Prepare Tracks (Preview)...'
+          expected-window-title: 'Studio original dialog dispatch PASS'
+          required-control-ids: '270,273,271,291,292,345'
+      - name: Cleanup disposable original-dialog QA component
+        if: always()
+        shell: pwsh
+        run: Remove-Item -LiteralPath 'out/dialog-dispatch-qa','build/dialog-dispatch-qa' -Force -Recurse -ErrorAction SilentlyContinue
       # Compile BOTH sides of the feature gate. The normal host-loaded binary
       # above contains no callable write UI. The QA-only DLL is never run
       # against user files, installed, uploaded or packaged.

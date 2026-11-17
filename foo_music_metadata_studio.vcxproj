@@ -33,6 +33,8 @@
     <IntDir>$(MSBuildProjectDirectory)\build\foobar\$(Platform)\$(Configuration)\</IntDir>
     <OutDir Condition="'$(EnablePhysicalWrites)'=='true'">$(MSBuildProjectDirectory)\out\physical-write-qa\$(Platform)\$(Configuration)\</OutDir>
     <IntDir Condition="'$(EnablePhysicalWrites)'=='true'">$(MSBuildProjectDirectory)\build\physical-write-qa\$(Platform)\$(Configuration)\</IntDir>
+    <OutDir Condition="'$(EnableDialogDispatchQA)'=='true'">$(MSBuildProjectDirectory)\out\dialog-dispatch-qa\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir Condition="'$(EnableDialogDispatchQA)'=='true'">$(MSBuildProjectDirectory)\build\dialog-dispatch-qa\$(Platform)\$(Configuration)\</IntDir>
     <TargetName>foo_music_metadata_studio</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup>
@@ -47,6 +49,7 @@
       <AdditionalIncludeDirectories>$(MSBuildProjectDirectory)\include;$(MSBuildProjectDirectory)\src\foobar;$(FoobarSdkRoot);$(FoobarSdkRoot)\foobar2000;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>FOOBAR2000_TARGET_VERSION=81;NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PreprocessorDefinitions Condition="'$(EnablePhysicalWrites)'=='true'">MMS_ENABLE_PHYSICAL_WRITES;FOOBAR2000_TARGET_VERSION=81;NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions Condition="'$(EnableDialogDispatchQA)'=='true'">MMS_DIALOG_DISPATCH_QA;FOOBAR2000_TARGET_VERSION=81;NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
@@ -60,6 +63,12 @@
     </ResourceCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\core\precision_cue.cpp" />
+    <ClCompile Include="src\core\precision_cue_match.cpp" />
+    <ClCompile Include="src\core\precision_cue_assemble.cpp" />
+    <ClCompile Include="src\core\precision_cue_apple.cpp" />
+    <ClCompile Include="src\core\precision_cue_apple_http_win.cpp" />
+    <ClCompile Include="src\core\precision_cue_deezer_http_win.cpp" />
     <ClCompile Include="src\core\normalizer.cpp" />
     <ClCompile Include="src\core\write_guard.cpp" />
     <ClCompile Include="src\core\physical_selection.cpp" />
@@ -87,6 +96,7 @@
     <ClCompile Include="src\foobar\routing_preview.cpp" />
     <ClCompile Include="src\foobar\prepare_dialog.cpp" />
     <ClCompile Include="src\foobar\batch_preview_dialog.cpp" />
+    <ClCompile Include="src\foobar\precision_cue_workspace.cpp" />
     <ClCompile Include="src\writer\physical_tag_writer.cpp" />
     <ClCompile Include="src\writer\physical_tag_writer_qa.cpp" />
     <ClCompile Include="src\core\batch_plan.cpp" Condition="'$(EnablePhysicalWrites)'=='true'" />
