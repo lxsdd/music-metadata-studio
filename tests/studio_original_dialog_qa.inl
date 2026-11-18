@@ -2,8 +2,14 @@
 // included in the production TU: messages reach batch_dialog_proc itself.
 void run_studio_original_dialog_qa(HWND dialog) {
     auto* state=reinterpret_cast<PreviewState*>(GetWindowLongPtrW(dialog,GWLP_USERDATA));
-    const auto require=[](bool ok) {
-        if(!ok) throw std::runtime_error("Original Studio dialog regression failed");
+    // Each original HWND assertion gets a stable ordinal in the failure
+    // title. The host-smoke runner can identify the failing native check
+    // without uploading logs, binaries, or test artifacts.
+    std::size_t assertion_number=0;
+    const auto require=[&](bool ok) {
+        ++assertion_number;
+        if(!ok) throw std::runtime_error(
+            "Studio QA assertion "+std::to_string(assertion_number));
     };
     require(state && !state->entries.empty() && !state->stale);
     const auto seed=[&] {

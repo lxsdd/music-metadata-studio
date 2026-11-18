@@ -10672,8 +10672,15 @@ void show_batch_preview_dialog(
             run_studio_original_dialog_qa(created);
             run_precision_original_dialog_qa();
             SetWindowTextW(created,L"Studio original dialog dispatch PASS");
+        } catch (const std::exception& error) {
+            // Preserve the existing fail-closed host gate while exposing the
+            // exact original-dialog assertion in its existing window probe.
+            const std::string message=error.what();
+            const std::wstring diagnostic(message.begin(),message.end());
+            SetWindowTextW(created,
+                (L"Studio original dialog dispatch FAIL: "+diagnostic).c_str());
         } catch (...) {
-            SetWindowTextW(created,L"Studio original dialog dispatch FAIL");
+            SetWindowTextW(created,L"Studio original dialog dispatch FAIL: unknown exception");
         }
 #endif
     } catch (const std::exception& error) {
