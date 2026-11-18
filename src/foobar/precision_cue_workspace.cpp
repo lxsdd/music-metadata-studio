@@ -1,5 +1,10 @@
 #include "stdafx.h"
 #include <commctrl.h>
+#include <SDK/coreDarkMode.h>
+
+#ifndef WM_DPICHANGED_AFTERPARENT
+#define WM_DPICHANGED_AFTERPARENT 0x02E3
+#endif
 
 #include "guid.h"
 #include "precision_cue_workspace.h"
