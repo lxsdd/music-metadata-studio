@@ -2777,3 +2777,16 @@ for action in ("Single", "Batch"):
 assert 'no Deezer request was sent.' in precision
 assert precision.index('if (deezer_link)') < precision.index('deezer_request.album_id')
 print("PASS: combined Studio/CUE wiring, original-dialog QA and provider/write holds")
+
+# Supplement the real HWND lifetime tests with call-site checks: stale and
+# confirmed refresh must retire the dependent preview; a declined refresh must not.
+stale_start = batch_rules_guard.index("void mark_stale_workspace(PreviewState& state) {")
+stale_end = batch_rules_guard.index("void verify_online_source_snapshot", stale_start)
+assert "close_studio_precision_cue_generator(state.dialog)" in batch_rules_guard[stale_start:stale_end]
+refresh_start = batch_rules_guard.index("void refresh_workspace_snapshot(PreviewState& state) {")
+refresh_close = batch_rules_guard.index("close_studio_precision_cue_generator(state.dialog)", refresh_start)
+assert refresh_start < batch_rules_guard.index("!= IDYES) return;", refresh_start) < refresh_close
+close_start = batch_rules_guard.index("if (message == WM_CLOSE) {")
+assert batch_rules_guard.index("close_studio_precision_cue_generator(dialog)", close_start) < batch_rules_guard.index("ShowWindow(dialog,SW_HIDE)", close_start)
+assert "open_studio_precision_cue_generator(dialog,selected)" in batch_rules_guard
+print("PASS: Studio stale/confirmed-refresh/close retire the owned CUE preview")

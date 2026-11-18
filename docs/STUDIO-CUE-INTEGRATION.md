@@ -29,3 +29,23 @@ The mandatory original-dialog QA now uses twelve synthetic captured identities a
 ## Mastergrid rebuild and explicit CUE scope
 
 On the scheduled successor to `d179d2aabd5cb16450343c47748184cc2d1a1a9a`, `update_master_table` retains the intersection of marked physical source identities and the new filtered view, but never synthesizes a new `LVIS_SELECTED` mark when that intersection is empty. A separate visible focus/detail target is permitted without authorizing Generate CUE. The button is recalculated after the actual owner-data rebuild, including the no-notification case. Original dialog QA uses synthetic physical MP3 identities and the production rebuild for complete filter exclusion, deliberate re-selection, partial intersection, descending sort, and empty refresh; no writer is called. Exact-head Win32/x64 qualification remains mandatory before treating this slice as complete.
+
+## Studio-owned CUE lifetime (18 November 2026)
+
+MMS-WF-01/02, MMS-UI-05/08 and issue #51: Precision CUE now uses the
+actual Studio HWND as its modeless owner. Closing CUE keeps Studio usable;
+closing Studio (including its asynchronous hide-before-network-completion
+path), accepting Refresh, or detecting a stale snapshot retires the dependent
+CUE preview. Declining Refresh preserves it. Forced owner destruction also
+tears it down through Win32 ownership. Closing cancels the request revision
+and requests worker stop while the existing pool retains worker lifetime.
+No UI-thread network join, media operation, new writer or provider request is
+introduced. Reopening starts with a fresh captured marked scope.
+
+Original-foobar QA uses the production creation factory and original dialog
+procedure to verify real owner identity, enabled Studio, CUE-only close,
+reopen, stop request, wrong/null-owner isolation, forced owner teardown and
+invalid-owner rejection. Static call-site checks additionally cover stale,
+confirmed Refresh and Studio's early asynchronous close. Exact-head native
+Win32/x64 qualification is required. This fixes dependent-window lifetime;
+it is not the outstanding single-surface composition or final owner acceptance.

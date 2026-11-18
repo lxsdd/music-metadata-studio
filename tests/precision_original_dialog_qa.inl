@@ -1,15 +1,19 @@
 // Runs in the real foobar SDK process against precision_dialog_proc, without
 // HTTP workers, media fixtures, clipboard access or writer invocation.
-void run_precision_dialog_qa_impl() {
-    const auto require=[](bool ok) {
-        if(!ok) throw std::runtime_error("Original Precision CUE dialog regression failed");
+void run_precision_dialog_qa_impl(HWND studio) {
+    std::size_t assertion=0;
+    const auto require=[&](bool ok) {
+        ++assertion;
+        if(!ok) throw std::runtime_error("Precision QA assertion "+std::to_string(assertion));
     };
-    auto* state=new Workspace();
-    const HWND dialog=CreateDialogParamW(core_api::get_my_instance(),
-        MAKEINTRESOURCEW(IDD_PRECISION_CUE_PREVIEW),nullptr,precision_dialog_proc,
-        reinterpret_cast<LPARAM>(state));
-    if(!dialog) { delete state; throw std::runtime_error("Precision QA creation failed"); }
+    auto pending=std::make_unique<Workspace>();
+    auto* state=pending.get();
+    const HWND dialog=create_precision_dialog(studio,std::move(pending));
     try {
+        require(GetWindow(dialog,GW_OWNER)==studio);
+        require(IsWindowEnabled(studio)); // Ownership must not turn this modal.
+        close_studio_precision_cue_generator(nullptr);
+        require(IsWindow(dialog)); // A foreign/absent owner cannot close it.
         require(GetDlgItem(dialog,IDC_PRECISION_CANCEL_LOOKUP)!=nullptr);
         SetDlgItemTextW(dialog,IDC_PRECISION_APPLE_LINK,L"Synthetic album");
         // A current synthetic search response must populate the real COMBOBOX.
@@ -51,6 +55,34 @@ void run_precision_dialog_qa_impl() {
         GetDlgItemTextW(dialog,IDC_PRECISION_PREVIEW_TEXT,text,2048);
         require(!state->job && std::wstring(text).find(L"no Deezer request was sent")!=std::wstring::npos);
     } catch (...) { DestroyWindow(dialog); throw; }
-    DestroyWindow(dialog);
-    require(g_precision_workspace==nullptr);
+    SendMessageW(dialog,WM_CLOSE,0,0);
+    require(g_precision_workspace==nullptr && IsWindow(studio) && IsWindowEnabled(studio));
+    // Reopen through the production factory, retain a synthetic worker in the
+    // real pool and prove close requests stop without waiting on that worker.
+    auto again=std::make_unique<Workspace>();
+    auto* active=again.get();
+    const HWND reopened=create_precision_dialog(studio,std::move(again));
+    auto job=std::make_shared<LookupJob>();
+    // A stop source is sufficient here: no network, timing or sleeps in QA.
+    job->worker=std::jthread([](std::stop_token) {});
+    const auto stop=job->worker.get_stop_token();
+    g_lookup_pool.jobs.push_back(job);
+    active->job=job;
+    close_studio_precision_cue_generator(studio);
+    require(!IsWindow(reopened) && g_precision_workspace==nullptr);
+    require(stop.stop_requested() && IsWindowEnabled(studio));
+    job->ready.store(true);
+    reap_finished_jobs();
+    // Native ownership itself also handles forced owner destruction without
+    // WM_CLOSE (host teardown), using the exact same production dialog path.
+    const HWND owner=CreateWindowExW(0,L"STATIC",L"Synthetic Studio owner",
+        WS_OVERLAPPED,0,0,100,100,nullptr,nullptr,core_api::get_my_instance(),nullptr);
+    require(owner!=nullptr);
+    const HWND orphan_check=create_precision_dialog(owner,std::make_unique<Workspace>());
+    DestroyWindow(owner);
+    require(!IsWindow(orphan_check) && g_precision_workspace==nullptr);
+    bool rejected=false;
+    try { create_precision_dialog(nullptr,std::make_unique<Workspace>()); }
+    catch(const std::invalid_argument&) { rejected=true; }
+    require(rejected && g_precision_workspace==nullptr);
 }

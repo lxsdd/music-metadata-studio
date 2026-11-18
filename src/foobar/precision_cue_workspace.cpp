@@ -1696,6 +1696,9 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
     }
     if (message == WM_NCDESTROY) {
         KillTimer(dialog, kPollTimer);
+        state->input_revision.cancel_request();
+        if (state->job) state->job->worker.request_stop();
+        state->job.reset(); // The pool retains live workers; never join on close.
         if (state->tooltips && IsWindow(state->tooltips)) DestroyWindow(state->tooltips);
         if (state->registered) modeless_dialog_manager::g_remove(dialog);
         if (g_precision_workspace == dialog) g_precision_workspace = nullptr;
@@ -1706,7 +1709,32 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
     return FALSE;
 }
 
-void open_precision_workspace(metadb_handle_list_cref handles) {
+// The same creation path is exercised by the original-host QA. An owned
+// modeless popup keeps foobar and Studio usable, but cannot outlive Studio.
+HWND create_precision_dialog(HWND studio, std::unique_ptr<Workspace> state) {
+    if (!studio || !IsWindow(studio))
+        throw std::invalid_argument("Precision CUE requires an open Studio workspace");
+    Workspace* const raw = state.release();
+    g_pending_workspace = raw;
+    const HWND window = CreateDialogParamW(
+        core_api::get_my_instance(), MAKEINTRESOURCEW(IDD_PRECISION_CUE_PREVIEW),
+        studio, precision_dialog_proc, reinterpret_cast<LPARAM>(raw));
+    if (!window) {
+        if (g_pending_workspace) {
+            delete g_pending_workspace;
+            g_pending_workspace = nullptr;
+        }
+        throw std::runtime_error("Failed to create Precision CUE native preview");
+    }
+    return window;
+}
+
+void open_precision_workspace(HWND studio, metadb_handle_list_cref handles) {
+    if (!studio || !IsWindow(studio)) return;
+    // Never retarget a surviving popup belonging to another workspace.
+    if (g_precision_workspace && IsWindow(g_precision_workspace) &&
+        GetWindow(g_precision_workspace, GW_OWNER) != studio)
+        DestroyWindow(g_precision_workspace);
     if (g_precision_workspace && IsWindow(g_precision_workspace)) {
         // A second context-menu invocation is a NEW selection, not an
         // authorization to reuse the previous MP3, album or reviewed CUE.
@@ -1728,7 +1756,7 @@ void open_precision_workspace(metadb_handle_list_cref handles) {
             try {
                 active->files = capture_files(handles); // physical read-only revalidation
                 show_text(g_precision_workspace,
-                    L"Selection refreshed from the current foobar context menu.\r\n"
+                    L"Selection refreshed from the marked Studio tracks.\r\n"
                     L"Previous edition, disc assignments and CUE approval were cleared.\r\n"
                     L"Look up the exact album again; no media or CUE was changed.");
             } catch (const std::exception& error) {
@@ -1818,24 +1846,10 @@ void open_precision_workspace(metadb_handle_list_cref handles) {
             popup_message::g_show(error.what(),caption.c_str());
             return;
         }
-        // This is a standalone modeless top-level window, not a child/owner
-        // that disables foobar playback or playlist navigation.
-        Workspace* const raw = state.release();
-        g_pending_workspace = raw;
-        const HWND window = CreateDialogParamW(
-            core_api::get_my_instance(), MAKEINTRESOURCEW(IDD_PRECISION_CUE_PREVIEW),
-            nullptr, precision_dialog_proc, reinterpret_cast<LPARAM>(raw));
-        if (!window) {
-            // WM_INITDIALOG might never have taken ownership, or it might
-            // already have destroyed the HWND. Only the untouched pending
-            // pointer can be deleted here; never dereference a freed state.
-            if (g_pending_workspace) {
-                delete g_pending_workspace;
-                g_pending_workspace = nullptr;
-            }
-            throw std::runtime_error("Failed to create Precision CUE native preview");
-        }
-        ShowWindow(window, raw->restore_maximized ? SW_SHOWMAXIMIZED : SW_SHOW);
+        const HWND window = create_precision_dialog(studio, std::move(state));
+        const auto* opened = reinterpret_cast<Workspace*>(
+            GetWindowLongPtrW(window, GWLP_USERDATA));
+        ShowWindow(window, opened && opened->restore_maximized ? SW_SHOWMAXIMIZED : SW_SHOW);
         UpdateWindow(window);
     } catch (const std::exception& error) {
         popup_message::g_show(error.what(),
@@ -1850,11 +1864,17 @@ void open_precision_workspace(metadb_handle_list_cref handles) {
 } // namespace
 
 #ifdef MMS_DIALOG_DISPATCH_QA
-void run_precision_original_dialog_qa() { run_precision_dialog_qa_impl(); }
+void run_precision_original_dialog_qa(HWND studio) { run_precision_dialog_qa_impl(studio); }
 #endif
 
-void open_studio_precision_cue_generator(metadb_handle_list_cref handles) {
-    open_precision_workspace(handles);
+void open_studio_precision_cue_generator(HWND studio, metadb_handle_list_cref handles) {
+    open_precision_workspace(studio, handles);
+}
+
+void close_studio_precision_cue_generator(HWND studio) {
+    if (studio && g_precision_workspace && IsWindow(g_precision_workspace) &&
+        GetWindow(g_precision_workspace, GW_OWNER) == studio)
+        DestroyWindow(g_precision_workspace);
 }
 
 } // namespace djmeta_foobar

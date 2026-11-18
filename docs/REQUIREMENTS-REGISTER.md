@@ -599,3 +599,14 @@ MusicBrainz physical tag staging is intentionally NOT enabled by this
 read-only browsing block. Core and native exact-SHA CI must be rechecked;
 the installed DPI/host UX and official live provider scenario are still
 separate acceptance gates.
+
+
+## 2026-11-18 — Studio/CUE dependent lifetime
+
+MMS-WF-01/02 and MMS-UI-05/08 remain PARTIAL/OPEN for their complete scope.
+The Studio-owned Precision dialog now closes with its source workspace,
+confirmed refresh or stale snapshot, and requests cancellation without joining
+network workers on the UI thread. Real original-dialog QA covers ownership,
+CUE-only close/reopen and forced owner teardown; static checks cover the
+Studio invalidation call sites. See [integration evidence](STUDIO-CUE-INTEGRATION.md).
+Exact-head CI and final one-surface/installed-owner acceptance are separate gates.

@@ -5228,6 +5228,7 @@ std::vector<PreviewEntry> capture_preview(
 void mark_stale_workspace(PreviewState& state) {
     if (state.stale) return;
     state.stale = true;
+    close_studio_precision_cue_generator(state.dialog);
     for (int id : {IDC_METADATA_ACCEPT, IDC_METADATA_REJECT,
                    IDC_METADATA_RESET, IDC_METADATA_USE_VALUE,
                    IDC_BATCH_APPLY_SELECTED, IDC_BATCH_APPLY_VISIBLE, IDC_BATCH_APPLY_ALL,
@@ -5338,6 +5339,7 @@ void refresh_workspace_snapshot(PreviewState& state) {
             L"No music files or tags will be changed.",
             L"Refresh preview only",MB_ICONQUESTION|MB_YESNO|MB_DEFBUTTON2)
         != IDYES) return;
+    close_studio_precision_cue_generator(state.dialog);
     // Declining Refresh must never cancel an unrelated in-flight lookup.
     invalidate_online_request(state);
     state.refreshing=true;
@@ -7688,6 +7690,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         return FALSE; // Let the real dialog procedure emit WM_SIZE/WM_MOVE.
     }
     if (message == WM_CLOSE) {
+        close_studio_precision_cue_generator(dialog);
         // Closing the modeless workspace must not freeze foobar while an
         // in-flight HTTPS request finishes. Hide, then destroy on completion.
         if((state->discogs_request &&
@@ -9122,7 +9125,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 selected.add_item(entry.handle);
             }
             // The read-only Precision workspace owns no active writer.
-            open_studio_precision_cue_generator(selected);
+            open_studio_precision_cue_generator(dialog,selected);
             return TRUE;
         }
         if (id == IDC_BATCH_REFRESH && HIWORD(wp) == BN_CLICKED) {
@@ -10670,7 +10673,7 @@ void show_batch_preview_dialog(
 #ifdef MMS_DIALOG_DISPATCH_QA
         try {
             run_studio_original_dialog_qa(created);
-            run_precision_original_dialog_qa();
+            run_precision_original_dialog_qa(created);
             SetWindowTextW(created,L"Studio original dialog dispatch PASS");
         } catch (const std::exception& error) {
             // Preserve the existing fail-closed host gate while exposing the
