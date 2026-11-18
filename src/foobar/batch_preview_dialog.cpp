@@ -246,6 +246,8 @@ struct PreviewState {
     djmeta::RulesTextSnapshot captured_rules;
     std::wstring cell_buffer;
     fb2k::CCoreDarkModeHooks dark;
+    bool precision_page_visible = false;
+    std::vector<HWND> precision_hidden_controls;
     HWND list = nullptr;
     HWND metadata_list = nullptr;
     HWND metadata_track_list = nullptr;
@@ -2920,8 +2922,57 @@ void record_preview_history(PreviewState& state,PreviewHistoryKind kind,
         refresh_preview_history_list(state);
 }
 
+// Precision is an actual child page of the one Studio workspace. Keep the
+// outgoing native controls' visibility so tab navigation never resets review.
+void hide_precision_page(PreviewState& state) {
+    if (!state.precision_page_visible) return;
+    if (const HWND pane=studio_precision_cue_view(state.dialog))
+        ShowWindow(pane,SW_HIDE);
+    state.precision_page_visible=false;
+    for (const HWND control:state.precision_hidden_controls)
+        if (IsWindow(control)) ShowWindow(control,SW_SHOW);
+    state.precision_hidden_controls.clear();
+}
+
+void layout_precision_page(PreviewState& state) {
+    const HWND pane=studio_precision_cue_view(state.dialog);
+    if (!pane || !state.precision_page_visible) return;
+    RECT client{},tabs{};
+    GetClientRect(state.dialog,&client);
+    GetWindowRect(state.tabs,&tabs);
+    MapWindowPoints(HWND_DESKTOP,state.dialog,reinterpret_cast<POINT*>(&tabs),2);
+    const int gap=MulDiv(6,(std::max)(96,state.active_dpi),96);
+    const int top=tabs.bottom+gap;
+    SetWindowPos(pane,HWND_TOP,gap,top,
+        (std::max)(1L,client.right-2*gap),
+        (std::max)(1L,client.bottom-top-gap),SWP_NOACTIVATE);
+}
+
+bool show_precision_page(PreviewState& state) {
+    const HWND pane=studio_precision_cue_view(state.dialog);
+    if (!pane || state.stale || state.refreshing) return false;
+    if (!state.precision_page_visible) {
+        state.precision_hidden_controls.clear();
+        for (HWND child=GetWindow(state.dialog,GW_CHILD);child;
+             child=GetWindow(child,GW_HWNDNEXT)) {
+            if (child==pane || child==state.tabs) continue;
+            if (GetWindowLongPtrW(child,GWL_STYLE)&WS_VISIBLE) {
+                state.precision_hidden_controls.push_back(child);
+                ShowWindow(child,SW_HIDE);
+            }
+        }
+        state.precision_page_visible=true;
+    }
+    TabCtrl_SetCurSel(state.tabs,4);
+    layout_precision_page(state);
+    ShowWindow(pane,SW_SHOW);
+    SetFocus(GetDlgItem(pane,IDC_PRECISION_APPLE_LINK));
+    return true;
+}
+
 void show_preview_page(HWND dialog, PreviewState& state,
                        bool metadata, bool candidate = false) {
+    hide_precision_page(state);
     if(state.history_list) ShowWindow(state.history_list,SW_HIDE);
     for(int id:{IDC_BATCH_HISTORY_FILTER,IDC_BATCH_HISTORY_FILTER_LABEL,
                 IDC_BATCH_HISTORY_SOURCE,IDC_BATCH_HISTORY_SOURCE_LABEL})
@@ -3697,6 +3748,7 @@ void resize_batch_dialog(PreviewState& state, int width, int height) {
             MulDiv(180,state.active_dpi,96))) return;
     align_native_preview_form(state.dialog);
     layout_musicbrainz_detail_pane(state);
+    layout_precision_page(state);
     if (state.musicbrainz_live_view)
         update_musicbrainz_browse_headers(state);
     // Repaint moved siblings as a single region. Do not force synchronous
@@ -5228,6 +5280,11 @@ std::vector<PreviewEntry> capture_preview(
 void mark_stale_workspace(PreviewState& state) {
     if (state.stale) return;
     state.stale = true;
+    hide_precision_page(state);
+    if (TabCtrl_GetCurSel(state.tabs)==4) {
+        TabCtrl_SetCurSel(state.tabs,0);
+        show_preview_page(state.dialog,state,true,true);
+    }
     close_studio_precision_cue_generator(state.dialog);
     for (int id : {IDC_METADATA_ACCEPT, IDC_METADATA_REJECT,
                    IDC_METADATA_RESET, IDC_METADATA_USE_VALUE,
@@ -5339,6 +5396,8 @@ void refresh_workspace_snapshot(PreviewState& state) {
             L"No music files or tags will be changed.",
             L"Refresh preview only",MB_ICONQUESTION|MB_YESNO|MB_DEFBUTTON2)
         != IDYES) return;
+    hide_precision_page(state);
+    if (TabCtrl_GetCurSel(state.tabs)==4) TabCtrl_SetCurSel(state.tabs,0);
     close_studio_precision_cue_generator(state.dialog);
     // Declining Refresh must never cancel an unrelated in-flight lookup.
     invalidate_online_request(state);
@@ -7402,7 +7461,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             !state->metadata_scope || !state->tabs)
             throw std::runtime_error("Required native dialog controls missing.");
         for (const wchar_t* name : {L"1. Find & compare", L"2. Review proposals",
-                                    L"3. Plan file locations", L"4. History"}) {
+                                    L"3. Plan file locations", L"4. History", L"Precision CUE"}) {
             TCITEMW tab{};
             tab.mask = TCIF_TEXT;
             tab.pszText = const_cast<wchar_t*>(name);
@@ -7665,6 +7724,12 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
         delete state;
         return FALSE;
     }
+    if (message == kPrecisionCueBackToStudio) {
+        TabCtrl_SetCurSel(state->tabs,0);
+        show_preview_page(dialog,*state,true,true);
+        SetFocus(state->metadata_track_list);
+        return TRUE;
+    }
     if (message == kReadOnlyNetworkDoneMessage) {
         // One active official provider worker at a time. A completion may
         // destroy the HWND when Close was requested: never touch state after.
@@ -7838,6 +7903,16 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             dismiss_workspace_tooltips(*state);
             invalidate_online_request(*state);
             const int selected_tab = TabCtrl_GetCurSel(state->tabs);
+            if(selected_tab==4) {
+                revalidate_workspace(*state,true);
+                if(show_precision_page(*state)) return TRUE;
+                TabCtrl_SetCurSel(state->tabs,0);
+                show_preview_page(dialog,*state,true,true);
+                SetDlgItemTextW(dialog,IDC_BATCH_HINT,
+                    state->stale ? kNativeStaleWorkspaceHint :
+                    L"Mark physical MP3 tracks in Find, then choose Generate CUE to start a read-only preview.");
+                return TRUE;
+            }
             if(selected_tab==3) show_history_page(dialog,*state);
             else show_preview_page(dialog, *state,
                 selected_tab != 2, selected_tab == 0);
@@ -9002,6 +9077,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             state->native_grid_candidate_mode?state->candidate_detail_grid:state->detail_grid,
             state->active_dpi);
         align_native_preview_form(dialog);
+        layout_precision_page(*state);
         return TRUE;
     }
 
@@ -9126,6 +9202,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             }
             // The read-only Precision workspace owns no active writer.
             open_studio_precision_cue_generator(dialog,selected);
+            show_precision_page(*state);
             return TRUE;
         }
         if (id == IDC_BATCH_REFRESH && HIWORD(wp) == BN_CLICKED) {
@@ -10673,7 +10750,11 @@ void show_batch_preview_dialog(
 #ifdef MMS_DIALOG_DISPATCH_QA
         try {
             run_studio_original_dialog_qa(created);
-            run_precision_original_dialog_qa(created);
+            run_precision_original_dialog_qa(created,[](HWND window) {
+                auto* current=reinterpret_cast<PreviewState*>(GetWindowLongPtrW(window,GWLP_USERDATA));
+                if (!current) throw std::runtime_error("Studio QA state missing");
+                mark_stale_workspace(*current);
+            });
             SetWindowTextW(created,L"Studio original dialog dispatch PASS");
         } catch (const std::exception& error) {
             // Preserve the existing fail-closed host gate while exposing the

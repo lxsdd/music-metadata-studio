@@ -610,3 +610,13 @@ network workers on the UI thread. Real original-dialog QA covers ownership,
 CUE-only close/reopen and forced owner teardown; static checks cover the
 Studio invalidation call sites. See [integration evidence](STUDIO-CUE-INTEGRATION.md).
 Exact-head CI and final one-surface/installed-owner acceptance are separate gates.
+
+
+## 2026-11-18 — Precision CUE embedded page
+
+MMS-WF-01/02/04 and MMS-UI-05/08: the CUE preview is now a native child page
+with shared Studio tabs, retained input/review on navigation and parent-owned
+layout/lifetime, replacing the separate popup. Original-host regression covers
+actual parent tab handlers, keyboard traversal, resize, Back and stale teardown.
+The full IDs retain their existing status until all their broader requirements
+and installed acceptance are met. See STUDIO-CUE-INTEGRATION.md for boundaries.

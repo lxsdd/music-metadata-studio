@@ -60,12 +60,6 @@ namespace {
 constexpr UINT_PTR kPollTimer = 9001;
 HWND g_precision_workspace = nullptr; // Only accessed from foobar's UI thread.
 
-constexpr GUID kPrecisionCueGeometryGuid =
-    {0x7a3e9730, 0xc206, 0x4e9d, {0xb4, 0x23, 0x9d, 0x82, 0xfa, 0xf5, 0x01, 0x7e}};
-cfg_string g_precision_cue_geometry(kPrecisionCueGeometryGuid, "");
-
-
-
 struct LocalFile {
     std::string basename;
     std::int64_t duration_ms = 0;
@@ -141,10 +135,9 @@ struct Workspace {
     int initial_client_height = 0;
     int min_window_width = 0;
     int min_window_height = 0;
-    bool restore_maximized = false;
     HWND dialog = nullptr;
     HWND tooltips = nullptr;
-    bool registered = false;
+    fb2k::CCoreDarkModeHooks dark;
     std::vector<LocalFile> files;
     std::shared_ptr<LookupJob> job;
     std::optional<djmeta::PrecisionCueRelease> release;
@@ -244,7 +237,7 @@ void install_precision_tooltips(Workspace& state) noexcept {
         {IDC_PRECISION_PREVIEW_ASSIGNED, L"Review every physical MP3-to-disc assignment before export."},
         {IDC_PRECISION_EDITION_CONFIRMED, L"Confirm the exact mixed edition; not permission to overwrite audio or tags."},
         {IDC_PRECISION_COPY_CUE, L"Copy reviewed CUE text to the clipboard; this never creates a file."},
-        {IDCANCEL, L"Close the read-only review and discard pending results."},
+        {IDCANCEL, L"Return to Find in Studio. CUE input and review remain available in the Precision CUE tab; Escape cancels a pending lookup first."},
         {IDC_PRECISION_SAVE_CUE, L"External CUE publication is locked pending separate owner release and host qualification. Copy reviewed text instead."},
         {IDC_PRECISION_SAVE_ALL_CUES, L"External CUE batch publication is locked pending separate owner release and host qualification."}
     }};
@@ -265,44 +258,6 @@ void install_precision_tooltips(Workspace& state) noexcept {
     }
     state.tooltips = tip;
 }
-
-void restore_precision_window_geometry(Workspace& state) noexcept {
-    djmeta::PrecisionCueWindowGeometry saved;
-    const auto current = g_precision_cue_geometry.get();
-    if (!djmeta::parse_precision_cue_window_geometry(current.c_str(), saved))
-        return;
-    const RECT desired{saved.x, saved.y, saved.x + saved.width,
-                       saved.y + saved.height};
-    const HMONITOR monitor = MonitorFromRect(&desired, MONITOR_DEFAULTTONEAREST);
-    MONITORINFO info{sizeof(info)};
-    if (!monitor || !GetMonitorInfoW(monitor, &info)) return;
-    const djmeta::PrecisionCueWorkArea work{
-        info.rcWork.left, info.rcWork.top, info.rcWork.right, info.rcWork.bottom
-    };
-    if (!djmeta::fit_precision_cue_window_to_work_area(saved, work,
-            state.min_window_width, state.min_window_height)) return;
-    if (SetWindowPos(state.dialog, nullptr, saved.x, saved.y,
-            saved.width, saved.height, SWP_NOACTIVATE | SWP_NOZORDER))
-        state.restore_maximized = saved.maximized;
-}
-
-void save_precision_window_geometry(Workspace& state) noexcept {
-    WINDOWPLACEMENT placement{sizeof(placement)};
-    if (!GetWindowPlacement(state.dialog, &placement)) return;
-    const auto& rect = placement.rcNormalPosition; // never save minimized size
-    const djmeta::PrecisionCueWindowGeometry saved{
-        rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
-        placement.showCmd == SW_SHOWMAXIMIZED ||
-        (placement.showCmd == SW_SHOWMINIMIZED &&
-         (placement.flags & WPF_RESTORETOMAXIMIZED) != 0)
-    };
-    djmeta::PrecisionCueWindowGeometry checked;
-    const auto encoded = djmeta::encode_precision_cue_window_geometry(saved);
-    if (!djmeta::parse_precision_cue_window_geometry(encoded, checked)) return;
-    try { g_precision_cue_geometry.set(encoded.c_str()); }
-    catch (...) {} // Shutdown never fails because window settings could not persist.
-}
-
 
 std::wstring from_utf8(std::string_view value) {
     if (value.empty()) return {};
@@ -1487,11 +1442,11 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
         state->dialog = dialog;
         if (g_pending_workspace == state) g_pending_workspace = nullptr;
         SetWindowLongPtrW(dialog, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(state));
-        modeless_dialog_manager::g_add(dialog);
-        state->registered = true;
+        // DS_CONTROL participates in the single registered Studio dialog.
+        state->dark.AddDialogWithControls(dialog);
         g_precision_workspace = dialog;
         capture_precision_window_layout(*state);
-        restore_precision_window_geometry(*state);
+        // Studio owns geometry and persistence; never restore popup bounds here.
         install_precision_tooltips(*state);
         update_lookup_ui(*state, false);
         reset_disc_controls(*state);
@@ -1501,52 +1456,14 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
     }
     auto* state = reinterpret_cast<Workspace*>(GetWindowLongPtrW(dialog, GWLP_USERDATA));
     if (!state) return FALSE;
-    if (message == WM_DPICHANGED) {
-        // Bound the suggested outer rectangle and fit to the current monitor.
-        // A DPI transition never changes edition, CUE review or approval.
-        const auto* suggested = reinterpret_cast<const RECT*>(lp);
-        if (suggested) {
-            djmeta::PrecisionCueWindowGeometry next;
-            if (djmeta::precision_cue_geometry_from_suggested_dpi_rect(
-                    suggested->left, suggested->top,
-                    suggested->right, suggested->bottom, next)) {
-                const HMONITOR monitor = MonitorFromRect(
-                    suggested, MONITOR_DEFAULTTONEAREST);
-                MONITORINFO info{sizeof(info)};
-                if (monitor && GetMonitorInfoW(monitor, &info)) {
-                    const djmeta::PrecisionCueWorkArea work{
-                        info.rcWork.left, info.rcWork.top,
-                        info.rcWork.right, info.rcWork.bottom
-                    };
-                    if (djmeta::fit_precision_cue_window_to_work_area(
-                            next, work, state->min_window_width,
-                            state->min_window_height) &&
-                        SetWindowPos(dialog, nullptr, next.x, next.y,
-                            next.width, next.height,
-                            SWP_NOACTIVATE | SWP_NOZORDER))
-                        resize_precision_window_controls(*state);
-                }
-            }
-        }
+    if (message == WM_DPICHANGED_AFTERPARENT) {
+        // The dialog manager scales DS_CONTROL fonts/controls with Studio.
+        // Rebase anchors at the new DPI before subsequent parent resizes.
+        capture_precision_window_layout(*state);
         return TRUE;
     }
-    if (message == WM_GETMINMAXINFO && state->min_window_width > 0) {
-        auto* const bounds = reinterpret_cast<MINMAXINFO*>(lp);
-        if (bounds) {
-            bounds->ptMinTrackSize.x = state->min_window_width;
-            bounds->ptMinTrackSize.y = state->min_window_height;
-            // Remote desktop, high DPI and a removed monitor can reduce
-            // the work area below the original dialog template minimum.
-            const HMONITOR monitor = MonitorFromWindow(dialog, MONITOR_DEFAULTTONEAREST);
-            MONITORINFO info{sizeof(info)};
-            if (monitor && GetMonitorInfoW(monitor, &info)) {
-                bounds->ptMinTrackSize.x = (std::min)(
-                    bounds->ptMinTrackSize.x, (std::max)(1L, info.rcWork.right - info.rcWork.left));
-                bounds->ptMinTrackSize.y = (std::min)(
-                    bounds->ptMinTrackSize.y, (std::max)(1L, info.rcWork.bottom - info.rcWork.top));
-            }
-        }
-        return TRUE;
+    if (message == WM_SHOWWINDOW && !wp && state->tooltips) {
+        SendMessageW(state->tooltips,TTM_POP,0,0);
     }
     if (message == WM_SIZE && wp != SIZE_MINIMIZED) {
         resize_precision_window_controls(*state);
@@ -1684,14 +1601,17 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
                 cancel_pending_lookup(*state, true);
                 return TRUE;
             }
-            DestroyWindow(dialog);
+            SendMessageW(GetParent(dialog), kPrecisionCueBackToStudio, 0, 0);
             return TRUE;
         }
     }
-    if (message == WM_CLOSE) { DestroyWindow(dialog); return TRUE; }
+    if (message == WM_CLOSE) {
+        SendMessageW(GetParent(dialog), kPrecisionCueBackToStudio, 0, 0);
+        return TRUE;
+    }
     if (message == WM_DESTROY) {
         // Read normal/maximized placement before NCDESTROY invalidates the HWND.
-        save_precision_window_geometry(*state);
+        // Only the outer Studio workspace persists geometry.
         return TRUE;
     }
     if (message == WM_NCDESTROY) {
@@ -1700,7 +1620,6 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
         if (state->job) state->job->worker.request_stop();
         state->job.reset(); // The pool retains live workers; never join on close.
         if (state->tooltips && IsWindow(state->tooltips)) DestroyWindow(state->tooltips);
-        if (state->registered) modeless_dialog_manager::g_remove(dialog);
         if (g_precision_workspace == dialog) g_precision_workspace = nullptr;
         SetWindowLongPtrW(dialog, GWLP_USERDATA, 0);
         delete state; // worker is independent, never owns the HWND.
@@ -1710,7 +1629,7 @@ INT_PTR CALLBACK precision_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPA
 }
 
 // The same creation path is exercised by the original-host QA. An owned
-// modeless popup keeps foobar and Studio usable, but cannot outlive Studio.
+// DS_CONTROL child keeps one top-level Studio window and cannot outlive it.
 HWND create_precision_dialog(HWND studio, std::unique_ptr<Workspace> state) {
     if (!studio || !IsWindow(studio))
         throw std::invalid_argument("Precision CUE requires an open Studio workspace");
@@ -1733,7 +1652,7 @@ void open_precision_workspace(HWND studio, metadb_handle_list_cref handles) {
     if (!studio || !IsWindow(studio)) return;
     // Never retarget a surviving popup belonging to another workspace.
     if (g_precision_workspace && IsWindow(g_precision_workspace) &&
-        GetWindow(g_precision_workspace, GW_OWNER) != studio)
+        GetParent(g_precision_workspace) != studio)
         DestroyWindow(g_precision_workspace);
     if (g_precision_workspace && IsWindow(g_precision_workspace)) {
         // A second context-menu invocation is a NEW selection, not an
@@ -1763,11 +1682,7 @@ void open_precision_workspace(HWND studio, metadb_handle_list_cref handles) {
                 show_error(g_precision_workspace, error.what());
             }
         }
-        if (IsIconic(g_precision_workspace))
-            ShowWindow(g_precision_workspace, SW_RESTORE);
-        else
-            ShowWindow(g_precision_workspace, SW_SHOW);
-        SetForegroundWindow(g_precision_workspace);
+        ShowWindow(g_precision_workspace, SW_SHOW);
         SetFocus(GetDlgItem(g_precision_workspace, IDC_PRECISION_APPLE_LINK));
         return;
     }
@@ -1847,9 +1762,7 @@ void open_precision_workspace(HWND studio, metadb_handle_list_cref handles) {
             return;
         }
         const HWND window = create_precision_dialog(studio, std::move(state));
-        const auto* opened = reinterpret_cast<Workspace*>(
-            GetWindowLongPtrW(window, GWLP_USERDATA));
-        ShowWindow(window, opened && opened->restore_maximized ? SW_SHOWMAXIMIZED : SW_SHOW);
+        ShowWindow(window, SW_SHOW);
         UpdateWindow(window);
     } catch (const std::exception& error) {
         popup_message::g_show(error.what(),
@@ -1864,16 +1777,23 @@ void open_precision_workspace(HWND studio, metadb_handle_list_cref handles) {
 } // namespace
 
 #ifdef MMS_DIALOG_DISPATCH_QA
-void run_precision_original_dialog_qa(HWND studio) { run_precision_dialog_qa_impl(studio); }
+void run_precision_original_dialog_qa(HWND studio, void (*invalidate)(HWND)) {
+    run_precision_dialog_qa_impl(studio,invalidate);
+}
 #endif
 
 void open_studio_precision_cue_generator(HWND studio, metadb_handle_list_cref handles) {
     open_precision_workspace(studio, handles);
 }
 
+HWND studio_precision_cue_view(HWND studio) {
+    return studio && g_precision_workspace && IsWindow(g_precision_workspace) &&
+        GetParent(g_precision_workspace) == studio ? g_precision_workspace : nullptr;
+}
+
 void close_studio_precision_cue_generator(HWND studio) {
     if (studio && g_precision_workspace && IsWindow(g_precision_workspace) &&
-        GetWindow(g_precision_workspace, GW_OWNER) == studio)
+        GetParent(g_precision_workspace) == studio)
         DestroyWindow(g_precision_workspace);
 }
 

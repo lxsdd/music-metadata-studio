@@ -1,6 +1,6 @@
 // Runs in the real foobar SDK process against precision_dialog_proc, without
 // HTTP workers, media fixtures, clipboard access or writer invocation.
-void run_precision_dialog_qa_impl(HWND studio) {
+void run_precision_dialog_qa_impl(HWND studio, void (*invalidate)(HWND)) {
     std::size_t assertion=0;
     const auto require=[&](bool ok) {
         ++assertion;
@@ -10,12 +10,57 @@ void run_precision_dialog_qa_impl(HWND studio) {
     auto* state=pending.get();
     const HWND dialog=create_precision_dialog(studio,std::move(pending));
     try {
-        require(GetWindow(dialog,GW_OWNER)==studio);
+        require(GetParent(dialog)==studio && GetAncestor(dialog,GA_ROOT)==studio);
+        require((GetWindowLongPtrW(dialog,GWL_STYLE)&WS_CHILD)!=0);
+        require((GetWindowLongPtrW(dialog,GWL_STYLE)&(WS_POPUP|WS_CAPTION))==0);
+        require((GetWindowLongPtrW(dialog,GWL_EXSTYLE)&WS_EX_CONTROLPARENT)!=0);
         require(IsWindowEnabled(studio)); // Ownership must not turn this modal.
         close_studio_precision_cue_generator(nullptr);
         require(IsWindow(dialog)); // A foreign/absent owner cannot close it.
         require(GetDlgItem(dialog,IDC_PRECISION_CANCEL_LOOKUP)!=nullptr);
         SetDlgItemTextW(dialog,IDC_PRECISION_APPLE_LINK,L"Synthetic album");
+        const HWND tabs=GetDlgItem(studio,IDC_BATCH_TABS);
+        const auto select_tab=[&](int index) {
+            TabCtrl_SetCurSel(tabs,index);
+            NMHDR notification{tabs,IDC_BATCH_TABS,TCN_SELCHANGE};
+            SendMessageW(studio,WM_NOTIFY,IDC_BATCH_TABS,reinterpret_cast<LPARAM>(&notification));
+        };
+        require(TabCtrl_GetItemCount(tabs)==5);
+        select_tab(4);
+        require(IsWindowVisible(dialog) && IsWindowVisible(tabs));
+        require(!IsWindowVisible(GetDlgItem(studio,IDC_METADATA_TRACK_LIST)));
+        require(GetFocus()==GetDlgItem(dialog,IDC_PRECISION_APPLE_LINK));
+        const HWND next=GetNextDlgTabItem(studio,tabs,FALSE);
+        require(next && IsChild(dialog,next));
+        for (const int page:{0,1,2,3}) {
+            select_tab(page);
+            require(!IsWindowVisible(dialog) && IsWindowEnabled(studio));
+            select_tab(4);
+            require(IsWindowVisible(dialog) && studio_precision_cue_view(studio)==dialog);
+            wchar_t input[100]{};
+            GetDlgItemTextW(dialog,IDC_PRECISION_APPLE_LINK,input,100);
+            require(std::wstring(input)==L"Synthetic album");
+        }
+        RECT original{},pane{},client{};
+        GetWindowRect(studio,&original);
+        for (const int delta:{160,0,320,0}) {
+            SetWindowPos(studio,nullptr,0,0,original.right-original.left+delta,
+                original.bottom-original.top+delta,SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
+            GetClientRect(studio,&client);
+            GetWindowRect(dialog,&pane);
+            MapWindowPoints(HWND_DESKTOP,studio,reinterpret_cast<POINT*>(&pane),2);
+            require(pane.left>=0 && pane.top>0 && pane.right<=client.right && pane.bottom<=client.bottom);
+            RECT button{},inner{};
+            GetClientRect(dialog,&inner);
+            GetWindowRect(GetDlgItem(dialog,IDCANCEL),&button);
+            MapWindowPoints(HWND_DESKTOP,dialog,reinterpret_cast<POINT*>(&button),2);
+            require(button.left>=0 && button.top>=0 && button.right<=inner.right && button.bottom<=inner.bottom);
+        }
+        // Back navigates in the original parent; it does not discard CUE input.
+        SendMessageW(dialog,WM_COMMAND,MAKEWPARAM(IDCANCEL,BN_CLICKED),
+            reinterpret_cast<LPARAM>(GetDlgItem(dialog,IDCANCEL)));
+        require(IsWindow(dialog) && !IsWindowVisible(dialog) && TabCtrl_GetCurSel(tabs)==0);
+        select_tab(4);
         // A current synthetic search response must populate the real COMBOBOX.
         state->lookup_url="Synthetic album";
         state->input_revision.begin_request();
@@ -56,6 +101,8 @@ void run_precision_dialog_qa_impl(HWND studio) {
         require(!state->job && std::wstring(text).find(L"no Deezer request was sent")!=std::wstring::npos);
     } catch (...) { DestroyWindow(dialog); throw; }
     SendMessageW(dialog,WM_CLOSE,0,0);
+    require(IsWindow(dialog) && !IsWindowVisible(dialog));
+    close_studio_precision_cue_generator(studio);
     require(g_precision_workspace==nullptr && IsWindow(studio) && IsWindowEnabled(studio));
     // Reopen through the production factory, retain a synthetic worker in the
     // real pool and prove close requests stop without waiting on that worker.
@@ -85,4 +132,14 @@ void run_precision_dialog_qa_impl(HWND studio) {
     try { create_precision_dialog(nullptr,std::make_unique<Workspace>()); }
     catch(const std::invalid_argument&) { rejected=true; }
     require(rejected && g_precision_workspace==nullptr);
+    // Exercise the actual Studio stale handler, not a duplicate test helper.
+    const HWND stale_panel=create_precision_dialog(studio,std::make_unique<Workspace>());
+    const HWND tabs=GetDlgItem(studio,IDC_BATCH_TABS);
+    TabCtrl_SetCurSel(tabs,4);
+    NMHDR notification{tabs,IDC_BATCH_TABS,TCN_SELCHANGE};
+    SendMessageW(studio,WM_NOTIFY,IDC_BATCH_TABS,reinterpret_cast<LPARAM>(&notification));
+    require(IsWindowVisible(stale_panel));
+    invalidate(studio);
+    require(!IsWindow(stale_panel) && studio_precision_cue_view(studio)==nullptr);
+    require(TabCtrl_GetCurSel(tabs)==0 && IsWindowEnabled(studio));
 }

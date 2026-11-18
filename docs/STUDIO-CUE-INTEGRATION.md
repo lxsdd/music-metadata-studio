@@ -49,3 +49,26 @@ invalid-owner rejection. Static call-site checks additionally cover stale,
 confirmed Refresh and Studio's early asynchronous close. Exact-head native
 Win32/x64 qualification is required. This fixes dependent-window lifetime;
 it is not the outstanding single-surface composition or final owner acceptance.
+
+## Embedded Precision CUE page (18 November 2026)
+
+The dependent popup is replaced by a DS_CONTROL / WS_CHILD page in the one
+Studio top-level window. Generate CUE captures and revalidates the explicit
+marked MP3 scope, then opens the Precision CUE tab. All four existing tabs
+remain available. Tab switching and Back to Find preserve CUE inputs,
+release review and worker state; Escape cancels a pending lookup before
+returning to Find. Merely opening an empty CUE tab returns to Find with
+instructions, without starting a provider request or inferring a source.
+Studio's resize and DPI path positions the page below the tab strip. The
+page uses native dark-mode hooks and nested dialog keyboard navigation;
+Studio alone owns persisted top-level geometry. Hidden page tooltips close.
+Confirmed refresh, stale snapshots and Studio teardown still discard the
+child and cancel its request revision. Writer fences remain unchanged.
+
+Original-host QA now checks WS_CHILD/DS_CONTROL delivery, one root HWND,
+real tab dispatch through all existing pages, preserved text and HWND,
+keyboard traversal into the page, Back navigation, growing/restoring bounds,
+visible action bounds, and the actual Studio stale handler. These extend the
+existing original CUE response/cancel/disabled-writer tests. Exact-head
+Win32/x64 CI is mandatory. Visual multi-monitor/DPI and installed owner
+acceptance remain separate; other register requirements are not declared done.
