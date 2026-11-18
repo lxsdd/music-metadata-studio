@@ -167,9 +167,9 @@ void run_studio_original_dialog_qa(HWND dialog) {
         update_master_table(*state);
         require(!state->track_view_order.empty());
         require(std::find(state->track_view_order.begin(),
-                          state->track_view_order.end(),2)==state->track_view_order.end());
+                          state->track_view_order.end(),std::size_t{2})==state->track_view_order.end());
         require(std::find(state->track_view_order.begin(),
-                          state->track_view_order.end(),10)==state->track_view_order.end());
+                          state->track_view_order.end(),std::size_t{10})==state->track_view_order.end());
         require(ListView_GetSelectedCount(state->metadata_track_list)==0);
         rejected();
         require(!IsWindowEnabled(GetDlgItem(dialog,IDC_METADATA_GENERATE_CUE)));
