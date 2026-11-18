@@ -101,8 +101,15 @@ void run_studio_original_dialog_qa(HWND dialog) {
             state->track_view_order=std::move(order);
             ListView_SetItemCountEx(state->metadata_track_list,
                 static_cast<int>(state->track_view_order.size()),LVSICF_NOSCROLL);
+            // Synthetic source identities are not a live foobar snapshot.
+            // Suppress selection-triggered revalidation while constructing the
+            // owner-data projection; real user notifications remain exercised
+            // below, after the projection has reached a consistent state.
+            const bool was_updating=state->updating_track_selection;
+            state->updating_track_selection=true;
             restore_native_view_selection(state->metadata_track_list,
                 state->track_view_order,selected,state->selected_track_index);
+            state->updating_track_selection=was_updating;
             // Exercise the original notification handler even when a projection
             // has the same row count and Windows emits no item change event.
             NMLISTVIEW changed{};
@@ -113,7 +120,20 @@ void run_studio_original_dialog_qa(HWND dialog) {
                 reinterpret_cast<LPARAM>(&changed));
         };
         const auto accepted=[&](std::vector<std::size_t> expected) {
-            require(marked_precision_cue_sources(*state)==expected);
+            // A failed host gate must identify the scenario and exact state,
+            // rather than being mistaken for a source-identity regression.
+            std::vector<std::size_t> actual;
+            try { actual=marked_precision_cue_sources(*state); }
+            catch(const std::invalid_argument& error) {
+                throw std::runtime_error(
+                    "Studio QA accepted #"+std::to_string(assertion_number+1)+
+                    " stale="+std::to_string(state->stale)+
+                    " refreshing="+std::to_string(state->refreshing)+
+                    " grid="+std::to_string(state->metadata_track_list!=nullptr)+
+                    " candidate="+std::to_string(state->show_candidate)+
+                    ": "+error.what());
+            }
+            require(actual==expected);
             require(IsWindowEnabled(GetDlgItem(dialog,IDC_METADATA_GENERATE_CUE))!=FALSE);
         };
         const auto rejected=[&] {
