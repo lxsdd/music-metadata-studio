@@ -1831,6 +1831,21 @@ int main() {
     check(std::wcscmp(displayed_status,
           L"Provider changed: select a result")==0,
           "fresh snapshot restores ordinary provider guidance");
+    const auto valid_decision=djmeta_foobar::native_unified_preview_decision(true,1,false);
+    const auto stale_plan_decision=djmeta_foobar::native_unified_preview_decision(true,1,true);
+    check(valid_decision.preview_allowed && !stale_plan_decision.preview_allowed &&
+          stale_plan_decision.reason.find(L"file plan stale")!=std::wstring::npos,
+          "unified preview decision accepts valid selection and rejects stale file plan");
+    check(SetDlgItemTextW(dialog,IDC_BATCH_HINT,valid_decision.reason.c_str())!=FALSE,
+          "unified decision rendered in original native status HWND");
+    wchar_t unified_hint[512]{};
+    GetDlgItemTextW(dialog,IDC_BATCH_HINT,unified_hint,512);
+    check(std::wstring(unified_hint).find(L"CUE export")!=std::wstring::npos,
+          "valid native footer retains independent CUE owner approval");
+    SetDlgItemTextW(dialog,IDC_BATCH_HINT,stale_plan_decision.reason.c_str());
+    GetDlgItemTextW(dialog,IDC_BATCH_HINT,unified_hint,512);
+    check(std::wstring(unified_hint).find(L"BLOCKED")!=std::wstring::npos,
+          "stale file plan visibly blocks original HWND footer");
     SetDlgItemTextW(dialog,IDC_BATCH_HINT,previous_status);
     check(djmeta_foobar::native_workspace_dismisses_tooltip(
               WM_CLOSE,0) &&

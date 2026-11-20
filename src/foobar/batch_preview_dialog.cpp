@@ -780,10 +780,14 @@ void update_workflow_audit_hint(PreviewState& state) {
         L". Action-stage filters show BLOCKED / RAW ONLY / SKIP from the "
         L"complete action ledger; Preview all and Audit still cover hidden "
         L"rows. No writes.";
+    const auto decision=native_unified_preview_decision(
+        !state.stale && !state.refreshing,
+        state.entries.size(),false);
+    const auto decision_hint=L" Unified review/file/CUE: "+decision.reason;
     const auto cue_ids=captured_cue_carriers(state);
     const auto cue_summary=state.cue_inspections.plan.size()==state.entries.size()
         ? state.cue_inspections.counts(cue_ids) : djmeta::CueQueueCounts{};
-    const auto detailed=hint+(cue_ids.empty() ? std::wstring{} :
+    const auto detailed=hint+decision_hint+(cue_ids.empty() ? std::wstring{} :
         L" CUE carriers "+std::to_wstring(cue_ids.size())+
         L", needing inspection "+std::to_wstring(
             cue_summary.missing+cue_summary.stale+cue_summary.blocked)+L".");
@@ -4320,6 +4324,12 @@ void apply_to_rows(HWND dialog, PreviewState& state, NativeRoutePreviewScope sco
     if(!native_route_preview_snapshot_ready(
            state.stale,state.refreshing,TabCtrl_GetCurSel(state.tabs)))
         throw std::invalid_argument("File locations requires a fresh source snapshot.");
+    const auto initial_decision=native_unified_preview_decision(
+        native_route_preview_snapshot_ready(
+            state.stale,state.refreshing,TabCtrl_GetCurSel(state.tabs)),
+        state.entries.size(),false);
+    if(!initial_decision.preview_allowed)
+        throw std::invalid_argument("Unified review/file/CUE decision blocks preview.");
     verify_rules_snapshot(state.captured_rules);
     const auto choice=read_choice(dialog);
     const auto action=read_file_action(dialog);
@@ -4334,6 +4344,10 @@ void apply_to_rows(HWND dialog, PreviewState& state, NativeRoutePreviewScope sco
     };
     const auto selected=native_route_preview_source_ids(
         scope,state.entries.size(),state.view_order,selected_rows());
+    const auto selection_decision=native_unified_preview_decision(
+        !state.stale && !state.refreshing,selected.size(),false);
+    if(!selection_decision.preview_allowed)
+        throw std::invalid_argument("Unified review/file/CUE selection blocked.");
     const bool online_source_scoped=
         state.online_field_snapshot.has_value() &&
         !state.online_included_fields.empty() &&
@@ -4453,7 +4467,9 @@ void apply_to_rows(HWND dialog, PreviewState& state, NativeRoutePreviewScope sco
            reinterpret_cast<LONG_PTR>(&state) ||
        TabCtrl_GetCurSel(state.tabs)!=2) return;
     revalidate_workspace(state,true);
-    if(state.stale) throw std::runtime_error("Source changed during confirmation.");
+    if(!native_unified_preview_decision(
+           !state.stale && !state.refreshing,selected.size(),false).preview_allowed)
+        throw std::runtime_error("Unified review/file/CUE decision changed during confirmation.");
     const auto now=read_choice(dialog);
     if(now.display_name!=choice.display_name ||
        now.destination_root!=choice.destination_root ||

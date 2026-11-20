@@ -12,6 +12,20 @@
 #include <vector>
 
 namespace djmeta_foobar {
+// One read-only decision for the native footer and route-preview dispatch.
+// This never grants FileOps, tag or external CUE publication.
+struct NativeUnifiedPreviewDecision {
+    bool preview_allowed=false;
+    std::wstring reason;
+};
+inline NativeUnifiedPreviewDecision native_unified_preview_decision(
+    bool snapshot_ready, std::size_t selected_count, bool file_plan_stale) {
+    if(!snapshot_ready) return {false,L"BLOCKED: source snapshot stale; refresh."};
+    if(file_plan_stale) return {false,L"BLOCKED: file plan stale; preview again."};
+    if(selected_count==0) return {false,L"BLOCKED: no physical selection."};
+    return {true,L"READY: review selection and raw file plan; CUE export still requires separate owner approval."};
+}
+
 // The exact selected source's advisory raw target observation. This remains
 // separate from both the foobar File Operations destination and any writer.
 struct JointRawTargetObservation {
