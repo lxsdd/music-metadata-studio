@@ -761,6 +761,9 @@ std::vector<djmeta::CueRelatedCarrier> related_cues_for_selected_file(
     return djmeta::related_inspected_cue_carriers(
         state.cue_inspections,captured_cue_carriers(state),source);
 }
+NativeUnifiedPreviewDecision current_unified_preview_decision(
+    const PreviewState& state,std::size_t selected_count);
+
 void update_workflow_audit_hint(PreviewState& state) {
     if(!state.dialog || state.show_metadata) return;
     const auto audit=djmeta::audit_workflow_preview(
@@ -780,9 +783,8 @@ void update_workflow_audit_hint(PreviewState& state) {
         L". Action-stage filters show BLOCKED / RAW ONLY / SKIP from the "
         L"complete action ledger; Preview all and Audit still cover hidden "
         L"rows. No writes.";
-    const auto decision=native_unified_preview_decision(
-        !state.stale && !state.refreshing,
-        state.entries.size(),false);
+    const auto decision=current_unified_preview_decision(
+        state,state.entries.size());
     const auto decision_hint=L" Unified review/file/CUE: "+decision.reason;
     const auto cue_ids=captured_cue_carriers(state);
     const auto cue_summary=state.cue_inspections.plan.size()==state.entries.size()
@@ -944,6 +946,17 @@ djmeta::WorkflowFileActionAudit current_file_action_audit(
     for(const auto& entry:state.entries) actions.push_back(entry.file_action);
     return djmeta::audit_workflow_file_actions(
         state.table,inputs,actions,review);
+}
+
+NativeUnifiedPreviewDecision current_unified_preview_decision(
+    const PreviewState& state,std::size_t selected_count) {
+    return native_checked_preview_decision(
+        !state.stale && !state.refreshing,selected_count,[&] {
+            verify_rules_snapshot(state.captured_rules);
+            const auto review=djmeta::audit_workflow_preview(
+                state.table,state.analyses,state.review_decisions);
+            (void)current_file_action_audit(state,review);
+        });
 }
 
 std::wstring cue_inspection_summary(const PreviewState& state) {
@@ -4324,10 +4337,8 @@ void apply_to_rows(HWND dialog, PreviewState& state, NativeRoutePreviewScope sco
     if(!native_route_preview_snapshot_ready(
            state.stale,state.refreshing,TabCtrl_GetCurSel(state.tabs)))
         throw std::invalid_argument("File locations requires a fresh source snapshot.");
-    const auto initial_decision=native_unified_preview_decision(
-        native_route_preview_snapshot_ready(
-            state.stale,state.refreshing,TabCtrl_GetCurSel(state.tabs)),
-        state.entries.size(),false);
+    const auto initial_decision=current_unified_preview_decision(
+        state,state.entries.size());
     if(!initial_decision.preview_allowed)
         throw std::invalid_argument("Unified review/file/CUE decision blocks preview.");
     verify_rules_snapshot(state.captured_rules);
@@ -4344,8 +4355,8 @@ void apply_to_rows(HWND dialog, PreviewState& state, NativeRoutePreviewScope sco
     };
     const auto selected=native_route_preview_source_ids(
         scope,state.entries.size(),state.view_order,selected_rows());
-    const auto selection_decision=native_unified_preview_decision(
-        !state.stale && !state.refreshing,selected.size(),false);
+    const auto selection_decision=current_unified_preview_decision(
+        state,selected.size());
     if(!selection_decision.preview_allowed)
         throw std::invalid_argument("Unified review/file/CUE selection blocked.");
     const bool online_source_scoped=
@@ -4467,8 +4478,8 @@ void apply_to_rows(HWND dialog, PreviewState& state, NativeRoutePreviewScope sco
            reinterpret_cast<LONG_PTR>(&state) ||
        TabCtrl_GetCurSel(state.tabs)!=2) return;
     revalidate_workspace(state,true);
-    if(!native_unified_preview_decision(
-           !state.stale && !state.refreshing,selected.size(),false).preview_allowed)
+    if(!current_unified_preview_decision(
+           state,selected.size()).preview_allowed)
         throw std::runtime_error("Unified review/file/CUE decision changed during confirmation.");
     const auto now=read_choice(dialog);
     if(now.display_name!=choice.display_name ||

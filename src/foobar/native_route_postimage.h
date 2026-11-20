@@ -8,6 +8,7 @@
 #include <map>
 #include <optional>
 #include <stdexcept>
+#include <exception>
 #include <string>
 #include <vector>
 
@@ -24,6 +25,21 @@ inline NativeUnifiedPreviewDecision native_unified_preview_decision(
     if(file_plan_stale) return {false,L"BLOCKED: file plan stale; preview again."};
     if(selected_count==0) return {false,L"BLOCKED: no physical selection."};
     return {true,L"READY: review selection and raw file plan; CUE export still requires separate owner approval."};
+}
+
+// Reuse the original file-action audit as the source of truth for both
+// footer and dispatch. Any changed evidence fails closed, never authorizes a writer.
+template <typename Audit>
+inline NativeUnifiedPreviewDecision native_checked_preview_decision(
+    bool snapshot_ready, std::size_t selected_count, Audit&& audit) {
+    const auto preliminary=native_unified_preview_decision(
+        snapshot_ready,selected_count,false);
+    if(!preliminary.preview_allowed) return preliminary;
+    try { audit(); }
+    catch(const std::exception&) {
+        return native_unified_preview_decision(true,selected_count,true);
+    }
+    return preliminary;
 }
 
 // The exact selected source's advisory raw target observation. This remains

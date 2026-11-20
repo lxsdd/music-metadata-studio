@@ -1846,6 +1846,25 @@ int main() {
     GetDlgItemTextW(dialog,IDC_BATCH_HINT,unified_hint,512);
     check(std::wstring(unified_hint).find(L"BLOCKED")!=std::wstring::npos,
           "stale file plan visibly blocks original HWND footer");
+    // The production footer and dispatch both call the checked decision.
+    // A synthetic changed route-audit observation must block both without
+    // invoking any tag, CUE or FileOps writer.
+    unsigned audit_calls=0;
+    const auto checked_valid=djmeta_foobar::native_checked_preview_decision(
+        true,1,[&] { ++audit_calls; });
+    const auto checked_stale=djmeta_foobar::native_checked_preview_decision(
+        true,1,[&] {
+            ++audit_calls;
+            throw std::invalid_argument("File action audit: route evidence changed.");
+        });
+    check(audit_calls==2 && checked_valid.preview_allowed &&
+          !checked_stale.preview_allowed &&
+          checked_stale.reason.find(L"file plan stale")!=std::wstring::npos,
+          "checked unified decision reuses file plan audit and fails closed");
+    SetDlgItemTextW(dialog,IDC_BATCH_HINT,checked_stale.reason.c_str());
+    GetDlgItemTextW(dialog,IDC_BATCH_HINT,unified_hint,512);
+    check(std::wstring(unified_hint).find(L"file plan stale")!=std::wstring::npos,
+          "original native HWND displays audit-derived stale file plan blocker");
     SetDlgItemTextW(dialog,IDC_BATCH_HINT,previous_status);
     check(djmeta_foobar::native_workspace_dismisses_tooltip(
               WM_CLOSE,0) &&
