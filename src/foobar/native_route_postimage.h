@@ -42,6 +42,26 @@ inline NativeUnifiedPreviewDecision native_checked_preview_decision(
     return preliminary;
 }
 
+// Keep ruleset drift distinct from route-evidence drift. Both the native
+// footer and the actual dispatch use this exact fail-closed sequence.
+template <typename RulesAudit, typename FileAudit>
+inline NativeUnifiedPreviewDecision native_checked_joint_preview_decision(
+    bool snapshot_ready, std::size_t selected_count,
+    RulesAudit&& rules_audit, FileAudit&& file_audit) {
+    const auto preliminary=native_unified_preview_decision(
+        snapshot_ready,selected_count,false);
+    if(!preliminary.preview_allowed) return preliminary;
+    try { rules_audit(); }
+    catch(const std::exception&) {
+        return {false,L"BLOCKED: review rules changed; refresh preview."};
+    }
+    try { file_audit(); }
+    catch(const std::exception&) {
+        return native_unified_preview_decision(true,selected_count,true);
+    }
+    return preliminary;
+}
+
 // The exact selected source's advisory raw target observation. This remains
 // separate from both the foobar File Operations destination and any writer.
 struct JointRawTargetObservation {

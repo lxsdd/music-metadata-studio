@@ -950,9 +950,10 @@ djmeta::WorkflowFileActionAudit current_file_action_audit(
 
 NativeUnifiedPreviewDecision current_unified_preview_decision(
     const PreviewState& state,std::size_t selected_count) {
-    return native_checked_preview_decision(
-        !state.stale && !state.refreshing,selected_count,[&] {
-            verify_rules_snapshot(state.captured_rules);
+    return native_checked_joint_preview_decision(
+        !state.stale && !state.refreshing,selected_count,
+        [&] { verify_rules_snapshot(state.captured_rules); },
+        [&] {
             const auto review=djmeta::audit_workflow_preview(
                 state.table,state.analyses,state.review_decisions);
             (void)current_file_action_audit(state,review);

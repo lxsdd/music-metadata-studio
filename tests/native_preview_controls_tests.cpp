@@ -1865,6 +1865,36 @@ int main() {
     GetDlgItemTextW(dialog,IDC_BATCH_HINT,unified_hint,512);
     check(std::wstring(unified_hint).find(L"file plan stale")!=std::wstring::npos,
           "original native HWND displays audit-derived stale file plan blocker");
+    // Distinguish rule drift from changed file-plan evidence in the
+    // original resource-backed dialog, without invoking any writer.
+    unsigned rules_audits=0, file_audits=0;
+    const auto joint_valid=djmeta_foobar::native_checked_joint_preview_decision(
+        true,1,[&] { ++rules_audits; },[&] { ++file_audits; });
+    const auto joint_rules_stale=djmeta_foobar::native_checked_joint_preview_decision(
+        true,1,[&] {
+            ++rules_audits;
+            throw std::invalid_argument("ruleset revision changed");
+        },[&] { ++file_audits; });
+    const auto joint_file_stale=djmeta_foobar::native_checked_joint_preview_decision(
+        true,1,[&] { ++rules_audits; },[&] {
+            ++file_audits;
+            throw std::invalid_argument("route evidence changed");
+        });
+    check(joint_valid.preview_allowed &&
+          !joint_rules_stale.preview_allowed &&
+          !joint_file_stale.preview_allowed &&
+          rules_audits==3 && file_audits==2 &&
+          joint_rules_stale.reason.find(L"review rules changed")!=std::wstring::npos &&
+          joint_file_stale.reason.find(L"file plan stale")!=std::wstring::npos,
+          "joint preview distinguishes rules and file evidence, short-circuits stale rules");
+    SetDlgItemTextW(dialog,IDC_BATCH_HINT,joint_rules_stale.reason.c_str());
+    GetDlgItemTextW(dialog,IDC_BATCH_HINT,unified_hint,512);
+    check(std::wstring(unified_hint).find(L"review rules changed")!=std::wstring::npos,
+          "native HWND exposes actual ruleset blocker");
+    SetDlgItemTextW(dialog,IDC_BATCH_HINT,joint_file_stale.reason.c_str());
+    GetDlgItemTextW(dialog,IDC_BATCH_HINT,unified_hint,512);
+    check(std::wstring(unified_hint).find(L"file plan stale")!=std::wstring::npos,
+          "native HWND exposes actual route blocker");
     SetDlgItemTextW(dialog,IDC_BATCH_HINT,previous_status);
     check(djmeta_foobar::native_workspace_dismisses_tooltip(
               WM_CLOSE,0) &&
