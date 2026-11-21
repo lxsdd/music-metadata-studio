@@ -86,6 +86,27 @@ void run_precision_dialog_qa_impl(HWND studio, void (*invalidate)(HWND)) {
         state->job=std::make_shared<LookupJob>();
         SendMessageW(dialog,WM_COMMAND,MAKEWPARAM(IDC_PRECISION_CANCEL_LOOKUP,BN_CLICKED),0);
         require(!state->job && !state->input_revision.request_is_current());
+        // Synthetic positive/negative review states through the real HWND.
+        // Copy readiness is advisory; neither case invokes a writer.
+        state->reviewed_preview_ready=false;
+        update_reviewed_actions(*state);
+        wchar_t cue_hint[256]{};
+        GetDlgItemTextW(dialog,IDC_PRECISION_SOURCE_HINT,cue_hint,256);
+        require(std::wstring(cue_hint).find(L"preview stale")!=std::wstring::npos);
+        require(!IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
+        state->reviewed_preview_ready=true;
+        CheckDlgButton(dialog,IDC_PRECISION_EDITION_CONFIRMED,BST_CHECKED);
+        SendMessageW(dialog,WM_COMMAND,
+            MAKEWPARAM(IDC_PRECISION_EDITION_CONFIRMED,BN_CLICKED),0);
+        require(IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
+        require(!IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_SAVE_CUE)));
+        GetDlgItemTextW(dialog,IDC_PRECISION_SOURCE_HINT,cue_hint,256);
+        require(std::wstring(cue_hint).find(L"selected disc export evidence missing")!=std::wstring::npos);
+        CheckDlgButton(dialog,IDC_PRECISION_EDITION_CONFIRMED,BST_UNCHECKED);
+        update_reviewed_actions(*state);
+        require(!IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
+        state->reviewed_preview_ready=false;
+        update_reviewed_actions(*state);
         // Disabled buttons alone are insufficient: invoke the original handlers.
         for(const int id:{IDC_PRECISION_SAVE_CUE,IDC_PRECISION_SAVE_ALL_CUES}) {
             require(!IsWindowEnabled(GetDlgItem(dialog,id)));

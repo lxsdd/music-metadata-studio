@@ -472,33 +472,50 @@ void invalidate_cue_copy(Workspace& state) {
     EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_SAVE_ALL_CUES), FALSE);
 }
 
-void update_reviewed_actions(Workspace& state) {
-    const bool approved = state.reviewed_preview_ready &&
-        IsDlgButtonChecked(state.dialog, IDC_PRECISION_EDITION_CONFIRMED) == BST_CHECKED;
-    EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_COPY_CUE), approved);
+// One read-only CUE review decision drives the original child HWND and is
+// recomputed at dispatch. It cannot override the independent owner release.
+struct CueReviewDecision {
+    bool copy_ready = false;
+    bool single_ready = false;
+    bool batch_ready = false;
+    const wchar_t* reason = L"BLOCKED: CUE review is not current.";
+};
+
+CueReviewDecision current_cue_review_decision(Workspace& state) {
+    if (!state.reviewed_preview_ready)
+        return {false, false, false, L"BLOCKED: CUE preview stale or missing; review again."};
+    if (IsDlgButtonChecked(state.dialog, IDC_PRECISION_EDITION_CONFIRMED) != BST_CHECKED)
+        return {false, false, false, L"BLOCKED: confirm the reviewed edition and disc mapping."};
     const auto chosen = SendDlgItemMessageW(state.dialog, IDC_PRECISION_DISC_PICKER,
                                             CB_GETCURSEL, 0, 0);
-    const bool saveable = approved &&
-        djmeta::precision_cue_native_operation_allowed(
-            djmeta::PrecisionCueNativeOperation::CreateExternalSingle) &&
-        chosen != CB_ERR &&
+    const bool selected = chosen != CB_ERR &&
         static_cast<std::size_t>(chosen) < state.reviewed_exports.size() &&
         state.reviewed_exports[static_cast<std::size_t>(chosen)].has_value();
-    EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_SAVE_CUE),
-                 saveable ? TRUE : FALSE);
-    // All discs must be explicitly mapped, reviewed, and currently absent
-    // in the captured read-only inventory before presenting batch consent.
-    // The full host/content SHA preflight is repeated at actual invocation.
-    const bool all_saveable = approved &&
-        djmeta::precision_cue_native_operation_allowed(
-            djmeta::PrecisionCueNativeOperation::CreateExternalBatch) &&
-        state.reviewed_exports.size() > 1 &&
+    const bool complete = state.reviewed_exports.size() > 1 &&
         state.reviewed_exports.size() == state.reviewed_mapping.size() &&
-        std::all_of(state.reviewed_exports.begin(),
-                    state.reviewed_exports.end(),
+        std::all_of(state.reviewed_exports.begin(), state.reviewed_exports.end(),
                     [](const auto& item) { return item.has_value(); });
+    const bool single = selected && djmeta::precision_cue_native_operation_allowed(
+        djmeta::PrecisionCueNativeOperation::CreateExternalSingle);
+    const bool batch = complete && djmeta::precision_cue_native_operation_allowed(
+        djmeta::PrecisionCueNativeOperation::CreateExternalBatch);
+    const wchar_t* reason = !selected
+        ? L"READY: reviewed CUE may be copied; selected disc export evidence missing."
+        : !(single || batch)
+            ? L"READY: reviewed CUE may be copied; external publication requires separate owner release."
+            : L"READY: reviewed CUE; source and target snapshots are rechecked at dispatch.";
+    return {true, single, batch, reason};
+}
+
+void update_reviewed_actions(Workspace& state) {
+    const auto decision = current_cue_review_decision(state);
+    EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_COPY_CUE),
+                 decision.copy_ready ? TRUE : FALSE);
+    EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_SAVE_CUE),
+                 decision.single_ready ? TRUE : FALSE);
     EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_SAVE_ALL_CUES),
-                 all_saveable ? TRUE : FALSE);
+                 decision.batch_ready ? TRUE : FALSE);
+    SetDlgItemTextW(state.dialog, IDC_PRECISION_SOURCE_HINT, decision.reason);
 }
 
 void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release,
@@ -964,8 +981,7 @@ void assign_selected_disc(Workspace& state) {
 }
 
 void copy_reviewed_disc_cue(Workspace& state) {
-    if (!state.reviewed_preview_ready || !state.release ||
-        IsDlgButtonChecked(state.dialog, IDC_PRECISION_EDITION_CONFIRMED) != BST_CHECKED)
+    if (!current_cue_review_decision(state).copy_ready || !state.release)
         throw std::invalid_argument("Review disc mapping and confirm the exact mix edition first");
     for (const auto& file : state.files) {
         if (!djmeta::precision_cue_external_detail::physical_source_unchanged(
@@ -1107,8 +1123,7 @@ void save_all_reviewed_disc_cues(Workspace& state) {
             djmeta::PrecisionCueNativeOperation::CreateExternalBatch))
         throw std::logic_error(
             "External CUE batch publication is locked pending separate owner release and host qualification");
-    if (!state.reviewed_preview_ready || !state.release ||
-        IsDlgButtonChecked(state.dialog, IDC_PRECISION_EDITION_CONFIRMED) != BST_CHECKED ||
+    if (!current_cue_review_decision(state).copy_ready || !state.release ||
         state.reviewed_exports.size() < 2 ||
         state.reviewed_exports.size() != state.reviewed_mapping.size())
         throw std::invalid_argument(
