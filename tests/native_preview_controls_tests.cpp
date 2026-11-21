@@ -1895,6 +1895,41 @@ int main() {
     GetDlgItemTextW(dialog,IDC_BATCH_HINT,unified_hint,512);
     check(std::wstring(unified_hint).find(L"file plan stale")!=std::wstring::npos,
           "native HWND exposes actual route blocker");
+    // Regression: a plan that was valid at footer paint becomes stale before
+    // the same original dialog dispatch. Both reads must call the same
+    // production audits, rather than trusting cached button eligibility.
+    bool live_plan_current=true;
+    unsigned live_rules_calls=0, live_plan_calls=0;
+    const auto live_rules_audit=[&] { ++live_rules_calls; };
+    const auto live_plan_audit=[&] {
+        ++live_plan_calls;
+        if(!live_plan_current)
+            throw std::invalid_argument("File action audit: target evidence changed");
+    };
+    const auto footer_before=djmeta_foobar::native_checked_joint_preview_decision(
+        true,1,live_rules_audit,live_plan_audit);
+    check(footer_before.preview_allowed,
+          "original dialog initially accepts the live reviewed file plan");
+    SetDlgItemTextW(dialog,IDC_BATCH_HINT,footer_before.reason.c_str());
+    GetDlgItemTextW(dialog,IDC_BATCH_HINT,unified_hint,512);
+    check(std::wstring(unified_hint).find(L"READY")!=std::wstring::npos,
+          "original HWND shows a valid unified review decision");
+    live_plan_current=false; // Synthetic external target drift, no filesystem writes.
+    const auto dispatch_after=djmeta_foobar::native_checked_joint_preview_decision(
+        true,1,live_rules_audit,live_plan_audit);
+    check(!dispatch_after.preview_allowed &&
+          dispatch_after.reason.find(L"file plan stale")!=std::wstring::npos &&
+          live_rules_calls==2 && live_plan_calls==2,
+          "dispatch reaudits the now-stale plan and refuses the old approval");
+    SetDlgItemTextW(dialog,IDC_BATCH_HINT,dispatch_after.reason.c_str());
+    GetDlgItemTextW(dialog,IDC_BATCH_HINT,unified_hint,512);
+    check(std::wstring(unified_hint).find(L"file plan stale")!=std::wstring::npos,
+          "original HWND exposes the same dispatch blocker after target drift");
+    live_plan_current=true;
+    const auto recovered=djmeta_foobar::native_checked_joint_preview_decision(
+        true,1,live_rules_audit,live_plan_audit);
+    check(recovered.preview_allowed && live_rules_calls==3 && live_plan_calls==3,
+          "fresh evidence restores read-only preview without authorizing a writer");
     SetDlgItemTextW(dialog,IDC_BATCH_HINT,previous_status);
     check(djmeta_foobar::native_workspace_dismisses_tooltip(
               WM_CLOSE,0) &&
