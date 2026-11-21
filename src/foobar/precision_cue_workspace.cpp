@@ -500,11 +500,18 @@ CueReviewDecision current_cue_review_decision(Workspace& state) {
         }
         for (const auto& reviewed : state.reviewed_exports) {
             if (!reviewed) continue;
-            const auto fresh = djmeta::observe_precision_cue_external_review(*reviewed);
-            if (!fresh.preflight.source_snapshot_current || !fresh.preflight.target_snapshot_current ||
-                fresh.source_snapshot_token != reviewed->request.reviewed_source_snapshot_token ||
-                fresh.target_snapshot_token != reviewed->request.reviewed_target_snapshot_token)
-                return {false, false, false, L"BLOCKED: reviewed CUE source or target changed."};
+            // The Save handlers independently hash the reviewed source before
+            // confirmation. Refreshing a control only needs file and target identity.
+            const auto& request = reviewed->request;
+            const auto proposal = djmeta::plan_precision_cue_external_export(
+                request.plan, request.mp3_basename);
+            if (!proposal.eligible)
+                return {false, false, false, L"BLOCKED: reviewed CUE target unavailable."};
+            const auto target = request.qualified_sibling_directory /
+                djmeta::precision_cue_external_detail::utf8_path(proposal.target_cue_basename);
+            if (!djmeta::precision_cue_target_is_absent(target) ||
+                djmeta::precision_cue_absent_target_token(target) != request.reviewed_target_snapshot_token)
+                return {false, false, false, L"BLOCKED: reviewed CUE target changed."};
         }
     } catch (const std::exception&) {
         return {false, false, false, L"BLOCKED: physical selection or review evidence unavailable."};
@@ -1819,8 +1826,9 @@ void open_precision_workspace(HWND studio, metadb_handle_list_cref handles, Stud
 } // namespace
 
 #ifdef MMS_DIALOG_DISPATCH_QA
-void run_precision_original_dialog_qa(HWND studio, void (*invalidate)(HWND)) {
-    run_precision_dialog_qa_impl(studio,invalidate);
+void run_precision_original_dialog_qa(HWND studio, void (*invalidate)(HWND),
+                                     const std::function<std::wstring(bool)>& check_plan) {
+    run_precision_dialog_qa_impl(studio,invalidate,check_plan);
 }
 #endif
 

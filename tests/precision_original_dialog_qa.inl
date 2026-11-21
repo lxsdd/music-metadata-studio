@@ -1,6 +1,7 @@
 // Runs in the real foobar SDK process against precision_dialog_proc, without
 // HTTP workers, media fixtures, clipboard access or writer invocation.
-void run_precision_dialog_qa_impl(HWND studio, void (*invalidate)(HWND)) {
+void run_precision_dialog_qa_impl(HWND studio, void (*invalidate)(HWND),
+                                  const std::function<std::wstring(bool)>& check_plan) {
     std::size_t assertion=0;
     const auto require=[&](bool ok) {
         ++assertion;
@@ -10,7 +11,7 @@ void run_precision_dialog_qa_impl(HWND studio, void (*invalidate)(HWND)) {
     auto* state=pending.get();
     bool file_plan_current = true;
     state->studio_review_check = [&]() -> std::wstring {
-        return file_plan_current ? L"" : L"BLOCKED: file plan stale; preview again.";
+        return check_plan(file_plan_current);
     };
     const HWND dialog=create_precision_dialog(studio,std::move(pending));
     try {

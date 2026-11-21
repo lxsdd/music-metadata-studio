@@ -10803,6 +10803,18 @@ void show_batch_preview_dialog(
                 auto* current=reinterpret_cast<PreviewState*>(GetWindowLongPtrW(window,GWLP_USERDATA));
                 if (!current) throw std::runtime_error("Studio QA state missing");
                 mark_stale_workspace(*current);
+            }, [created](bool plan_current) -> std::wstring {
+                auto& live = *reinterpret_cast<PreviewState*>(GetWindowLongPtrW(created,GWLP_USERDATA));
+                // Diverge the cached collision count from the real route inputs,
+                // then exercise the same production audit as Generate.
+                struct RestoreCount {
+                    std::size_t& count;
+                    std::size_t saved;
+                    ~RestoreCount() { count = saved; }
+                } restore{live.table.raw_collision_items, live.table.raw_collision_items};
+                if (!plan_current) ++live.table.raw_collision_items;
+                const auto decision = current_unified_preview_decision(live,1);
+                return decision.preview_allowed ? std::wstring{} : decision.reason;
             });
             SetWindowTextW(created,L"Studio original dialog dispatch PASS");
         } catch (const std::exception& error) {
