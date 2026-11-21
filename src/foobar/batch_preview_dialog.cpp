@@ -10828,31 +10828,45 @@ void show_batch_preview_dialog(
                 const auto decision = current_unified_preview_decision(live,1);
                 return decision.preview_allowed ? std::wstring{} : decision.reason;
             });
-            // Same-count synthetic selection swap through the exact identity
-            // predicate used by the original single-instance reopen path.
-            // Assert the displayed HWND reason and the dispatch recheck too.
+            // Exercise the actual single-instance reopen, not a manually
+            // marked stale flag. Keep the original synthetic source count,
+            // replacing only one physical path. No media is opened or written.
             auto& qa_live=*reinterpret_cast<PreviewState*>(
                 GetWindowLongPtrW(created,GWLP_USERDATA));
             if(qa_live.entries.empty())
                 throw std::runtime_error("Selection QA requires a source");
-            const auto& qa_handle=qa_live.entries.front().handle;
-            const std::string old_path=qa_handle->get_path();
-            const std::string swapped_path=old_path+".different-track";
-            const auto subsong=qa_handle->get_subsong_index();
-            if(!same_physical_selection_entry(old_path,subsong,old_path,subsong) ||
-               same_physical_selection_entry(old_path,subsong,swapped_path,subsong))
-                throw std::runtime_error("Same-count physical selection identity failed");
-            mark_stale_workspace(qa_live);
-            SetDlgItemTextW(created,IDC_BATCH_HINT,
-                L"BLOCKED: different foobar physical selection. "
-                L"Previous review/file plan/CUE decisions are stale. No writes.");
+            metadb_handle_list original_selection;
+            metadb_handle_list changed_selection;
+            for(const auto& entry : qa_live.entries) {
+                original_selection.add_item(entry.handle);
+                changed_selection.add_item(entry.handle);
+            }
+            if(!same_workspace_selection(qa_live,original_selection))
+                throw std::runtime_error("Original selection identity mismatch");
+            const std::string swapped_path=
+                std::string(qa_live.entries.front().handle->get_path())+
+                ".different-track";
+            metadb_handle_ptr swapped;
+            metadb::get()->handle_create(swapped,
+                make_playable_location(swapped_path.c_str(),
+                    qa_live.entries.front().handle->get_subsong_index()));
+            changed_selection[0]=swapped;
+            if(changed_selection.get_count()!=original_selection.get_count() ||
+               same_workspace_selection(qa_live,changed_selection))
+                throw std::runtime_error("Same-count source swap not detected");
+            show_batch_preview_dialog(changed_selection,initial_choice,false);
+            if(g_workspace!=created || !qa_live.stale)
+                throw std::runtime_error("Original single-instance reopen did not stale workspace");
             wchar_t qa_hint[512]{};
             GetDlgItemTextW(created,IDC_BATCH_HINT,qa_hint,512);
             if(std::wstring_view(qa_hint).find(L"different foobar physical selection")==
                    std::wstring_view::npos ||
                current_unified_preview_decision(
-                   qa_live,qa_live.entries.size()).preview_allowed)
-                throw std::runtime_error("Original HWND selection swap not blocked at dispatch");
+                   qa_live,qa_live.entries.size()).preview_allowed ||
+               IsWindowEnabled(GetDlgItem(created,IDC_METADATA_GENERATE_CUE)) ||
+               IsWindowEnabled(GetDlgItem(created,IDC_BATCH_APPLY_ALL)))
+                throw std::runtime_error(
+                    "Original HWND same-count reopen did not block dispatch");
             SetWindowTextW(created,L"Studio original dialog dispatch PASS");
         } catch (const std::exception& error) {
             // Preserve the existing fail-closed host gate while exposing the
