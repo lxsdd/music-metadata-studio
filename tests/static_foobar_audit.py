@@ -2788,5 +2788,5 @@ refresh_close = batch_rules_guard.index("close_studio_precision_cue_generator(st
 assert refresh_start < batch_rules_guard.index("!= IDYES) return;", refresh_start) < refresh_close
 close_start = batch_rules_guard.index("if (message == WM_CLOSE) {")
 assert batch_rules_guard.index("close_studio_precision_cue_generator(dialog)", close_start) < batch_rules_guard.index("ShowWindow(dialog,SW_HIDE)", close_start)
-assert "open_studio_precision_cue_generator(dialog,selected)" in batch_rules_guard
+assert "open_studio_precision_cue_generator(dialog,selected,std::move(check_review))" in batch_rules_guard
 print("PASS: Studio stale/confirmed-refresh/close retire the owned CUE preview")

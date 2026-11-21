@@ -8,6 +8,10 @@ void run_precision_dialog_qa_impl(HWND studio, void (*invalidate)(HWND)) {
     };
     auto pending=std::make_unique<Workspace>();
     auto* state=pending.get();
+    bool file_plan_current = true;
+    state->studio_review_check = [&]() -> std::wstring {
+        return file_plan_current ? L"" : L"BLOCKED: file plan stale; preview again.";
+    };
     const HWND dialog=create_precision_dialog(studio,std::move(pending));
     try {
         require(GetParent(dialog)==studio && GetAncestor(dialog,GA_ROOT)==studio);
@@ -110,6 +114,15 @@ void run_precision_dialog_qa_impl(HWND studio, void (*invalidate)(HWND)) {
             djmeta::PrecisionCueNativeOperation::CreateExternalSingle));
         require(!djmeta::precision_cue_native_operation_allowed(
             djmeta::PrecisionCueNativeOperation::CreateExternalBatch));
+        // The plan changed after paint. Dispatch the real copy command while
+        // the button is still enabled, without accessing the clipboard.
+        file_plan_current=false;
+        SendMessageW(dialog,WM_COMMAND,MAKEWPARAM(IDC_PRECISION_COPY_CUE,BN_CLICKED),0);
+        GetDlgItemTextW(dialog,IDC_PRECISION_SOURCE_HINT,cue_hint,256);
+        require(std::wstring(cue_hint)==L"BLOCKED: file plan stale; preview again.");
+        require(!IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
+        require(!state->reviewed_preview_ready);
+        file_plan_current=true;
         CheckDlgButton(dialog,IDC_PRECISION_EDITION_CONFIRMED,BST_UNCHECKED);
         update_reviewed_actions(*state);
         require(!IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));

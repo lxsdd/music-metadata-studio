@@ -153,6 +153,7 @@ struct Workspace {
     std::string search_query;
     std::vector<djmeta::ApplePrecisionCueAlbumHit> search_hits;
     std::optional<djmeta::PrecisionCueRelease> deezer_reference;
+    StudioCueReviewCheck studio_review_check;
     bool reviewed_preview_ready = false;
     djmeta::PrecisionCueRequestRevision input_revision;
 };
@@ -478,7 +479,7 @@ struct CueReviewDecision {
     bool copy_ready = false;
     bool single_ready = false;
     bool batch_ready = false;
-    const wchar_t* reason = L"BLOCKED: CUE review is not current.";
+    std::wstring reason = L"BLOCKED: CUE review is not current.";
 };
 
 CueReviewDecision current_cue_review_decision(Workspace& state) {
@@ -486,6 +487,28 @@ CueReviewDecision current_cue_review_decision(Workspace& state) {
         return {false, false, false, L"BLOCKED: CUE preview stale or missing; review again."};
     if (IsDlgButtonChecked(state.dialog, IDC_PRECISION_EDITION_CONFIRMED) != BST_CHECKED)
         return {false, false, false, L"BLOCKED: confirm the reviewed edition and disc mapping."};
+    try {
+        if (!state.studio_review_check)
+            return {false, false, false, L"BLOCKED: Studio selection unavailable."};
+        const auto blocker = state.studio_review_check();
+        if (!blocker.empty()) return {false, false, false, blocker};
+        for (const auto& file : state.files) {
+            if (!djmeta::precision_cue_external_detail::physical_source_unchanged(
+                    file.snapshot, file.physical_absolute_path,
+                    file.physical_absolute_path.parent_path(), file.basename))
+                return {false, false, false, L"BLOCKED: physical MP3 changed; reopen Precision CUE."};
+        }
+        for (const auto& reviewed : state.reviewed_exports) {
+            if (!reviewed) continue;
+            const auto fresh = djmeta::observe_precision_cue_external_review(*reviewed);
+            if (!fresh.preflight.source_snapshot_current || !fresh.preflight.target_snapshot_current ||
+                fresh.source_snapshot_token != reviewed->request.reviewed_source_snapshot_token ||
+                fresh.target_snapshot_token != reviewed->request.reviewed_target_snapshot_token)
+                return {false, false, false, L"BLOCKED: reviewed CUE source or target changed."};
+        }
+    } catch (const std::exception&) {
+        return {false, false, false, L"BLOCKED: physical selection or review evidence unavailable."};
+    }
     const auto chosen = SendDlgItemMessageW(state.dialog, IDC_PRECISION_DISC_PICKER,
                                             CB_GETCURSEL, 0, 0);
     const bool selected = chosen != CB_ERR &&
@@ -515,7 +538,7 @@ void update_reviewed_actions(Workspace& state) {
                  decision.single_ready ? TRUE : FALSE);
     EnableWindow(GetDlgItem(state.dialog, IDC_PRECISION_SAVE_ALL_CUES),
                  decision.batch_ready ? TRUE : FALSE);
-    SetDlgItemTextW(state.dialog, IDC_PRECISION_SOURCE_HINT, decision.reason);
+    SetDlgItemTextW(state.dialog, IDC_PRECISION_SOURCE_HINT, decision.reason.c_str());
 }
 
 void show_candidate(Workspace& state, const djmeta::PrecisionCueRelease& release,
@@ -981,17 +1004,13 @@ void assign_selected_disc(Workspace& state) {
 }
 
 void copy_reviewed_disc_cue(Workspace& state) {
-    if (!current_cue_review_decision(state).copy_ready || !state.release)
-        throw std::invalid_argument("Review disc mapping and confirm the exact mix edition first");
-    for (const auto& file : state.files) {
-        if (!djmeta::precision_cue_external_detail::physical_source_unchanged(
-                file.snapshot, file.physical_absolute_path,
-                file.physical_absolute_path.parent_path(), file.basename)) {
-            invalidate_cue_copy(state);
-            throw std::invalid_argument(
-                "Physical MP3 changed since reviewed preview; reopen Precision CUE");
-        }
+    const auto decision = current_cue_review_decision(state);
+    if (!decision.copy_ready) {
+        invalidate_cue_copy(state);
+        SetDlgItemTextW(state.dialog, IDC_PRECISION_SOURCE_HINT, decision.reason.c_str());
+        throw std::invalid_argument(to_utf8(decision.reason));
     }
+    if (!state.release) throw std::invalid_argument("Review the release before copying CUE");
     const auto selection = SendDlgItemMessageW(state.dialog, IDC_PRECISION_DISC_PICKER,
                                                CB_GETCURSEL, 0, 0);
     if (selection == CB_ERR || static_cast<std::size_t>(selection) >= state.reviewed_cues.size())
@@ -1669,7 +1688,7 @@ HWND create_precision_dialog(HWND studio, std::unique_ptr<Workspace> state) {
     return window;
 }
 
-void open_precision_workspace(HWND studio, metadb_handle_list_cref handles) {
+void open_precision_workspace(HWND studio, metadb_handle_list_cref handles, StudioCueReviewCheck review_check) {
     if (!studio || !IsWindow(studio)) return;
     // Never retarget a surviving popup belonging to another workspace.
     if (g_precision_workspace && IsWindow(g_precision_workspace) &&
@@ -1691,6 +1710,7 @@ void open_precision_workspace(HWND studio, metadb_handle_list_cref handles) {
             clear_search_results(*active);
             active->deezer_reference.reset();
             active->lookup_url.clear();
+            active->studio_review_check = std::move(review_check);
             active->files.clear(); // A rejected new selection cannot reuse old files.
             update_lookup_ui(*active, false);
             try {
@@ -1709,6 +1729,7 @@ void open_precision_workspace(HWND studio, metadb_handle_list_cref handles) {
     }
     try {
         auto state = std::make_unique<Workspace>();
+        state->studio_review_check = std::move(review_check);
         // A rejected physical selection is NOT a failed native HWND load.
         // Distinguish these cases in the real Win32/x64 host diagnostics
         // without logging a user's audio path, basename or private tags.
@@ -1803,8 +1824,8 @@ void run_precision_original_dialog_qa(HWND studio, void (*invalidate)(HWND)) {
 }
 #endif
 
-void open_studio_precision_cue_generator(HWND studio, metadb_handle_list_cref handles) {
-    open_precision_workspace(studio, handles);
+void open_studio_precision_cue_generator(HWND studio, metadb_handle_list_cref handles, StudioCueReviewCheck review_check) {
+    open_precision_workspace(studio, handles, std::move(review_check));
 }
 
 HWND studio_precision_cue_view(HWND studio) {

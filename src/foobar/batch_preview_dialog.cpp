@@ -9229,7 +9229,28 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 selected.add_item(entry.handle);
             }
             // The read-only Precision workspace owns no active writer.
-            open_studio_precision_cue_generator(dialog,selected);
+            // The child belongs to this Studio window. Resolve its current
+            // grid selection and file plan again for each review or dispatch.
+            auto check_review = [dialog, source_ids, selected]() -> std::wstring {
+                const auto* live = reinterpret_cast<const PreviewState*>(
+                    GetWindowLongPtrW(dialog, GWLP_USERDATA));
+                if (!live || live->stale || live->refreshing)
+                    return L"BLOCKED: source snapshot stale; refresh.";
+                const auto decision = current_unified_preview_decision(*live, source_ids.size());
+                if (!decision.preview_allowed) return decision.reason;
+                if (marked_precision_cue_sources(*live) != source_ids)
+                    return L"BLOCKED: marked physical selection changed; reopen Precision CUE.";
+                for (std::size_t i = 0; i < source_ids.size(); ++i) {
+                    const auto& entry = live->entries.at(source_ids[i]);
+                    if (entry.handle != selected[i])
+                        return L"BLOCKED: marked physical selection changed; reopen Precision CUE.";
+                    verify_snapshot(entry);
+                }
+                return {};
+            };
+            const auto blocker = check_review();
+            if (!blocker.empty()) throw std::invalid_argument("Studio file plan is no longer current.");
+            open_studio_precision_cue_generator(dialog,selected,std::move(check_review));
             show_precision_page(*state);
             return TRUE;
         }
