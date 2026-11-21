@@ -5397,13 +5397,21 @@ void revalidate_workspace(PreviewState& state, bool full_source_check = false) {
     if (!fresh) mark_stale_workspace(state);
 }
 
+bool same_physical_selection_entry(
+    std::string_view captured_path,unsigned captured_subsong,
+    std::string_view requested_path,unsigned requested_subsong) {
+    return captured_path==requested_path &&
+           captured_subsong==requested_subsong;
+}
+
 bool same_workspace_selection(const PreviewState& state,
                               const metadb_handle_list& handles) {
     if (handles.get_count() != state.entries.size()) return false;
     for (t_size i=0;i<handles.get_count();++i) {
         const auto& old = state.entries[static_cast<std::size_t>(i)].handle;
-        if (std::string(old->get_path()) != std::string(handles[i]->get_path()) ||
-            old->get_subsong_index() != handles[i]->get_subsong_index())
+        if (!same_physical_selection_entry(
+                old->get_path(),old->get_subsong_index(),
+                handles[i]->get_path(),handles[i]->get_subsong_index()))
             return false;
     }
     return true;
@@ -10745,9 +10753,13 @@ void show_batch_preview_dialog(
             ShowWindow(g_workspace,SW_SHOW);
             SetForegroundWindow(g_workspace);
             if (existing && !same) {
+                // A new physical selection, even at the same count, cannot
+                // inherit the previous review/file plan/CUE dispatch approval.
+                mark_stale_workspace(*existing);
                 SetDlgItemTextW(g_workspace,IDC_BATCH_HINT,
-                    L"Different foobar selection: existing snapshot and decisions retained. "
-                    L"Close this workspace, then reopen for the new selection.");
+                    L"BLOCKED: different foobar physical selection. "
+                    L"Previous review/file plan/CUE decisions are stale. "
+                    L"Close this workspace and reopen for the new selection. No writes.");
             } else if (existing) {
                 revalidate_workspace(*existing);
                 if (different_route && !existing->stale)
@@ -10816,6 +10828,31 @@ void show_batch_preview_dialog(
                 const auto decision = current_unified_preview_decision(live,1);
                 return decision.preview_allowed ? std::wstring{} : decision.reason;
             });
+            // Same-count synthetic selection swap through the exact identity
+            // predicate used by the original single-instance reopen path.
+            // Assert the displayed HWND reason and the dispatch recheck too.
+            auto& qa_live=*reinterpret_cast<PreviewState*>(
+                GetWindowLongPtrW(created,GWLP_USERDATA));
+            if(qa_live.entries.empty())
+                throw std::runtime_error("Selection QA requires a source");
+            const auto& qa_handle=qa_live.entries.front().handle;
+            const std::string old_path=qa_handle->get_path();
+            const std::string swapped_path=old_path+".different-track";
+            const auto subsong=qa_handle->get_subsong_index();
+            if(!same_physical_selection_entry(old_path,subsong,old_path,subsong) ||
+               same_physical_selection_entry(old_path,subsong,swapped_path,subsong))
+                throw std::runtime_error("Same-count physical selection identity failed");
+            mark_stale_workspace(qa_live);
+            SetDlgItemTextW(created,IDC_BATCH_HINT,
+                L"BLOCKED: different foobar physical selection. "
+                L"Previous review/file plan/CUE decisions are stale. No writes.");
+            wchar_t qa_hint[512]{};
+            GetDlgItemTextW(created,IDC_BATCH_HINT,qa_hint,512);
+            if(std::wstring_view(qa_hint).find(L"different foobar physical selection")==
+                   std::wstring_view::npos ||
+               current_unified_preview_decision(
+                   qa_live,qa_live.entries.size()).preview_allowed)
+                throw std::runtime_error("Original HWND selection swap not blocked at dispatch");
             SetWindowTextW(created,L"Studio original dialog dispatch PASS");
         } catch (const std::exception& error) {
             // Preserve the existing fail-closed host gate while exposing the
