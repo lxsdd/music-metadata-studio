@@ -1,6 +1,6 @@
 # Repository operating rules
 
-This repository is the canonical source of truth for DJ Metadata Normalizer.
+This repository is the canonical source of truth for Music Metadata Studio.
 
 ## Scope isolation
 

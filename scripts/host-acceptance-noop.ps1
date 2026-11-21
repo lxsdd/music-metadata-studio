@@ -53,7 +53,7 @@ if ($Mode -eq 'Prepare') {
 
     $cue = Join-Path $TestFolder 'sample-a.cue'
     @(
-        'REM DJ Metadata Normalizer read-only test fixture',
+        'REM Music Metadata Studio read-only test fixture',
         'FILE "sample-a.mp3" MP3',
         '  TRACK 01 AUDIO',
         '    INDEX 01 00:00:00'
@@ -73,7 +73,7 @@ if ($Mode -eq 'Prepare') {
     Write-Host 'PREPARE=PASS; original MP3 not modified.'
     Write-Host "TEST_FOLDER=$TestFolder"
     Write-Host 'Next: add sample-a.mp3, sample-b.mp3 and sample-a.cue to foobar.'
-    Write-Host 'Open the DJ Metadata Normalizer Prepare Tracks preview, inspect File locations'
+    Write-Host 'Open the Music Metadata Studio Prepare Tracks preview, inspect File locations'
     Write-Host 'and the read-only target context menu; close without applying any writes.'
     Write-Host ('Afterward run: powershell -NoProfile -ExecutionPolicy Bypass -File "' +
         $MyInvocation.MyCommand.Path + '" -Mode Verify -TestFolder "' + $TestFolder + '"')

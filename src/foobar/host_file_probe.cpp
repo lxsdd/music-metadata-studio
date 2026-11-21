@@ -5,6 +5,7 @@
 
 #include <climits>
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <string_view>
 
@@ -67,8 +68,7 @@ HostFileObservation probe_host_file_readonly(const std::string& path) {
             }
             return out;
         }
-        if ((attrs & FILE_ATTRIBUTE_DIRECTORY) != 0 ||
-            (attrs & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+        if (!valid_native_regular_file_attributes(attrs)) {
             out.detail = "Directory or reparse-point file is not qualified.";
             return out;
         }
@@ -79,7 +79,8 @@ HostFileObservation probe_host_file_readonly(const std::string& path) {
         const HANDLE file_handle = CreateFileW(native_path.c_str(),
             FILE_READ_ATTRIBUTES,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            nullptr, OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
         if (file_handle == INVALID_HANDLE_VALUE) {
             out.detail = "Cannot open physical file for read-only attributes.";
             return out;
@@ -92,11 +93,19 @@ HostFileObservation probe_host_file_readonly(const std::string& path) {
             out.detail = "Host cannot provide a physical file ID.";
             return out;
         }
+        // A last-component symlink/reparse substitute must never inherit
+        // the originally inspected physical file's eligibility. The handle
+        // was opened without following that reparse point.
+        if (!valid_native_regular_file_attributes(native_info.dwFileAttributes)) {
+            out.detail = "Physical file became a reparse point or directory.";
+            return out;
+        }
         const auto index = file_number(native_info.nFileIndexHigh,
                                        native_info.nFileIndexLow);
-        // Unusable identifiers are common on unsupported virtual/network
-        // filesystems. Never mistake a shared zero identity for proof.
-        if (index == 0 && native_info.dwVolumeSerialNumber == 0) {
+        // Unsupported virtual/network filesystems can return an absent
+        // index with a nonzero volume serial or the reverse. BOTH parts
+        // must be usable; a shared zero index is never a source identity.
+        if (!valid_native_file_identity(native_info.dwVolumeSerialNumber, index)) {
             out.detail = "Physical file identity is unavailable.";
             return out;
         }
@@ -132,6 +141,151 @@ HostFileObservation probe_host_file_readonly(const std::string& path) {
         out.detail = "foobar filesystem identity/statistics probe failed.";
     } catch (...) {
         out.detail = "Unsupported foobar filesystem probe failure.";
+    }
+    return out;
+}
+
+// Observe ALL native parent components, not merely the last file entry:
+// a missing target below a junction or a parent replaced between source and
+// destination probes must never appear to be a stable raw destination.
+// Explicitly no SDK File Operations sanitization, path creation or writes.
+HostDestinationParentChain probe_raw_destination_parent_chain_readonly(
+    const std::string& literal_candidate,
+    const std::string& selected_destination_root) {
+    HostDestinationParentChain out;
+    try {
+        if(literal_candidate.empty() ||
+           literal_candidate.find('\0')!=std::string::npos ||
+           selected_destination_root.empty() ||
+           selected_destination_root.find('\0')!=std::string::npos)
+            throw std::invalid_argument("Empty or NUL raw target/root");
+        pfc::string8 canonical,native;
+        filesystem::g_get_canonical_path(literal_candidate.c_str(),canonical);
+        if(canonical.is_empty() ||
+           !filesystem::g_get_native_path(
+               canonical.get_ptr(),native,fb2k::noAbort))
+            throw std::invalid_argument("Unsupported native destination");
+        out.native_target=utf8_to_native(native.get_ptr());
+        pfc::string8 root_canonical,root_native;
+        filesystem::g_get_canonical_path(
+            selected_destination_root.c_str(),root_canonical);
+        if(root_canonical.is_empty() ||
+           !filesystem::g_get_native_path(
+               root_canonical.get_ptr(),root_native,fb2k::noAbort))
+            throw std::invalid_argument("Host cannot resolve destination root");
+        const std::filesystem::path target(
+            std::filesystem::path(out.native_target).lexically_normal());
+        std::filesystem::path root(
+            std::filesystem::path(utf8_to_native(root_native.get_ptr()))
+                .lexically_normal());
+        // Windows treats C:\\Library and C:\\Library\\ as the same
+        // selected directory. path::lexically_normal() may preserve the
+        // latter's trailing separator, whereas target.parent_path() does
+        // not. Normalize that harmless difference before comparing.
+        if(root!=root.root_path() && !root.has_filename())
+            root=root.parent_path();
+        if(!target.is_absolute() || !target.has_parent_path() ||
+           !root.is_absolute() || root.empty())
+            throw std::invalid_argument("Nonabsolute native destination or root");
+        out.native_destination_root=root.native();
+        std::filesystem::path parent=target.parent_path();
+        bool have_existing_ancestor=false;
+        bool found_selected_root=false;
+        for(std::size_t depth=0;depth<64;++depth) {
+            if(parent.empty())
+                break;
+            HostDestinationAncestor part;
+            part.native_path=parent.native();
+            // Use Windows native filename semantics for spelling/case of
+            // the selected root, never a guessed UTF-8 path or raw TF text.
+            const bool selected_root_here =
+                CompareStringOrdinal(part.native_path.c_str(),-1,
+                                     out.native_destination_root.c_str(),-1,
+                                     TRUE)==CSTR_EQUAL;
+            const DWORD attrs=GetFileAttributesW(part.native_path.c_str());
+            if(attrs==INVALID_FILE_ATTRIBUTES) {
+                const DWORD error=GetLastError();
+                if(error!=ERROR_FILE_NOT_FOUND &&
+                   error!=ERROR_PATH_NOT_FOUND) {
+                    out.rejection="RAW_PARENT_ATTRIBUTES_UNAVAILABLE";
+                    return out;
+                }
+                // Missing directory is not a permission to create it.
+                // Its exact position/name is included in both observations.
+            } else {
+                if(!(attrs & FILE_ATTRIBUTE_DIRECTORY) ||
+                   (attrs & FILE_ATTRIBUTE_REPARSE_POINT)) {
+                    out.rejection="RAW_PARENT_NOT_DIRECTORY_OR_REPARSE";
+                    return out;
+                }
+                const HANDLE handle=CreateFileW(part.native_path.c_str(),
+                    FILE_READ_ATTRIBUTES,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                    nullptr,OPEN_EXISTING,
+                    FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                    nullptr);
+                if(handle==INVALID_HANDLE_VALUE) {
+                    out.rejection="RAW_PARENT_DIRECTORY_HANDLE_UNAVAILABLE";
+                    return out;
+                }
+                BY_HANDLE_FILE_INFORMATION info{};
+                const BOOL valid=GetFileInformationByHandle(handle,&info);
+                CloseHandle(handle);
+                if(!valid ||
+                   !(info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
+                   (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+                    out.rejection="RAW_PARENT_DIRECTORY_REPLACED";
+                    return out;
+                }
+                const auto index=file_number(
+                    info.nFileIndexHigh,info.nFileIndexLow);
+                if(!valid_native_file_identity(
+                    info.dwVolumeSerialNumber,index)) {
+                    out.rejection="RAW_PARENT_IDENTITY_UNAVAILABLE";
+                    return out;
+                }
+                part.existing=true;
+                part.physical_key="win-dir-v1:"+
+                    std::to_string(info.dwVolumeSerialNumber)+":"+
+                    std::to_string(index);
+                part.guard=part.physical_key+":"+
+                    std::to_string(time_number(info.ftCreationTime))+":"+
+                    std::to_string(time_number(info.ftLastWriteTime))+":"+
+                    std::to_string(info.dwFileAttributes);
+                have_existing_ancestor=true;
+            }
+            if(selected_root_here) {
+                // File Operations requires the named root to EXIST; it can
+                // create nested pattern folders only after separate consent.
+                if(!part.existing) {
+                    out.rejection="RAW_SELECTED_DESTINATION_ROOT_MISSING";
+                    return out;
+                }
+                found_selected_root=true;
+                // Keep the actually observed target-ancestor spelling,
+                // which may differ in case from the separately canonicalized
+                // requested root, but still points to the same native path.
+                out.native_destination_root=part.native_path;
+                out.destination_root_physical_key=part.physical_key;
+                out.destination_root_guard=part.guard;
+            }
+            out.ancestors.push_back(std::move(part));
+            const auto next=parent.parent_path();
+            if(next==parent) {
+                out.qualified=have_existing_ancestor && found_selected_root;
+                if(!out.qualified)
+                    out.rejection=found_selected_root
+                        ? "RAW_PARENT_NO_OBSERVED_DIRECTORY"
+                        : "RAW_SELECTED_ROOT_NOT_ANCESTOR_OF_TARGET";
+                return out;
+            }
+            parent=next;
+        }
+        out.rejection="RAW_PARENT_DEPTH_OR_ROOT_UNQUALIFIED";
+    } catch(const std::exception&) {
+        out.rejection="RAW_PARENT_NATIVE_RESOLUTION_UNQUALIFIED";
+    } catch(...) {
+        out.rejection="RAW_PARENT_UNSUPPORTED_HOST_FAILURE";
     }
     return out;
 }
