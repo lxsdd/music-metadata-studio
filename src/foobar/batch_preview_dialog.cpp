@@ -4341,7 +4341,7 @@ void apply_to_rows(HWND dialog, PreviewState& state, NativeRoutePreviewScope sco
     const auto initial_decision=current_unified_preview_decision(
         state,state.entries.size());
     if(!initial_decision.preview_allowed)
-        throw std::invalid_argument("Unified review/file/CUE decision blocks preview.");
+        throw std::invalid_argument("Unified review/file/CUE decision blocks preview: "+to_utf8(initial_decision.reason));
     verify_rules_snapshot(state.captured_rules);
     const auto choice=read_choice(dialog);
     const auto action=read_file_action(dialog);
@@ -4359,7 +4359,7 @@ void apply_to_rows(HWND dialog, PreviewState& state, NativeRoutePreviewScope sco
     const auto selection_decision=current_unified_preview_decision(
         state,selected.size());
     if(!selection_decision.preview_allowed)
-        throw std::invalid_argument("Unified review/file/CUE selection blocked.");
+        throw std::invalid_argument("Unified review/file/CUE selection blocked: "+to_utf8(selection_decision.reason));
     const bool online_source_scoped=
         state.online_field_snapshot.has_value() &&
         !state.online_included_fields.empty() &&
@@ -4479,9 +4479,10 @@ void apply_to_rows(HWND dialog, PreviewState& state, NativeRoutePreviewScope sco
            reinterpret_cast<LONG_PTR>(&state) ||
        TabCtrl_GetCurSel(state.tabs)!=2) return;
     revalidate_workspace(state,true);
-    if(!current_unified_preview_decision(
-           state,selected.size()).preview_allowed)
-        throw std::runtime_error("Unified review/file/CUE decision changed during confirmation.");
+    const auto confirmed_decision=current_unified_preview_decision(state,selected.size());
+    if(!confirmed_decision.preview_allowed)
+        throw std::runtime_error("Unified review/file/CUE decision changed during confirmation: "+
+                                 to_utf8(confirmed_decision.reason));
     const auto now=read_choice(dialog);
     if(now.display_name!=choice.display_name ||
        now.destination_root!=choice.destination_root ||
@@ -10859,10 +10860,12 @@ void show_batch_preview_dialog(
                 throw std::runtime_error("Original single-instance reopen did not stale workspace");
             wchar_t qa_hint[512]{};
             GetDlgItemTextW(created,IDC_BATCH_HINT,qa_hint,512);
+            const auto stale_decision=current_unified_preview_decision(
+                qa_live,qa_live.entries.size());
             if(std::wstring_view(qa_hint).find(L"different foobar physical selection")==
                    std::wstring_view::npos ||
-               current_unified_preview_decision(
-                   qa_live,qa_live.entries.size()).preview_allowed ||
+               stale_decision.preview_allowed ||
+               stale_decision.reason.empty() ||
                IsWindowEnabled(GetDlgItem(created,IDC_METADATA_GENERATE_CUE)) ||
                IsWindowEnabled(GetDlgItem(created,IDC_BATCH_APPLY_ALL)))
                 throw std::runtime_error(
