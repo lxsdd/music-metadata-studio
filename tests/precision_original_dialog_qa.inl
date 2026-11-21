@@ -102,6 +102,14 @@ void run_precision_dialog_qa_impl(HWND studio, void (*invalidate)(HWND)) {
         require(!IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_SAVE_CUE)));
         GetDlgItemTextW(dialog,IDC_PRECISION_SOURCE_HINT,cue_hint,256);
         require(std::wstring(cue_hint).find(L"selected disc export evidence missing")!=std::wstring::npos);
+        // Dispatch and controls consume the identical fresh decision.
+        const auto reviewed_without_export=current_cue_review_decision(*state);
+        require(reviewed_without_export.copy_ready);
+        require(!reviewed_without_export.single_ready && !reviewed_without_export.batch_ready);
+        require(!djmeta::precision_cue_native_operation_allowed(
+            djmeta::PrecisionCueNativeOperation::CreateExternalSingle));
+        require(!djmeta::precision_cue_native_operation_allowed(
+            djmeta::PrecisionCueNativeOperation::CreateExternalBatch));
         CheckDlgButton(dialog,IDC_PRECISION_EDITION_CONFIRMED,BST_UNCHECKED);
         update_reviewed_actions(*state);
         require(!IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));

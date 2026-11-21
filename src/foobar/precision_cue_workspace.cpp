@@ -1027,9 +1027,10 @@ void save_reviewed_disc_cue(Workspace& state) {
             djmeta::PrecisionCueNativeOperation::CreateExternalSingle))
         throw std::logic_error(
             "External CUE publication is locked pending separate owner release and host qualification");
-    if (!state.reviewed_preview_ready || !state.release ||
-        IsDlgButtonChecked(state.dialog, IDC_PRECISION_EDITION_CONFIRMED) != BST_CHECKED)
-        throw std::invalid_argument("Verify the exact edition and review the disc mapping");
+    // Recompute the same decision used by the native review controls.
+    // The independent owner-release fence above remains the first gate.
+    if (!current_cue_review_decision(state).single_ready || !state.release)
+        throw std::invalid_argument("Verify the exact edition, selected disc export evidence and owner release");
     const auto chosen = SendDlgItemMessageW(state.dialog, IDC_PRECISION_DISC_PICKER,
                                             CB_GETCURSEL, 0, 0);
     if (chosen == CB_ERR ||
@@ -1123,7 +1124,7 @@ void save_all_reviewed_disc_cues(Workspace& state) {
             djmeta::PrecisionCueNativeOperation::CreateExternalBatch))
         throw std::logic_error(
             "External CUE batch publication is locked pending separate owner release and host qualification");
-    if (!current_cue_review_decision(state).copy_ready || !state.release ||
+    if (!current_cue_review_decision(state).batch_ready || !state.release ||
         state.reviewed_exports.size() < 2 ||
         state.reviewed_exports.size() != state.reviewed_mapping.size())
         throw std::invalid_argument(
