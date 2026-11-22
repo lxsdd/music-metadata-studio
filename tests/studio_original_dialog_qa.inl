@@ -220,6 +220,25 @@ void run_studio_original_dialog_qa(HWND dialog) {
         rejected();
     } catch (...) { restore(); throw; }
     restore();
+    // Native HWND fixture: a physically qualified selected source must be
+    // revalidated by exact host identity and version, independently of the
+    // shared review/file-plan gate. No filesystem probe or writer is used.
+    {
+        const auto& entry=state->entries.at(0);
+        HostFileObservation observed;
+        observed.state=HostFileState::ExistingFile;
+        observed.host_physical_key=entry.observed_physical_key;
+        observed.source_guard=entry.observed_source_guard;
+        require(precision_cue_source_evidence_current(entry,observed));
+        observed.source_guard+="-changed";
+        require(!precision_cue_source_evidence_current(entry,observed));
+        observed.source_guard=entry.observed_source_guard;
+        observed.host_physical_key+="-replaced";
+        require(!precision_cue_source_evidence_current(entry,observed));
+        observed.host_physical_key=entry.observed_physical_key;
+        observed.state=HostFileState::Missing;
+        require(!precision_cue_source_evidence_current(entry,observed));
+    }
     // The same entry gate used by the real Generate CUE command must
     // accept a valid review and preserve the original stale-plan reason.
     // No CUE export or media writer is invoked.

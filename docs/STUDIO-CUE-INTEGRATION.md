@@ -72,3 +72,7 @@ visible action bounds, and the actual Studio stale handler. These extend the
 existing original CUE response/cancel/disabled-writer tests. Exact-head
 Win32/x64 CI is mandatory. Visual multi-monitor/DPI and installed owner
 acceptance remain separate; other register requirements are not declared done.
+
+## Physical source recheck on every CUE review (22 November 2026)
+
+The Studio-owned Precision CUE callback now checks the exact captured physical MP3 host identity and source version at each child-dialog review/dispatch, not only when Generate CUE first opens. This is separate from the shared Review/File-plan/CUE decision: a changed source can invalidate a CUE while the file-plan counters remain unchanged. The original HWND fixture tests a qualified source and synthetic changed version, replaced physical identity and missing source against the production predicate. The existing positive/stale-plan HWND checks remain. External publication remains separately owner-locked; exact-head Win32/x64 CI is required for this change.

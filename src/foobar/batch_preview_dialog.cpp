@@ -9259,6 +9259,18 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             SendMessageW(dialog,WM_CLOSE,0,0);
             return TRUE;
         }
+// Reuse the captured physical source and version identity at CUE entry and
+// every later child-dialog review/dispatch. A valid path alone is insufficient.
+bool precision_cue_source_evidence_current(
+    const PreviewEntry& entry, const HostFileObservation& observed) {
+    return entry.input.physical_source_qualified &&
+        !entry.observed_physical_key.empty() &&
+        !entry.observed_source_guard.empty() &&
+        observed.state == HostFileState::ExistingFile &&
+        observed.host_physical_key == entry.observed_physical_key &&
+        observed.source_guard == entry.observed_source_guard;
+}
+
         if (id == IDC_METADATA_GENERATE_CUE && HIWORD(wp) == BN_CLICKED) {
             const auto source_ids=marked_precision_cue_sources(*state);
             metadb_handle_list selected;
@@ -9266,9 +9278,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 const auto& entry=state->entries[source];
                 verify_snapshot(entry);
                 const auto observed=probe_host_file_readonly(entry.input.source_path);
-                if(observed.state!=HostFileState::ExistingFile ||
-                   observed.host_physical_key!=entry.observed_physical_key ||
-                   observed.source_guard!=entry.observed_source_guard)
+                if(!precision_cue_source_evidence_current(entry,observed))
                     throw std::runtime_error(
                         "Precision CUE selected MP3 changed; refresh snapshot.");
                 selected.add_item(entry.handle);
@@ -9290,6 +9300,12 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                     if (entry.handle != selected[i])
                         return L"BLOCKED: marked physical selection changed; reopen Precision CUE.";
                     verify_snapshot(entry);
+                    // Studio's file plan and the physical MP3 can change
+                    // independently. Re-probe the exact captured source at
+                    // every CUE review, not only when opening the child page.
+                    const auto observed=probe_host_file_readonly(entry.input.source_path);
+                    if(!precision_cue_source_evidence_current(entry,observed))
+                        return L"BLOCKED: selected physical MP3 source changed; reopen Precision CUE.";
                 }
                 return {};
             };
