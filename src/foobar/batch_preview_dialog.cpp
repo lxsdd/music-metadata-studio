@@ -3131,6 +3131,21 @@ void show_preview_page(HWND dialog, PreviewState& state,
     }
     if (metadata) {
         update_metadata_table(state);
+        // Review and File plan show the same read-only joint decision.
+        // Preserve the detailed Review hint while making stale file-plan
+        // evidence visible before the user attempts Generate CUE.
+        if (!candidate) {
+            const auto decision=current_unified_preview_decision(
+                state,state.entries.size());
+            wchar_t existing[2048]{};
+            GetDlgItemTextW(dialog,IDC_BATCH_HINT,existing,2048);
+            std::wstring detail(existing);
+            const std::wstring marker=L" Unified review/file/CUE: ";
+            if(const auto at=detail.find(marker);at!=std::wstring::npos)
+                detail.resize(at);
+            detail+=marker+decision.reason;
+            SetDlgItemTextW(dialog,IDC_BATCH_HINT,detail.c_str());
+        }
     } else {
         update_workflow_audit_hint(state);
     }

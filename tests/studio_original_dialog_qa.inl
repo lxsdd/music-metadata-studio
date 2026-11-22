@@ -242,4 +242,46 @@ void run_studio_original_dialog_qa(HWND dialog) {
         throw;
     }
     state->table.raw_collision_items=saved_collisions;
+    // Native original HWND: the Review and File plan pages must expose
+    // the exact same joint decision as the dispatch gate. Exercise the
+    // positive selection and a deliberately stale synthetic file plan.
+    const auto before_tab=TabCtrl_GetCurSel(state->tabs);
+    const auto before_metadata=state->show_metadata;
+    const auto assert_display=[&](const NativeUnifiedPreviewDecision& decision) {
+        wchar_t hint[4096]{};
+        GetDlgItemTextW(dialog,IDC_BATCH_HINT,hint,4096);
+        require(std::wstring_view(hint).find(decision.reason)!=std::wstring_view::npos);
+    };
+    try {
+        const auto ready=current_unified_preview_decision(*state,state->entries.size());
+        TabCtrl_SetCurSel(state->tabs,1);
+        show_preview_page(dialog,*state,true,false);
+        assert_display(ready);
+        TabCtrl_SetCurSel(state->tabs,2);
+        show_preview_page(dialog,*state,false,false);
+        assert_display(ready);
+        ++state->table.raw_collision_items;
+        const auto stale=current_unified_preview_decision(*state,state->entries.size());
+        require(!stale.preview_allowed && stale.reason.find(L"file plan stale")!=std::wstring::npos);
+        update_workflow_audit_hint(*state);
+        assert_display(stale);
+        TabCtrl_SetCurSel(state->tabs,1);
+        show_preview_page(dialog,*state,true,false);
+        assert_display(stale);
+        bool denied=false;
+        try { require_precision_cue_entry_review(stale.reason); }
+        catch(const std::invalid_argument& error) {
+            denied=std::string(error.what()).find(to_utf8(stale.reason))!=std::string::npos;
+        }
+        require(denied);
+        --state->table.raw_collision_items;
+    } catch (...) {
+        state->table.raw_collision_items=saved_collisions;
+        TabCtrl_SetCurSel(state->tabs,before_tab);
+        show_preview_page(dialog,*state,before_metadata,false);
+        throw;
+    }
+    state->table.raw_collision_items=saved_collisions;
+    TabCtrl_SetCurSel(state->tabs,before_tab);
+    show_preview_page(dialog,*state,before_metadata,false);
 }
