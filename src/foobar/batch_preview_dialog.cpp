@@ -4389,6 +4389,16 @@ std::wstring precision_cue_recheck_source_blocker(
     return {};
 }
 
+// A native selection/decision callback must never let an unexpected SDK or
+// owner-data exception escape into Precision CUE's review/dispatch path.
+template <typename Check>
+std::wstring precision_cue_review_callback_blocker(Check&& check) {
+    try { return check(); }
+    catch (...) {
+        return L"BLOCKED: Studio selection or file plan could not be rechecked; refresh and reopen Precision CUE.";
+    }
+}
+
 void require_precision_cue_entry_review(const std::wstring& blocker) {
     if (!blocker.empty())
         throw std::invalid_argument(
@@ -9301,6 +9311,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
             // The child belongs to this Studio window. Resolve its current
             // grid selection and file plan again for each review or dispatch.
             auto check_review = [dialog, source_ids, selected]() -> std::wstring {
+                return precision_cue_review_callback_blocker([&]() -> std::wstring {
                 const auto* live = reinterpret_cast<const PreviewState*>(
                     GetWindowLongPtrW(dialog, GWLP_USERDATA));
                 if (!live || live->stale || live->refreshing)
@@ -9325,8 +9336,9 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                     if (!blocker.empty()) return blocker;
                 }
                 return {};
+                });
             };
-            const auto blocker = check_review();
+            const auto blocker = precision_cue_review_callback_blocker(check_review);
             require_precision_cue_entry_review(blocker);
             open_studio_precision_cue_generator(dialog,selected,std::move(check_review));
             show_precision_page(*state);

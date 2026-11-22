@@ -257,6 +257,17 @@ void run_studio_original_dialog_qa(HWND dialog) {
         require(precision_cue_recheck_source_blocker(
             entry,[&] { return observed; }).empty());
     }
+    // The actual Studio callback wrapper must accept a valid decision and
+    // convert unexpected selection/owner-data failures into a dispatch blocker.
+    require(precision_cue_review_callback_blocker([] { return std::wstring{}; }).empty());
+    const auto unexpected=precision_cue_review_callback_blocker([]() -> std::wstring {
+        throw std::runtime_error("synthetic owner-data selection failure");
+    });
+    require(unexpected.find(L"could not be rechecked")!=std::wstring::npos);
+    bool unexpected_denied=false;
+    try { require_precision_cue_entry_review(unexpected); }
+    catch(const std::invalid_argument&) { unexpected_denied=true; }
+    require(unexpected_denied);
     // The same entry gate used by the real Generate CUE command must
     // accept a valid review and preserve the original stale-plan reason.
     // No CUE export or media writer is invoked.
