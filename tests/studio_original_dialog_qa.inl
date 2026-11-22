@@ -169,6 +169,28 @@ void run_studio_original_dialog_qa(HWND dialog) {
         state->stale=true; rejected(); state->stale=false;
         state->show_candidate=false; rejected(); state->show_candidate=true;
         project({2,10},{2,10}); accepted({2,10});
+        // Same-count selection replacement must invalidate the captured
+        // CUE review, even though the file-plan row count is unchanged.
+        metadb_handle_list captured_handles;
+        captured_handles.add_item(state->entries[2].handle);
+        captured_handles.add_item(state->entries[10].handle);
+        const std::vector<std::size_t> captured_ids{2,10};
+        require(precision_cue_marked_identity_blocker(
+            *state,captured_ids,captured_handles).empty());
+        project({2,3},{2,3}); accepted({2,3});
+        require(ListView_GetSelectedCount(state->metadata_track_list)==2);
+        const auto displayed=marked_precision_cue_sources(*state);
+        require(displayed==std::vector<std::size_t>({2,3}));
+        const auto replaced=precision_cue_marked_identity_blocker(
+            *state,captured_ids,captured_handles);
+        require(replaced.find(L"marked physical selection changed")!=std::wstring::npos);
+        bool replacement_denied=false;
+        try { require_precision_cue_entry_review(replaced); }
+        catch(const std::invalid_argument&) { replacement_denied=true; }
+        require(replacement_denied);
+        project({2,10},{2,10}); accepted({2,10});
+        require(precision_cue_marked_identity_blocker(
+            *state,captured_ids,captured_handles).empty());
         // Real production table rebuild: two explicitly marked MP3s are
         // filtered away while other qualified MP3s remain visible.
         // A visible detail/focus fallback is NOT a new CUE selection.

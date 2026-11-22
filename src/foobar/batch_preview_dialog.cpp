@@ -4399,6 +4399,24 @@ std::wstring precision_cue_review_callback_blocker(Check&& check) {
     }
 }
 
+// Compare the original marked physical IDs AND SDK handles, not just the
+// selection count. The child review and the native HWND regression share this
+// predicate so a same-count replacement cannot reuse an earlier approval.
+std::wstring precision_cue_marked_identity_blocker(
+    const PreviewState& state,
+    const std::vector<std::size_t>& captured_ids,
+    const metadb_handle_list& captured_handles) {
+    const auto current_ids=marked_precision_cue_sources(state);
+    if(current_ids!=captured_ids ||
+       current_ids.size()!=captured_handles.get_count())
+        return L"BLOCKED: marked physical selection changed; reopen Precision CUE.";
+    for(std::size_t i=0;i<current_ids.size();++i) {
+        if(state.entries.at(current_ids[i]).handle!=captured_handles[i])
+            return L"BLOCKED: marked physical selection changed; reopen Precision CUE.";
+    }
+    return {};
+}
+
 void require_precision_cue_entry_review(const std::wstring& blocker) {
     if (!blocker.empty())
         throw std::invalid_argument(
@@ -9318,12 +9336,11 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                     return L"BLOCKED: source snapshot stale; refresh.";
                 const auto decision = current_unified_preview_decision(*live, source_ids.size());
                 if (!decision.preview_allowed) return decision.reason;
-                if (marked_precision_cue_sources(*live) != source_ids)
-                    return L"BLOCKED: marked physical selection changed; reopen Precision CUE.";
+                const auto selection_blocker=precision_cue_marked_identity_blocker(
+                    *live,source_ids,selected);
+                if(!selection_blocker.empty()) return selection_blocker;
                 for (std::size_t i = 0; i < source_ids.size(); ++i) {
                     const auto& entry = live->entries.at(source_ids[i]);
-                    if (entry.handle != selected[i])
-                        return L"BLOCKED: marked physical selection changed; reopen Precision CUE.";
                     // Studio's file plan and the physical MP3 can change
                     // independently. Fail closed even when the host probe
                     // itself throws (missing access, IO or SDK observation).
