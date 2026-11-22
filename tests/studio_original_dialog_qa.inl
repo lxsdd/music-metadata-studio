@@ -220,4 +220,26 @@ void run_studio_original_dialog_qa(HWND dialog) {
         rejected();
     } catch (...) { restore(); throw; }
     restore();
+    // The same entry gate used by the real Generate CUE command must
+    // accept a valid review and preserve the original stale-plan reason.
+    // No CUE export or media writer is invoked.
+    require_precision_cue_entry_review(std::wstring{});
+    const auto saved_collisions=state->table.raw_collision_items;
+    try {
+        ++state->table.raw_collision_items;
+        const auto blocked=current_unified_preview_decision(
+            *state,state->entries.size());
+        require(!blocked.preview_allowed && !blocked.reason.empty());
+        bool refused=false;
+        try { require_precision_cue_entry_review(blocked.reason); }
+        catch(const std::invalid_argument& error) {
+            const std::string diagnostic=error.what();
+            refused=diagnostic.find(to_utf8(blocked.reason))!=std::string::npos;
+        }
+        require(refused);
+    } catch (...) {
+        state->table.raw_collision_items=saved_collisions;
+        throw;
+    }
+    state->table.raw_collision_items=saved_collisions;
 }

@@ -4334,6 +4334,15 @@ void apply_review_action(HWND dialog, PreviewState& state,
         affected_tracks.size()==1 ? *affected_tracks.begin() : static_cast<std::size_t>(-1));
 }
 
+// One fail-closed entry decision for the visible Studio review and the
+// Precision CUE dispatch callback. Keep the original specific blocker.
+void require_precision_cue_entry_review(const std::wstring& blocker) {
+    if (!blocker.empty())
+        throw std::invalid_argument(
+            "Unified review/file/CUE decision blocks Precision CUE: "+
+            to_utf8(blocker));
+}
+
 void apply_to_rows(HWND dialog, PreviewState& state, NativeRoutePreviewScope scope) {
     if(!native_route_preview_snapshot_ready(
            state.stale,state.refreshing,TabCtrl_GetCurSel(state.tabs)))
@@ -9258,7 +9267,7 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                 return {};
             };
             const auto blocker = check_review();
-            if (!blocker.empty()) throw std::invalid_argument("Studio file plan is no longer current.");
+            require_precision_cue_entry_review(blocker);
             open_studio_precision_cue_generator(dialog,selected,std::move(check_review));
             show_precision_page(*state);
             return TRUE;
