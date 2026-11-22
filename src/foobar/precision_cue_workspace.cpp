@@ -50,6 +50,9 @@
 #include <cstdlib>
 #include <filesystem>
 #include <functional>
+#ifdef MMS_DIALOG_DISPATCH_QA
+#include <fstream>
+#endif
 #include <limits>
 #include <memory>
 #include <mutex>

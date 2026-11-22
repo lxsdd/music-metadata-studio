@@ -115,6 +115,58 @@ void run_precision_dialog_qa_impl(HWND studio, void (*invalidate)(HWND),
             djmeta::PrecisionCueNativeOperation::CreateExternalSingle));
         require(!djmeta::precision_cue_native_operation_allowed(
             djmeta::PrecisionCueNativeOperation::CreateExternalBatch));
+        // A new sibling CUE after review must invalidate both the visible
+        // action and a queued click, even while source identity stays current.
+        {
+            namespace fs = std::filesystem;
+            const auto dir = fs::canonical(fs::temp_directory_path()) /
+                (L"studio-cue-target-" + std::to_wstring(GetCurrentProcessId()) +
+                 L"-" + std::to_wstring(GetTickCount64()));
+            require(fs::create_directory(dir));
+            struct Cleanup {
+                fs::path path;
+                ~Cleanup() { std::error_code ec; fs::remove_all(path, ec); }
+            } cleanup{dir};
+            djmeta::PrecisionCueDisc disc;
+            disc.album_title = "Synthetic album";
+            disc.album_performer = "Synthetic artist";
+            disc.audio_file_basename = "Synthetic.mp3";
+            disc.tracks = {{"Synthetic track", "Synthetic artist", 60000}};
+            const auto physical = dir / disc.audio_file_basename;
+            { std::ofstream out(physical, std::ios::binary); out << "synthetic source"; require(out.good()); }
+            const auto snapshot = djmeta::precision_cue_external_detail::physical_source_snapshot(
+                physical, dir, disc.audio_file_basename);
+            require(snapshot.has_value());
+            const auto plan = djmeta::make_precision_cue(disc);
+            const auto reviewed = djmeta::capture_precision_cue_external_review(
+                plan, physical, disc.audio_file_basename, *snapshot);
+            require(reviewed.has_value());
+            LocalFile source{};
+            source.basename = disc.audio_file_basename;
+            source.physical_absolute_path = physical;
+            source.snapshot = *snapshot;
+            state->files.push_back(source);
+            state->reviewed_exports.push_back(reviewed);
+            update_reviewed_actions(*state);
+            require(IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
+            const auto proposal = djmeta::plan_precision_cue_external_export(plan, source.basename);
+            require(proposal.eligible);
+            const auto target = dir / proposal.target_cue_basename;
+            { std::ofstream out(target, std::ios::binary); out << "existing target"; require(out.good()); }
+            update_reviewed_actions(*state);
+            GetDlgItemTextW(dialog,IDC_PRECISION_SOURCE_HINT,cue_hint,256);
+            require(std::wstring(cue_hint)==L"BLOCKED: reviewed CUE target changed.");
+            require(!IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
+            SendMessageW(dialog,WM_COMMAND,MAKEWPARAM(IDC_PRECISION_COPY_CUE,BN_CLICKED),0);
+            require(!state->reviewed_preview_ready);
+            GetDlgItemTextW(dialog,IDC_PRECISION_SOURCE_HINT,cue_hint,256);
+            require(std::wstring(cue_hint)==L"BLOCKED: reviewed CUE target changed.");
+            require(djmeta::precision_cue_external_detail::physical_source_unchanged(
+                *snapshot,physical,dir,source.basename));
+            state->files.pop_back();
+            state->reviewed_preview_ready=true;
+            CheckDlgButton(dialog,IDC_PRECISION_EDITION_CONFIRMED,BST_CHECKED);
+        }
         // An unexpected non-standard SDK exception must not escape the
         // original child HWND. Display and dispatch must share the blocker.
         const auto normal_review=state->studio_review_check;
