@@ -238,6 +238,24 @@ void run_studio_original_dialog_qa(HWND dialog) {
         observed.host_physical_key=entry.observed_physical_key;
         observed.state=HostFileState::Missing;
         require(!precision_cue_source_evidence_current(entry,observed));
+        // Native original-host regression for an unexpected observation
+        // exception: no exception escapes the review callback and no
+        // source/target writer is reached.
+        const auto failed=precision_cue_recheck_source_blocker(
+            entry,[]() -> HostFileObservation {
+                throw std::runtime_error("synthetic host observation failure");
+            });
+        require(failed.find(L"could not be rechecked")!=std::wstring::npos);
+        require_precision_cue_entry_review(std::wstring{});
+        bool denied_probe=false;
+        try { require_precision_cue_entry_review(failed); }
+        catch(const std::invalid_argument& error) {
+            denied_probe=std::string(error.what()).find(to_utf8(failed))!=std::string::npos;
+        }
+        require(denied_probe);
+        observed.state=HostFileState::ExistingFile;
+        require(precision_cue_recheck_source_blocker(
+            entry,[&] { return observed; }).empty());
     }
     // The same entry gate used by the real Generate CUE command must
     // accept a valid review and preserve the original stale-plan reason.

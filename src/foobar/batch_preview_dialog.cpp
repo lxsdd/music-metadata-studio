@@ -4375,6 +4375,20 @@ bool precision_cue_source_evidence_current(
         observed.source_guard == entry.observed_source_guard;
 }
 
+// A host probe can fail independently of the Studio file-plan decision.
+// Convert every observation failure into a visible fail-closed CUE blocker.
+template <typename Observe>
+std::wstring precision_cue_recheck_source_blocker(
+    const PreviewEntry& entry, Observe&& observe) {
+    try {
+        if (!precision_cue_source_evidence_current(entry, observe()))
+            return L"BLOCKED: selected physical MP3 source changed; reopen Precision CUE.";
+    } catch (...) {
+        return L"BLOCKED: selected physical MP3 source could not be rechecked; refresh and reopen Precision CUE.";
+    }
+    return {};
+}
+
 void require_precision_cue_entry_review(const std::wstring& blocker) {
     if (!blocker.empty())
         throw std::invalid_argument(
@@ -9299,13 +9313,16 @@ INT_PTR CALLBACK batch_dialog_proc(HWND dialog, UINT message, WPARAM wp, LPARAM 
                     const auto& entry = live->entries.at(source_ids[i]);
                     if (entry.handle != selected[i])
                         return L"BLOCKED: marked physical selection changed; reopen Precision CUE.";
-                    verify_snapshot(entry);
                     // Studio's file plan and the physical MP3 can change
-                    // independently. Re-probe the exact captured source at
-                    // every CUE review, not only when opening the child page.
-                    const auto observed=probe_host_file_readonly(entry.input.source_path);
-                    if(!precision_cue_source_evidence_current(entry,observed))
-                        return L"BLOCKED: selected physical MP3 source changed; reopen Precision CUE.";
+                    // independently. Fail closed even when the host probe
+                    // itself throws (missing access, IO or SDK observation).
+                    try { verify_snapshot(entry); }
+                    catch (...) {
+                        return L"BLOCKED: selected physical MP3 snapshot could not be verified; refresh and reopen Precision CUE.";
+                    }
+                    const auto blocker=precision_cue_recheck_source_blocker(
+                        entry,[&] { return probe_host_file_readonly(entry.input.source_path); });
+                    if (!blocker.empty()) return blocker;
                 }
                 return {};
             };
