@@ -513,7 +513,9 @@ CueReviewDecision current_cue_review_decision(Workspace& state) {
                 djmeta::precision_cue_absent_target_token(target) != request.reviewed_target_snapshot_token)
                 return {false, false, false, L"BLOCKED: reviewed CUE target changed."};
         }
-    } catch (const std::exception&) {
+    } catch (...) {
+        // The original HWND must fail closed even if an SDK/host callback
+        // throws a non-std exception during source or target revalidation.
         return {false, false, false, L"BLOCKED: physical selection or review evidence unavailable."};
     }
     const auto chosen = SendDlgItemMessageW(state.dialog, IDC_PRECISION_DISC_PICKER,

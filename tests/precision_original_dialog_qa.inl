@@ -115,6 +115,24 @@ void run_precision_dialog_qa_impl(HWND studio, void (*invalidate)(HWND),
             djmeta::PrecisionCueNativeOperation::CreateExternalSingle));
         require(!djmeta::precision_cue_native_operation_allowed(
             djmeta::PrecisionCueNativeOperation::CreateExternalBatch));
+        // An unexpected non-standard SDK exception must not escape the
+        // original child HWND. Display and dispatch must share the blocker.
+        const auto normal_review=state->studio_review_check;
+        state->studio_review_check=[]() -> std::wstring { throw 42; };
+        update_reviewed_actions(*state);
+        GetDlgItemTextW(dialog,IDC_PRECISION_SOURCE_HINT,cue_hint,256);
+        require(std::wstring(cue_hint)==L"BLOCKED: physical selection or review evidence unavailable.");
+        require(!IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
+        const auto exception_decision=current_cue_review_decision(*state);
+        require(!exception_decision.copy_ready && !exception_decision.single_ready &&
+            !exception_decision.batch_ready);
+        SendMessageW(dialog,WM_COMMAND,MAKEWPARAM(IDC_PRECISION_COPY_CUE,BN_CLICKED),0);
+        require(!state->reviewed_preview_ready);
+        state->studio_review_check=normal_review;
+        state->reviewed_preview_ready=true;
+        CheckDlgButton(dialog,IDC_PRECISION_EDITION_CONFIRMED,BST_CHECKED);
+        update_reviewed_actions(*state);
+        require(IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
         // The plan changed after paint. Dispatch the real copy command while
         // the button is still enabled, without accessing the clipboard.
         file_plan_current=false;
