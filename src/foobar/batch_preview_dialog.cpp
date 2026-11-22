@@ -766,6 +766,18 @@ NativeUnifiedPreviewDecision current_unified_preview_decision(
 
 void update_workflow_audit_hint(PreviewState& state) {
     if(!state.dialog || state.show_metadata) return;
+    // A stale synthetic or live file plan may make the raw audit throw.
+    // Render the SAME fail-closed joint decision used by dispatch first;
+    // never let the diagnostic display path abort the original HWND.
+    const auto gate=current_unified_preview_decision(
+        state,state.entries.size());
+    if(!gate.preview_allowed) {
+        const std::wstring blocked=L"Unified review/file/CUE: "+gate.reason+
+            L" No writes.";
+        SetDlgItemTextW(state.dialog,IDC_BATCH_HINT,
+            native_workspace_display_hint(state.stale,blocked.c_str()));
+        return;
+    }
     const auto audit=djmeta::audit_workflow_preview(
         state.table,state.analyses,state.review_decisions);
     const std::wstring hint=L"File queue "+std::to_wstring(state.view_order.size())+
