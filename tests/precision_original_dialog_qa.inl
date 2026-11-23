@@ -157,6 +157,24 @@ void run_precision_dialog_qa_impl(HWND studio, void (*invalidate)(HWND),
             require(SendDlgItemMessageW(dialog,IDC_PRECISION_DISC_PICKER,CB_SETCURSEL,0,0)==0);
             update_reviewed_actions(*state);
             require(IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
+            // A missing reviewed release must not retain clipboard or batch
+            // readiness even if the physical source and CUE bytes still match.
+            // This exercises the actual child HWND before restoring the
+            // synthetic release, without invoking any external writer.
+            const auto saved_release = state->release;
+            state->release.reset();
+            const auto missing_release = current_cue_review_decision(*state);
+            require(!missing_release.copy_ready && !missing_release.single_ready &&
+                    !missing_release.batch_ready);
+            update_reviewed_actions(*state);
+            GetDlgItemTextW(dialog,IDC_PRECISION_SOURCE_HINT,cue_hint,256);
+            require(std::wstring(cue_hint) ==
+                L"BLOCKED: select a reviewed disc with valid CUE text before copying.");
+            require(!IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
+            state->release = saved_release;
+            update_reviewed_actions(*state);
+            require(current_cue_review_decision(*state).copy_ready);
+            require(IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
             // A nonempty altered CUE cache is not the reviewed postimage.
             // The real HWND and queued dispatch must both refuse it.
             state->reviewed_cues[0] = "tampered CUE";

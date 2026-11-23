@@ -526,7 +526,8 @@ CueReviewDecision current_cue_review_decision(Workspace& state) {
     const bool selected = chosen != CB_ERR &&
         static_cast<std::size_t>(chosen) < state.reviewed_exports.size() &&
         state.reviewed_exports[static_cast<std::size_t>(chosen)].has_value();
-    const bool complete = state.reviewed_exports.size() > 1 &&
+    const bool complete = state.release.has_value() &&
+        state.reviewed_exports.size() > 1 &&
         state.reviewed_exports.size() == state.reviewed_mapping.size() &&
         std::all_of(state.reviewed_exports.begin(), state.reviewed_exports.end(),
                     [](const auto& item) { return item.has_value(); });
