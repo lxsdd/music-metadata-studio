@@ -525,12 +525,16 @@ CueReviewDecision current_cue_review_decision(Workspace& state) {
     // a disc index and a matching cached text. Reject stale/reordered maps.
     if (state.reviewed_exports.size() != state.reviewed_mapping.size())
         return {false, false, false, L"BLOCKED: reviewed disc mapping changed; review again."};
+    // Each disc must retain a distinct physical MP3. A duplicated index can
+    // otherwise make two reviewed discs appear current against one source.
+    std::vector<bool> mapped_files(state.files.size(), false);
     for (std::size_t disc = 0; disc < state.reviewed_exports.size(); ++disc) {
         const auto file_index = state.reviewed_mapping[disc];
-        if (file_index >= state.files.size() ||
+        if (file_index >= state.files.size() || mapped_files[file_index] ||
             (state.reviewed_exports[disc] &&
              state.reviewed_exports[disc]->request.mp3_basename != state.files[file_index].basename))
             return {false, false, false, L"BLOCKED: reviewed disc mapping changed; review again."};
+        mapped_files[file_index] = true;
     }
     const auto chosen = SendDlgItemMessageW(state.dialog, IDC_PRECISION_DISC_PICKER,
                                             CB_GETCURSEL, 0, 0);

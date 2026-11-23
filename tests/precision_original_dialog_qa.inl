@@ -197,6 +197,25 @@ void run_precision_dialog_qa_impl(HWND studio, void (*invalidate)(HWND),
             CheckDlgButton(dialog,IDC_PRECISION_EDITION_CONFIRMED,BST_CHECKED);
             update_reviewed_actions(*state);
             require(current_cue_review_decision(*state).copy_ready);
+            // A duplicated physical file cannot stand in for two discs,
+            // even when both cached reviews and CUE bytes are unchanged.
+            state->reviewed_exports.push_back(reviewed);
+            state->reviewed_mapping.push_back(0);
+            state->reviewed_cues.push_back(plan.external_cue_utf8);
+            const auto duplicated_disc = current_cue_review_decision(*state);
+            require(!duplicated_disc.copy_ready && !duplicated_disc.single_ready &&
+                    !duplicated_disc.batch_ready);
+            require(duplicated_disc.reason ==
+                L"BLOCKED: reviewed disc mapping changed; review again.");
+            update_reviewed_actions(*state);
+            GetDlgItemTextW(dialog,IDC_PRECISION_SOURCE_HINT,cue_hint,256);
+            require(std::wstring(cue_hint) == duplicated_disc.reason);
+            require(!IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
+            state->reviewed_exports.pop_back();
+            state->reviewed_mapping.pop_back();
+            state->reviewed_cues.pop_back();
+            update_reviewed_actions(*state);
+            require(current_cue_review_decision(*state).copy_ready);
             // A nonempty altered CUE cache is not the reviewed postimage.
             // The real HWND and queued dispatch must both refuse it.
             state->reviewed_cues[0] = "tampered CUE";
