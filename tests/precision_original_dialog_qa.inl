@@ -147,6 +147,7 @@ void run_precision_dialog_qa_impl(HWND studio, void (*invalidate)(HWND),
             source.snapshot = *snapshot;
             state->files.push_back(source);
             state->reviewed_exports.push_back(reviewed);
+            state->reviewed_mapping.push_back(0);
             state->reviewed_cues.push_back(plan.external_cue_utf8);
             djmeta::PrecisionCueRelease release{};
             release.album_title=disc.album_title;
@@ -175,6 +176,27 @@ void run_precision_dialog_qa_impl(HWND studio, void (*invalidate)(HWND),
             update_reviewed_actions(*state);
             require(current_cue_review_decision(*state).copy_ready);
             require(IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
+            // Even a still-valid source and unchanged CUE bytes cannot
+            // authorize a disc whose reviewed physical mapping was replaced.
+            state->reviewed_mapping[0] = state->files.size();
+            const auto stale_mapping = current_cue_review_decision(*state);
+            require(!stale_mapping.copy_ready && !stale_mapping.single_ready &&
+                    !stale_mapping.batch_ready);
+            require(stale_mapping.reason ==
+                L"BLOCKED: reviewed disc mapping changed; review again.");
+            update_reviewed_actions(*state);
+            GetDlgItemTextW(dialog,IDC_PRECISION_SOURCE_HINT,cue_hint,256);
+            require(std::wstring(cue_hint) == stale_mapping.reason);
+            require(!IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
+            SendMessageW(dialog,WM_COMMAND,MAKEWPARAM(IDC_PRECISION_COPY_CUE,BN_CLICKED),0);
+            require(!state->reviewed_preview_ready && state->reviewed_exports.empty());
+            state->reviewed_mapping[0] = 0;
+            state->reviewed_exports.push_back(reviewed);
+            state->reviewed_cues.push_back(plan.external_cue_utf8);
+            state->reviewed_preview_ready = true;
+            CheckDlgButton(dialog,IDC_PRECISION_EDITION_CONFIRMED,BST_CHECKED);
+            update_reviewed_actions(*state);
+            require(current_cue_review_decision(*state).copy_ready);
             // A nonempty altered CUE cache is not the reviewed postimage.
             // The real HWND and queued dispatch must both refuse it.
             state->reviewed_cues[0] = "tampered CUE";

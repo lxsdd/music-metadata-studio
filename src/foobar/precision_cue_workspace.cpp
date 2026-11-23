@@ -521,6 +521,17 @@ CueReviewDecision current_cue_review_decision(Workspace& state) {
         // throws a non-std exception during source or target revalidation.
         return {false, false, false, L"BLOCKED: physical selection or review evidence unavailable."};
     }
+    // A reviewed CUE is tied to the assigned physical MP3, not merely to
+    // a disc index and a matching cached text. Reject stale/reordered maps.
+    if (state.reviewed_exports.size() != state.reviewed_mapping.size())
+        return {false, false, false, L"BLOCKED: reviewed disc mapping changed; review again."};
+    for (std::size_t disc = 0; disc < state.reviewed_exports.size(); ++disc) {
+        const auto file_index = state.reviewed_mapping[disc];
+        if (file_index >= state.files.size() ||
+            (state.reviewed_exports[disc] &&
+             state.reviewed_exports[disc]->request.mp3_basename != state.files[file_index].basename))
+            return {false, false, false, L"BLOCKED: reviewed disc mapping changed; review again."};
+    }
     const auto chosen = SendDlgItemMessageW(state.dialog, IDC_PRECISION_DISC_PICKER,
                                             CB_GETCURSEL, 0, 0);
     const bool selected = chosen != CB_ERR &&
