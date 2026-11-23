@@ -532,7 +532,11 @@ CueReviewDecision current_cue_review_decision(Workspace& state) {
         const auto file_index = state.reviewed_mapping[disc];
         if (file_index >= state.files.size() || mapped_files[file_index] ||
             (state.reviewed_exports[disc] &&
-             state.reviewed_exports[disc]->request.mp3_basename != state.files[file_index].basename))
+             (state.reviewed_exports[disc]->request.mp3_basename != state.files[file_index].basename ||
+              state.reviewed_exports[disc]->request.physical_mp3_absolute_path !=
+                  state.files[file_index].physical_absolute_path ||
+              state.reviewed_exports[disc]->request.qualified_sibling_directory !=
+                  state.files[file_index].physical_absolute_path.parent_path())))
             return {false, false, false, L"BLOCKED: reviewed disc mapping changed; review again."};
         mapped_files[file_index] = true;
     }

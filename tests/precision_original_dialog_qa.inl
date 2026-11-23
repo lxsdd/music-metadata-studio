@@ -197,6 +197,24 @@ void run_precision_dialog_qa_impl(HWND studio, void (*invalidate)(HWND),
             CheckDlgButton(dialog,IDC_PRECISION_EDITION_CONFIRMED,BST_CHECKED);
             update_reviewed_actions(*state);
             require(current_cue_review_decision(*state).copy_ready);
+            // Same basename in another directory is a different physical MP3.
+            // The visible decision and queued Copy command must reject a
+            // reviewed request whose absolute source binding has changed.
+            state->reviewed_exports[0]->request.physical_mp3_absolute_path =
+                state->files[0].physical_absolute_path.parent_path() /
+                L"another-directory" / state->files[0].basename;
+            const auto moved_review = current_cue_review_decision(*state);
+            require(!moved_review.copy_ready && !moved_review.single_ready &&
+                    !moved_review.batch_ready);
+            require(moved_review.reason ==
+                L"BLOCKED: reviewed disc mapping changed; review again.");
+            update_reviewed_actions(*state);
+            GetDlgItemTextW(dialog,IDC_PRECISION_SOURCE_HINT,cue_hint,256);
+            require(std::wstring(cue_hint) == moved_review.reason);
+            require(!IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
+            state->reviewed_exports[0] = reviewed;
+            update_reviewed_actions(*state);
+            require(current_cue_review_decision(*state).copy_ready);
             // A duplicated physical file cannot stand in for two discs,
             // even when both cached reviews and CUE bytes are unchanged.
             state->reviewed_exports.push_back(reviewed);
