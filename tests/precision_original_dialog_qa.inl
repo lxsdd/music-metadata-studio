@@ -160,7 +160,11 @@ void run_precision_dialog_qa_impl(HWND studio, void (*invalidate)(HWND),
             // A nonempty altered CUE cache is not the reviewed postimage.
             // The real HWND and queued dispatch must both refuse it.
             state->reviewed_cues[0] = "tampered CUE";
-            require(!current_cue_review_decision(*state).copy_ready);
+            const auto altered_postimage = current_cue_review_decision(*state);
+            require(!altered_postimage.copy_ready && !altered_postimage.single_ready &&
+                    !altered_postimage.batch_ready);
+            require(altered_postimage.reason ==
+                L"BLOCKED: CUE text differs from reviewed postimage; review again.");
             update_reviewed_actions(*state);
             GetDlgItemTextW(dialog,IDC_PRECISION_SOURCE_HINT,cue_hint,256);
             require(std::wstring(cue_hint).find(L"BLOCKED")!=std::wstring::npos);

@@ -537,12 +537,23 @@ CueReviewDecision current_cue_review_decision(Workspace& state) {
         !state.reviewed_cues[static_cast<std::size_t>(chosen)].empty() &&
         state.reviewed_cues[static_cast<std::size_t>(chosen)] ==
             state.reviewed_exports[static_cast<std::size_t>(chosen)]->request.plan.external_cue_utf8;
-    const bool single = selected && djmeta::precision_cue_native_operation_allowed(
+    const bool all_cue_postimages_current = complete &&
+        state.reviewed_cues.size() == state.reviewed_exports.size() &&
+        std::all_of(state.reviewed_exports.begin(), state.reviewed_exports.end(),
+                    [&state, index = std::size_t{0}](const auto& item) mutable {
+                        const auto i = index++;
+                        return item && !state.reviewed_cues[i].empty() &&
+                            state.reviewed_cues[i] == item->request.plan.external_cue_utf8;
+                    });
+    const bool single = selected && copy && djmeta::precision_cue_native_operation_allowed(
         djmeta::PrecisionCueNativeOperation::CreateExternalSingle);
-    const bool batch = complete && djmeta::precision_cue_native_operation_allowed(
+    const bool batch = all_cue_postimages_current && djmeta::precision_cue_native_operation_allowed(
         djmeta::PrecisionCueNativeOperation::CreateExternalBatch);
     const wchar_t* reason = !copy
-        ? L"BLOCKED: select a reviewed disc with valid CUE text before copying."
+        ? (selected && state.release && static_cast<std::size_t>(chosen) < state.reviewed_cues.size() &&
+             !state.reviewed_cues[static_cast<std::size_t>(chosen)].empty()
+             ? L"BLOCKED: CUE text differs from reviewed postimage; review again."
+             : L"BLOCKED: select a reviewed disc with valid CUE text before copying.")
         : !(single || batch)
             ? L"READY: reviewed CUE may be copied; external publication requires separate owner release."
             : L"READY: reviewed CUE; source and target snapshots are rechecked at dispatch.";
