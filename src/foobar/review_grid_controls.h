@@ -12,6 +12,16 @@
 
 namespace djmeta_foobar {
 
+// Return the layout currently owned by the visible Windows ListView mode.
+// Search and normalization context menus must not alter each other's widths.
+template<std::size_t N>
+djmeta::ReviewGridLayout<N>& active_review_grid_layout(
+    djmeta::ReviewGridLayout<N>& review,
+    djmeta::ReviewGridLayout<N>& candidate,
+    bool candidate_mode) noexcept {
+    return candidate_mode ? candidate : review;
+}
+
 template<std::size_t N>
 void show_review_grid_sort_arrow(HWND list, const djmeta::ReviewGridLayout<N>& layout) {
     const HWND header = ListView_GetHeader(list);
@@ -31,7 +41,7 @@ void show_review_grid_sort_arrow(HWND list, const djmeta::ReviewGridLayout<N>& l
 
 template<std::size_t N>
 void apply_review_grid_controls(HWND list, const djmeta::ReviewGridLayout<N>& layout,
-                                int dpi) {
+                                int dpi, int temporarily_hidden_column = -1) {
     if (!list || !djmeta::valid_review_grid_layout(layout)) return;
     const int scale = dpi > 0 ? dpi : 96;
     for (std::size_t i = 0; i < N; ++i) {
@@ -40,6 +50,11 @@ void apply_review_grid_controls(HWND list, const djmeta::ReviewGridLayout<N>& la
         ListView_SetColumnWidth(list, static_cast<int>(i), pixels);
     }
     ListView_SetColumnOrderArray(list, static_cast<int>(N), layout.order.data());
+    // Hide a browse-only meaningless column without mutating its saved width.
+    // Keep this suppression after DPI changes and context-menu resets.
+    if (temporarily_hidden_column >= 0 &&
+        temporarily_hidden_column < static_cast<int>(N))
+        ListView_SetColumnWidth(list, temporarily_hidden_column, 0);
     show_review_grid_sort_arrow(list, layout);
 }
 

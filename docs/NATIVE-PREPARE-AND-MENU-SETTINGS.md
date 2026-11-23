@@ -46,7 +46,7 @@ No target is probed and no path/file actions are executed.
 ### Customizable menu names
 
 A new foobar-native
-`File > Preferences > Tools > DJ Metadata Normalizer`
+`File > Preferences > Tools > Music Metadata Studio`
 page has five independent caption edits:
 
 1. metadata-only preview;

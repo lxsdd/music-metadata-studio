@@ -9,7 +9,7 @@ these unmerged parent branches**.
 ## Existing foobar integration
 
 The native context menu now groups four preview-only commands under
-`DJ Metadata Normalizer`:
+`Music Metadata Studio`:
 
 1. `Metadaten normalisieren (Vorschau)...`
 2. `Vorbereiten: Singles (Vorschau)...`

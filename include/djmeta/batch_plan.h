@@ -28,8 +28,12 @@ struct FilePlanItem {
     std::string target_key;
     FileAction action = FileAction::None;
     FileRole role = FileRole::Audio;
-    // For a CUE entry: physical_id of its parent/related audio item.
+    // Legacy single CUE/companion association.
     std::string associated_audio_id;
+    // External CUE: all selected, uniquely identified physical audio
+    // participants of its (possibly Multi-FILE) reference set.
+    // File reference identity must be qualified separately by the host.
+    std::vector<std::string> associated_audio_ids;
 
     std::string metadata_fingerprint;
     // Approved/selected proposal postimage, not merely raw input fingerprint.
@@ -46,6 +50,10 @@ struct FilePlanItem {
     TargetPresence target_presence = TargetPresence::Unchecked;
     // Host-observed destination identity/stat guard, required if Existing.
     std::string target_guard;
+    // Independent OS/foobar physical identity of an EXISTING destination.
+    // Different canonical paths can be hardlinks/aliases of one real file.
+    // Never derive this from destination strings or file extensions.
+    std::string target_physical_id;
     // An audio file must explicitly report no external cue, or verified cue
     // handling. Unchecked and unresolved dependencies are always blocked.
     CueLinkState cue_links = CueLinkState::Unchecked;
@@ -54,6 +62,10 @@ struct FilePlanItem {
     std::string cue_source_fingerprint;
     std::string cue_postimage_fingerprint;
     bool cue_references_will_change = false;
+    // Independent in-place metadata token changes (TITLE, PERFORMER, REM,
+    // etc.) must not impersonate FILE reference renames. Existing unique
+    // tokens only: byte-exact CueValuePostimage is qualified separately.
+    bool cue_values_will_change = false;
 };
 
 struct BatchApproval {

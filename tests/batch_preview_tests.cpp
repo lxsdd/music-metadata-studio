@@ -1,4 +1,5 @@
 #include "djmeta/batch_preview.h"
+#include "djmeta/file_action_intent.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -25,11 +26,58 @@ bool contains(const djmeta::BatchPreviewRow& row, const std::string& text) {
 
 int main() {
     using djmeta::raw_relative_path_lexically_safe;
+    using djmeta::FileAction;
+    auto action_row=sample("file:///Z:/source.flac");
+    action_row.source_physical_key="observed-id";
+    const auto action_table=djmeta::describe_batch_preview({action_row});
+    const auto& raw_action=action_table.rows.front();
+    auto action=djmeta::inspect_file_action_intent(FileAction::Move,
+                                                   action_row,raw_action);
+    check(action.raw_candidate && !action.blocked && !action.file_skip,
+          "Move requests a raw-only target, never a final FileOps approval");
+    action=djmeta::inspect_file_action_intent(FileAction::Copy,
+                                              action_row,raw_action);
+    check(action.raw_candidate && !action.blocked,
+          "Copy is a separate explicitly staged user action");
+    action=djmeta::inspect_file_action_intent(FileAction::Rename,
+                                              action_row,raw_action);
+    check(action.blocked && !action.raw_candidate &&
+          std::string(action.reason)=="RENAME_PARENT_UNVERIFIED",
+          "Rename cannot invent a same-parent final destination");
+    action_row.semantic_proposals_pending=true;
+    check(djmeta::inspect_file_action_intent(
+        FileAction::Move,action_row,raw_action).blocked,
+        "pending metadata blocks preliminary file plan");
+    action_row.semantic_proposals_pending=false;
+    auto colliding=raw_action; colliding.has_raw_target_collision=true;
+    check(djmeta::inspect_file_action_intent(
+        FileAction::Copy,action_row,colliding).blocked,
+        "intra-batch collision blocks copy intent");
+    action_row.raw_relative_path="../escape.flac";
+    check(djmeta::inspect_file_action_intent(
+        FileAction::Move,action_row,raw_action).blocked,
+        "unqualified path blocks the intent");
+    action_row.physical_source_qualified=false;
+    check(djmeta::inspect_file_action_intent(
+        FileAction::Move,action_row,raw_action).blocked,
+        "virtual/unqualified sources cannot become moves");
+    action=djmeta::inspect_file_action_intent(
+        FileAction::None,action_row,raw_action);
+    check(action.file_skip && !action.blocked && !action.raw_candidate,
+        "No file action is distinct from a metadata write");
+    check(djmeta::inspect_file_action_intent(
+        static_cast<FileAction>(99),action_row,raw_action).blocked,
+        "invalid operation intent fails closed");
+    check(djmeta::file_action_label(FileAction::None)=="No file action",
+        "the shared FileAction supplies the displayed intent label");
     for (const std::string& valid : {
              std::string("Album/Artist - Track.mp3"),
              std::string("A\\B\\C.flac"),
              std::string("Bj\xC3\xB6rk.mp3"),
-             std::string(".profile")})
+             std::string("COM10.wav"),
+             std::string("COM\xC2\xB9mix.wav"),
+             std::string(".profile"),
+             std::string("\xD8\xB3\xD9\x84\xD8\xA7\xD9\x85.mp3")})
         check(raw_relative_path_lexically_safe(valid),
               "legitimate relative path must pass lexical checks");
     for (const std::string& dangerous : {
@@ -38,12 +86,58 @@ int main() {
              std::string("C:\\\\absolute.mp3"), std::string("a//b.mp3"),
              std::string("a/"), std::string("foo:bar.mp3"),
              std::string("NUL.mp3"), std::string("con"),
+             std::string("CON .mp3"), std::string("Aux  .cue"),
+             std::string("com9 .wav"), std::string("A/COM\xC2\xB9.flac"),
+             std::string("lpt\xC2\xB3.wav"),
              std::string("A/LpT9.txt"), std::string("x. "),
              std::string("x."), std::string("name?.mp3"),
              std::string("name|x"), std::string("line\nfeed.mp3"),
-             std::string("nul\0byte.mp3", 12), std::string("\xC3\x28", 2)})
+             std::string("nul\0byte.mp3", 12), std::string("\xC3\x28", 2),
+             std::string("Track\xC2\x85" "Hidden.mp3"), // C1 control
+             std::string("Track\xE2\x80\x8E" "Hidden.mp3"), // LRM
+             std::string("Track\xE2\x80\xAE" "gpj.mp3"), // RTL override
+             std::string("Track\xE2\x81\xA7" "Hidden.mp3")}) // RTL isolate
         check(!raw_relative_path_lexically_safe(dangerous),
               "unsafe Title Formatting output must not resemble an approved target");
+
+    // The editable destination root must be absolute, independently of the
+    // raw relative Title Formatting expression. Neither check is final FileOps.
+    using djmeta::raw_destination_root_lexically_safe;
+    for (const std::string& root : {
+             std::string("Z:\\Music\\Singles"), std::string("C:\\"),
+             std::string("D:/Music/Albums/"), std::string("\\\\nas\\Music\\Trance"),
+             std::string("\\\\nas\\share"), std::string("Z:\\Björk")})
+        check(raw_destination_root_lexically_safe(root),
+              "absolute Windows drive or UNC routing root");
+    for (const std::string& root : {
+             std::string(""), std::string("Music\\Singles"),
+             std::string("Z:relative"), std::string("\\Music"),
+             std::string("../escape"), std::string("C:\\Music\\..\\other"),
+             std::string("C:\\Music\\.\\x"), std::string("C:\\Music\\\\x"),
+             std::string("C:\\name:stream"), std::string("C:\\CON\\tracks"),
+             std::string("C:\\bad?name"), std::string("C:\\trailing.\\album"),
+             std::string("\\\\nas"), std::string("\\\\nas\\"),
+             std::string("\\\\?\\C:\\Music"), std::string("\\\\.\\C:\\Music"),
+             std::string("\\\\nas\\share\\..\\audio"),
+             std::string("\\\\nas\\share\\\\music"),
+             std::string("C:\\null\0tail", 12),
+             std::string("C:\\Music\\\xE2\x80\xAE" "Hidden"),
+             std::string("\\\\nas\\share\\\xC2\x85" "Hidden")})
+        check(!raw_destination_root_lexically_safe(root),
+              "ambiguous destination root must fail closed");
+    auto unsafe_root = sample("absolute-root.mp3");
+    unsafe_root.destination_root = "Z:relative\\path";
+    const auto unsafe_root_rows = djmeta::describe_batch_preview({unsafe_root});
+    check(contains(unsafe_root_rows.rows[0], "UNSAFE_RAW_DESTINATION_ROOT") &&
+          contains(unsafe_root_rows.rows[0], "FILESYSTEM_TARGET_UNCHECKED"),
+          "unsafe root visibly unqualified even with safe basename");
+
+    auto disguised = sample("unicode-control.mp3");
+    disguised.raw_relative_path = "Album/Track\xE2\x80\xAE" "gpj.mp3";
+    const auto disguised_rows = djmeta::describe_batch_preview({disguised});
+    check(contains(disguised_rows.rows[0], "UNSAFE_RAW_RELATIVE_TARGET") &&
+          disguised_rows.unqualified_rows == 1,
+          "invisible direction controls must visibly disqualify a raw target");
 
     auto a = sample("a.mp3"), b = sample("b.mp3");
     const std::vector<djmeta::BatchPreviewInputRow> batch = {a,b};
@@ -57,6 +151,45 @@ int main() {
           "unverified host/cue gates must remain visible");
     check(c.unqualified_rows == 2, "unqualified rows must be counted");
 
+    // A source can be independently blocked while its displayed raw target
+    // still conflicts with a qualified row. Both rows must show that warning.
+    a = sample("unqualified-source.mp3");
+    b = sample("qualified-source.mp3");
+    a.physical_source_qualified = false;
+    const auto mixed_qualification = djmeta::describe_batch_preview({a, b});
+    check(mixed_qualification.raw_collision_items == 2 &&
+          contains(mixed_qualification.rows[0], "PHYSICAL_SOURCE_UNQUALIFIED") &&
+          contains(mixed_qualification.rows[0], "DUPLICATE_RAW_TARGET") &&
+          contains(mixed_qualification.rows[1], "DUPLICATE_RAW_TARGET"),
+          "unqualified source cannot hide a raw collision from its peer");
+    a.destination_root = "z:\\music\\singles";
+    a.raw_relative_path = "test\\artist - track";
+    const auto mixed_spelling = djmeta::describe_batch_preview({a, b});
+    check(mixed_spelling.raw_collision_items == 2 &&
+          contains(mixed_spelling.rows[0], "RAW_TARGET_CASE_OR_SEPARATOR_COLLISION") &&
+          contains(mixed_spelling.rows[1], "RAW_TARGET_CASE_OR_SEPARATOR_COLLISION"),
+          "unqualified source cannot hide a Windows spelling collision");
+
+    // Different literal text can still name the same prospective Windows
+    // target. This is not canonical FileOps path proof.
+    a=sample("case-a.mp3");
+    b=sample("case-b.mp3");
+    b.destination_root="z:\\music\\singles";
+    b.raw_relative_path="test\\artist - track";
+    const auto spelling=djmeta::describe_batch_preview({a,b});
+    check(spelling.raw_collision_items==2 &&
+          spelling.rows[0].has_raw_target_collision &&
+          spelling.rows[1].has_raw_target_collision &&
+          contains(spelling.rows[0],"RAW_TARGET_CASE_OR_SEPARATOR_COLLISION") &&
+          contains(spelling.rows[1],"RAW_TARGET_CASE_OR_SEPARATOR_COLLISION") &&
+          !contains(spelling.rows[0],"DUPLICATE_RAW_TARGET"),
+          "Windows ASCII case and separator spelling differences remain conflicts");
+    b.raw_relative_path="Other\\Artist - Track";
+    const auto genuinely_different=djmeta::describe_batch_preview({a,b});
+    check(genuinely_different.raw_collision_items==0,
+          "genuinely different raw Windows destinations are not falsely aliased");
+    a=sample("a.mp3");
+    b=sample("b.mp3");
     b.raw_relative_path = "Other/Artist - Track";
     b.semantic_proposals_pending = true;
     const auto differing = djmeta::describe_batch_preview({a,b});
@@ -81,17 +214,31 @@ int main() {
     a = sample("a.mp3");
     a.source_physical_key = "volume1:source";
     a.raw_target_presence = djmeta::RawTargetPresence::Missing;
+    a.raw_target_host_canonical = "file:///Z:/Music/raw-missing.mp3";
     auto observed = djmeta::describe_batch_preview({a});
     check(observed.rows[0].raw_target_presence == djmeta::RawTargetPresence::Missing &&
           contains(observed.rows[0], "FILESYSTEM_TARGET_UNCHECKED"),
           "missing raw candidate cannot clear final target verification");
 
+    a.raw_target_physical_key = "stale-physical-file";
+    a.raw_target_guard = "stale-version";
+    observed = djmeta::describe_batch_preview({a});
+    check(contains(observed.rows[0], "RAW_TARGET_OBSERVATION_CONTRADICTORY"),
+          "missing destination must not retain an existing physical file observation");
+    a.raw_target_presence = djmeta::RawTargetPresence::NotInspected;
+    observed = djmeta::describe_batch_preview({a});
+    check(contains(observed.rows[0], "RAW_TARGET_OBSERVATION_CONTRADICTORY"),
+          "not-inspected destination cannot retain a prior target identity");
+    a.raw_target_physical_key.clear();
+    a.raw_target_guard.clear();
+    a.raw_target_host_canonical.clear();
     a.raw_target_presence = djmeta::RawTargetPresence::Existing;
     observed = djmeta::describe_batch_preview({a});
     check(contains(observed.rows[0], "RAW_TARGET_PROBE_UNQUALIFIED"),
           "an existing raw candidate without identity guard is unqualified");
     a.raw_target_physical_key = "volume1:unrelated-target";
     a.raw_target_guard = "observed-guard";
+    a.raw_target_host_canonical = "file:///Z:/Music/existing-target.mp3";
     observed = djmeta::describe_batch_preview({a});
     check(contains(observed.rows[0], "RAW_TARGET_EXISTS") &&
           contains(observed.rows[0], "FILESYSTEM_TARGET_UNCHECKED"),
@@ -118,12 +265,45 @@ int main() {
 
     a.raw_target_presence = djmeta::RawTargetPresence::Unqualified;
     observed = djmeta::describe_batch_preview({a});
+    check(contains(observed.rows[0], "RAW_TARGET_OBSERVATION_CONTRADICTORY"),
+          "unqualified destination must not silently retain existing target ID");
     check(contains(observed.rows[0], "RAW_TARGET_PROBE_UNQUALIFIED"),
           "unsupported raw candidate must not pass silently");
     a.raw_target_presence = static_cast<djmeta::RawTargetPresence>(99);
     observed = djmeta::describe_batch_preview({a});
     check(contains(observed.rows[0], "RAW_TARGET_PROBE_UNQUALIFIED"),
           "unknown serialized raw candidate state must fail closed");
+
+    // Different literal raw paths can converge to a single SDK-canonical
+    // candidate even while both destinations are absent. Neither may look
+    // independently safe; this still does NOT resolve final FileOps names.
+    a = sample("canon-a.mp3");
+    b = sample("canon-b.mp3");
+    b.raw_relative_path = "Other/A Different Name.mp3";
+    a.raw_target_presence = djmeta::RawTargetPresence::Missing;
+    b.raw_target_presence = djmeta::RawTargetPresence::Missing;
+    a.raw_target_host_canonical = "file:///Z:/Music/shared-raw-location";
+    b.raw_target_host_canonical = a.raw_target_host_canonical;
+    const auto shared_canonical = djmeta::describe_batch_preview({a,b});
+    check(shared_canonical.raw_collision_items == 2 &&
+          contains(shared_canonical.rows[0], "RAW_TARGET_SHARED_HOST_CANONICAL") &&
+          contains(shared_canonical.rows[1], "RAW_TARGET_SHARED_HOST_CANONICAL") &&
+          contains(shared_canonical.rows[0], "FILESYSTEM_TARGET_UNCHECKED"),
+          "two observed missing candidates resolving to one host path must collide");
+    b.raw_target_host_canonical += "-other";
+    const auto distinct_canonical = djmeta::describe_batch_preview({a,b});
+    check(distinct_canonical.raw_collision_items == 0 &&
+          !contains(distinct_canonical.rows[0], "RAW_TARGET_SHARED_HOST_CANONICAL"),
+          "distinct host-canonical observations should not falsely collide");
+    a.raw_target_host_canonical.clear();
+    const auto no_host_canonical = djmeta::describe_batch_preview({a});
+    check(contains(no_host_canonical.rows[0], "RAW_TARGET_HOST_CANONICAL_UNQUALIFIED"),
+          "missing target without foobar-canonical observation is unqualified");
+    a.raw_target_presence = djmeta::RawTargetPresence::NotInspected;
+    a.raw_target_host_canonical = "stale-canonical";
+    const auto stale_host_canonical = djmeta::describe_batch_preview({a});
+    check(contains(stale_host_canonical.rows[0], "RAW_TARGET_OBSERVATION_CONTRADICTORY"),
+          "not inspected cannot retain a stale host path key");
 
     a = sample("a.mp3");
     a.cue_dependencies_checked = true;
@@ -132,5 +312,69 @@ int main() {
     check(qualified.rows[0].issues.empty(), "fully qualified hints should clear");
     check(batch[0].physical_id == "a.mp3" && batch[1].physical_id == "b.mp3",
           "preview generation must not mutate original input");
+    // Complete-batch collision detection precedes display-only filtering.
+    const auto all_collide=djmeta::describe_batch_preview({
+        sample("queue-a.mp3"),sample("queue-b.mp3"),sample("queue-c.mp3")});
+    const std::vector<std::size_t> sorted{2,0,1};
+    check(djmeta::filter_batch_location_view(
+        all_collide,sorted,djmeta::BatchLocationQueue::RawCollisions)==sorted,
+        "sorted raw collisions preserve exact source identities");
+    auto qa=sample("queue-safe.mp3"),qb=sample("queue-unsafe.mp3");
+    qa.raw_relative_path="Different/Unique.mp3";
+    qa.raw_target_presence=djmeta::RawTargetPresence::Missing;
+    qa.raw_target_host_canonical="file:///Z:/Music/missing.mp3";
+    qb.raw_relative_path="NUL.mp3";
+    qb.semantic_proposals_pending=true;
+    qb.raw_target_presence=djmeta::RawTargetPresence::Existing;
+    qb.raw_target_host_canonical="file:///Z:/Music/existing.mp3";
+    qb.raw_target_physical_key="volume:target";
+    qb.raw_target_guard="version";
+    const auto queues=djmeta::describe_batch_preview({qa,qb});
+    const std::vector<std::size_t> reverse{1,0};
+    const auto filtered=[&](djmeta::BatchLocationQueue q) {
+        return djmeta::filter_batch_location_view(queues,reverse,q);
+    };
+    check(filtered(djmeta::BatchLocationQueue::RawCollisions).empty(),
+          "distinct raw targets must not collide");
+    check(filtered(djmeta::BatchLocationQueue::RawUnsafe)==
+          std::vector<std::size_t>{1},"unsafe queue excludes global final gates");
+    check(filtered(djmeta::BatchLocationQueue::ExistingRaw)==
+          std::vector<std::size_t>{1} &&
+          filtered(djmeta::BatchLocationQueue::MissingRaw)==
+          std::vector<std::size_t>{0},"raw observations remain advisory");
+    check(filtered(djmeta::BatchLocationQueue::PendingMetadata)==
+          std::vector<std::size_t>{1} &&
+          filtered(djmeta::BatchLocationQueue::NoRawFindings)==
+          std::vector<std::size_t>{0},"pending and no-raw-finding queues");
+    check(contains(queues.rows[0],"FILESYSTEM_TARGET_UNCHECKED") &&
+          contains(queues.rows[0],"CUE_DEPENDENCIES_UNCHECKED"),
+          "no raw finding must not imply final FileOps/CUE approval");
+    bool rejected=false;
+    try {(void)djmeta::filter_batch_location_view(
+        queues,{0,0},djmeta::BatchLocationQueue::All);}
+    catch(const std::invalid_argument&){rejected=true;}
+    check(rejected,"duplicate source identity rejected");
+    rejected=false;
+    try {(void)djmeta::filter_batch_location_view(
+        queues,{2},djmeta::BatchLocationQueue::All);}
+    catch(const std::invalid_argument&){rejected=true;}
+    check(rejected,"out-of-range source identity rejected");
+    rejected=false;
+    try {(void)djmeta::filter_batch_location_view(
+        queues,reverse,static_cast<djmeta::BatchLocationQueue>(99));}
+    catch(const std::invalid_argument&){rejected=true;}
+    check(rejected,"invalid queue rejected");
+    djmeta::BatchPreviewTable large;
+    large.rows.resize(54129);
+    std::vector<std::size_t> order;
+    order.reserve(large.rows.size());
+    for(std::size_t i=large.rows.size();i>0;--i) {
+        order.push_back(i-1);
+        if((i-1)%11==0) large.rows[i-1].has_raw_target_collision=true;
+    }
+    const auto large_view=djmeta::filter_batch_location_view(
+        large,order,djmeta::BatchLocationQueue::RawCollisions);
+    check(large_view.size()==4921 && large_view.front()==54120 &&
+          large_view.back()==0,"54,129-source queue keeps sorted source IDs");
     std::cout << "PASS: read-only batch preview statuses and raw collisions\n";
 }

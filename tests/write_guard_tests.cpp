@@ -67,6 +67,30 @@ int main() {
     check(compare_physical_text_tags(source, changed) == TagWriteDecision::Unqualified,
           "NUL-containing values fail closed");
 
+    // Generic physical tag updates must never smuggle embedded CUE edits.
+    changed = sample();
+    changed.fields.push_back({"CUESHEET", {"FILE x.flac WAVE"}});
+    check(compare_physical_text_tags(source, changed) == TagWriteDecision::Unqualified,
+          "creating CUESHEET is not an ordinary physical tag update");
+    auto with_cue = sample();
+    with_cue.fields.push_back({"CUESHEET", {"FILE x.flac WAVE"}});
+    changed = with_cue;
+    changed.fields.back().values[0] = "FILE y.flac WAVE";
+    check(compare_physical_text_tags(with_cue, changed) == TagWriteDecision::Unqualified,
+          "mutating embedded CUE requires separate carrier-authorized writer");
+    changed = with_cue;
+    changed.fields.pop_back();
+    check(compare_physical_text_tags(with_cue, changed) == TagWriteDecision::Unqualified,
+          "deleting embedded CUE is not an ordinary tag edit");
+    changed = with_cue;
+    changed.fields[0].values[0] = "Daft Punk & friends";
+    check(compare_physical_text_tags(with_cue, changed) == TagWriteDecision::Changed,
+          "physical text tag can differ while original CUE remains identical");
+    changed = with_cue;
+    changed.fields.back().name = "cuesheet";
+    check(compare_physical_text_tags(with_cue, changed) == TagWriteDecision::Unchanged,
+          "case-only CUESHEET name is not a mutation");
+
     check(!cue_bytes_rewrite_needed("FILE \"x.mp3\" MP3\r\n",
                                    "FILE \"x.mp3\" MP3\r\n"),
           "byte-identical cue must never be rewritten");
