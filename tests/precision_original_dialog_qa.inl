@@ -157,6 +157,39 @@ void run_precision_dialog_qa_impl(HWND studio, void (*invalidate)(HWND),
             require(SendDlgItemMessageW(dialog,IDC_PRECISION_DISC_PICKER,CB_SETCURSEL,0,0)==0);
             update_reviewed_actions(*state);
             require(IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
+            // A same-count selection replacement is not the reviewed source.
+            // Exercise the original Studio callback, native hint and queued
+            // Copy dispatch without clipboard or external CUE publication.
+            const auto original_studio_check = state->studio_review_check;
+            const std::vector<std::wstring> reviewed_ids{L"Synthetic.mp3"};
+            std::vector<std::wstring> selected_ids = reviewed_ids;
+            state->studio_review_check = [&]() -> std::wstring {
+                if (selected_ids != reviewed_ids)
+                    return L"BLOCKED: physical selection changed; review again.";
+                return original_studio_check();
+            };
+            require(current_cue_review_decision(*state).copy_ready);
+            selected_ids = {L"Different.mp3"}; // same number, different identity
+            require(!current_cue_review_decision(*state).copy_ready);
+            update_reviewed_actions(*state);
+            GetDlgItemTextW(dialog,IDC_PRECISION_SOURCE_HINT,cue_hint,256);
+            require(std::wstring(cue_hint)==L"BLOCKED: physical selection changed; review again.");
+            require(!IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
+            // Even a previously queued click must not use the old approval.
+            SendMessageW(dialog,WM_COMMAND,MAKEWPARAM(IDC_PRECISION_COPY_CUE,BN_CLICKED),0);
+            require(!state->reviewed_preview_ready);
+            require(state->reviewed_exports.empty() && state->reviewed_cues.empty());
+            GetDlgItemTextW(dialog,IDC_PRECISION_SOURCE_HINT,cue_hint,256);
+            require(std::wstring(cue_hint)==L"BLOCKED: physical selection changed; review again.");
+            // Restore only synthetic evidence to continue the target-race test.
+            selected_ids = reviewed_ids;
+            state->studio_review_check = original_studio_check;
+            state->reviewed_exports.push_back(reviewed);
+            state->reviewed_cues.push_back(plan.external_cue_utf8);
+            state->reviewed_preview_ready = true;
+            CheckDlgButton(dialog,IDC_PRECISION_EDITION_CONFIRMED,BST_CHECKED);
+            update_reviewed_actions(*state);
+            require(IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
             const auto proposal = djmeta::plan_precision_cue_external_export(plan, source.basename);
             require(proposal.eligible);
             const auto target = dir / proposal.target_cue_basename;
