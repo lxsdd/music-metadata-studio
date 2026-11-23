@@ -164,6 +164,10 @@ void run_precision_dialog_qa_impl(HWND studio, void (*invalidate)(HWND),
             require(!IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
             // A fresh read-only paint must also explain the collision, not
             // merely leave a disabled button with an obsolete READY caption.
+            // Dispatch intentionally invalidates and clears the reviewed exports.
+            // Reinstall the original synthetic review evidence to exercise a
+            // fresh read-only paint against the same now-existing target.
+            state->reviewed_exports.push_back(reviewed);
             state->reviewed_preview_ready=true;
             CheckDlgButton(dialog,IDC_PRECISION_EDITION_CONFIRMED,BST_CHECKED);
             update_reviewed_actions(*state);
@@ -173,6 +177,7 @@ void run_precision_dialog_qa_impl(HWND studio, void (*invalidate)(HWND),
             require(djmeta::precision_cue_external_detail::physical_source_unchanged(
                 *snapshot,physical,dir,source.basename));
             state->files.pop_back();
+            state->reviewed_exports.clear();
             state->reviewed_preview_ready=true;
             CheckDlgButton(dialog,IDC_PRECISION_EDITION_CONFIRMED,BST_CHECKED);
         }
