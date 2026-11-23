@@ -153,14 +153,23 @@ void run_precision_dialog_qa_impl(HWND studio, void (*invalidate)(HWND),
             require(proposal.eligible);
             const auto target = dir / proposal.target_cue_basename;
             { std::ofstream out(target, std::ios::binary); out << "existing target"; require(out.good()); }
-            update_reviewed_actions(*state);
-            GetDlgItemTextW(dialog,IDC_PRECISION_SOURCE_HINT,cue_hint,256);
-            require(std::wstring(cue_hint)==L"BLOCKED: reviewed CUE target changed.");
-            require(!IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
+            // The UI still displays the previously valid review. A queued
+            // command must reobserve the target BEFORE any clipboard action.
+            require(IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
+            require(!current_cue_review_decision(*state).copy_ready);
             SendMessageW(dialog,WM_COMMAND,MAKEWPARAM(IDC_PRECISION_COPY_CUE,BN_CLICKED),0);
             require(!state->reviewed_preview_ready);
             GetDlgItemTextW(dialog,IDC_PRECISION_SOURCE_HINT,cue_hint,256);
             require(std::wstring(cue_hint)==L"BLOCKED: reviewed CUE target changed.");
+            require(!IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
+            // A fresh read-only paint must also explain the collision, not
+            // merely leave a disabled button with an obsolete READY caption.
+            state->reviewed_preview_ready=true;
+            CheckDlgButton(dialog,IDC_PRECISION_EDITION_CONFIRMED,BST_CHECKED);
+            update_reviewed_actions(*state);
+            GetDlgItemTextW(dialog,IDC_PRECISION_SOURCE_HINT,cue_hint,256);
+            require(std::wstring(cue_hint)==L"BLOCKED: reviewed CUE target changed.");
+            require(!IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
             require(djmeta::precision_cue_external_detail::physical_source_unchanged(
                 *snapshot,physical,dir,source.basename));
             state->files.pop_back();
