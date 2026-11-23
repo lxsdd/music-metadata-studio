@@ -530,16 +530,19 @@ CueReviewDecision current_cue_review_decision(Workspace& state) {
         state.reviewed_exports.size() == state.reviewed_mapping.size() &&
         std::all_of(state.reviewed_exports.begin(), state.reviewed_exports.end(),
                     [](const auto& item) { return item.has_value(); });
+    const bool copy = selected && state.release.has_value() &&
+        static_cast<std::size_t>(chosen) < state.reviewed_cues.size() &&
+        !state.reviewed_cues[static_cast<std::size_t>(chosen)].empty();
     const bool single = selected && djmeta::precision_cue_native_operation_allowed(
         djmeta::PrecisionCueNativeOperation::CreateExternalSingle);
     const bool batch = complete && djmeta::precision_cue_native_operation_allowed(
         djmeta::PrecisionCueNativeOperation::CreateExternalBatch);
-    const wchar_t* reason = !selected
-        ? L"READY: reviewed CUE may be copied; selected disc export evidence missing."
+    const wchar_t* reason = !copy
+        ? L"BLOCKED: select a reviewed disc with valid CUE text before copying."
         : !(single || batch)
             ? L"READY: reviewed CUE may be copied; external publication requires separate owner release."
             : L"READY: reviewed CUE; source and target snapshots are rechecked at dispatch.";
-    return {true, single, batch, reason};
+    return {copy, single, batch, reason};
 }
 
 void update_reviewed_actions(Workspace& state) {

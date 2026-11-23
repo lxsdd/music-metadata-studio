@@ -92,7 +92,7 @@ void run_precision_dialog_qa_impl(HWND studio, void (*invalidate)(HWND),
         SendMessageW(dialog,WM_COMMAND,MAKEWPARAM(IDC_PRECISION_CANCEL_LOOKUP,BN_CLICKED),0);
         require(!state->job && !state->input_revision.request_is_current());
         // Synthetic positive/negative review states through the real HWND.
-        // Copy readiness is advisory; neither case invokes a writer.
+        // Copy readiness requires actual selected disc evidence; no writer runs.
         state->reviewed_preview_ready=false;
         update_reviewed_actions(*state);
         wchar_t cue_hint[256]{};
@@ -103,13 +103,13 @@ void run_precision_dialog_qa_impl(HWND studio, void (*invalidate)(HWND),
         CheckDlgButton(dialog,IDC_PRECISION_EDITION_CONFIRMED,BST_CHECKED);
         SendMessageW(dialog,WM_COMMAND,
             MAKEWPARAM(IDC_PRECISION_EDITION_CONFIRMED,BN_CLICKED),0);
-        require(IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
+        require(!IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
         require(!IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_SAVE_CUE)));
         GetDlgItemTextW(dialog,IDC_PRECISION_SOURCE_HINT,cue_hint,256);
-        require(std::wstring(cue_hint).find(L"selected disc export evidence missing")!=std::wstring::npos);
+        require(std::wstring(cue_hint)==L"BLOCKED: select a reviewed disc with valid CUE text before copying.");
         // Dispatch and controls consume the identical fresh decision.
         const auto reviewed_without_export=current_cue_review_decision(*state);
-        require(reviewed_without_export.copy_ready);
+        require(!reviewed_without_export.copy_ready);
         require(!reviewed_without_export.single_ready && !reviewed_without_export.batch_ready);
         require(!djmeta::precision_cue_native_operation_allowed(
             djmeta::PrecisionCueNativeOperation::CreateExternalSingle));
@@ -147,6 +147,14 @@ void run_precision_dialog_qa_impl(HWND studio, void (*invalidate)(HWND),
             source.snapshot = *snapshot;
             state->files.push_back(source);
             state->reviewed_exports.push_back(reviewed);
+            state->reviewed_cues.push_back(plan.external_cue_utf8);
+            djmeta::PrecisionCueRelease release{};
+            release.album_title=disc.album_title;
+            release.album_performer=disc.album_performer;
+            state->release=release;
+            require(SendDlgItemMessageW(dialog,IDC_PRECISION_DISC_PICKER,CB_ADDSTRING,0,
+                reinterpret_cast<LPARAM>(L"Disc 1"))>=0);
+            require(SendDlgItemMessageW(dialog,IDC_PRECISION_DISC_PICKER,CB_SETCURSEL,0,0)==0);
             update_reviewed_actions(*state);
             require(IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
             const auto proposal = djmeta::plan_precision_cue_external_export(plan, source.basename);
@@ -178,6 +186,9 @@ void run_precision_dialog_qa_impl(HWND studio, void (*invalidate)(HWND),
                 *snapshot,physical,dir,source.basename));
             state->files.pop_back();
             state->reviewed_exports.clear();
+            state->reviewed_cues.clear();
+            state->release.reset();
+            SendDlgItemMessageW(dialog,IDC_PRECISION_DISC_PICKER,CB_RESETCONTENT,0,0);
             state->reviewed_preview_ready=true;
             CheckDlgButton(dialog,IDC_PRECISION_EDITION_CONFIRMED,BST_CHECKED);
         }
@@ -198,9 +209,9 @@ void run_precision_dialog_qa_impl(HWND studio, void (*invalidate)(HWND),
         state->reviewed_preview_ready=true;
         CheckDlgButton(dialog,IDC_PRECISION_EDITION_CONFIRMED,BST_CHECKED);
         update_reviewed_actions(*state);
-        require(IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
-        // The plan changed after paint. Dispatch the real copy command while
-        // the button is still enabled, without accessing the clipboard.
+        require(!IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
+        // Even a synthetic command sent to a disabled control must recheck
+        // the stale Studio plan without accessing the clipboard.
         file_plan_current=false;
         SendMessageW(dialog,WM_COMMAND,MAKEWPARAM(IDC_PRECISION_COPY_CUE,BN_CLICKED),0);
         GetDlgItemTextW(dialog,IDC_PRECISION_SOURCE_HINT,cue_hint,256);
