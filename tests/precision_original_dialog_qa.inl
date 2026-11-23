@@ -157,6 +157,22 @@ void run_precision_dialog_qa_impl(HWND studio, void (*invalidate)(HWND),
             require(SendDlgItemMessageW(dialog,IDC_PRECISION_DISC_PICKER,CB_SETCURSEL,0,0)==0);
             update_reviewed_actions(*state);
             require(IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
+            // A nonempty altered CUE cache is not the reviewed postimage.
+            // The real HWND and queued dispatch must both refuse it.
+            state->reviewed_cues[0] = "tampered CUE";
+            require(!current_cue_review_decision(*state).copy_ready);
+            update_reviewed_actions(*state);
+            GetDlgItemTextW(dialog,IDC_PRECISION_SOURCE_HINT,cue_hint,256);
+            require(std::wstring(cue_hint).find(L"BLOCKED")!=std::wstring::npos);
+            require(!IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
+            SendMessageW(dialog,WM_COMMAND,MAKEWPARAM(IDC_PRECISION_COPY_CUE,BN_CLICKED),0);
+            require(!state->reviewed_preview_ready && state->reviewed_cues.empty());
+            state->reviewed_exports.push_back(reviewed);
+            state->reviewed_cues.push_back(plan.external_cue_utf8);
+            state->reviewed_preview_ready = true;
+            CheckDlgButton(dialog,IDC_PRECISION_EDITION_CONFIRMED,BST_CHECKED);
+            update_reviewed_actions(*state);
+            require(IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
             // A same-count selection replacement is not the reviewed source.
             // Exercise the original Studio callback, native hint and queued
             // Copy dispatch without clipboard or external CUE publication.

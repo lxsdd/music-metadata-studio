@@ -530,9 +530,13 @@ CueReviewDecision current_cue_review_decision(Workspace& state) {
         state.reviewed_exports.size() == state.reviewed_mapping.size() &&
         std::all_of(state.reviewed_exports.begin(), state.reviewed_exports.end(),
                     [](const auto& item) { return item.has_value(); });
+    // Clipboard readiness must match the exact reviewed postimage, not just
+    // nonempty cached text that may have changed after review.
     const bool copy = selected && state.release.has_value() &&
         static_cast<std::size_t>(chosen) < state.reviewed_cues.size() &&
-        !state.reviewed_cues[static_cast<std::size_t>(chosen)].empty();
+        !state.reviewed_cues[static_cast<std::size_t>(chosen)].empty() &&
+        state.reviewed_cues[static_cast<std::size_t>(chosen)] ==
+            state.reviewed_exports[static_cast<std::size_t>(chosen)]->request.plan.external_cue_utf8;
     const bool single = selected && djmeta::precision_cue_native_operation_allowed(
         djmeta::PrecisionCueNativeOperation::CreateExternalSingle);
     const bool batch = complete && djmeta::precision_cue_native_operation_allowed(
