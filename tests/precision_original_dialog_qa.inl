@@ -190,6 +190,27 @@ void run_precision_dialog_qa_impl(HWND studio, void (*invalidate)(HWND),
             CheckDlgButton(dialog,IDC_PRECISION_EDITION_CONFIRMED,BST_CHECKED);
             update_reviewed_actions(*state);
             require(IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
+            // Stale file-plan regression begins from a genuinely READY disc,
+            // not a state whose export evidence was already cleared.
+            file_plan_current = false;
+            require(!current_cue_review_decision(*state).copy_ready);
+            update_reviewed_actions(*state);
+            GetDlgItemTextW(dialog,IDC_PRECISION_SOURCE_HINT,cue_hint,256);
+            require(std::wstring(cue_hint)==L"BLOCKED: file plan stale; preview again.");
+            require(!IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
+            SendMessageW(dialog,WM_COMMAND,MAKEWPARAM(IDC_PRECISION_COPY_CUE,BN_CLICKED),0);
+            require(!state->reviewed_preview_ready && state->reviewed_exports.empty());
+            GetDlgItemTextW(dialog,IDC_PRECISION_SOURCE_HINT,cue_hint,256);
+            require(std::wstring(cue_hint)==L"BLOCKED: file plan stale; preview again.");
+            file_plan_current = true;
+            // Only restore synthetic review evidence; a fresh review would be
+            // required for any real selection or file plan.
+            state->reviewed_exports.push_back(reviewed);
+            state->reviewed_cues.push_back(plan.external_cue_utf8);
+            state->reviewed_preview_ready = true;
+            CheckDlgButton(dialog,IDC_PRECISION_EDITION_CONFIRMED,BST_CHECKED);
+            update_reviewed_actions(*state);
+            require(IsWindowEnabled(GetDlgItem(dialog,IDC_PRECISION_COPY_CUE)));
             const auto proposal = djmeta::plan_precision_cue_external_export(plan, source.basename);
             require(proposal.eligible);
             const auto target = dir / proposal.target_cue_basename;
